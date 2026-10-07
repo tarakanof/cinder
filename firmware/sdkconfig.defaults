@@ -1,0 +1,104 @@
+# Board: VIEWE UEDX46460015-MD50ET (ESP32-S3, 16 MB flash measured, 8 MB octal PSRAM)
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+
+# Octal PSRAM is mandatory on this board (quad mode boot-loops)
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# Logs over the native USB port (/dev/cu.usbmodem*)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# LVGL 9
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_24=y
+CONFIG_LV_FONT_MONTSERRAT_30=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# Development: trap stack overflows at the exact write (clearer than corrupted backtraces)
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+
+# Refresh every 16 ms to match the 16 ms bot frame timer (default 33 ms made frames uneven)
+CONFIG_LV_DEF_REFR_PERIOD=16
+
+# Performance build (-O2): the default -Og made the eye rasteriser and LVGL drawing ~slow
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Wi-Fi + lwIP buffers in PSRAM: internal RAM is tight (~125 KB free with the display)
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# Fewer static Wi-Fi RX buffers (internal DMA RAM): 8 is plenty for polling Ember
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
+# LVGL uses the system allocator instead of a fixed 64 KB internal pool (internal RAM is
+# needed for Wi-Fi and the display DMA buffers; LVGL holds only ~20 objects here)
+CONFIG_LV_USE_CLIB_MALLOC=y
+# USB provisioning: the USB-Serial/JTAG driver needs esp_ringbuf; its ISR is not in IRAM,
+# so keep the ring buffer code in flash (saves ~4 KB of internal RAM)
+CONFIG_RINGBUF_PLACE_FUNCTIONS_INTO_FLASH=y
+CONFIG_RINGBUF_PLACE_ISR_FUNCTIONS_INTO_FLASH=y
+
+# --- #20 build-config quick wins (measured numbers in docs/features.md) ---
+# Flash QIO 80 MHz (was DIO): Puya 0x85/0x2018 has QE in SR2 bit 1 (the bootloader's default
+# entry: RDSR2 0x35 / WRSR2 0x31); the schematic wires flash WP/HOLD to SPIWP/SPIHD (0R
+# R17/R18) and VIEWE's own encoder15 board file uses QIO. Doubles cache-miss refills.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+# D-cache 64 B lines: no RAM cost, longer bursts for the PSRAM streaming reads (outline blit)
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+# Internal RAM: EXT_RAM_BSS_ATTR scratch arrays go to PSRAM; Wi-Fi and FreeRTOS code to flash
+# (lower peak Wi-Fi throughput, irrelevant for <4 KB polls)
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+# LVGL software renderer: only the formats this firmware draws (RGB565 screen + canvases,
+# RGB565A8 eyes/sprites, A8 masks) plus ARGB8888 for LVGL's own alpha layers
+CONFIG_LV_DRAW_SW_SUPPORT_RGB565_SWAPPED=n
+CONFIG_LV_DRAW_SW_SUPPORT_RGB888=n
+CONFIG_LV_DRAW_SW_SUPPORT_XRGB8888=n
+CONFIG_LV_DRAW_SW_SUPPORT_ARGB8888_PREMULTIPLIED=n
+CONFIG_LV_DRAW_SW_SUPPORT_L8=n
+CONFIG_LV_DRAW_SW_SUPPORT_AL88=n
+CONFIG_LV_DRAW_SW_SUPPORT_I1=n
+
+# --- #22 field diagnostics: core dump (ELF + CRC32) to the coredump partition. The first
+# dump is kept until read over USB (idf.py coredump-info) and erased with coredump-erase.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+CONFIG_ESP_COREDUMP_FLASH_NO_OVERWRITE=y
+# A task WDT timeout panics (core dump, reset reason task_wdt). The ember task is a TWDT user
+# fed from an esp_timer while it is alive (90 s budget); idle tasks keep the 5 s timeout.
+CONFIG_ESP_TASK_WDT_PANIC=y
+# Bootloader only (needs a bootloader flash): warnings only, and no SHA-256 of the app on
+# power-on (secure boot is off; every other reset still validates).
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+CONFIG_BOOTLOADER_SKIP_VALIDATE_ON_POWER_ON=y
+
+# Knob diagnostics (#31): idle-task run time per core for cpu_pct. esp_timer clock (1 us);
+# costs one timer read per context switch, at every diagnostics level (compile-time). 64-bit
+# counter: a 32-bit one wraps after 71 min.
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U64=y
+
+# Now playing (#14): Montserrat 18 (artist line, above); LVGL snapshot for the USB
+# screenshot dev tool (CINDER1 "snapshot", firmware/tools/snapshot.py): code only.
+CONFIG_LV_USE_SNAPSHOT=y
+
+# Core audit (docs/features.md "Core use"): esp_timer and Wi-Fi tasks on core 1, LVGL keeps core 0
+CONFIG_ESP_TIMER_SHOW_EXPERIMENTAL=y
+CONFIG_ESP_TIMER_TASK_AFFINITY_CPU1=y
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
+
+# OTA from Ember (#10): the bootloader rolls back an image that does not mark itself valid
+# (no anti-rollback: that burns eFuses). Bootloader project version 2 = "can roll back";
+# the app reports it in the checkin (ota.rollback) and Ember offers updates only then.
+# Bootloader only: takes effect with a full `idf.py flash`, never with app-flash or OTA.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+CONFIG_BOOTLOADER_PROJECT_VER=2

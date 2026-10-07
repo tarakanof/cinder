@@ -1,0 +1,246 @@
+{
+ "comment": "CINDER1 lines. requests: host lines (sorted keys, as Ember's CinderLineCodec encodes them) and what the knob parses; replies: the knob's exact bytes (sorted keys, '\\n' included).",
+ "requests": [
+  {
+   "name": "info",
+   "line": "CINDER1 {\"id\":1,\"op\":\"info\"}",
+   "id": 1,
+   "op": "info"
+  },
+  {
+   "name": "status",
+   "line": "CINDER1 {\"id\":3,\"op\":\"status\"}",
+   "id": 3,
+   "op": "status"
+  },
+  {
+   "name": "Desk knob",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":2,\"name\":\"Desk knob\",\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://192.168.0.2:3627\"}",
+   "id": 2,
+   "op": "set_ember",
+   "url": "http://192.168.0.2:3627",
+   "device_id": "knob-a1b2c3",
+   "token": "ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+   "name": "",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":9,\"name\":\"\",\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://ember.lan/\"}",
+   "id": 9,
+   "op": "set_ember",
+   "url": "http://ember.lan",
+   "device_id": "knob-a1b2c3",
+   "token": "ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+   "name": "Knöb",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":17,\"name\":\"Knöb\",\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"HTTP://Ember.LAN:3627\"}",
+   "id": 17,
+   "op": "set_ember",
+   "url": "http://ember.lan:3627",
+   "device_id": "knob-a1b2c3",
+   "token": "ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+   "name": "https rejected (no TLS on the knob)",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":18,\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"https://ember.example.com\"}",
+   "id": 18,
+   "error": "bad_url"
+  },
+  {
+   "name": "IPv6 literal rejected",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":19,\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://[::1]:3627\"}",
+   "id": 19,
+   "error": "bad_url"
+  },
+  {
+   "name": "underscore host rejected",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":20,\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://my_host:3627\"}",
+   "id": 20,
+   "error": "bad_url"
+  },
+  {
+   "name": "name 33 bytes",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":21,\"name\":\"ééééééééééééééééx\",\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://192.168.0.2:3627\"}",
+   "id": 21,
+   "error": "too_long"
+  },
+  {
+   "name": "éééééééééééééééé",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":22,\"name\":\"éééééééééééééééé\",\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://192.168.0.2:3627\"}",
+   "id": 22,
+   "op": "set_ember",
+   "url": "http://192.168.0.2:3627",
+   "device_id": "knob-a1b2c3",
+   "token": "ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+   "name": "reset factory",
+   "line": "CINDER1 {\"id\":4,\"op\":\"reset\",\"scope\":\"factory\"}",
+   "id": 4,
+   "op": "reset",
+   "scope": "factory"
+  },
+  {
+   "name": "reset ember",
+   "line": "CINDER1 {\"id\":5,\"op\":\"reset\",\"scope\":\"ember\"}",
+   "id": 5,
+   "op": "reset",
+   "scope": "ember"
+  },
+  {
+   "name": "reset wifi",
+   "line": "CINDER1 {\"id\":6,\"op\":\"reset\",\"scope\":\"wifi\"}",
+   "id": 6,
+   "op": "reset",
+   "scope": "wifi"
+  },
+  {
+   "name": "reboot",
+   "line": "CINDER1 {\"id\":7,\"op\":\"reboot\"}",
+   "id": 7,
+   "op": "reboot"
+  },
+  {
+   "name": "url with path",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":10,\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://192.168.0.2:3627/v1\"}",
+   "id": 10,
+   "error": "bad_url"
+  },
+  {
+   "name": "url scheme",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":11,\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"ftp://192.168.0.2\"}",
+   "id": 11,
+   "error": "bad_url"
+  },
+  {
+   "name": "url too long",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":12,\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+   "id": 12,
+   "error": "bad_url"
+  },
+  {
+   "name": "token too long",
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"id\":13,\"op\":\"set_ember\",\"token\":\"ekd_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\",\"url\":\"http://192.168.0.2:3627\"}",
+   "id": 13,
+   "error": "too_long"
+  },
+  {
+   "name": "unknown op",
+   "line": "CINDER1 {\"id\":14,\"op\":\"selfdestruct\"}",
+   "id": 14,
+   "error": "unknown_op"
+  },
+  {
+   "name": "bad json",
+   "line": "CINDER1 {\"id\":15,\"op\":",
+   "id": null,
+   "error": "bad_json"
+  },
+  {
+   "name": "reset bad scope",
+   "line": "CINDER1 {\"id\":16,\"op\":\"reset\",\"scope\":\"all\"}",
+   "id": 16,
+   "error": "bad_value"
+  }
+ ],
+ "replies": [
+  {
+   "kind": "ok",
+   "id": 2,
+   "line": "CINDER1 {\"id\":2,\"ok\":true}\n"
+  },
+  {
+   "kind": "error",
+   "id": 10,
+   "error": "bad_url",
+   "line": "CINDER1 {\"error\":\"bad_url\",\"id\":10,\"ok\":false}\n"
+  },
+  {
+   "kind": "error",
+   "id": null,
+   "error": "bad_json",
+   "line": "CINDER1 {\"error\":\"bad_json\",\"id\":null,\"ok\":false}\n"
+  },
+  {
+   "kind": "info",
+   "id": 1,
+   "fw": "0.5.0",
+   "hw_id": "020000abcdef",
+   "device_id": null,
+   "wifi_configured": false,
+   "ember_configured": false,
+   "line": "CINDER1 {\"device_id\":null,\"ember\":{\"configured\":false},\"fw\":\"0.5.0\",\"hw_id\":\"020000abcdef\",\"id\":1,\"ok\":true,\"wifi\":{\"configured\":false}}\n"
+  },
+  {
+   "kind": "info",
+   "id": 8,
+   "fw": "0.5.0",
+   "hw_id": "020000abcdef",
+   "device_id": "knob-a1b2c3",
+   "wifi_configured": true,
+   "ember_configured": true,
+   "line": "CINDER1 {\"device_id\":\"knob-a1b2c3\",\"ember\":{\"configured\":true},\"fw\":\"0.5.0\",\"hw_id\":\"020000abcdef\",\"id\":8,\"ok\":true,\"wifi\":{\"configured\":true}}\n"
+  },
+  {
+   "kind": "status",
+   "id": 3,
+   "wifi_state": "connected",
+   "ssid": "home",
+   "ip": "192.168.0.39",
+   "rssi": -58,
+   "ember_state": "ok",
+   "last_checkin_s": 4,
+   "config_version": 7,
+   "internal_free": 47104,
+   "internal_largest": 31744,
+   "psram_free": 3100000,
+   "line": "CINDER1 {\"ember\":{\"config_version\":7,\"last_checkin_s\":4,\"state\":\"ok\"},\"heap\":{\"internal_free\":47104,\"internal_largest\":31744,\"psram_free\":3100000},\"id\":3,\"ok\":true,\"wifi\":{\"ip\":\"192.168.0.39\",\"rssi\":-58,\"ssid\":\"home\",\"state\":\"connected\"}}\n"
+  },
+  {
+   "kind": "status",
+   "id": 5,
+   "wifi_state": "off",
+   "ssid": null,
+   "ip": null,
+   "rssi": null,
+   "ember_state": "off",
+   "last_checkin_s": null,
+   "config_version": null,
+   "internal_free": 90000,
+   "internal_largest": 60000,
+   "psram_free": 7000000,
+   "line": "CINDER1 {\"ember\":{\"state\":\"off\"},\"heap\":{\"internal_free\":90000,\"internal_largest\":60000,\"psram_free\":7000000},\"id\":5,\"ok\":true,\"wifi\":{\"state\":\"off\"}}\n"
+  },
+  {
+   "kind": "status",
+   "id": 6,
+   "wifi_state": "connected",
+   "ssid": "Say \"hi\"\\",
+   "ip": "10.0.0.2",
+   "rssi": -70,
+   "ember_state": "unauthorized",
+   "last_checkin_s": null,
+   "config_version": null,
+   "internal_free": 1,
+   "internal_largest": 2,
+   "psram_free": 3,
+   "line": "CINDER1 {\"ember\":{\"state\":\"unauthorized\"},\"heap\":{\"internal_free\":1,\"internal_largest\":2,\"psram_free\":3},\"id\":6,\"ok\":true,\"wifi\":{\"ip\":\"10.0.0.2\",\"rssi\":-70,\"ssid\":\"Say \\\"hi\\\"\\\\\",\"state\":\"connected\"}}\n"
+  },
+  {
+   "kind": "event_boot",
+   "fw": "0.5.0",
+   "provisioned": true,
+   "line": "CINDER1 {\"ev\":\"boot\",\"fw\":\"0.5.0\",\"provisioned\":true}\n"
+  },
+  {
+   "kind": "event_ember",
+   "state": "unreachable",
+   "line": "CINDER1 {\"ev\":\"ember\",\"state\":\"unreachable\"}\n"
+  },
+  {
+   "kind": "event_wifi",
+   "state": "invalid",
+   "line": "CINDER1 {\"ev\":\"wifi\",\"state\":\"invalid\"}\n"
+  }
+ ]
+}

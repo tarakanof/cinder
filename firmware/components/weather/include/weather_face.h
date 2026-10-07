@@ -1,0 +1,64 @@
+#pragma once
+
+#include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    WX_CLEAR_DAY,
+    WX_CLEAR_NIGHT,
+    WX_PARTLY_CLOUDY,
+    WX_OVERCAST,
+    WX_FOG,
+    WX_RAIN,
+    WX_SNOW,
+    WX_STORM,
+    WX_FACE_COUNT
+} wx_face_t;
+
+typedef enum { WX_INT_NONE, WX_INT_LIGHT, WX_INT_MODERATE, WX_INT_HEAVY } wx_intensity_t;
+
+#define WX_MAX_AGE_S 1800.0
+
+typedef struct {
+    bool valid;
+    bool enabled;
+    bool stale;
+    bool severe;
+    bool has_temp;
+    float temp_c;
+    char provider[16];
+    char condition[12];
+    char code[40];
+    int now_min;           /* minute of day, -1 unknown: generated_at; sunrise, sunset */
+    int rise_min, set_min;
+    bool has_night;
+    bool night;
+    double age_s;
+} wx_obs_t;
+
+typedef struct {
+    wx_face_t face;
+    wx_intensity_t intensity;
+    bool night;
+    bool rime;
+    bool severe;
+    bool still;
+} wx_look_t;
+
+int wx_minute_of_day(const char *iso8601);
+
+int wx_is_night(int now_min, int rise_min, int set_min);
+
+wx_look_t wx_look_from(const char *provider, const char *condition, const char *code, int night);
+
+wx_look_t wx_look_from_obs(const wx_obs_t *obs);
+
+bool wx_look_equal(const wx_look_t *a, const wx_look_t *b);
+const char *wx_face_name(wx_face_t f);
+
+#ifdef __cplusplus
+}
+#endif

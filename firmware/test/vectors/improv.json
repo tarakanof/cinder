@@ -1,0 +1,191 @@
+{
+ "comment": "Improv Serial frames (https://www.improv-wifi.com/serial/). Shared by cinder (firmware/test/host) and Ember (ImprovCodec). frame_hex includes the trailing 0x0a; checksum = low byte of the sum of every byte before it (newline excluded).",
+ "states": [
+  {
+   "name": "ready",
+   "state": 2,
+   "frame_hex": "494d50524f5601010102e20a"
+  },
+  {
+   "name": "provisioning",
+   "state": 3,
+   "frame_hex": "494d50524f5601010103e30a"
+  },
+  {
+   "name": "provisioned",
+   "state": 4,
+   "frame_hex": "494d50524f5601010104e40a"
+  }
+ ],
+ "errors": [
+  {
+   "name": "invalid_rpc",
+   "error": 1,
+   "frame_hex": "494d50524f5601020101e20a"
+  },
+  {
+   "name": "unknown_command",
+   "error": 2,
+   "frame_hex": "494d50524f5601020102e30a"
+  },
+  {
+   "name": "unable_to_connect",
+   "error": 3,
+   "frame_hex": "494d50524f5601020103e40a"
+  },
+  {
+   "name": "unknown",
+   "error": 255,
+   "frame_hex": "494d50524f56010201ffe00a"
+  }
+ ],
+ "rpc": [
+  {
+   "name": "wifi settings",
+   "command": 1,
+   "strings": [
+    "home",
+    "correct horse"
+   ],
+   "frame_hex": "494d50524f56010315011304686f6d650d636f727265637420686f727365f70a"
+  },
+  {
+   "name": "wifi settings, open network",
+   "command": 1,
+   "strings": [
+    "guest",
+    ""
+   ],
+   "frame_hex": "494d50524f560103090107056775657374001f0a"
+  },
+  {
+   "name": "wifi settings, UTF-8 SSID",
+   "command": 1,
+   "strings": [
+    "Café ☕",
+    "pässwörd!"
+   ],
+   "frame_hex": "494d50524f56010318011609436166c3a920e298950b70c3a4737377c3b67264216d0a"
+  },
+  {
+   "name": "wifi settings, payload length 0x0a",
+   "command": 1,
+   "strings": [
+    "ab",
+    "123456"
+   ],
+   "frame_hex": "494d50524f5601030c010a02616206313233343536f80a"
+  },
+  {
+   "name": "current state",
+   "command": 2,
+   "strings": [],
+   "frame_hex": "494d50524f560103020200e50a"
+  },
+  {
+   "name": "device info",
+   "command": 3,
+   "strings": [],
+   "frame_hex": "494d50524f560103020300e60a"
+  },
+  {
+   "name": "scan",
+   "command": 4,
+   "strings": [],
+   "frame_hex": "494d50524f560103020400e70a"
+  }
+ ],
+ "result": [
+  {
+   "name": "device info",
+   "command": 3,
+   "strings": [
+    "cinder",
+    "0.5.0",
+    "ESP32-S3",
+    "Knob ABCDEF"
+   ],
+   "frame_hex": "494d50524f5601042403220663696e64657205302e352e300845535033322d53330b4b6e6f6220414243444546ee0a"
+  },
+  {
+   "name": "device info, custom name",
+   "command": 3,
+   "strings": [
+    "cinder",
+    "0.5.0",
+    "ESP32-S3",
+    "Desk knob"
+   ],
+   "frame_hex": "494d50524f5601042203200663696e64657205302e352e300845535033322d5333094465736b206b6e6f62fa0a"
+  },
+  {
+   "name": "scan entry",
+   "command": 4,
+   "strings": [
+    "home",
+    "-58",
+    "YES"
+   ],
+   "frame_hex": "494d50524f5601040f040d04686f6d65032d353803594553400a"
+  },
+  {
+   "name": "scan entry, open",
+   "command": 4,
+   "strings": [
+    "guest",
+    "-81",
+    "NO"
+   ],
+   "frame_hex": "494d50524f5601040f040d056775657374032d3831024e4f670a"
+  },
+  {
+   "name": "scan end",
+   "command": 4,
+   "strings": [],
+   "frame_hex": "494d50524f560104020400e80a"
+  },
+  {
+   "name": "wifi provisioned redirect",
+   "command": 1,
+   "strings": [
+    "http://192.168.0.39/"
+   ],
+   "frame_hex": "494d50524f56010417011514687474703a2f2f3139322e3136382e302e33392f0b0a"
+  },
+  {
+   "name": "current state redirect",
+   "command": 2,
+   "strings": [
+    "http://192.168.0.39/"
+   ],
+   "frame_hex": "494d50524f56010417021514687474703a2f2f3139322e3136382e302e33392f0c0a"
+  }
+ ],
+ "invalid": [
+  {
+   "name": "bad checksum",
+   "frame_hex": "494d50524f56010302030019",
+   "error": "checksum"
+  },
+  {
+   "name": "bad version",
+   "frame_hex": "494d50524f560203020300e7",
+   "error": "version"
+  },
+  {
+   "name": "extra byte",
+   "frame_hex": "494d50524f560103020300e600",
+   "error": "length"
+  },
+  {
+   "name": "truncated",
+   "frame_hex": "494d50524f560103020300",
+   "error": "short"
+  },
+  {
+   "name": "string past payload end",
+   "frame_hex": "494d50524f560103050103056162b2",
+   "error": "strings"
+  }
+ ]
+}

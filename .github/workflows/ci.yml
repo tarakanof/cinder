@@ -1,0 +1,86 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container: espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+    defaults:
+      run:
+        shell: bash
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: firmware/managed_components
+          key: idf-components-${{ hashFiles('firmware/dependencies.lock') }}
+      - name: Fetch managed components
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          idf.py -B "$RUNNER_TEMP/reconfigure" -D SDKCONFIG="$RUNNER_TEMP/reconfigure/sdkconfig" reconfigure >/dev/null
+      - name: Host tests and secret_scan tests
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          test/host/run.sh
+
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    container: espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+    defaults:
+      run:
+        shell: bash
+        working-directory: firmware
+    env:
+      IDF_CCACHE_ENABLE: "1"
+      CCACHE_MAXSIZE: 500M
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: firmware/managed_components
+          key: idf-components-${{ hashFiles('firmware/dependencies.lock') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-${{ hashFiles('firmware/dependencies.lock', 'firmware/sdkconfig.defaults') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ hashFiles('firmware/dependencies.lock', 'firmware/sdkconfig.defaults') }}-
+            ccache-
+      - name: Build (secret-free, sdkconfig.defaults only)
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache" CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          test ! -e sdkconfig.secrets
+          ccache -z >/dev/null
+          idf.py build
+          ccache -s
+      - name: Secret scan
+        run: python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
+      - name: Size report
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          {
+            echo "## Firmware size"
+            echo
+            echo '```text'
+            idf.py size
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"

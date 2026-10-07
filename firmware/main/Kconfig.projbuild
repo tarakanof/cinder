@@ -1,0 +1,67 @@
+menu "cinder"
+
+config CINDER_DEV_INPUT
+    bool "USB dev op: inject knob input (CINDER1 {\"op\":\"input\"})"
+    default y
+    help
+        Lets firmware/tools/input.py send a turn, push, long push, touch or page step
+        over USB, as if from the hardware (testing the now-playing controls without a hand
+        on the knob). Needs physical USB, like set_ember and reset. Off: the op answers
+        unknown_op.
+
+config CINDER_DEV_SEED
+    bool "Seed NVS from the build config (opt-in dev builds only)"
+    default n
+    help
+        When NVS namespace "cinder" is empty (first boot, factory reset) or has no Wi-Fi
+        SSID, write the Wi-Fi network and the Ember URL below to it (config_store.c). Off
+        (the default for every build): none of these values is compiled in, and a fresh
+        knob boots to the setup face for Improv USB provisioning and pairing from the app.
+        Never seeds a token: the knob only uses a device token from pairing.
+
+config CINDER_WIFI_SSID
+    string "Wi-Fi SSID (dev seed)"
+    depends on CINDER_DEV_SEED
+    default ""
+    help
+        2.4 GHz network. Set it in sdkconfig.secrets (git-ignored), not here.
+
+config CINDER_WIFI_PASSWORD
+    string "Wi-Fi password (dev seed)"
+    depends on CINDER_DEV_SEED
+    default ""
+
+config CINDER_EMBER_URL
+    string "Ember server base URL (dev seed)"
+    depends on CINDER_DEV_SEED
+    default ""
+    help
+        http://host[:port] of the Ember server, no path. lwIP cannot resolve .local
+        names, so use a LAN IP.
+
+config CINDER_EMBER_POLL_MS
+    int "Ember poll interval (ms)"
+    default 2000
+    help
+        Default for the knob setting poll_ms (1000-10000) until Ember sends the knob's
+        settings in a checkin.
+
+config CINDER_OTA_TEST
+    bool "OTA rollback test build (never for release)"
+    default n
+    help
+        Test images for the OTA rollback paths (docs/features.md, OTA): the no-checkin
+        rollback timer is 2 min instead of 30, CINDER1 {"op":"ota_fault"} arms a net or
+        sha fault for the next download, and CINDER_OTA_TEST_FAULT applies while this
+        image is pending verification.
+
+config CINDER_OTA_TEST_FAULT
+    string "Fault while pending verification: crash_boot or no_checkin"
+    depends on CINDER_OTA_TEST
+    default ""
+    help
+        crash_boot: abort 20 s after boot. no_checkin: never check in, so the rollback
+        timer fires. Only while the running image is pending verification, so the
+        same image never breaks a knob that already accepted it.
+
+endmenu

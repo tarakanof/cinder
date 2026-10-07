@@ -1,0 +1,140 @@
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    container: espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: firmware
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the tag against PROJECT_VER and main
+        id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          [[ "$TAG" =~ ^v((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::tag $TAG is not vX.Y.Z or vX.Y.Z-suffix"
+            exit 1
+          }
+          version="${BASH_REMATCH[1]}"
+          suffix="${BASH_REMATCH[5]}"
+          project_ver="$(sed -n 's/^ *set(PROJECT_VER "\([0-9.]*\)")$/\1/p' CMakeLists.txt)"
+          [ "$project_ver" = "$version" ] || {
+            echo "::error::tag $TAG does not match PROJECT_VER $project_ver"
+            exit 1
+          }
+          if [ -z "$suffix" ]; then
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+              echo "::error::release tag $TAG is not on main; use vX.Y.Z-suffix for a prerelease"
+              exit 1
+            }
+            echo "prerelease=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >>"$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      - name: Release build (secret-free)
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          test ! -e sdkconfig.secrets
+          tools/build_release.sh
+      - name: Host tests and secret_scan tests
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          test/host/run.sh
+      - name: Check the image
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          built="$(python3 -c 'import sys; print(open(sys.argv[1],"rb").read()[48:80].split(b"\0")[0].decode())' build-release/cinder.bin)"
+          [ "$built" = "$VERSION" ] || { echo "::error::image version $built, want $VERSION"; exit 1; }
+          [ "$(sed -n 1p build-release/build.commit)" = "$GITHUB_SHA" ] || { echo "::error::build commit mismatch"; exit 1; }
+          [ "$(sed -n 2p build-release/build.commit)" = clean ] || { echo "::error::tree was dirty after the build"; git status --porcelain; exit 1; }
+          [ "$(sed -n 3p build-release/build.commit)" = release ] || { echo "::error::not a release build"; exit 1; }
+          if grep -q '^CONFIG_CINDER_DEV_SEED=y' build-release/sdkconfig; then echo "::error::dev seed on"; exit 1; fi
+          python3 tools/secret_scan.py build-release/cinder.bin build-release/cinder.elf
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp build-release/cinder.bin build-release/cinder.elf "$GITHUB_WORKSPACE/dist/"
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum cinder.bin cinder.elf >SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: dist
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c SHA256SUMS
+          if gh release view "$TAG" --json isDraft --jq .isDraft >draft 2>/dev/null; then
+            if [ "$(cat draft)" = true ]; then
+              gh release delete "$TAG" --yes
+            else
+              gh release view "$TAG" --json isPrerelease,assets \
+                --jq '"\(.isPrerelease) " + ([.assets[].name] | sort | join(","))' >existing
+              [ "$(cat existing)" = "$PRERELEASE SHA256SUMS,cinder.bin,cinder.elf" ] || {
+                echo "::error::release $TAG exists as: $(cat existing)"
+                exit 1
+              }
+              mkdir old
+              gh release download "$TAG" -D old
+              for f in cinder.bin cinder.elf SHA256SUMS; do
+                cmp "$f" "old/$f" || {
+                  echo "::error::release $TAG exists with other bytes; never replaced"
+                  exit 1
+                }
+              done
+              echo "release $TAG exists with these bytes"
+              exit 0
+            fi
+          fi
+          flags=(--verify-tag --title "cinder $VERSION")
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease --latest=false); fi
+          printf 'Secret-free build of %s (sdkconfig.defaults only) by [this run](%s).\n\nEmber serves it over OTA after tools/release.sh. SHA256SUMS covers cinder.bin and cinder.elf.\n' \
+            "$GITHUB_SHA" "$RUN_URL" >notes.md
+          gh release create "$TAG" "${flags[@]}" --notes-file notes.md cinder.bin cinder.elf SHA256SUMS

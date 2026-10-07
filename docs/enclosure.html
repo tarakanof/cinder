@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knob Enclosure</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap');
+:root {
+  --bg: #f6f4ef; --card: #ffffff; --fg: #1d1f22; --muted: #5d636b; --line: #d9d5cc;
+  --accent: #b4531f; --accent-soft: #f6e3d6; --ok: #2f6b3a; --warn: #8a5a00; --warn-soft: #fbf0d6;
+  --part: #e7a86e; --lid: #c9b98f; --deck: #f0c79e; --deck2: #f5d9bd; --washer: #d05a4a;
+  --knob: #3b4250; --hub: #9aa1ab; --pcb: #2c5aa0; --pcb2: #e8e4d8; --fpc: #c98a00; --mag: #8fa6c9; --dim: #2b6f8f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a; --card: #1e2125; --fg: #e9e6df; --muted: #a2a7ad; --line: #34383e;
+    --accent: #f0915a; --accent-soft: #3a2619; --ok: #7fc28c; --warn: #f1c25b; --warn-soft: #34290f;
+    --part: #a8683a; --lid: #8a7d5b; --deck: #b97f50; --deck2: #6e4c31; --washer: #d9705f;
+    --knob: #c9ced8; --hub: #6f7782; --pcb: #6f9be0; --pcb2: #5a564c; --fpc: #f0b93a; --mag: #5f7aa6; --dim: #7cc3e3;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a; --card: #1e2125; --fg: #e9e6df; --muted: #a2a7ad; --line: #34383e;
+  --accent: #f0915a; --accent-soft: #3a2619; --ok: #7fc28c; --warn: #f1c25b; --warn-soft: #34290f;
+  --part: #a8683a; --lid: #8a7d5b; --deck: #b97f50; --deck2: #6e4c31; --washer: #d9705f;
+  --knob: #c9ced8; --hub: #6f7782; --pcb: #6f9be0; --pcb2: #5a564c; --fpc: #f0b93a; --mag: #5f7aa6; --dim: #7cc3e3;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 "IBM Plex Sans", system-ui, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 1.25rem; margin: 40px 0 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+h3 { font-size: 1.02rem; margin: 22px 0 6px; }
+p { margin: 8px 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.88em; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.est { display: inline-block; font: 600 0.68rem/1.4 "IBM Plex Mono", monospace; color: var(--warn); background: var(--warn-soft); border-radius: 3px; padding: 0 4px; vertical-align: 1px; }
+.callout { background: var(--accent-soft); border-left: 4px solid var(--accent); padding: 12px 14px; border-radius: 6px; margin: 14px 0; }
+.callout.ok { background: var(--card); border-left-color: var(--ok); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.fact { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.fact b { display: block; font-size: 1.25rem; font-family: "IBM Plex Mono", monospace; }
+.fact span { color: var(--muted); font-size: 0.85rem; }
+figure { margin: 16px 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+figcaption { color: var(--muted); font-size: 0.86rem; margin-top: 6px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.grid2 figure { margin: 0; }
+.tw { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; background: var(--bg); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.n { white-space: nowrap; font-family: "IBM Plex Mono", monospace; font-size: 0.84rem; }
+ol, ul { padding-left: 22px; }
+li { margin: 4px 0; }
+.rec { display: inline-block; font-size: 0.72rem; font-weight: 600; color: var(--ok); border: 1px solid var(--ok); border-radius: 10px; padding: 0 7px; margin-left: 4px; }
+svg.drw { display: block; width: 100%; height: auto; margin: 0 auto; color: var(--dim); font-family: "IBM Plex Sans", sans-serif; }
+.drw .sh { fill: var(--part); stroke: var(--part); stroke-width: .05; }
+.drw .lid { fill: var(--lid); stroke: var(--lid); stroke-width: .05; }
+.drw .wa { fill: var(--washer); stroke: var(--washer); stroke-width: .05; }
+.drw .kn { fill: none; stroke: var(--knob); stroke-width: .35; stroke-dasharray: 1.4 .8; }
+.drw .hub { fill: var(--hub); }
+.drw .disp { fill: var(--knob); }
+.drw .pcb { fill: var(--pcb); }
+.drw .pcb2 { fill: var(--pcb2); stroke: var(--knob); stroke-width: .1; }
+.drw .pcbo { fill: none; stroke: var(--pcb); stroke-width: .4; }
+.drw .fpc { fill: none; stroke: var(--fpc); stroke-width: .55; }
+.drw .dim { stroke: currentColor; stroke-width: .2; fill: none; }
+.drw .ext { stroke: currentColor; stroke-width: .12; opacity: .6; }
+.drw .dt { font-size: 2.3px; fill: currentColor; }
+.drw .lb { font-size: 2.5px; fill: var(--fg); }
+.drw .lb.sm { font-size: 2px; fill: var(--muted); }
+.drw .hid { fill: none; stroke: var(--muted); stroke-width: .25; stroke-dasharray: 1 .7; }
+.drw .hole { fill: var(--bg); stroke: var(--muted); stroke-width: .2; }
+.drw .deck { fill: var(--deck); }
+.drw .bore { fill: var(--deck2); }
+.drw .mag { fill: var(--mag); }
+.drw .cl { stroke: var(--accent); stroke-width: .15; stroke-dasharray: 3 .6 .6 .6; }
+.key { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+.key i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 5px; }
+.check li { list-style: none; position: relative; }
+.check li::before { content: "□"; position: absolute; left: -20px; color: var(--accent); }
+footer { margin-top: 48px; color: var(--muted); font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+<main>
+<h1>Knob Enclosure</h1>
+<p class="sub">A 3D-printed desk puck for the VIEWE UEDX46460015-MD50ET knob (ESP32-S3, 1.5" AMOLED) and its <code>USB-test-MD50-V5.1</code> adapter. Four variants share one shell. Status: modelled and meshed, <b>not printed yet</b>. Numbers come from the vendor drawing (spec V2.0 p.9). Values tagged <span class="est">EST</span> were scaled from the drawing or a photo; measure them before the final print.</p>
+
+<div class="facts">
+  <div class="fact"><b>Ø66 × 29.1</b><span>puck, variant a (mm)</span></div>
+  <div class="fact"><b>41.4</b><span>desk to display face (mm)</span></div>
+  <div class="fact"><b>12.2</b><span>ring exposed for your fingers (mm)</span></div>
+  <div class="fact"><b>50–150 mA</b><span>average at 5 V (spec p.8); Wi-Fi TX peaks ≈300+ mA</span></div>
+</div>
+
+<div class="callout">
+<b>Hold the hub, not the body.</b> The drawing puts 3× M2.5 screw holes and 2× Ø2.0 "pillars used for positioning" on the rear hub, and the FPC leaves through the hub centre, so the hub is the fixed mount. What turns is less certain: the vendor's exploded view (ABS base → encoder/press block → PCB → display → CNC metal casing) shows the FPC running through the base to the PCB, so most likely only the CNC ring turns and the display stays put. The design does not depend on the answer: the puck seats the hub on a ledge, clamps it with a washer, and touches nothing else. The body floats <b>1.0 mm</b> above the deck with <b>0.6 mm</b> radial clearance. A stand that grips the body (as most M5Dial/CrowPanel stands do) could lock the ring. <b>Check on your unit:</b> hold the hub, turn the ring, and press to hear the click.
+</div>
+
+<h2>Recommendation</h2>
+<p><b>Print variant (a) first</b>: <code>shell</code> + <code>washer</code> + <code>lid_a</code>. It keeps USB data for flashing and logs, costs only filament and screws, and tests every estimated dimension. Before the full print, cut the shell in PrusaSlicer at z = 17 and print only the top ring (about 30 min, estimate) to check the hub fit and the body clearance.</p>
+<p><b>Then, if you want the knob to lift off the desk</b>, add variant (b): a magnetic pogo dock. It still carries USB data. Skip (c) Qi: it gives no data, wastes about a third of the energy as heat, and can cause ghost touches. Build (d) battery only if the knob must leave the desk; it is 13.5 mm taller and runs about 6 h at typical brightness.</p>
+
+<h2>Drawings</h2>
+<figure>
+<svg class="drw" viewBox="-47 -50.37 106 57.37" role="img" aria-label="Section A-A through the axis of variant a: lid, shell, washer, adapter board and knob with dimensions in millimetres" style="max-width:760px"><defs><marker id="ah1" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><rect class="lid" x="-32.98" y="-0.6" width="1.45" height="0.6"/><rect class="lid" x="-25.47" y="-0.6" width="50.95" height="0.6"/><rect class="lid" x="31.52" y="-0.6" width="1.45" height="0.6"/><rect class="lid" x="-32.98" y="-1.8" width="1.45" height="1.2"/><rect class="lid" x="-25.47" y="-1.8" width="50.95" height="1.2"/><rect class="lid" x="31.52" y="-1.8" width="1.45" height="1.2"/><rect class="lid" x="-32.98" y="-2" width="2.75" height="0.2"/><rect class="lid" x="-26.77" y="-2" width="53.55" height="0.2"/><rect class="lid" x="30.18" y="-2" width="2.8" height="0.2"/><rect class="lid" x="-32.98" y="-3" width="2.75" height="1"/><rect class="lid" x="-26.77" y="-3" width="53.55" height="1"/><rect class="lid" x="30.18" y="-3" width="2.8" height="1"/><rect class="sh" x="-32.98" y="-11" width="3.2" height="8"/><rect class="sh" x="-27.22" y="-11" width="6.2" height="8"/><rect class="sh" x="22.03" y="-11" width="5.2" height="8"/><rect class="sh" x="29.78" y="-11" width="3.2" height="8"/><rect class="sh" x="-32.98" y="-16.1" width="11.95" height="5.1"/><rect class="sh" x="22.03" y="-16.1" width="10.95" height="5.1"/><rect class="sh" x="-32.98" y="-16.3" width="65.95" height="0.2"/><rect class="sh" x="-32.98" y="-18.3" width="23.95" height="2"/><rect class="sh" x="9.03" y="-18.3" width="23.95" height="2"/><rect class="sh" x="-32.98" y="-25.14" width="19.65" height="6.84"/><rect class="sh" x="13.28" y="-25.14" width="19.7" height="6.84"/><rect class="sh" x="-32.98" y="-29.14" width="6.5" height="4"/><rect class="sh" x="26.48" y="-29.14" width="6.5" height="4"/><rect class="wa" x="-11.97" y="-13.9" width="8.45" height="1.3"/><rect class="wa" x="3.53" y="-13.9" width="1.05" height="1.3"/><rect class="wa" x="8.97" y="-13.9" width="3" height="1.3"/><rect class="wa" x="-11.97" y="-16.1" width="2.95" height="2.2"/><rect class="wa" x="-4.57" y="-16.1" width="1.05" height="2.2"/><rect class="wa" x="3.53" y="-16.1" width="1" height="2.2"/><rect class="wa" x="9.03" y="-16.1" width="2.95" height="2.2"/><rect class="pcb" x="-15.5" y="-7.1" width="37" height="1.6"/><rect class="pcb2" x="-15.5" y="-9.1" width="5" height="2"/><rect class="kn" x="-25.85" y="-41.37" width="51.7" height="15.23" rx="0.8"/><rect class="disp" x="-19.11" y="-41.67" width="38.21" height="0.6"/><rect class="hub" x="-12" y="-26.14" width="24" height="5.07"/><rect class="hub" x="-10.45" y="-21.07" width="20.9" height="2.77"/><rect class="hub" x="-8.7" y="-18.3" width="17.4" height="2.08"/><path class="fpc" d="M0,-16.22 L0,-10.6 Q0,-9.6 2,-9.6 L17,-9.6 Q20,-9.6 20,-8.65 Q20,-7.7 17,-7.7 L-7,-7.7 Q-10,-7.7 -12,-9.6 L-17,-9.6 Q-19.7,-9.6 -19.7,-8.65 Q-19.7,-7.7 -17,-7.7 L-13,-7.7"/><line class="ext" x1="-33" y1="-29.14" x2="-33" y2="-47.17"/><line class="ext" x1="33" y1="-29.14" x2="33" y2="-47.17"/><line class="dim" x1="-33" y1="-46.37" x2="33" y2="-46.37" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="0" y="-47.17" text-anchor="middle">Ø66 puck</text><line class="dim" x1="-25.85" y1="-42.87" x2="25.85" y2="-42.87" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="0" y="-43.67" text-anchor="middle">Ø51.7 ±0.5 knob body</text><line class="ext" x1="-33" y1="0" x2="-36.8" y2="0"/><line class="ext" x1="-33" y1="-29.14" x2="-36.8" y2="-29.14"/><line class="dim" x1="-36" y1="0" x2="-36" y2="-29.14" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="-36.9" y="-14.57" text-anchor="middle" transform="rotate(-90 -36.9 -14.57)">29.14</text><line class="ext" x1="-25.85" y1="-26.14" x2="-41.8" y2="-26.14"/><line class="ext" x1="-25.85" y1="-41.37" x2="-41.8" y2="-41.37"/><line class="dim" x1="-41" y1="-26.14" x2="-41" y2="-41.37" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="-41.9" y="-33.76" text-anchor="middle" transform="rotate(-90 -41.9 -33.76)">15.23 body</text><line class="ext" x1="29" y1="-25.14" x2="36.8" y2="-25.14"/><line class="ext" x1="29" y1="-26.14" x2="36.8" y2="-26.14"/><line class="dim" x1="36" y1="-25.14" x2="36" y2="-26.14" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="36.9" y="-25.64" text-anchor="middle" transform="rotate(-90 36.9 -25.64)"></text><text class="lb" x="37.5" y="-25.34" text-anchor="start">1 gap</text><line class="dim" x1="36" y1="-26.14" x2="36" y2="-29.14" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="36.9" y="-27.64" text-anchor="middle" transform="rotate(-90 36.9 -27.64)"></text><text class="lb" x="37.5" y="-28.54" text-anchor="start">3 shroud</text><line class="ext" x1="33" y1="-3" x2="36.8" y2="-3"/><line class="ext" x1="33" y1="0" x2="36.8" y2="0"/><line class="dim" x1="36" y1="-3" x2="36" y2="0" marker-start="url(#ah1)" marker-end="url(#ah1)"/><text class="dt" x="36.9" y="-1.5" text-anchor="middle" transform="rotate(-90 36.9 -1.5)"></text><text class="lb" x="37.5" y="-0.6" text-anchor="start">lid 3</text><line class="ext" x1="11.5" y1="-14.6" x2="37" y2="-17.1"/><text class="lb sm" x="37.6" y="-16.4" text-anchor="start">washer + 3× M2.5×6</text><line class="ext" x1="20.5" y1="-6.3" x2="37" y2="-5.9"/><text class="lb sm" x="37.6" y="-5.2" text-anchor="start">adapter (EST 42×37)</text><line class="ext" x1="-19.7" y1="-8.5" x2="-34" y2="4.5"/><text class="lb sm" x="-33.4" y="5.2" text-anchor="start"></text><text class="lb sm" x="-34" y="6" text-anchor="start">FPC into J1 via the 5.5 mm bay</text><line class="ext" x1="19" y1="-8.7" x2="37" y2="-11.6"/><text class="lb sm" x="37.6" y="-10.9" text-anchor="start">FPC service loop</text><text class="lb sm" x="-12" y="-34.37" text-anchor="middle">body / ring: touch nothing</text><text class="lb sm" x="0" y="-22.54" text-anchor="middle">fixed hub</text></svg>
+<figcaption>Section A–A through the axis, variant (a), mm. Section plane x = 0 (y runs left to right). The hub's Ø20.9→Ø17.4 shoulder sits on the 2.2 mm ledge. The washer under the ledge takes the 3 hub screws. <b>FPC route:</b> the direct path from the hub face to J1 is about 30 mm, but the FPC is 70 ±5 mm. So the FPC drops through the Ø18 ledge hole and runs +y under the washer heads (3.75 mm space). It folds back at a service loop near the +y wall and returns −y over J1. It then U-turns in the 5.5 mm bay into J1. Moving the loop tip along y absorbs any length from 36 to 75 mm.</figcaption>
+<div class="key"><span><i style="background:var(--part)"></i>shell</span><span><i style="background:var(--lid)"></i>lid</span><span><i style="background:var(--washer)"></i>washer</span><span><i style="background:var(--hub)"></i>knob hub (fixed)</span><span><i style="border:1px dashed var(--knob)"></i>knob body, ring turns</span><span><i style="background:var(--pcb)"></i>adapter</span><span><i style="background:var(--fpc)"></i>FPC</span></div>
+</figure>
+
+<div class="grid2">
+<figure>
+<svg class="drw" viewBox="-39 -42 86 81" role="img" aria-label="Top view of the shell for variant a with the hidden adapter cavity, USB-C port, posts and lid screws" style="max-width:520px"><defs><marker id="ah2" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><circle class="sh" cx="0" cy="0" r="33"/><circle class="deck" cx="0" cy="0" r="26.45"/><circle class="bore" cx="0" cy="0" r="13.3"/><circle class="hole" cx="0" cy="0" r="9"/><rect class="hid" x="-21.5" y="-22" width="43" height="43" rx="2"/><rect class="hid" x="21.5" y="3.5" width="12" height="13"/><rect class="pcbo" x="-21" y="-21.5" width="42" height="37"/><circle class="hid" cx="-18" cy="12.5" r="2.5"/><circle class="hid" cx="-18" cy="-18.5" r="2.5"/><circle class="hid" cx="18" cy="-18.5" r="2.5"/><circle class="hid" cx="18" cy="1.5" r="2.5"/><circle class="hid" cx="0" cy="-28.5" r="1.25"/><circle class="hid" cx="-28.5" cy="-0" r="1.25"/><circle class="hid" cx="-0" cy="28.5" r="1.25"/><line class="cl" x1="-35" y1="0" x2="35" y2="0"/><line class="cl" x1="0" y1="-35" x2="0" y2="35"/><line class="dim" x1="-26.45" y1="-38" x2="26.45" y2="-38" marker-start="url(#ah2)" marker-end="url(#ah2)"/><text class="dt" x="0" y="-38.8" text-anchor="middle">Ø52.9 shroud pocket</text><text class="lb sm" x="34" y="11" text-anchor="start">USB-C</text><text class="lb sm" x="-4" y="19.1" text-anchor="middle">J1 / FPC bay</text><text class="lb sm" x="0" y="13.2" text-anchor="middle">Ø26.6 bore · Ø18 ledge hole</text><text class="lb sm" x="-33" y="38" text-anchor="start">dashed = hidden: cavity 43×43, lid standoffs, lid screws at r 28.5</text></svg>
+<figcaption>Shell, top view. The USB-C port opens at +x. The lid's screw pattern leaves +x free, which marks the port side.</figcaption>
+</figure>
+<figure>
+<svg class="drw" viewBox="-36 -112 118 118" role="img" aria-label="Exploded assembly of variant a from bottom to top: lid, adapter board, shell, washer with screws, knob" style="max-width:520px"><defs><marker id="ah8" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><rect class="lid" x="-33" y="-3" width="66" height="3" rx="0"/><text class="lb sm" x="35" y="-1" text-anchor="start">1 lid + 4 bumpers, 3× M3×8 self-tap</text><rect class="pcb" x="-18.5" y="-15.6" width="37" height="1.6" rx="0"/><text class="lb sm" x="35" y="-14.5" text-anchor="start">2 adapter, 4× M2×4 into lid standoffs</text><rect class="sh" x="-33" y="-52.14" width="66" height="26.14" rx="0"/><text class="lb sm" x="35" y="-36" text-anchor="start">3 shell</text><rect class="wa" x="-12" y="-61.5" width="24" height="3.5" rx="0"/><text class="lb sm" x="35" y="-59.5" text-anchor="start">4 washer + 3× M2.5×6</text><rect class="hub" x="-8.7" y="-72.08" width="17.4" height="2.08" rx="0"/><rect class="hub" x="-10.45" y="-74.85" width="20.9" height="2.77" rx="0"/><rect class="hub" x="-12" y="-79.92" width="24" height="5.07" rx="0"/><rect class="kn" x="-25.85" y="-95.15" width="51.7" height="15.23" rx="0.8"/><text class="lb sm" x="35" y="-85.92" text-anchor="start">5 knob, hub drops into bore</text><line class="cl" x1="0" y1="4" x2="0" y2="-110"/></svg>
+<figcaption>Exploded assembly, variant (a), bottom to top.</figcaption>
+</figure>
+</div>
+
+<h3>Variant parts</h3>
+<div class="grid2">
+<figure><svg class="drw" viewBox="-36 -36 72 78" role="img" aria-label="Lid for variant a, top view: four bumper recesses and three counterbored M3 holes" style="max-width:300px"><defs><marker id="ah3" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><circle class="lid" cx="0" cy="0" r="33"/><circle class="hid" cx="0" cy="-28.5" r="3"/><circle class="hole" cx="0" cy="-28.5" r="1.7"/><circle class="hid" cx="-28.5" cy="-0" r="3"/><circle class="hole" cx="-28.5" cy="-0" r="1.7"/><circle class="hid" cx="-0" cy="28.5" r="3"/><circle class="hole" cx="-0" cy="28.5" r="1.7"/><circle class="pcbo" cx="-18" cy="12.5" r="2.5"/><circle class="pcbo" cx="-18" cy="-18.5" r="2.5"/><circle class="pcbo" cx="18" cy="-18.5" r="2.5"/><circle class="pcbo" cx="18" cy="1.5" r="2.5"/><circle class="hid" cx="16.97" cy="-16.97" r="5.25"/><circle class="hid" cx="-16.97" cy="-16.97" r="5.25"/><circle class="hid" cx="-16.97" cy="16.97" r="5.25"/><circle class="hid" cx="16.97" cy="16.97" r="5.25"/><text class="lb sm" x="0" y="40" text-anchor="middle">a: bumper recesses Ø10.5; solid rings = standoffs</text></svg><figcaption>(a) lid_a, top view. Dashed = recesses in the bottom face; blue rings = adapter standoffs on top.</figcaption></figure>
+<figure><svg class="drw" viewBox="-36 -36 72 78" role="img" aria-label="Lid for variant b, top view: four magnets with alternating poles, pogo receptacle slot and orientation key notch" style="max-width:300px"><defs><marker id="ah4" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><circle class="lid" cx="0" cy="0" r="33"/><circle class="hid" cx="0" cy="-28.5" r="3"/><circle class="hole" cx="0" cy="-28.5" r="1.7"/><circle class="hid" cx="-28.5" cy="-0" r="3"/><circle class="hole" cx="-28.5" cy="-0" r="1.7"/><circle class="hid" cx="-0" cy="28.5" r="3"/><circle class="hole" cx="-0" cy="28.5" r="1.7"/><circle class="pcbo" cx="-18" cy="12.5" r="2.5"/><circle class="pcbo" cx="-18" cy="-18.5" r="2.5"/><circle class="pcbo" cx="18" cy="-18.5" r="2.5"/><circle class="pcbo" cx="18" cy="1.5" r="2.5"/><circle class="mag" cx="16.97" cy="-16.97" r="4"/><text class="lb sm" x="16.97" y="-15.77" text-anchor="middle">N</text><circle class="mag" cx="-16.97" cy="-16.97" r="4"/><text class="lb sm" x="-16.97" y="-15.77" text-anchor="middle">S</text><circle class="mag" cx="-16.97" cy="16.97" r="4"/><text class="lb sm" x="-16.97" y="18.17" text-anchor="middle">N</text><circle class="mag" cx="16.97" cy="16.97" r="4"/><text class="lb sm" x="16.97" y="18.17" text-anchor="middle">S</text><rect class="hole" x="-8.5" y="3" width="17" height="6"/><rect class="hole" x="30" y="-3" width="3" height="6"/><text class="lb sm" x="0" y="40" text-anchor="middle">b: 4× 8×2 magnets (alternate N/S), pogo slot, key</text></svg><figcaption>(b) lid_b, top view. Magnet pockets open at the bottom face; alternate the poles. The key notch at +x makes the fit one-way.</figcaption></figure>
+<figure><svg class="drw" viewBox="-36 -36 72 78" role="img" aria-label="Lid for variant c, top view: recess for the Adafruit 1901 Qi receiver panel, flush with the bottom face, and the wire hole" style="max-width:300px"><defs><marker id="ah5" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><circle class="lid" cx="0" cy="0" r="33"/><circle class="hid" cx="0" cy="-28.5" r="3"/><circle class="hole" cx="0" cy="-28.5" r="1.7"/><circle class="hid" cx="-28.5" cy="-0" r="3"/><circle class="hole" cx="-28.5" cy="-0" r="1.7"/><circle class="hid" cx="-0" cy="28.5" r="3"/><circle class="hole" cx="-0" cy="28.5" r="1.7"/><circle class="pcbo" cx="-18" cy="12.5" r="2.5"/><circle class="pcbo" cx="-18" cy="-18.5" r="2.5"/><circle class="pcbo" cx="18" cy="-18.5" r="2.5"/><circle class="pcbo" cx="18" cy="1.5" r="2.5"/><rect class="mag" x="-24" y="-16" width="48" height="32" rx="2"/><ellipse class="hid" cx="0" cy="0" rx="20" ry="14.5"/><circle class="hole" cx="-21" cy="-3" r="2"/><text class="lb sm" x="0" y="40" text-anchor="middle">c: 48×32×1.8 recess from below</text></svg><figcaption>(c) lid_c, top view. The Qi panel recess opens at the bottom face: the panel lies coil-down, flush, so the coil touches the pad.</figcaption></figure>
+<figure><svg class="drw" viewBox="-45 -45 90 97" role="img" aria-label="Battery cup for variant d seen from above with the 803040 cell, PowerBoost 1000C, slide-switch notch and micro-USB notch" style="max-width:320px"><defs><marker id="ah6" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><circle class="lid" cx="0" cy="0" r="42"/><circle class="deck" cx="0" cy="0" r="39"/><circle class="lid" cx="0" cy="-28.5" r="3.5"/><circle class="hole" cx="0" cy="-28.5" r="1.7"/><circle class="lid" cx="-28.5" cy="-0" r="3.5"/><circle class="hole" cx="-28.5" cy="-0" r="1.7"/><circle class="lid" cx="-0" cy="28.5" r="3.5"/><circle class="hole" cx="-0" cy="28.5" r="1.7"/><rect class="mag" x="-24" y="-20" width="30" height="40" rx="2"/><text class="lb sm" x="-9" y="0" text-anchor="middle">803040</text><text class="lb sm" x="-9" y="3.5" text-anchor="middle">~1000 mAh</text><rect class="pcbo" x="7" y="-22.5" width="23" height="45"/><text class="lb sm" x="18.5" y="0" text-anchor="middle">PowerBoost</text><text class="lb sm" x="18.5" y="3.5" text-anchor="middle">1000C</text><rect class="hole" x="12.5" y="24" width="12" height="19"/><rect class="hole" x="37" y="-4.75" width="5" height="9.5"/><circle class="hid" cx="0" cy="0" r="33"/><text class="lb sm" x="0" y="50" text-anchor="middle">d: Ø84 cup, h 13.5; dashed = puck above</text></svg><figcaption>(d) battery cup under lid_d, layout <span class="est">EST</span>. Dry-fit your cell and board.</figcaption></figure>
+</div>
+<figure>
+<svg class="drw" viewBox="-46 -34 92 42" role="img" aria-label="Section through the magnetic dock of variant b with the puck lid seated, magnets and pogo connector" style="max-width:600px"><defs><marker id="ah7" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="currentColor"/></marker></defs><rect class="lid" x="-41.57" y="-6" width="7.55" height="6"/><rect class="lid" x="-9.97" y="-6" width="1.15" height="6"/><rect class="lid" x="-41.57" y="-6.9" width="32.75" height="0.9"/><rect class="lid" x="8.78" y="-6.9" width="32.8" height="0.9"/><rect class="lid" x="-41.57" y="-9" width="32.75" height="2.1"/><rect class="lid" x="8.78" y="-9" width="32.8" height="2.1"/><rect class="lid" x="-41.57" y="-12" width="8.8" height="3"/><rect class="lid" x="32.77" y="-12" width="8.8" height="3"/><rect class="sh" x="-32.42" y="-11.1" width="23.6" height="2.1"/><rect class="sh" x="8.78" y="-11.1" width="23.65" height="2.1"/><rect class="sh" x="-32.42" y="-11.8" width="23.6" height="0.7"/><rect class="sh" x="8.78" y="-11.8" width="23.65" height="0.7"/><rect class="sh" x="-32.42" y="-12" width="23.6" height="0.2"/><rect class="sh" x="8.78" y="-12" width="23.65" height="0.2"/><rect class="sh" x="-32.42" y="-13" width="23.6" height="1"/><rect class="sh" x="8.78" y="-13" width="23.65" height="1"/><rect class="kn" x="-33" y="-25" width="66" height="12" /><text class="lb sm" x="0" y="-18" text-anchor="middle">shell + knob above (as variant a)</text><line class="dim" x1="-42" y1="-28" x2="42" y2="-28" marker-start="url(#ah7)" marker-end="url(#ah7)"/><text class="dt" x="0" y="-28.8" text-anchor="middle">Ø84 dock</text><text class="lb sm" x="-42" y="6.5" text-anchor="start">cut at y = -6 through the pogo pair; magnets at 45°, ballast pocket at -x, USB-C breakout at +x</text></svg>
+<figcaption>(b) dock_b (khaki) in section with lid_b (orange) seated. The dock has a 3 mm seat, a key tab, 4 magnets that face the puck's magnets, the pogo plug, a wiring channel to a USB-C breakout, and a ballast pocket. All pockets open at the bottom, so the dock prints with no supports.</figcaption>
+</figure>
+
+<h3>Knob dimensions used</h3>
+<div class="tw"><table>
+<tr><th>Feature</th><th>Value (mm)</th><th>Source</th></tr>
+<tr><td>Body OD</td><td class="n">51.7 ±0.5</td><td>drawing (spec p.4 says φ51.6; a forum user measured about 51.8 on the 1.28" sibling)</td></tr>
+<tr><td>Body length, total depth</td><td class="n">15.23 ±0.3, 25.15 ±0.3</td><td>drawing</td></tr>
+<tr><td>Display area</td><td class="n">Ø38.21</td><td>drawing</td></tr>
+<tr><td>Hub steps</td><td class="n">Ø24.0 × 5.07, Ø20.9 × 2.77, Ø17.4 × 2.08</td><td>diameters drawn; lengths from the 25.15 / 15.23 / 4.85 / 2.08 chain <span class="est">EST</span> for 2.77</td></tr>
+<tr><td>Hub latch tabs</td><td class="n">about Ø26</td><td>scaled from back view <span class="est">EST</span></td></tr>
+<tr><td>Screw holes</td><td class="n">3× Ø2.5 (M2.5×5), 120°</td><td>drawing; on Ø12.10 or Ø15.03 <span class="est">EST</span></td></tr>
+<tr><td>Positioning pillars</td><td class="n">2× Ø2.0 ±0.1, 70° marks</td><td>drawing; protrusion about 1.8 <span class="est">EST</span></td></tr>
+<tr><td>FPC</td><td class="n">10 pin, 0.5 pitch, 5.5 wide, 70 ±5 long</td><td>drawing</td></tr>
+<tr><td>Adapter board</td><td class="n">about 42 × 37 × 1.6</td><td>photo, 2.54 mm header as scale <span class="est">EST</span></td></tr>
+</table></div>
+
+<h2>Power options</h2>
+<div class="tw"><table>
+<tr><th>Variant</th><th>Parts</th><th>Cost</th><th>Runtime</th><th>Effort</th><th>For</th><th>Against</th></tr>
+<tr><td><b>(a) USB-C cable</b><span class="rec">start here</span></td><td>Any USB-C data cable (test it: two earlier cables carried no data), 3× M3×8 self-tapping, 4× M2×4 self-tapping, 3× M2.5×6 + flat washers, 4 bumpers ≤Ø10</td><td class="n">≈ $2</td><td>unlimited</td><td>low</td><td>USB data, flashing and console stay; one plug</td><td>Cable tugs a light puck: add ballast or use (b)</td></tr>
+<tr><td><b>(b) Magnetic pogo dock</b></td><td><a href="https://www.adafruit.com/product/5413">Adafruit 5413</a> 5-pin straight magnetic pair ($6.95), or <a href="https://www.mill-max.com/products/new/introducing-100-pitch-maxnetic-connectors">Mill-Max Maxnetic</a> 872-series (5.2 A/pin, about $11+ per half); <a href="https://www.adafruit.com/product/4090">USB-C breakout</a>; 8× <a href="https://www.supermagnete.de/eng/S-08-02-N">8×2 N45</a> (€0.24–0.33 each); steel ballast</td><td class="n">≈ $15–35</td><td>unlimited</td><td>medium (4 wires to J2: 5V, GND, DP, DN)</td><td>Lift off and carry; USB data passes the pogo pins; dock is heavy so the puck stays put</td><td>Soldering; connector size <span class="est">EST</span>; never plug the adapter's USB-C at the same time (two VBUS sources)</td></tr>
+<tr><td><b>(c) Qi receiver</b></td><td><a href="https://www.adafruit.com/product/1901">Adafruit 1901</a> (48×32 panel, 5 V 500 mA, $14.95) + any Qi pad or <a href="https://www.adafruit.com/product/2162">Adafruit 2162</a> ($26.95); 1N5819 diode</td><td class="n">≈ $15–45</td><td>unlimited on the pad</td><td>medium</td><td>No contacts, no cable on the puck</td><td>No USB data. About 70–75 % efficient, so 0.2–0.4 W of heat <span class="est">EST</span> (use PETG). Qi noise can cause ghost touches. No magnets or steel near the coil (FOD trips).</td></tr>
+<tr><td><b>(d) Battery</b></td><td>803040 LiPo about 1000 mAh (or <a href="https://www.adafruit.com/product/1578">Adafruit 1578</a> 500 mAh, $7.95); <a href="https://www.adafruit.com/product/2465">PowerBoost 1000C</a> ($19.95, load-sharing); SS12D00 slide switch; 1N5819; optional <a href="https://www.adafruit.com/product/5580">MAX17048</a> fuel gauge ($5.95)</td><td class="n">≈ $35–40</td><td>12.6 h at 50 mA · 6.3 h at 100 mA · 4.2 h at 150 mA (1000 mAh)</td><td>high</td><td>Fully portable</td><td>Puck about 43 mm tall; firmware must sleep the panel to last; no ADC pin on the FPC</td></tr>
+</table></div>
+<p><b>Peaks.</b> The spec currents are averages with the backlight on. ESP32-S3 Wi-Fi TX bursts reach about 300+ mA (estimated at the 5 V input). The PowerBoost 1000C (1 A) and USB have ample headroom. The Adafruit 1901 Qi receiver (500 mA) has about 1.5× headroom at the peak: add 220–470 µF across 5 V/GND at J2 so short bursts do not brown it out. In (b), the magnetic receptacle must fit within lid_t + standoff = 6.5 mm under the board <span class="est">EST</span>.</p>
+<p>Runtime = mAh × 3.7 V × 0.85 boost efficiency ÷ (5 V × load). Spec p.8: 4.0–5.5 V supply, 50 / 100 / 150 mA (min / typ / max) at full backlight, 50 mA typ with the backlight off; recommended supply 5 V 1 A.</p>
+<h3>Battery notes</h3>
+<ul>
+<li><b>Size limit.</b> A rectangle fits a round bay only if its diagonal is smaller than the bay. 803040 (50 mm diagonal) fits the Ø78 cup. A 503450 (60.5 mm) does not fit inside the Ø66 shell.</li>
+<li><b>Avoid IP5306 boards without I2C.</b> They switch the output off when the load stays under 45 mA for 32 s, and this knob idles near 50 mA. TP4056 + MT3608 works but has no load-sharing.</li>
+<li><b>Sleep stretches it.</b> CO5300 has sleep-in (0x10) and display-off (0x28). On AMOLED, black pixels draw almost nothing. ESP32-S3 auto light-sleep with Wi-Fi at DTIM3 is about 1.3 mA (Espressif datasheet). With the panel asleep, expect 3–8 mA from the cell <span class="est">EST</span>, so about 5–14 days of standby.</li>
+<li><b>Battery sensing.</b> The FPC carries GPIO39/40 (J2 pins 4/5, labels still disputed), 43/44 (UART) and 19/20 (USB). The ESP32-S3 datasheet (table 2-8) gives ADC only on GPIO1–20, so 39/40/43/44 cannot read a voltage, and 19/20 are the USB pair. Use a MAX17048 on I2C over GPIO39/40 after a continuity test of J2 pins 4/5, or the PowerBoost LBO pin as a digital low-battery flag (3.2 V).</li>
+<li><b>Diode.</b> Feed (c) or (d) into J2 pin 1 through a Schottky diode, so that a USB-C cable in the adapter cannot back-feed the Qi module or the boost converter.</li>
+</ul>
+
+<h2>Existing designs</h2>
+<p>No printable model exists for this board. All of these grip the body of a ring-turning knob, so reuse only the outer styling and keep this puck's hub mount.</p>
+<div class="tw"><table>
+<tr><th>Design</th><th>License</th><th>Made for</th><th>Fit note</th></tr>
+<tr><td><a href="https://github.com/redaphid/waveshare-round-stand">redaphid/waveshare-round-stand</a></td><td>MIT</td><td>Waveshare 1.28/1.46 round</td><td>Best to remix: OpenSCAD + Python, 20° wedge, cable notch. Swap the groove for this hub socket.</td></tr>
+<tr><td><a href="https://www.printables.com/model/1527532">Printables 1527532</a></td><td>CC-BY</td><td>CrowPanel 1.28"</td><td>TPU half-rings in a 50 mm panel hole; FreeCAD source. Panel-mount pattern.</td></tr>
+<tr><td><a href="https://www.printables.com/model/1750358">Printables 1750358</a> / <a href="https://www.printables.com/model/1515449">1515449</a></td><td>CC-BY-NC</td><td>CrowPanel 2.1"</td><td>Desk stand and wall mount with a rear screw plate.</td></tr>
+<tr><td><a href="https://www.printables.com/model/1856277">Printables 1856277</a></td><td>CC-BY-NC</td><td>Waveshare Knob 1.8"</td><td>Press fit with optional M2; desk and phone-clamp versions.</td></tr>
+<tr><td><a href="https://www.printables.com/model/1826861">Printables 1826861</a></td><td>CC-BY-SA</td><td>Waveshare Knob 1.8"</td><td>Cradle with port access.</td></tr>
+<tr><td><a href="https://www.printables.com/model/1355637">Printables 1355637</a></td><td>CC-BY</td><td>Waveshare 1.8" AMOLED</td><td>Tilted cradle, 90° USB-C channel.</td></tr>
+<tr><td><a href="https://www.printables.com/model/614079">Printables 614079</a> · <a href="https://www.printables.com/model/1758751">1758751</a></td><td>CC-BY · CC-BY-NC-SA</td><td>M5Dial</td><td>Simple and angled stands; good proportions for a Ø50 knob.</td></tr>
+<tr><td><a href="https://www.printables.com/model/757610">Printables 757610</a></td><td>CC0</td><td>M5Dial</td><td>57 mm panel-hole frame.</td></tr>
+<tr><td><a href="https://www.thingiverse.com/thing:6410427">Thingiverse 6410427</a></td><td>CC-BY-NC-SA</td><td>M5Dial</td><td>Magnetic case.</td></tr>
+<tr><td><a href="https://www.printables.com/model/807244">Printables 807244</a></td><td>CC-BY-NC-SA</td><td>Waveshare 4.3" (not round)</td><td>Reference for a magnetic stand (15×3 magnets).</td></tr>
+</table></div>
+
+<h2>Mounting ideas</h2>
+<div class="tw"><table>
+<tr><th>Idea</th><th>How with this design</th><th>Example</th></tr>
+<tr><td>Weighted puck</td><td>Dock (b) has a 28×24×6 ballast pocket for steel washers. For (a), stick a steel disc under the lid.</td><td><a href="https://www.printables.com/model/600429">Printables 600429</a></td></tr>
+<tr><td>Angled wedge</td><td>A 15–20° wedge under lid_a with VHB tape. The display then faces the user, not the ceiling.</td><td><a href="https://github.com/redaphid/waveshare-round-stand">redaphid</a></td></tr>
+<tr><td>Fridge / whiteboard</td><td>lid_b's 4 magnets alone hold the puck to steel: 4 × 1.1 kg rated, about 1.3–2.2 kg through the skin <span class="est">EST</span>, against a puck of about 100 g.</td><td><a href="https://www.thingiverse.com/thing:6410427">Thingiverse 6410427</a></td></tr>
+<tr><td>Monitor-bezel clip</td><td>Print a clip with a Ø66.6 seat and key tab (copy the dock's seat) and drop the (b) puck in.</td><td><a href="https://www.printables.com/model/527669">Printables 527669</a>, <a href="https://www.printables.com/model/990663">990663</a></td></tr>
+<tr><td>Under-monitor rail</td><td>Shelf with the same seat; route the cable along the rail.</td><td><a href="https://www.printables.com/model/921639">Printables 921639</a></td></tr>
+<tr><td>Panel / desk flush mount</td><td>Mount the hub through a panel with the washer and 3× M2.5. The body sits proud of the panel.</td><td><a href="https://www.printables.com/model/1527532">Printables 1527532</a></td></tr>
+</table></div>
+
+<h2>What you must measure</h2>
+<p>Use calipers. Enter the values in the <code>[params]</code> block of <code>enclosure/knob_puck.scad</code> and run <code>python3 enclosure/make_stl.py</code>.</p>
+<ul class="check">
+<li><b>Body OD</b> at 3 angles; enter the largest as <code>body_d</code>. The pocket is <code>body_d + 1.2</code>.</li>
+<li><b>Hub steps</b>: OD and length of each step, most of all <code>hub2_h</code> <span class="est">EST</span>. This sets the 1.0 mm gap under the body. Also measure the latch-tab OD <code>hub_tab_d</code> <span class="est">EST</span>.</li>
+<li><b>Pillars</b>: protrusion <code>pin_h</code> and circle <code>pin_pcd</code>. <b>Screw holes</b>: circle <code>scr_pcd</code> and depth (screw length).</li>
+<li><b>Rotation and press</b>: hold the hub and turn the body. Measure the press travel (it must be under 1.0 mm).</li>
+<li><b>Adapter</b>: <code>ad_w</code>, <code>ad_d</code>, the 4 hole centres <code>ad_holes</code> and their size, the USB-C centre from the J1 edge <code>usb_y</code>, and whether the receptacle is top-mount (<code>usb_zc</code> 1.6) or mid-mount (about 0).</li>
+<li><b>FPC</b>: real length from the hub face, and which face carries the contacts. Rotate the knob in the socket to get the correct face at J1 after the U-turn.</li>
+<li><b>Your USB-C plug</b>: overmold width × height must be under 13 × 11.4.</li>
+<li>(b) pogo connector body <code>pogo_l</code> × <code>pogo_w</code> and height. (c) Qi panel size. (d) cell and board size.</li>
+</ul>
+
+<h2>Print settings (Prusa, 0.4 nozzle)</h2>
+<div class="tw"><table>
+<tr><th>Part</th><th>Orientation</th><th>Settings</th></tr>
+<tr><td>shell</td><td>pocket up</td><td>0.2 mm layers, 3 perimeters, 5 top / 4 bottom, 20 % gyroid. The cavity roof is a 43 mm bridge; sag is not verified. A 0.2 mm membrane closes the Ø18 ledge hole, so no hole edge prints over air: cut it out with a knife afterwards. If the roof sags, re-slice with "supports on build plate only".</td></tr>
+<tr><td>washer</td><td>groove up</td><td>0.15 mm, 100 % infill. Under the pillar groove only 1.3 mm of washer is left under the screw heads, so use M2.5 flat washers. The screw holes are radial slots (r 6.05–7.52), so they fit either reading of the screw circle (Ø12.10 or Ø15.03).</td></tr>
+<tr><td>lid_a/b/c/d</td><td>standoffs up</td><td>0.2 mm, 4 perimeters (the standoffs take the M2 screws). Recesses face the bed; elephant-foot compensation 0.2. lid_c's Qi recess roof is a 32 mm bridge (span across 48 mm); a little sag only pushes the panel down, toward the pad.</td></tr>
+<tr><td>dock_b</td><td>seat up</td><td>0.2 mm, 15 % infill. Optional: pause at the layer above the magnet pockets to cover the magnets.</td></tr>
+<tr><td>riser_d</td><td>floor down</td><td>0.2 mm, 3 perimeters.</td></tr>
+</table></div>
+<p><b>Material.</b> PLA for (a), (b) and (d). PETG for (c), because the Qi coil gets warm and PLA softens near 60 °C. <b>Supports:</b> none. <b>Fits</b> (FDM, per side): 0.3 general, 0.6 radial at the body, magnets +0.15 for press fit (+0.2 for glue), M3 self-tapping into Ø2.5 pilots, M2 into Ø1.7.</p>
+
+<h2>Assembly, variant (a)</h2>
+<ol>
+<li>Drop the knob into the shell. The hub shoulder must sit on the ledge. Turn the body: it must not touch anything. Press it: you must hear the click.</li>
+<li>Cut the 0.2 mm membrane out of the ledge hole. From below, slide the washer (groove up) over the FPC. Turn the knob until its 3 holes line up with the washer slots. Fit 3× M2.5×6 with flat washers.</li>
+<li>Screw the adapter to the lid standoffs, components up, with 4× M2×4 (×5 is too long: the tip would reach the pilot bottom). The USB-C goes on the lid side without a screw hole.</li>
+<li>Hold the lid next to the shell and connect the FPC to J1. Lift the lid into the shell, folding the slack into the service loop toward +y. Nothing may press the FPC against the screw heads.</li>
+<li>Fit 3× M3×8 self-tapping through the lid. Stick 4 bumpers into the recesses. Plug USB-C in through the port.</li>
+</ol>
+<p><b>(b)</b> Push the pogo receptacle into lid_b and solder it to J2 pin 1 (5V), 3 (GND), 9 (DP) and 10 (DN). These four pins agree in every vendor source. Before you press the magnets in, hold each dock magnet against its puck partner and confirm that they attract. <b>(c)</b> Glue the Qi panel coil-down into the lid recess, then run 5V through a diode to J2 pin 1 and GND to pin 3. <b>(d)</b> Use M3×22 through the cup, lid and shell.</p>
+
+<footer>Source: <code>enclosure/knob_puck.scad</code> (parametric), <code>enclosure/make_stl.py</code> (stdlib-only STL builder, all parts watertight), <code>enclosure/README.md</code>. Drawings are generated from the same parameters. Research checked on 2026-10-04.</footer>
+</main>
+</body>
+</html>

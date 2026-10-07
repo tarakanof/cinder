@@ -1,0 +1,19 @@
+# Local-only context (template)
+
+Copy this file to `AGENTS.local.md` (gitignored) and fill in your own values.
+AGENTS.md points here for anything that should not live in the public repo.
+
+## Toolchain
+
+- Mac toolchain and installs: `<path-to-toolchain-notes>`. Read before installing
+  or upgrading tools.
+- ESP-IDF: `<path-to-esp-idf>` (export script `<path-to-export-script>`).
+
+## Human docs
+
+- `docs/enclosure.html` source: `<path-to-docs-source>`; build with
+  `<build-command>`, then copy the result to `docs/enclosure.html`.
+
+## Notes
+
+- Specs, ideas and drafts: `<path-to-notes>`.

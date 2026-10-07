@@ -1,0 +1,32 @@
+dependencies:
+  espressif/button:
+    public: true
+    version: ^4.0.0
+  espressif/esp_lcd_co5300: ^2.1.0
+  espressif/esp_lvgl_adapter: ^0.6.3
+  espressif/knob:
+    public: true
+    version: ^1.0.0
+  idf: '>=5.5'
+  lvgl/lvgl:
+    public: true
+    version: '>=8,<10'
+  viewesmart/esp_lcd_touch_cst820: ^1.0.3
+description: BSP for UEDX46460015-MD50ET 1.5" round AMOLED knob (CO5300 QSPI, CST820,
+  LVGL 8/9, encoder, button)
+license: Apache-2.0
+repository: https://github.com/VIEWESMART/Viewe-esp32-components.git
+repository_info:
+  path: bsp/bsp_knob_15_md50et
+tags:
+- bsp
+- display
+- lvgl
+- amoled
+- qspi
+- touch
+- knob
+targets:
+- esp32s3
+url: https://github.com/VIEWESMART/Viewe-esp32-components/tree/main/bsp/bsp_knob_15_md50et
+version: 1.0.3
