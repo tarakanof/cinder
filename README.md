@@ -47,6 +47,12 @@ idf.py build
 
 Builds contain no secrets: no Wi-Fi password, server URL or token is compiled in. `tools/build_release.sh` makes a release build in its own directory and checks the image with `tools/secret_scan.py`.
 
+Release images come only from the tag workflow `.github/workflows/release.yml`. Each [GitHub Release](https://github.com/tarakanof/cinder/releases) is immutable and holds `cinder.bin`, `cinder.elf` and `SHA256SUMS`, each with a build provenance attestation. To check a downloaded file:
+
+```sh
+gh attestation verify cinder.bin --repo tarakanof/cinder --signer-workflow github.com/tarakanof/cinder/.github/workflows/release.yml
+```
+
 ## Flash
 
 Connect the adapter with a USB-C **data** cable. The board shows up as `/dev/cu.usbmodem*` on macOS (USB ID 303a:1001).

@@ -59,13 +59,17 @@ python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 |---|---|
 | `build_release.sh [--version X.Y.Z] [--ota-test crash_boot\|no_checkin\|none] [--dir DIR]` | Secret-free build from `sdkconfig.defaults` only into `build-release/` (own `sdkconfig`); fails on `CINDER_DEV_SEED=y` or a secret scan hit; prints version, build, size, SHA-256 |
 | `publish.sh [--release] [--replace] [--no-build]` (+ build options) | Builds, then uploads `cinder.bin` (`POST /v1/firmware?channel=test\|release`) and `cinder.elf` (`PUT /v1/firmware/<version>/elf`) with only `EMBER_TOKEN`/`EMBER_SERVER_URL` read from `producer.env` (or `$EMBER_ENV_FILE`; not exported, never echoed); promotes the channel with `PATCH` when Ember already held the bytes on the other one; fails unless `GET /v1/firmware` then lists the local SHA-256, the channel and the ELF |
-| `release.sh X.Y.Z` | Clean, in-sync `main` with `PROJECT_VER` X.Y.Z: tags and pushes `vX.Y.Z`, waits for the release workflow, downloads the GitHub Release, checks it came from that run at that commit (author, time window, exact assets, equal to the run's artifact) and `SHA256SUMS`, then uploads those bytes (`publish.sh --release --no-build --dir`). Never builds locally; a re-run skips what is done, re-runs a failed workflow and resumes from the pushed tag even after `main` moved |
+| `release.sh X.Y.Z` | Clean, in-sync `main` with `PROJECT_VER` X.Y.Z: tags and pushes `vX.Y.Z`, waits for the release workflow, downloads the GitHub Release, checks it came from that run at that commit (immutable release, author, time window, exact assets, equal to the run's artifact), `SHA256SUMS` and each asset's build provenance attestation (`gh attestation verify --repo tarakanof/cinder --signer-workflow .../release.yml --source-ref refs/tags/vX.Y.Z --source-digest <commit> --deny-self-hosted-runners`), then uploads those bytes (`publish.sh --release --no-build --dir`). Never builds locally; a re-run skips what is done, re-runs a failed workflow and resumes from the pushed tag even after `main` moved |
 
 - CI (`.github/workflows/ci.yml`, every PR and push to `main`): host tests, a secret-free
   `idf.py build` in `espressif/idf:v5.5.5` (pinned by digest), the secret scan and `idf.py size`
   in the job summary. No secrets. Release builds come only from `.github/workflows/release.yml`
   (tag `vX.Y.Z`, on `main`, matching `PROJECT_VER`; host tests run there too; a `vX.Y.Z-suffix` tag makes a prerelease that
-  `release.sh` never uploads). A release is never replaced with other bytes.
+  `release.sh` never uploads). The release job attests `cinder.bin`, `cinder.elf` and `SHA256SUMS`
+  (`actions/attest-build-provenance`; only that job gets `id-token: write` and `attestations: write`).
+  Releases are immutable (repo setting) and `v*` tags cannot be moved or deleted (ruleset), so a release
+  is never replaced with other bytes. `release.sh` targets `tarakanof/cinder` only and fails on any check;
+  releases made before the attestation step (v0.9.28 and older) cannot pass it.
 - Uploads default to channel `test`: they install only with the app's **Update** button.
   Automatic mode installs only `release` builds.
 - OTA test images: `publish.sh --dir build-test --version <next> [--ota-test FAULT]`
