@@ -210,6 +210,7 @@ static void rim_task(void *arg)
 void bot_view_create(lv_obj_t *parent)
 {
     s_r = 233.0 * FILL;
+    bot_shape_init();
     variants_init();
     for (int v = 0; v < RIM_VARIANTS; v++) {
         s_rim_buf[v] = heap_caps_malloc(SCREEN_W * SCREEN_H * 2, MALLOC_CAP_SPIRAM);

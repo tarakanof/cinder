@@ -616,6 +616,7 @@ static void test_pose_same(void)
 
 int main(void)
 {
+    bot_shape_init();
     test_orbit_table();
     test_chase_orbit();
     test_label_wipe();
