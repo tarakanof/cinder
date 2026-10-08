@@ -458,11 +458,11 @@
   },
   "lvgl": {
    "entry": "lvgl_worker",
-   "stack": 10240
+   "stack": 10496
   },
   "prov": {
    "entry": "listener_task",
-   "stack": 5120
+   "stack": 5376
   },
   "rim": {
    "entry": "rim_task",
@@ -487,11 +487,11 @@
   },
   "reset": {
    "entry": "reset_task",
-   "stack": 4864
+   "stack": 5120
   },
   "main": {
    "entry": "app_main",
-   "stack": 6912
+   "stack": 7232
   },
   "esp_timer": {
    "entry": "timer_task",
