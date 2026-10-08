@@ -210,6 +210,7 @@ static void rim_task(void *arg)
 void bot_view_create(lv_obj_t *parent)
 {
     s_r = 233.0 * FILL;
+    bot_shape_init();
     variants_init();
     for (int v = 0; v < RIM_VARIANTS; v++) {
         s_rim_buf[v] = heap_caps_malloc(SCREEN_W * SCREEN_H * 2, MALLOC_CAP_SPIRAM);
@@ -240,7 +241,7 @@ void bot_view_create(lv_obj_t *parent)
     assert(s_label_buf && s_icon_buf);
     s_label = canvas_create(parent);
     lv_obj_add_flag(s_label, LV_OBJ_FLAG_HIDDEN);
-    xTaskCreatePinnedToCore(rim_task, "rim", 6144, NULL, 2, &s_rim_task, 1);
+    xTaskCreatePinnedToCore(rim_task, "rim", 2560, NULL, 2, &s_rim_task, 1);
     s_eye_go = xSemaphoreCreateBinary();
     s_eye_done = xSemaphoreCreateBinary();
     assert(s_eye_go && s_eye_done);

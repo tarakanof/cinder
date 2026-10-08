@@ -220,7 +220,7 @@ static void wifi_start(const cfg_t *cfg)
 
 static int parse_state(const char *body, ember_host_info_t *host)
 {
-    static ember_host_session_t sess[MAX_SESSIONS];
+    static EXT_RAM_BSS_ATTR ember_host_session_t sess[MAX_SESSIONS];
     cJSON *root = cJSON_Parse(body);
     if (!root) return -1;
     int mood = -1;
@@ -1063,7 +1063,7 @@ void ember_client_start(void)
         if (fd >= 0) atomic_store(&s_wake_fd, fd);
     }
     if (atomic_load(&s_wake_fd) < 0) ESP_LOGW(TAG, "no wake fd: a push during a long-poll waits up to 1 s");
-    if (xTaskCreatePinnedToCore(poll_task, "ember", 6144, NULL, 3, NULL, 1) == pdPASS) watchdog_start();
+    if (xTaskCreatePinnedToCore(poll_task, "ember", 6912, NULL, 3, NULL, 1) == pdPASS) watchdog_start();
 }
 
 void ember_client_forget_wifi(void)

@@ -156,7 +156,7 @@ void weather_client_legacy(bool on)
     static uint32_t backoff_ms;
     atomic_store(&s_legacy_on, on);
     if (!on || s_task || esp_timer_get_time() < next_try_us) return;
-    if (xTaskCreatePinnedToCore(poll_task, "weather", 6144, NULL, 3, &s_task, 1) != pdPASS) {
+    if (xTaskCreatePinnedToCore(poll_task, "weather", 5120, NULL, 3, &s_task, 1) != pdPASS) {
         s_task = NULL;
         backoff_ms = backoff_ms ? (backoff_ms * 2 > 300000 ? 300000 : backoff_ms * 2) : 5000;
         next_try_us = esp_timer_get_time() + (int64_t)backoff_ms * 1000;

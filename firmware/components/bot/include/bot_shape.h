@@ -15,6 +15,10 @@ typedef struct {
     double width;
 } bot_stroke_t;
 
+/* Builds the shared triangle-body table; call once from one task before any bot_body_ring. */
+void bot_shape_init(void);
+
+/* Needs bot_shape_init; read-only afterwards, so safe from any task. */
 void bot_body_ring(double k, double xs[BOT_RING_POINTS], double ys[BOT_RING_POINTS]);
 
 void bot_eye_strokes(const bot_pose_t *p, double eye_scale, bot_stroke_t out[2]);

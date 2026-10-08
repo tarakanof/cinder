@@ -1,5 +1,6 @@
 #include "bot_shape.h"
 
+#include <assert.h>
 #include <math.h>
 #include <stdbool.h>
 
@@ -15,10 +16,11 @@
 static EXT_RAM_BSS_ATTR double s_tri[TRI_TABLE];
 static bool s_tri_ready;
 
-static void tri_build(void)
+void bot_shape_init(void)
 {
+    if (s_tri_ready) return;
     const double R = 1.1, SAG = 0.11;
-    double raw[TRI_TABLE];
+    static EXT_RAM_BSS_ATTR double raw[TRI_TABLE];
     double vx[3], vy[3];
     for (int k = 0; k < 3; k++) {
         double a = M_PI / 2 + k * 2 * M_PI / 3;
@@ -59,7 +61,7 @@ static void tri_build(void)
 
 static double tri_radius(double a)
 {
-    if (!s_tri_ready) tri_build();
+    assert(s_tri_ready);
     double x = fmod(a / (2 * M_PI) * TRI_TABLE, TRI_TABLE);
     if (x < 0) x += TRI_TABLE;
     int i = (int)x;

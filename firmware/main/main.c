@@ -654,7 +654,7 @@ static bool reset_frame(double t)
         }
         if (st == RG_CONFIRMED) {
             lv_label_set_text(s_reset_label, "Resetting");
-            xTaskCreatePinnedToCore(reset_task, "reset", 3072, NULL, 4, NULL, 1);
+            xTaskCreatePinnedToCore(reset_task, "reset", 4864, NULL, 4, NULL, 1);
         }
         s_reset_shown = st;
     }
@@ -856,7 +856,9 @@ static void lvgl_stall_check(void)
 static void stats_task(void *arg)
 {
     (void)arg;
-    http_conn_stats_t prev = {0};
+    static EXT_RAM_BSS_ATTR http_conn_stats_t prev, ns;
+    static EXT_RAM_BSS_ATTR refr_kind_t kc[4];
+    static EXT_RAM_BSS_ATTR dev_wifi_t w;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
@@ -866,7 +868,6 @@ static void stats_task(void *arg)
         s_frames = 0;
         s_refr_count = 0;
         s_refr_total_us = s_refr_max_us = 0;
-        http_conn_stats_t ns;
         http_conn_get_stats(&ns);
         ESP_LOGI(TAG, "pose redraws %.1f/s | screen refreshes %d, avg %.1f ms, max %.1f ms | mood %s | page %d",
                  frames / (t - s_fps_since), n, n ? total / 1000.0 / n : 0.0, mx / 1000.0, MOOD_NAMES[s_cur_mood],
@@ -874,7 +875,6 @@ static void stats_task(void *arg)
         ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
                  s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
-        refr_kind_t kc[4];
         memcpy(kc, s_kind, sizeof kc);
         memset(s_kind, 0, sizeof s_kind);
         for (int i = 0; i < 4; i++)
@@ -890,12 +890,11 @@ static void stats_task(void *arg)
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
         int rssi = 0;
         bool assoc = ember_client_rssi(&rssi);
-        dev_wifi_t w;
         ember_client_wifi(&w);
         ESP_LOGI(TAG, "wifi: RSSI %d dBm (min %d), channel %d, %" PRIu32 " disconnects (last reason %d), %u beacon timeouts",
                  assoc ? rssi : 0, w.has_rssi_min ? w.rssi_min : 0, w.channel, w.disconnects, w.last_reason,
                  ember_client_beacon_timeouts());
-        static char stacks[DIAG_STACKS_LINE_MAX];
+        static EXT_RAM_BSS_ATTR char stacks[DIAG_STACKS_LINE_MAX];
         diag_stacks_line(stacks);
         ESP_LOGI(TAG, "stack free B: %s", stacks);
         lvgl_stall_check();
@@ -978,10 +977,10 @@ void app_main(void)
     uint8_t startup = s_ks_lv->startup;
     ESP_ERROR_CHECK(bsp_knob_15_md50et_set_brightness_level(startup));
     if (!s_setup) ember_client_dim_enable(startup);
-    xTaskCreate(stats_task, "stats", 3072, NULL, 1, NULL);
+    xTaskCreate(stats_task, "stats", 3840, NULL, 1, NULL);
     panel_check_init(handles.panel, handles.panel_io);
-    xTaskCreatePinnedToCore(link_task, "link", 3072, NULL, 1, NULL, 1);
-    if (!s_setup) xTaskCreatePinnedToCore(orbit_task, "orbit", 2560, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(link_task, "link", 4096, NULL, 1, NULL, 1);
+    if (!s_setup) xTaskCreatePinnedToCore(orbit_task, "orbit", 3328, NULL, 1, NULL, 1);
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),

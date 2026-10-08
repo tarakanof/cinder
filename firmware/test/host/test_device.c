@@ -471,8 +471,23 @@ static void test_stall_guard(void)
     CHECK(!dev_stall_boot(&n, DEV_RR_SW) && !n.marked, "the mark is one boot only");
 }
 
+static void test_json_nesting(void)
+{
+    char doc[2 * (CJSON_NESTING_LIMIT + 1) + 1];
+    for (int depth = CJSON_NESTING_LIMIT; depth <= CJSON_NESTING_LIMIT + 1; depth++) {
+        memset(doc, '[', (size_t)depth);
+        memset(doc + depth, ']', (size_t)depth);
+        doc[2 * depth] = 0;
+        cJSON *j = cJSON_Parse(doc);
+        CHECK(depth == CJSON_NESTING_LIMIT ? j != NULL : j == NULL, "cJSON nesting limit");
+        cJSON_Delete(j);
+    }
+    CHECK(CJSON_NESTING_LIMIT == 32, "cJSON nesting limit matches the firmware build");
+}
+
 int main(void)
 {
+    test_json_nesting();
     test_intervals();
     test_stall_guard();
     test_epoch_reset();

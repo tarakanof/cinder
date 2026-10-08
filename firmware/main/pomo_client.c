@@ -188,7 +188,7 @@ void pomo_client_log_state(void)
 static void client_task(void *arg)
 {
     (void)arg;
-    static char buf[RESP_MAX];
+    static EXT_RAM_BSS_ATTR char buf[RESP_MAX];
     for (;;) {
         if (!atomic_load(&s_legacy_on)) {
             vTaskDelay(pdMS_TO_TICKS(500));
@@ -241,7 +241,7 @@ void pomo_client_legacy(bool on)
         http_conn_init(s_conn, "pomo");
     }
     atomic_store(&s_legacy_on, true);
-    if (xTaskCreatePinnedToCore(client_task, "pomo", 5120, NULL, 3, &s_task, 1) != pdPASS) {
+    if (xTaskCreatePinnedToCore(client_task, "pomo", 5632, NULL, 3, &s_task, 1) != pdPASS) {
         s_task = NULL;
         atomic_store(&s_legacy_on, false);
         publish_link(false, false);

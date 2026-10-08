@@ -1,0 +1,521 @@
+{
+ "overhead": 768,
+ "leaves": [
+  "__assert",
+  "__assert_func",
+  "__sbprintf",
+  "_esp_error_check_failed",
+  "abort",
+  "esp_restart",
+  "esp_system_abort",
+  "panic_abort"
+ ],
+ "infeasible": [
+  [
+   "^esp_cache_get_alignment$",
+   "^esp_log$"
+  ],
+  [
+   "^esp_mmu_vaddr_to_paddr$",
+   "^esp_log$"
+  ],
+  [
+   "^__ieee754_rem_pio2$",
+   "^__kernel_rem_pio2$"
+  ],
+  [
+   "^(spi_flash_chip_|spi_flash_hal_|esp_flash_)",
+   "^esp_log$"
+  ]
+ ],
+ "pointers": {
+  "lv_timer_handler$part$0": [
+   "frame_cb",
+   "lv_display_refr_timer",
+   "lv_indev_read_timer_cb",
+   "anim_timer"
+  ],
+  "lv_timer_exec": [
+   "frame_cb",
+   "lv_display_refr_timer",
+   "lv_indev_read_timer_cb",
+   "anim_timer"
+  ],
+  "lv_event_send$part$0": [
+   "lv_obj_event",
+   "lv_label_event",
+   "lv_image_event",
+   "lv_arc_event",
+   "glint_draw_cb",
+   "wipe_draw_cb",
+   "touch_cb",
+   "refr_cb",
+   "disp_event_cb",
+   "rounder_event_cb"
+  ],
+  "event_send_core": [
+   "lv_obj_event",
+   "lv_label_event",
+   "lv_image_event",
+   "lv_arc_event",
+   "glint_draw_cb",
+   "wipe_draw_cb",
+   "touch_cb",
+   "refr_cb"
+  ],
+  "lv_obj_event_base": [
+   "lv_obj_event"
+  ],
+  "lv_draw_finalize_task_creation": [
+   "evaluate"
+  ],
+  "lv_draw_dispatch_layer": [
+   "dispatch"
+  ],
+  "lv_draw_buf_width_to_stride": [
+   "width_to_stride"
+  ],
+  "lv_draw_buf_align_ex": [
+   "buf_align"
+  ],
+  "lv_draw_buf_create_ex": [
+   "buf_malloc",
+   "width_to_stride",
+   "buf_align"
+  ],
+  "lv_draw_buf_destroy": [
+   "buf_free"
+  ],
+  "lv_draw_buf_copy": [
+   "buf_copy"
+  ],
+  "lv_draw_label_iterate_characters": [
+   "draw_letter_cb"
+  ],
+  "lv_draw_sw_mask_apply": [
+   "lv_draw_mask_radius",
+   "lv_draw_mask_angle",
+   "lv_draw_mask_line"
+  ],
+  "lv_font_get_glyph_dsc$part$0": [
+   "lv_font_get_glyph_dsc_fmt_txt"
+  ],
+  "lv_font_get_glyph_static_bitmap": [
+   "lv_font_get_bitmap_fmt_txt"
+  ],
+  "lv_font_get_glyph_bitmap": [
+   "lv_font_get_bitmap_fmt_txt"
+  ],
+  "image_decoder_get_info": [
+   "lv_bin_decoder_info"
+  ],
+  "lv_image_decoder_open": [
+   "lv_bin_decoder_open"
+  ],
+  "lv_image_decoder_get_area": [
+   "lv_bin_decoder_get_area"
+  ],
+  "lv_image_decoder_close": [
+   "lv_bin_decoder_close"
+  ],
+  "call_flush_cb": [
+   "display_manager_flush_cb_v9"
+  ],
+  "lv_indev_read$part$0": [
+   "tp_read"
+  ],
+  "anim_timer": [
+   "scroll_x_anim",
+   "scroll_y_anim",
+   "set_ofs_x_anim",
+   "set_ofs_y_anim",
+   "lv_anim_path_ease_out",
+   "lv_anim_path_linear",
+   "scroll_end_cb",
+   "indev_scroll_throw_anim_cb"
+  ],
+  "esp_log": [
+   "vprintf"
+  ],
+  "esp_log_va": [
+   "vprintf"
+  ],
+  "esp_log_writev": [
+   "vprintf"
+  ],
+  "esp_log_write": [
+   "vprintf"
+  ],
+  "_write_r": [
+   "usb_serial_jtag_write"
+  ],
+  "usb_serial_jtag_write": [
+   "usbjtag_tx_char_via_driver",
+   "usb_serial_jtag_tx_char_no_driver"
+  ],
+  "__sflush_r": [
+   "__swrite"
+  ],
+  "__sfvwrite_r": [
+   "__swrite"
+  ],
+  "_fflush_r": [
+   "__sflush_r"
+  ],
+  "esp_transport_connect": [
+   "tcp_connect"
+  ],
+  "esp_transport_read": [
+   "tcp_read"
+  ],
+  "esp_transport_write": [
+   "tcp_write"
+  ],
+  "esp_transport_close": [
+   "base_close"
+  ],
+  "esp_transport_poll_read": [
+   "base_poll_read"
+  ],
+  "esp_transport_poll_write": [
+   "base_poll_write"
+  ],
+  "esp_flash_write": [
+   "spi_flash_chip_generic_write",
+   "spi_flash_chip_generic_page_program",
+   "spi_flash_chip_generic_erase_sector",
+   "spi_flash_chip_generic_erase_block",
+   "spi_flash_chip_generic_read",
+   "spi_flash_chip_generic_wait_idle",
+   "spi_flash_chip_generic_set_write_protect",
+   "spi_flash_chip_generic_get_write_protect",
+   "spi_flash_chip_generic_yield",
+   "spi1_start",
+   "spi1_end",
+   "get_buffer_malloc",
+   "release_buffer_malloc",
+   "main_flash_region_protected",
+   "main_flash_op_status",
+   "delay_us"
+  ],
+  "esp_flash_write_encrypted": [
+   "spi_flash_chip_generic_write",
+   "spi_flash_chip_generic_page_program",
+   "spi_flash_chip_generic_erase_sector",
+   "spi_flash_chip_generic_erase_block",
+   "spi_flash_chip_generic_read",
+   "spi_flash_chip_generic_wait_idle",
+   "spi_flash_chip_generic_set_write_protect",
+   "spi_flash_chip_generic_get_write_protect",
+   "spi_flash_chip_generic_yield",
+   "spi1_start",
+   "spi1_end",
+   "get_buffer_malloc",
+   "release_buffer_malloc",
+   "main_flash_region_protected",
+   "main_flash_op_status",
+   "delay_us"
+  ],
+  "esp_flash_erase_region": [
+   "spi_flash_chip_generic_write",
+   "spi_flash_chip_generic_page_program",
+   "spi_flash_chip_generic_erase_sector",
+   "spi_flash_chip_generic_erase_block",
+   "spi_flash_chip_generic_read",
+   "spi_flash_chip_generic_wait_idle",
+   "spi_flash_chip_generic_set_write_protect",
+   "spi_flash_chip_generic_get_write_protect",
+   "spi_flash_chip_generic_yield",
+   "spi1_start",
+   "spi1_end",
+   "get_buffer_malloc",
+   "release_buffer_malloc",
+   "main_flash_region_protected",
+   "main_flash_op_status",
+   "delay_us"
+  ],
+  "esp_flash_read": [
+   "spi_flash_chip_generic_write",
+   "spi_flash_chip_generic_page_program",
+   "spi_flash_chip_generic_erase_sector",
+   "spi_flash_chip_generic_erase_block",
+   "spi_flash_chip_generic_read",
+   "spi_flash_chip_generic_wait_idle",
+   "spi_flash_chip_generic_set_write_protect",
+   "spi_flash_chip_generic_get_write_protect",
+   "spi_flash_chip_generic_yield",
+   "spi1_start",
+   "spi1_end",
+   "get_buffer_malloc",
+   "release_buffer_malloc",
+   "main_flash_region_protected",
+   "main_flash_op_status",
+   "delay_us"
+  ],
+  "esp_flash_read_encrypted": [
+   "spi_flash_chip_generic_write",
+   "spi_flash_chip_generic_page_program",
+   "spi_flash_chip_generic_erase_sector",
+   "spi_flash_chip_generic_erase_block",
+   "spi_flash_chip_generic_read",
+   "spi_flash_chip_generic_wait_idle",
+   "spi_flash_chip_generic_set_write_protect",
+   "spi_flash_chip_generic_get_write_protect",
+   "spi_flash_chip_generic_yield",
+   "spi1_start",
+   "spi1_end",
+   "get_buffer_malloc",
+   "release_buffer_malloc",
+   "main_flash_region_protected",
+   "main_flash_op_status",
+   "delay_us"
+  ],
+  "re:^spi_flash_chip_": [
+   "spi_flash_hal_common_command",
+   "spi_flash_hal_program_page",
+   "spi_flash_hal_erase_sector",
+   "spi_flash_hal_erase_block",
+   "spi_flash_hal_read",
+   "spi_flash_hal_poll_cmd_done",
+   "spi_flash_hal_check_status",
+   "spi_flash_hal_set_write_protect",
+   "spi_flash_hal_device_config",
+   "spi_flash_hal_supports_direct_read",
+   "spi_flash_hal_supports_direct_write",
+   "delay_us",
+   "spi1_start",
+   "spi1_end",
+   "main_flash_op_status"
+  ],
+  "re:^_ZN3nvs": [
+   "esp_partition_write",
+   "esp_partition_read",
+   "esp_partition_erase_range",
+   "esp_partition_read_raw",
+   "esp_partition_write_raw",
+   "malloc",
+   "free"
+  ],
+  "cJSON_ParseWithLengthOpts": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "parse_string": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "print$constprop$0": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "ensure": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "cJSON_Delete": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "parse_value": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "knob_view_parse": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "knob_settings_parse": [
+   "malloc",
+   "free",
+   "realloc"
+  ],
+  "http_conn_req_opts": [
+   "alive",
+   "coredump_read"
+  ],
+  "attempt": [
+   "coredump_read"
+  ],
+  "http_conn_stream": [
+   "alive"
+  ],
+  "stream_attempt": [
+   "dl_sink"
+  ],
+  "http_dispatch_event": [
+   "on_event"
+  ],
+  "on_event": [
+   "on_header",
+   "dl_header"
+  ],
+  "http_parser_execute": [
+   "http_on_message_begin",
+   "http_on_url",
+   "http_on_status",
+   "http_on_header_field",
+   "http_on_header_value",
+   "http_on_headers_complete",
+   "http_on_body",
+   "http_on_message_complete",
+   "http_on_chunk_complete",
+   "http_on_chunk_header"
+  ],
+  "run_update": [
+   "alive",
+   "pomo_active",
+   "ota_fresh_view",
+   "ota_checkin_soon"
+  ],
+  "finish": [
+   "alive",
+   "pomo_active",
+   "ota_fresh_view",
+   "ota_checkin_soon"
+  ],
+  "download": [
+   "alive",
+   "pomo_active",
+   "ota_fresh_view",
+   "ota_checkin_soon"
+  ],
+  "ota_client_service": [
+   "alive",
+   "pomo_active",
+   "ota_fresh_view",
+   "ota_checkin_soon"
+  ],
+  "timer_task": [
+   "tick_increment",
+   "knob_cb",
+   "button_cb",
+   "reconnect_cb",
+   "wdt_feed_cb"
+  ],
+  "esp_event_loop_run": [
+   "wifi_event",
+   "wifi_default_action_sta_start",
+   "wifi_default_action_sta_stop",
+   "wifi_default_action_sta_connected",
+   "wifi_default_action_sta_disconnected",
+   "esp_netif_action_got_ip",
+   "esp_netif_action_start",
+   "esp_netif_action_stop",
+   "esp_netif_action_connected",
+   "esp_netif_action_disconnected"
+  ]
+ },
+ "tasks": {
+  "ember": {
+   "entry": "poll_task",
+   "file": "main/ember_client.c",
+   "stack": 6912
+  },
+  "eye": {
+   "entry": "eye_task",
+   "stack": 2560
+  },
+  "link": {
+   "entry": "link_task",
+   "stack": 4096
+  },
+  "lvgl": {
+   "entry": "lvgl_worker",
+   "stack": 10240
+  },
+  "prov": {
+   "entry": "listener_task",
+   "stack": 5120
+  },
+  "rim": {
+   "entry": "rim_task",
+   "stack": 2560
+  },
+  "stats": {
+   "entry": "stats_task",
+   "stack": 3840
+  },
+  "pomo": {
+   "entry": "client_task",
+   "stack": 5632
+  },
+  "weather": {
+   "entry": "poll_task",
+   "file": "main/weather_client.c",
+   "stack": 5120
+  },
+  "orbit": {
+   "entry": "orbit_task",
+   "stack": 3328
+  },
+  "reset": {
+   "entry": "reset_task",
+   "stack": 4864
+  },
+  "main": {
+   "entry": "app_main",
+   "stack": 6912
+  },
+  "esp_timer": {
+   "entry": "timer_task",
+   "stack": 4096
+  },
+  "sys_evt": {
+   "entry": "esp_event_loop_run_task",
+   "stack": 3840
+  },
+  "ipc": {
+   "entry": "ipc_task",
+   "stack": 1280
+  },
+  "Tmr Svc": {
+   "entry": "prvTimerTask",
+   "stack": 2304
+  }
+ },
+ "recursion": [
+  {
+   "head": "lv_obj_redraw",
+   "cycle": [
+    "lv_obj_redraw",
+    "lv_obj_refr$part$0"
+   ],
+   "depth": 4
+  },
+  {
+   "head": "parse_value",
+   "cycle": [
+    "parse_value"
+   ],
+   "depth": 32
+  },
+  {
+   "head": "cJSON_Delete",
+   "cycle": [
+    "cJSON_Delete"
+   ],
+   "depth": 32
+  },
+  {
+   "head": "print_value",
+   "cycle": [
+    "print_value"
+   ],
+   "depth": 8
+  }
+ ],
+ "nesting": {
+  "group": [
+   "event_send_core",
+   "lv_event_send$part$0"
+  ],
+  "depth": 2
+ }
+}
