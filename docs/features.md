@@ -430,65 +430,60 @@ User decisions (2026-10-06): upload only (Ember never contacts GitHub); Ask firs
 
 ## Task stacks and internal RAM (GitHub #10, 0.9.32)
 
-Goal: size every task stack from its worst case, cut internal RAM waste, never trade away safety. Rule: at least 1 KB over the measured or analysed worst case for every task, 1.5 KB for `lvgl` and `ember`. Not measured on hardware yet; the paths to exercise are at the end.
+Goal: size every task stack from its worst case, cut internal RAM waste, never trade away safety. Rule: at least 1 KB over the measured or estimated worst case for every task, 1.5 KB for `lvgl` and `ember`. All figures below are **estimates** from a static model, not proven bounds, and nothing is measured on hardware yet; the paths to exercise are at the end.
 
-**Method.** `firmware/tools/stack_walk.py build/cinder.elf [task …] [--path]` (config `tools/stack_walk.json`) walks the call graph from each task entry. Frame sizes come from each function's Xtensa `entry a1, N` (equal to `-fstack-usage` for compiled code, and it also covers the precompiled Wi-Fi, newlib and ROM code; the ROM ELF from `~/.espressif/tools/esp-rom-elfs` is read too). Calls: `call8`, `call0`, and the `l32r` + `callx8` long calls (most calls in a 1 MB image). A `-fstack-usage` scratch build found no unbounded dynamic frames in app code (9 `dynamic` frames in IDF: touch point VLA, `spi_flash_mmap_pages`, I2C, ADC, heap init; none on a deep path). Assumptions, all in the JSON:
-- **Function pointers** resolve only through listed edges: LVGL timers (`frame_cb`, refresh, indev, anim), event classes in use (obj, label, image, arc) and the app's callbacks, the SW draw unit, draw-buffer, font, bin-decoder and cache handlers, the adapter flush, `tp_read`; HTTP (`on_event`, parser callbacks, `alive`, `coredump_read`, `dl_sink`, OTA ctx callbacks), transport (TCP only: the Ember URL is http only), flash chip and HAL drivers, NVS partition I/O, cJSON hooks; logs go `vprintf` → USB-Serial/JTAG. Any event callback may call any other in-use one, so the LVGL figure is an over-approximation.
+**Method.** `firmware/tools/stack_walk.py build/cinder.elf [task …] [--path]` (config `tools/stack_walk.json`) walks the call graph from each task entry and prints, per task, the estimate, the configured stack, the margin and the number of **unresolved indirect call sites** it reached (counted as 0 B). Frame sizes come from each function's Xtensa `entry a1, N` (equal to `-fstack-usage` for compiled code; it also covers the precompiled Wi-Fi, newlib and ROM code, read from the ROM ELF in `~/.espressif/tools/esp-rom-elfs`). Calls: `call8`, `call0`, and the `l32r` + `callx8` long calls (most calls in a 1 MB image); a register loaded by `l32r` counts as overwritten by any later instruction that writes it (only stores, branches, calls and special-register writes keep it). A `-fstack-usage` scratch build found no unbounded dynamic frames in app code (9 `dynamic` frames in IDF: touch point VLA, `spi_flash_mmap_pages`, I2C, ADC, heap init; none on a deep path). Assumptions, all in the JSON:
+- **Function pointers** resolve only through listed edges: LVGL timers (`frame_cb`, refresh, indev, anim), event classes in use (obj, label, image, arc) and the app's callbacks, the SW draw unit, draw-buffer, font, bin-decoder and cache handlers, the adapter flush, `tp_read`; HTTP (`on_event`, parser callbacks, `alive`, `coredump_read`, `dl_sink`, OTA ctx callbacks), transport (TCP only: the Ember URL is http only), flash chip and HAL drivers, NVS partition I/O, cJSON hooks; logs go `vprintf` → USB-Serial/JTAG. Any event callback may call any other in-use one. The rest stay unresolved (per task: ember 135, lvgl 106, prov 112, reset 91, stats 61, pomo/weather 45, link 18, orbit 3, rim 1, eye 0; mostly NVS C++ vtables, newlib stdio hooks, Wi-Fi blob ops, LVGL cache/anim/decoder ops, SPI and GDMA HAL).
 - **Infeasible edges cut**: argument-check error logs that cannot fire (`esp_cache_get_alignment`, `esp_mmu_vaddr_to_paddr`); `__kernel_rem_pio2` (only for |x| > 2^19·π/2; our angles are a few turns); logs inside flash-driver code (cache off, they take the ROM printf path); `__sbprintf` (stdout is line-buffered, newlib only uses it for unbuffered streams); `abort`/`assert` paths (fatal anyway).
-- **Recursion** is cut at the first repeat. Budgets: LVGL redraw recurses once per object level (640 B per level, tree depth 3 below the screen: now playing root → album circle → note label) = 1920 B. cJSON parse/print recursion (64-96 B per JSON level) is not on the worst path.
-- **Fixed overhead 768 B per task**: coprocessor save area 316 B (+ alignment), the initial exception frame 192 B (`XT_STK_FRMSZ`), one interrupt frame 192 B, window base save area and slack. Calibrated on 0.9.31: the LVGL path through `tri_build` analyses to 7,056 + 768 = 7,824 B, measured 7,756 B used.
+- **Recursion and cycles**: a path never repeats a function; a result is cached only when no cut depended on a caller further up, so a node reached from another ancestor is recomputed (the earlier version cached it and could under-count). LVGL event dispatch nests at most **2 levels** (`event_send_core`, `lv_event_send`): any event handler can reach any other through setters, so without a bound the 74-function event cycle makes a path of the whole cycle. Budgets, added on the deepest path through the cycle head: LVGL redraw 4 object levels (640 B per level; deepest tree: screen → now playing root → album circle → note label); cJSON parse and delete 32 levels (`CJSON_NESTING_LIMIT=32` for the whole build and the host tests, default was 1000; a host test checks 32 parses and 33 does not); cJSON print 8 levels (only our own documents).
+- **Fixed overhead 768 B per task**: coprocessor save area 316 B (+ alignment), the initial exception frame 192 B (`XT_STK_FRMSZ`), one interrupt frame 192 B, window base save area and slack. Calibrated on 0.9.31: the LVGL path through `tri_build` estimates 7,056 + 768 = 7,824 B, measured 7,756 B used.
 - Error-path logs count (e.g. lwIP's out-of-memory log in `sys_thread_sem_init`, NVS → `esp_mmu_map` failure). One `ESP_LOG` costs ~1.2 KB of stack (`_vfprintf_r` alone is 800 B), and it sets the worst case of most tasks.
 
-**Per task** (stack bytes; measured = 0.9.31 boot free / used; analysed = path + recursion + 768):
+**Per task** (stack bytes; measured = 0.9.31 boot free / used; estimate = path + recursion budget + 768):
 
-| Task | Core / prio | Before → after | Measured free (used) | Analysed worst | Margin after |
+| Task | Core / prio | Before → after | Measured free (used) | Estimate | Margin after |
 |---|---|---|---|---|---|
-| `ember` | 1 / 3 | 6144 → **6656** | 3044 (3100) | 4944 (OTA service → fresh view → Pomodoro action → HTTP → lwIP OOM log) | 1712 |
+| `ember` | 1 / 3 | 6144 → **6912** | 3044 (3100) | 5136 (OTA service → fresh view → Pomodoro action → HTTP → lwIP OOM log; cJSON print budget) | 1776 |
 | `eye` | 1 / 5 | 2560 | 1260 (1300) | 1456 (raster) | 1104 |
 | `link` | 1 / 1 | 3072 → **4096** | 752 (2320) | 2960 (link check → SPI → error log) | 1136 |
-| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 7248 (snapshot render, over-approximated) | 2992 |
-| `prov` | 1 / 2 | 3584 → **5120** | 2316 (1268) | 3920 (`set_ember`/Improv → NVS write → mmap error log) | 1200 |
-| `rim` | 1 / 2 | 6144 → **2560** | 4988 (1156) | 1424 (ring + raster) | 1136 |
+| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 8400 (render with nested events and 4 redraw levels) | 1840 |
+| `prov` | 1 / 2 | 3584 → **5120** | 2316 (1268) | 4000 (CINDER1 parse at 32 levels; NVS write → mmap error log 3920) | 1120 |
+| `rim` | 1 / 2 | 6144 → **2560** | 4988 (1156) | 1312 (ring + raster) | 1248 |
 | `stats` | any / 1 | 3072 → **3840** | 568 (2504) | 2640 (log line) | 1200 |
-| `pomo` (Ember without view) | 1 / 3 | 5120 → **5376** | — | 4272 | 1104 |
-| `weather` (Ember without view) | 1 / 3 | 6144 → **5120** | — | 3872 | 1248 |
+| `pomo` (Ember without view) | 1 / 3 | 5120 → **5632** | — | 4384 | 1248 |
+| `weather` (Ember without view) | 1 / 3 | 6144 → **5120** | — | 3936 | 1184 |
 | `orbit` (boot, ~5 s) | 1 / 1 | 2560 → **3328** | — | 2144 | 1184 |
 | `reset` (factory reset) | 1 / 4 | 3072 → **4864** | — | 3632 | 1232 |
-| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **5632** | — | 4480 (LVGL over-approximation; NVS error log 4112) | 1152 |
+| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5728 (LVGL init events; NVS error log 4112) | 1184 |
+| `esp_timer` (IDF) | 1 / 22 | 3584 → **4096** | — | 2768 (Wi-Fi reconnect log; Wi-Fi blob timers unresolved) | 1328 |
+| `sys_evt` (IDF) | 0 / 20 | 2304 → **3840** | — | 2784 (`esp_netif` connected log) | 1056 |
+| `ipc0` / `ipc1` (IDF) | 0, 1 / 24 | 1280 → **2304** | — | 1168 (mostly the fixed overhead) | 1136 |
+| `Tmr Svc` (IDF) | any / 1 | 2048 → **2304** | — | 1136 (no app timers) | 1168 |
 
-All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same analysis of 0.9.31 found real gaps: `prov` (3920 > 3584), `reset` (3632 > 3072) and `main` (≥ 4112 > 3584) could overflow on an error-log path; `link` had 112 B and `stats` 240 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
+Not estimated: `tiT` (3072, lwIP callbacks unresolved), `wifi` (blob), `IDLE0`/`IDLE1` (1536), the ISR stacks (2096 B per core, `port_IntStack`). The stats log line now appends the IDF tasks after `| idf` (`esp_timer`, `ipc0`/`ipc1`, `sys_evt`, `tiT`, `Tmr Svc`, `wifi`), so they can be sized from field data.
 
-- **Main fix: `tri_build` scratch.** `bot_shape.c` `tri_build` had `double raw[720]` (5.76 KB) on the stack; it runs once, lazily, on whichever task draws the first outline (the LVGL task in practice). Now static in PSRAM. The LVGL high-water mark (7756 B used) was this array; the render path needs ~4.6 KB plus recursion.
+All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same estimate of 0.9.31 found gaps: `prov` (4000 > 3584), `reset` (3632 > 3072), `main` (5728 > 3584) and `sys_evt` (2784 > 2304) could overflow on an error-log path; `link` and `ipc` had 112 B, `stats` 240 B, `esp_timer` 816 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
+
+- **Main fix: the triangle table.** `bot_shape.c` built it lazily on whichever task drew the first outline, with `double raw[720]` (5.76 KB) on that task's stack: the LVGL task in practice, where it set the 7756 B high-water mark. Now `bot_shape_init()` builds it once from `bot_view_create`, before the `rim` task exists and before the LVGL timer runs; the scratch is static in PSRAM, and `bot_body_ring` asserts the table is ready.
 - **stats**: its frame 336 → 144 B (the stats, refresh-kind and Wi-Fi structs and the stack line are static in PSRAM); the rest is the log path.
-- `lvgl` stays 10 KB until measured: without the 5.8 KB scratch its high-water mark should drop by several KB; then size it at 1.5 KB over the measured render peak (likely ~8 KB).
-- **Health floors** (`OTA_HEALTH_STACK_MIN` 512 B, `OTA_HEALTH_STACK_LVGL` 1024 B) unchanged: every gated task now has ≥ 1.1 KB analysed headroom and should idle well above the floor (eye ~1.26 KB, rim ~1.4 KB, stats ~1.5 KB, link ~1.8 KB expected), so the floors still catch a regression without tripping on a healthy image.
+- `lvgl` stays 10 KB until measured: without the 5.8 KB scratch its high-water mark should drop by several KB; then size it at 1.5 KB over the measured render peak.
+- **Health floors** (`OTA_HEALTH_STACK_MIN` 512 B, `OTA_HEALTH_STACK_LVGL` 1024 B) unchanged: every gated task now has ≥ 1.1 KB estimated headroom and should idle well above the floor (eye ~1.26 KB, rim ~1.4 KB, stats ~1.5 KB, link ~1.8 KB expected), so the floors still catch a regression without tripping on a healthy image.
+- **Stale local `sdkconfig`**: an existing `firmware/sdkconfig` keeps the old stack sizes and features; delete it before building (CI and `build_release.sh` start fresh).
 
-**System tasks** (sdkconfig; analysed where callbacks resolve; not changed, now in the stats log line after `| idf`, so they can be sized from field data):
-
-| Task | Stack | Analysed | Note |
-|---|---|---|---|
-| `esp_timer` | 3584 | 2768 + Wi-Fi blob timers | LVGL tick, knob/button polls, Wi-Fi reconnect (logs), ember watchdog feed; core 1 |
-| `sys_evt` | 2304 | ≤ 3088 | the deep path (`esp_netif_up` → DHCP log) normally runs in `tiT` via `tcpip_api_call`; measure |
-| `tiT` | 3072 | not resolved (lwIP callbacks) | |
-| `wifi` | IDF | blob | |
-| `ipc0` / `ipc1` | 1280 | 1168 | |
-| `Tmr Svc` | 2048 | 1136 | no app timers |
-| `IDLE0` / `IDLE1` | 1536 | | |
-| ISR stack | 2096 per core | not analysed | `port_IntStack`, 4.2 KB `.bss` |
-
-**Removed or moved** (`sdkconfig.defaults`, memory audit block): HTTPS in `esp_http_client` (the URL validator already refused `https`), the certificate bundle, Wi-Fi SoftAP (STA only) and WPA-Enterprise (PSK only), LVGL widgets and features never created (all but obj, label, image, canvas, arc; simple theme, flex, grid, observer, examples, demos). Static buffers to PSRAM: `tri_build` scratch, `parse_state` sessions (384 B), the legacy Pomodoro body (512 B), the stats task's structs and stack line.
+**Removed or moved** (`sdkconfig.defaults`, memory audit block): HTTPS in `esp_http_client` (the URL validator already refused `https`), the certificate bundle, Wi-Fi SoftAP (STA only) and WPA-Enterprise (open or PSK only), LVGL widgets and features never created (all but obj, label, image, canvas, arc; simple theme, flex, grid, observer, examples, demos). Static buffers to PSRAM: the triangle-table scratch, `parse_state` sessions (384 B), the legacy Pomodoro body (512 B), the stats task's structs and stack line.
 
 **Before → after** (`idf.py size`; runtime numbers are estimates until measured):
 
 | | 0.9.31 | 0.9.32 | Δ |
 |---|---|---|---|
-| Image | 1,675,731 B | 1,543,807 B | −131,924 (LVGL −76 KB; Wi-Fi libraries −50 KB for SoftAP and WPA-Enterprise) |
+| Image | 1,675,731 B | 1,543,887 B | −131,844 (LVGL −76 KB; Wi-Fi libraries −50 KB for SoftAP and WPA-Enterprise) |
 | DIRAM (static) | 103,687 B (`.data` 23,432, `.bss` 17,088) | 102,519 B (23,352, 16,000) | −1,168 |
 | IRAM | 16,384 (`.text` 15,356) | unchanged | 0 |
 | PSRAM `.bss` | 42,060 B | 49,092 B | +7,032 |
-| App task stacks, normal run | 34,816 B | 35,072 B | +256 |
-| Internal heap free, normal run | — | — | ≈ +0.9 KB (static −1.2 KB, stacks +0.25 KB) |
-| Boot transient | | | `main` +2 KB, `orbit` +0.75 KB: boot minimum may drop up to ~2.8 KB (54 → ~51 KB; floor 27 KB) |
+| App task stacks, normal run | 34,816 B | 35,328 B | +512 |
+| IDF task stacks (esp_timer, sys_evt, ipc ×2, Tmr Svc) | 10,496 B | 14,848 B | +4,352 |
+| Internal heap free, normal run | — | — | ≈ −3.7 KB (stacks +4.9 KB, static −1.2 KB) |
+| Boot transient | | | `main` +3.3 KB, `orbit` +0.75 KB on top: boot minimum may drop up to ~8 KB (54 → ~46 KB; floor 27 KB) |
 
 **Waste found, not changed** (needs a decision or hardware measurement):
 - `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384`: every malloc ≤ 16 KB lands in internal RAM (HTTP client buffers ~2.5 KB per kept handle, cJSON trees, LVGL objects). Lowering it, or cJSON hooks on a PSRAM allocator, could free 5-15 KB, after auditing plain-malloc users that need internal or DMA memory.

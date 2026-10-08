@@ -84,6 +84,10 @@ Connect the adapter with a USB-C **data** cable. The board shows up as `/dev/cu.
 
 On first boot the knob shows a setup face. Connect it over USB to a Mac running the Ember app: the app sends the Wi-Fi network over Improv Serial, then pairs the knob by sending the Ember URL and a device token over the same link. After that the knob checks in with Ember every minute and gets its settings from there.
 
+Requirements:
+- **Ember on the LAN over plain `http://`.** The knob has no TLS: pairing rejects an `https://` URL, and a server that redirects to https shows as unreachable.
+- **A 2.4 GHz network, open or WPA2/WPA3 Personal.** WPA2/WPA3-Enterprise is not supported. There is no SoftAP or captive-portal setup: Wi-Fi comes only over USB.
+
 To factory-reset the knob, hold it down for 10 s, then turn it right one full turn while still holding.
 
 ## OTA via Ember
