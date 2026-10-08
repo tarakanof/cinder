@@ -57,6 +57,8 @@ static void test_drop_hourly(void)
     drop("{\"hourly\":[\"a]", "{\"hourly\":[\"a]");
     drop("{\"hourly\":[\"a\\", "{\"hourly\":[\"a\\");
     drop("{\"hourly\": [1]}", "{\"hourly\": [1]}");
+    drop("{\"hourly\":null,\"a\":[1]}", "{\"hourly\":null,\"a\":[1]}");
+    drop("{\"hourly\":{\"t\":[1]},\"a\":1}", "{\"hourly\":{\"t\":[1]},\"a\":1}");
 
     char body[] = "{\"enabled\":true,\"hourly\":[{\"temp_c\":[1,2]},{\"c\":\"]\"}],"
                   "\"current\":{\"condition\":\"rain\",\"temp_c\":4.5}}";
@@ -135,6 +137,7 @@ static void test_ember(void)
     CHECK(ember_legacy_parse(mixed, sess, 4, &h) == BOT_WORKING && h.text[0] == 0, "two hosts tie: %s", h.text);
     CHECK(ember_legacy_parse(mixed, sess, 1, &h) == BOT_WORKING && strcmp(h.text, "ALPHA") == 0,
           "max caps sessions: %s", h.text);
+    CHECK(ember_legacy_parse(two, sess, 0, &h) == BOT_WORKING && h.text[0] == 0, "max 0: %s", h.text);
 
     const char *src_wins = "{\"render\":{\"running\":1,\"source\":\"\"},\"sessions\":["
                            "{\"source\":\"alpha\",\"state\":\"running\",\"updated_at\":\"2026-10-03T01:31:24Z\"}]}";
