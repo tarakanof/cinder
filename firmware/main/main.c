@@ -15,6 +15,7 @@
 #include "iot_button.h"
 #include "iot_knob.h"
 #include "lvgl.h"
+#include "cJSON.h"
 
 #include "bot_behavior.h"
 #include "bot_view.h"
@@ -910,8 +911,11 @@ static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBas
         ESP_LOGE(TAG, "%s task not created", name);
 }
 
+static void *json_malloc(size_t n) { return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT); }
+
 void app_main(void)
 {
+    cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = json_malloc, .free_fn = free});
     ESP_LOGI(TAG, "cinder starting");
     http_conn_quiet_idf_logs();
     config_store_init();
