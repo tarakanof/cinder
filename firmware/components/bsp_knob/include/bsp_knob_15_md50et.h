@@ -31,6 +31,9 @@ esp_err_t bsp_knob_15_md50et_lock(int timeout_ms);
 int bsp_knob_15_md50et_qspi_hz(void);
 /* esp_timer us of the last touch read that found a finger (0 before any); LVGL task only. */
 int64_t bsp_knob_15_md50et_touch_report_us(void);
+/* cinder (#1): touch indev reads since boot, and the uptime ms of the last one (0 before any); any task. */
+uint32_t bsp_knob_15_md50et_touch_reads(void);
+uint32_t bsp_knob_15_md50et_touch_read_ms(void);
 void bsp_knob_15_md50et_qspi_fallback_reboot(void);
 /* cinder: call before bsp_knob_15_md50et_init(); the SPI clock is fixed at creation. */
 void bsp_knob_15_md50et_set_qspi_fast(bool on);

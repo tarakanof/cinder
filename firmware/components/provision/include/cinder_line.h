@@ -19,7 +19,8 @@ typedef enum { CL_OP_INFO, CL_OP_SET_EMBER, CL_OP_STATUS, CL_OP_RESET, CL_OP_REB
               CL_OP_SNAPSHOT ,
               CL_OP_CHASE ,
               CL_OP_INPUT ,
-              CL_OP_OTA_FAULT } cl_op_t;
+              CL_OP_OTA_FAULT,
+              CL_OP_OTA_VALID } cl_op_t;
 typedef enum {
     CL_INPUT_TURN,
     CL_INPUT_PUSH,
@@ -44,6 +45,9 @@ typedef enum {
     CL_E_BUSY,
     CL_E_FAILED,
     CL_E_NOT_WORKING,
+    CL_E_NOT_PENDING,
+    CL_E_NO_CHECKIN,
+    CL_E_NOT_READY,
 } cl_err_t;
 
 typedef struct {

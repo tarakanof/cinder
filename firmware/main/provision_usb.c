@@ -394,6 +394,14 @@ static void op_ota_fault(const cl_req_t *r)
     else reply_err(r, CL_E_UNKNOWN_OP);
 }
 
+static void op_ota_valid(const cl_req_t *r)
+{
+    static const cl_err_t E[] = {CL_OK, CL_E_NOT_PENDING, CL_E_NO_CHECKIN, CL_E_NOT_READY, CL_E_BUSY, CL_E_FAILED};
+    ota_mark_t m = ota_client_mark_valid();
+    if (m == OTA_MARK_OK) reply_ok(r);
+    else reply_err(r, (unsigned)m < sizeof E / sizeof E[0] ? E[m] : CL_E_FAILED);
+}
+
 static void op_reset(const cl_req_t *r)
 {
     static const char *const NAMES[] = {"factory", "ember", "wifi"};
@@ -438,6 +446,7 @@ static void handle_line(const char *json)
         case CL_OP_CHASE: op_chase(s_req); break;
         case CL_OP_INPUT: op_input(s_req); break;
         case CL_OP_OTA_FAULT: op_ota_fault(s_req); break;
+        case CL_OP_OTA_VALID: op_ota_valid(s_req); break;
         case CL_OP_REBOOT:
             ESP_LOGW(TAG, "reboot over USB");
             reply_ok(s_req);

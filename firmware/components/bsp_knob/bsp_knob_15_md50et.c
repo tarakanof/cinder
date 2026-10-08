@@ -43,6 +43,7 @@ static atomic_int s_tp_irq = 1;
 static bool s_tp_down;
 static lv_point_t s_tp_point;
 static int64_t s_tp_report_us;
+static atomic_uint s_tp_reads, s_tp_read_ms;
 
 static void tp_isr(esp_lcd_touch_handle_t tp)
 {
@@ -54,6 +55,8 @@ static void tp_isr(esp_lcd_touch_handle_t tp)
 static void tp_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
     (void)indev;
+    atomic_fetch_add_explicit(&s_tp_reads, 1, memory_order_relaxed);
+    atomic_store_explicit(&s_tp_read_ms, (unsigned)(esp_timer_get_time() / 1000) | 1u, memory_order_relaxed);
     if (atomic_exchange(&s_tp_irq, 0) || s_tp_down) {
         esp_lcd_touch_point_data_t pt[1] = {0};
         uint8_t n = 0;
@@ -70,6 +73,8 @@ static void tp_read(lv_indev_t *indev, lv_indev_data_t *data)
 }
 
 int64_t bsp_knob_15_md50et_touch_report_us(void) { return s_tp_report_us; }
+uint32_t bsp_knob_15_md50et_touch_reads(void) { return atomic_load_explicit(&s_tp_reads, memory_order_relaxed); }
+uint32_t bsp_knob_15_md50et_touch_read_ms(void) { return atomic_load_explicit(&s_tp_read_ms, memory_order_relaxed); }
 
 /* Vendor init table; the driver default does not work on this panel (docs/llm.md). */
 static const co5300_lcd_init_cmd_t s_lcd_init_cmds[] = {

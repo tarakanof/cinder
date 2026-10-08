@@ -344,15 +344,60 @@ int ota_pct(uint32_t written, uint32_t size)
     return p > 100 ? 100 : (int)p;
 }
 
+static bool recent(int64_t age_ms, int64_t limit_ms) { return age_ms >= 0 && age_ms <= limit_ms; }
+
+static bool stacks_ok(const ota_health_in_t *in)
+{
+    for (int i = 0; i < in->n_tasks && i < OTA_HEALTH_TASKS_MAX; i++) {
+        const ota_task_stack_t *t = &in->tasks[i];
+        uint32_t need = t->name && strcmp(t->name, "lvgl") == 0 ? OTA_HEALTH_STACK_LVGL : OTA_HEALTH_STACK_MIN;
+        if (t->stack_free < need) return false;
+    }
+    return true;
+}
+
+ota_health_t ota_health_check(const ota_health_in_t *in)
+{
+    if (in->link == OTA_LINK_FAIL) return (ota_health_t){OTA_HEALTH_FAIL, "health_display"};
+    const char *why = NULL;
+    if (in->link != OTA_LINK_OK) why = "health_display";
+    else if (in->frames < OTA_HEALTH_MIN_FRAMES || !recent(in->loop_age_ms, OTA_HEALTH_LOOP_MS)) why = "health_render";
+    else if (!in->input_seen &&
+             (in->touch_reads < OTA_HEALTH_MIN_TOUCH_READS || !recent(in->touch_age_ms, OTA_HEALTH_TOUCH_MS)))
+        why = "health_input";
+    else if (in->heap_internal_min < OTA_HEALTH_HEAP_MIN || in->heap_largest_min < OTA_HEALTH_LARGEST_MIN)
+        why = "health_heap";
+    else if (!stacks_ok(in)) why = "health_stack";
+    return (ota_health_t){why ? OTA_HEALTH_PENDING : OTA_HEALTH_PASS, why};
+}
+
 bool ota_valid_ready(const ota_valid_in_t *in)
 {
-    return in->uptime_ms >= OTA_VALID_AFTER_MS && in->checkin_ok && in->frame && in->view_ok;
+    return in->uptime_ms >= OTA_VALID_AFTER_MS && in->checkin_ok && in->frame && in->view_ok &&
+           in->health == OTA_HEALTH_PASS;
 }
 
 bool ota_rollback_due(int64_t uptime_ms, bool pomo_active, int64_t limit_ms)
 {
     if (uptime_ms < limit_ms) return false;
     return !pomo_active || uptime_ms >= limit_ms + OTA_ROLLBACK_POMO_MS;
+}
+
+const char *ota_verify_rollback(bool due, bool checkin_seen, const ota_health_t *h)
+{
+    if (h->state == OTA_HEALTH_FAIL) return h->reason;
+    if (!due) return NULL;
+    if (checkin_seen && h->state == OTA_HEALTH_PENDING && h->reason) return h->reason;
+    return "no_checkin";
+}
+
+ota_override_t ota_override_check(bool verifying, const ota_valid_in_t *v)
+{
+    if (!verifying) return OTA_OVERRIDE_NOT_PENDING;
+    if (!v->checkin_ok) return OTA_OVERRIDE_NO_CHECKIN;
+    ota_valid_in_t w = *v;
+    w.health = OTA_HEALTH_PASS;
+    return ota_valid_ready(&w) ? OTA_OVERRIDE_OK : OTA_OVERRIDE_NOT_READY;
 }
 
 bool ota_rollback_capable(bool app_rollback, uint32_t bootloader_ver)

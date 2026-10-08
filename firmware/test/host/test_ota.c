@@ -403,8 +403,13 @@ static void test_progress_and_timers(void)
     }
     CHECK(changes <= 101, "face redraws only on whole percents: %d", changes);
 
-    ota_valid_in_t v = {.uptime_ms = 60000, .checkin_ok = true, .frame = true, .view_ok = true};
+    ota_valid_in_t v = {.uptime_ms = 60000, .checkin_ok = true, .frame = true, .view_ok = true, .health = OTA_HEALTH_PASS};
     CHECK(ota_valid_ready(&v), "valid at 60 s");
+    v.health = OTA_HEALTH_PENDING;
+    CHECK(!ota_valid_ready(&v), "needs health");
+    v.health = OTA_HEALTH_FAIL;
+    CHECK(!ota_valid_ready(&v), "not with failed health");
+    v.health = OTA_HEALTH_PASS;
     v.uptime_ms = 59999;
     CHECK(!ota_valid_ready(&v), "not before 60 s");
     v.uptime_ms = 120000;
@@ -533,6 +538,190 @@ static void test_reboot_gate(void)
     CHECK(ota_reboot_request(&g, OTA_REBOOT_NONE, true) == OTA_REBOOT_NONE && g.held == OTA_REBOOT_NONE, "none");
 }
 
+static ota_health_in_t healthy(void)
+{
+    ota_health_in_t h = {
+        .link = OTA_LINK_OK,
+        .frames = 750,
+        .loop_age_ms = 16,
+        .touch_reads = 5000,
+        .touch_age_ms = 16,
+        .heap_internal_min = 84 * 1024,
+        .heap_largest_min = 31 * 1024,
+        .n_tasks = 3,
+        .tasks = {{"ember", 1800}, {"lvgl", 2484}, {"link", 900}},
+    };
+    return h;
+}
+
+static bool reason_ok(const char *s)
+{
+    size_t n = s ? strlen(s) : 0;
+    if (n < 1 || n > 24) return false;
+    for (; *s; s++)
+        if (!((*s >= 'a' && *s <= 'z') || (*s >= '0' && *s <= '9') || *s == '_')) return false;
+    return true;
+}
+
+static bool is(ota_health_t r, ota_health_state_t st, const char *why)
+{
+    if (r.state != st) return false;
+    if (!why) return r.reason == NULL;
+    return r.reason && strcmp(r.reason, why) == 0;
+}
+
+static void test_health(void)
+{
+    ota_health_in_t h = healthy();
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "healthy passes");
+
+    h = healthy();
+    h.link = OTA_LINK_PENDING;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_display"), "no link check yet: pending");
+    h.link = OTA_LINK_FAIL;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_FAIL, "health_display"), "link fail at the fallback clock: hard fail");
+
+    h = healthy();
+    h.frames = OTA_HEALTH_MIN_FRAMES - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "19 frames: render");
+    h.frames = OTA_HEALTH_MIN_FRAMES;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "20 frames pass");
+    h.loop_age_ms = OTA_HEALTH_LOOP_MS;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "loop tick 30 s ago passes");
+    h.loop_age_ms = OTA_HEALTH_LOOP_MS + 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "loop stalled > 30 s: render");
+    h.loop_age_ms = -1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "loop never ran: render");
+
+    h = healthy();
+    h.touch_reads = OTA_HEALTH_MIN_TOUCH_READS - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "too few touch reads: input");
+    h.touch_reads = OTA_HEALTH_MIN_TOUCH_READS;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "20 touch reads pass");
+    h.touch_age_ms = OTA_HEALTH_TOUCH_MS + 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "touch reads stalled: input");
+    h.touch_age_ms = -1;
+    h.touch_reads = 0;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "no touch reads: input");
+    h.input_seen = true;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "a real turn or press passes input");
+
+    h = healthy();
+    h.heap_internal_min = OTA_HEALTH_HEAP_MIN - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "heap below 40 KB");
+    h.heap_internal_min = OTA_HEALTH_HEAP_MIN;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "heap at 40 KB passes");
+    h.heap_largest_min = OTA_HEALTH_LARGEST_MIN - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "largest block below 15 KB");
+    h.heap_largest_min = OTA_HEALTH_LARGEST_MIN;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "largest block at 15 KB passes");
+
+    h = healthy();
+    h.tasks[1].stack_free = OTA_HEALTH_STACK_LVGL - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_stack"), "lvgl below 1024 B");
+    h.tasks[1].stack_free = OTA_HEALTH_STACK_LVGL;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "lvgl at 1024 B passes");
+    h.tasks[2].stack_free = OTA_HEALTH_STACK_LVGL - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "other tasks need only 512 B");
+    h.tasks[2].stack_free = OTA_HEALTH_STACK_MIN - 1;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_stack"), "other task below 512 B");
+    h.tasks[2].stack_free = OTA_HEALTH_STACK_MIN;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "other task at 512 B passes");
+    h.n_tasks = 0;
+    h.tasks[0].stack_free = 0;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "only listed tasks count");
+
+    h = healthy();
+    h.link = OTA_LINK_PENDING;
+    h.frames = 0;
+    h.input_seen = false;
+    h.touch_reads = 0;
+    h.heap_internal_min = 0;
+    h.tasks[0].stack_free = 0;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_display"), "order: display first");
+    h.link = OTA_LINK_OK;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "order: then render");
+    h.frames = 750;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "order: then input");
+    h.touch_reads = 5000;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "order: then heap");
+    h.heap_internal_min = 84 * 1024;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_stack"), "order: then stack");
+    h.link = OTA_LINK_FAIL;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_FAIL, "health_display"), "a link fail outranks soft checks");
+
+    const char *reasons[] = {"health_display", "health_render", "health_input", "health_heap", "health_stack",
+                             "no_checkin"};
+    for (size_t i = 0; i < sizeof reasons / sizeof *reasons; i++)
+        CHECK(reason_ok(reasons[i]), "reason charset %s", reasons[i]);
+    CHECK(!reason_ok("Health") && !reason_ok("") && !reason_ok("health-display") && !reason_ok("a234567890123456789012345"),
+          "charset check rejects");
+    ota_rec_t r = {.att_state = OTA_ATT_BOOT, .att_attempt = 4};
+    strcpy(r.att_ver, "0.9.30");
+    ota_rec_rollback(&r, "health_render");
+    char out[320];
+    ota_report_t rep = {.rollback = true, .slot = 1, .image = "valid", .last = &r.last};
+    ota_report_json(&rep, out, sizeof out);
+    CHECK(strstr(out, "\"error\":\"health_render\"") != NULL, "the reason reaches the ota JSON: %s", out);
+}
+
+static void test_verify_rollback(void)
+{
+    ota_health_t pass = {OTA_HEALTH_PASS, NULL};
+    ota_health_t render = {OTA_HEALTH_PENDING, "health_render"};
+    ota_health_t stack = {OTA_HEALTH_PENDING, "health_stack"};
+    ota_health_t link = {OTA_HEALTH_FAIL, "health_display"};
+    const char *s;
+
+    CHECK(ota_verify_rollback(false, true, &pass) == NULL, "before the deadline: wait");
+    CHECK(ota_verify_rollback(false, true, &render) == NULL, "soft fail waits for the deadline");
+    CHECK(ota_verify_rollback(false, false, &render) == NULL, "soft fail without checkin waits too");
+    s = ota_verify_rollback(false, false, &link);
+    CHECK(s && strcmp(s, "health_display") == 0, "hard fail rolls back at once, even before a checkin");
+    s = ota_verify_rollback(true, true, &render);
+    CHECK(s && strcmp(s, "health_render") == 0, "deadline, checkins fine: the health reason");
+    s = ota_verify_rollback(true, true, &stack);
+    CHECK(s && strcmp(s, "health_stack") == 0, "deadline: the first failing reason as given");
+    s = ota_verify_rollback(true, false, &render);
+    CHECK(s && strcmp(s, "no_checkin") == 0, "deadline without any checkin: no_checkin");
+    s = ota_verify_rollback(true, true, &pass);
+    CHECK(s && strcmp(s, "no_checkin") == 0, "deadline, healthy but never valid: no_checkin");
+    s = ota_verify_rollback(true, false, &pass);
+    CHECK(s && strcmp(s, "no_checkin") == 0, "deadline, healthy, no checkin: no_checkin");
+
+    CHECK(!ota_rollback_due(29 * MIN_MS, false, OTA_ROLLBACK_MS) &&
+              ota_verify_rollback(ota_rollback_due(29 * MIN_MS, false, OTA_ROLLBACK_MS), true, &render) == NULL,
+          "29 min: wait");
+    s = ota_verify_rollback(ota_rollback_due(30 * MIN_MS, true, OTA_ROLLBACK_MS), true, &render);
+    CHECK(s == NULL, "pomodoro defers the health rollback");
+    s = ota_verify_rollback(ota_rollback_due(90 * MIN_MS, true, OTA_ROLLBACK_MS), true, &render);
+    CHECK(s && strcmp(s, "health_render") == 0, "after the pomodoro extension: health reason");
+    s = ota_verify_rollback(ota_rollback_due(2 * MIN_MS, false, 2 * MIN_MS), true, &render);
+    CHECK(s && strcmp(s, "health_render") == 0, "test build: health_render at 2 min");
+}
+
+static void test_override(void)
+{
+    ota_valid_in_t v = {.uptime_ms = 60000, .checkin_ok = true, .frame = true, .view_ok = true,
+                        .health = OTA_HEALTH_PENDING};
+    CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_OK, "pending + checkin: accepted, health skipped");
+    v.health = OTA_HEALTH_FAIL;
+    CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_OK, "health ignored");
+    CHECK(ota_override_check(false, &v) == OTA_OVERRIDE_NOT_PENDING, "not pending: refused");
+    v.checkin_ok = false;
+    CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_NO_CHECKIN, "no checkin yet: refused");
+    CHECK(ota_override_check(false, &v) == OTA_OVERRIDE_NOT_PENDING, "not pending outranks no checkin");
+    v.checkin_ok = true;
+    v.uptime_ms = 59999;
+    CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_NOT_READY, "the 60 s rule still applies");
+    v.uptime_ms = 60000;
+    v.frame = false;
+    CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_NOT_READY, "the frame rule still applies");
+    v.frame = true;
+    v.view_ok = false;
+    CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_NOT_READY, "the view rule still applies");
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1) vectors_dir = argv[1];
@@ -550,6 +739,9 @@ int main(int argc, char **argv)
     test_capable();
     test_backoff_retry();
     test_reboot_gate();
+    test_health();
+    test_verify_rollback();
+    test_override();
     if (failures) {
         printf("ota: %d failure(s)\n", failures);
         return 1;

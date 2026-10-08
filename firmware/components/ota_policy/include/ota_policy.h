@@ -143,14 +143,60 @@ const char *ota_header_check(const uint8_t *b, size_t n, const char *version, co
 
 int ota_pct(uint32_t written, uint32_t size);
 
+#define OTA_HEALTH_MIN_FRAMES 20
+#define OTA_HEALTH_LOOP_MS (30 * 1000)
+#define OTA_HEALTH_MIN_TOUCH_READS 20
+#define OTA_HEALTH_TOUCH_MS (30 * 1000)
+#define OTA_HEALTH_HEAP_MIN (40 * 1024)
+#define OTA_HEALTH_LARGEST_MIN (15 * 1024)
+#define OTA_HEALTH_STACK_LVGL 1024
+#define OTA_HEALTH_STACK_MIN 512
+#define OTA_HEALTH_TASKS_MAX 12
+
+typedef enum { OTA_LINK_PENDING, OTA_LINK_OK, OTA_LINK_FAIL } ota_link_t;
+
+typedef struct {
+    const char *name;
+    uint32_t stack_free;
+} ota_task_stack_t;
+
+/* Ages in ms, -1 when the event never happened; heap and stack values are bytes, minimum since boot. */
+typedef struct {
+    ota_link_t link;
+    uint32_t frames;
+    int64_t loop_age_ms;
+    uint32_t touch_reads;
+    int64_t touch_age_ms;
+    bool input_seen;
+    uint32_t heap_internal_min;
+    uint32_t heap_largest_min;
+    int n_tasks;
+    ota_task_stack_t tasks[OTA_HEALTH_TASKS_MAX];
+} ota_health_in_t;
+
+typedef enum { OTA_HEALTH_PENDING, OTA_HEALTH_PASS, OTA_HEALTH_FAIL } ota_health_state_t;
+typedef struct {
+    ota_health_state_t state;
+    const char *reason;
+} ota_health_t;
+/* reason: the first check not passed (NULL on PASS); FAIL only for a link failure at the fallback clock. */
+ota_health_t ota_health_check(const ota_health_in_t *in);
+
 typedef struct {
     int64_t uptime_ms;
     bool checkin_ok;
     bool frame;
     bool view_ok;
+    ota_health_state_t health;
 } ota_valid_in_t;
 bool ota_valid_ready(const ota_valid_in_t *in);
 bool ota_rollback_due(int64_t uptime_ms, bool pomo_active, int64_t limit_ms);
+/* The rollback reason now, or NULL to keep waiting; due: ota_rollback_due; checkin_seen: any 200 checkin this boot. */
+const char *ota_verify_rollback(bool due, bool checkin_seen, const ota_health_t *h);
+
+typedef enum { OTA_OVERRIDE_OK, OTA_OVERRIDE_NOT_PENDING, OTA_OVERRIDE_NO_CHECKIN, OTA_OVERRIDE_NOT_READY } ota_override_t;
+/* CINDER1 ota_valid: v->checkin_ok is any 200 checkin this boot; v->health is ignored. */
+ota_override_t ota_override_check(bool verifying, const ota_valid_in_t *v);
 bool ota_rollback_capable(bool app_rollback, uint32_t bootloader_ver);
 
 typedef struct {

@@ -393,6 +393,17 @@ static void test_diag_override(void)
     CHECK(cl_parse("{\"id\":32,\"op\":\"ota_fault\",\"fault\":\"crash_boot\"}", &r) == CL_E_BAD_VALUE,
           "boot faults are build-time only");
     CHECK(cl_parse("{\"id\":33,\"op\":\"ota_fault\"}", &r) == CL_E_BAD_JSON, "ota_fault without a fault");
+    CHECK(cl_parse("{\"id\":34,\"op\":\"ota_valid\"}", &r) == CL_OK && r.op == CL_OP_OTA_VALID && r.id == 34,
+          "ota_valid (all builds)");
+    {
+        char buf[128];
+        cl_reply_error(true, 34, CL_E_NOT_PENDING, buf, sizeof buf);
+        CHECK(strstr(buf, "\"not_pending\"") != NULL, "not_pending error: %s", buf);
+        cl_reply_error(true, 34, CL_E_NO_CHECKIN, buf, sizeof buf);
+        CHECK(strstr(buf, "\"no_checkin\"") != NULL, "no_checkin error: %s", buf);
+        cl_reply_error(true, 34, CL_E_NOT_READY, buf, sizeof buf);
+        CHECK(strstr(buf, "\"not_ready\"") != NULL, "not_ready error: %s", buf);
+    }
     CHECK(cl_parse("{\"id\":10,\"op\":\"chase\"}", &r) == CL_OK && r.op == CL_OP_CHASE && r.id == 10 && r.chase_style == 0,
           "chase (dev tool), full by default");
     CHECK(cl_parse("{\"id\":11,\"op\":\"chase\",\"style\":\"half\"}", &r) == CL_OK && r.chase_style == 1, "chase half");
