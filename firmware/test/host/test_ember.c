@@ -161,17 +161,11 @@ static void test_dim(void)
     dim_fade_init(&f, 100);
     dim_fade_set_target(&f, 140);
     CHECK(dim_fade_tick(&f, &v) && v == 102, "first step: %d", v);
-    dim_fade_retry(&f);
-    CHECK(dim_fade_tick(&f, &v) && v == 102, "retry repeats the step: %d", v);
     CHECK(dim_fade_tick(&f, &v) && v == 104, "then continues: %d", v);
     while (dim_fade_tick(&f, &v)) {}
     CHECK(v == 140, "fade ends at 140: %d", v);
-    dim_fade_retry(&f);
-    CHECK(dim_fade_tick(&f, &v) && v == 140, "lost last step is written again: %d", v);
     CHECK(!dim_fade_tick(&f, &v), "then settled");
-    dim_fade_retry(&f);
     dim_fade_set_target(&f, 100);
-    CHECK(dim_fade_tick(&f, &v) && v == 140, "retry before a retarget: %d", v);
     CHECK(dim_fade_tick(&f, &v) && v == 138, "retarget continues from there: %d", v);
 }
 

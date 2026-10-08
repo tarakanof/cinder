@@ -410,6 +410,17 @@
    "esp_netif_action_stop",
    "esp_netif_action_connected",
    "esp_netif_action_disconnected"
+  ],
+  "pr_frame": [
+   "panel_rd",
+   "panel_wr"
+  ],
+  "pr_start": [
+   "panel_rd",
+   "panel_wr"
+  ],
+  "pr_finish": [
+   "panel_wr"
   ]
  },
  "tasks": {

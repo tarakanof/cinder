@@ -97,6 +97,7 @@ static int s_demo_index;
 static double s_demo_until;
 static double s_demo_hold_s = 20.0;
 #define LINK_FALLBACK 1
+#define LINK_CHECK_WAIT_MS 1000
 #define CHASE_LEAD_DEG 15.0
 /* Chase gaze reach is tuned against tearing without TE; the eye rate is CINDER1 chase fps (docs/features.md, chase tearing, chase near the ring). */
 #define CHASE_GAZE 0.6
@@ -218,7 +219,7 @@ static bool link_confirm_fail(int seed)
     int fails = 0;
     for (int k = 0; k < 3; k++) {
         uint8_t raw[32];
-        int bad = panel_check_run(seed + 1000 + k, raw);
+        int bad = panel_check_run(seed + 1000 + k, raw, LINK_CHECK_WAIT_MS);
         ESP_LOGW(TAG, "link recheck %d: %d (level %02X wrote %02X read %02X)", k, bad, raw[0], raw[1], raw[2]);
         fails += bad > 0;
     }
@@ -250,7 +251,7 @@ static void link_task(void *arg)
     if (bsp_knob_15_md50et_qspi_fallback_active()) ESP_LOGW(TAG, "display link: 40 MHz (fallback after a failed check)");
     for (int i = 0; i < 5; i++) {
         uint8_t raw[32];
-        int bad = panel_check_run(i, raw);
+        int bad = panel_check_run(i, raw, LINK_CHECK_WAIT_MS);
         ESP_LOGW(TAG, "link check %d at %d MHz: %d bad | %02X %02X %02X %02X %02X %02X %02X %02X", i,
                  bsp_knob_15_md50et_qspi_hz() / 1000000, bad, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5],
                  raw[6], raw[7]);
@@ -271,8 +272,7 @@ static void link_task(void *arg)
         if (want != (bool)fast && s_reboot_gate.held == OTA_REBOOT_NONE)
             link_reboot_request(OTA_REBOOT_RESTART,
                                 want ? "fast link turned on: rebooting at 80 MHz" : "fast link turned off: rebooting at 40 MHz");
-        int bad = panel_check_run(seed, NULL);
-        if (bad == -2) continue;
+        int bad = panel_check_run(seed, NULL, LINK_CHECK_WAIT_MS);
         runs++;
         if (bad < 0) errs++;
         else if (bad > 0) fails++;
@@ -680,6 +680,7 @@ static atomic_uint s_loop_ticks;
 
 static void frame_cb(lv_timer_t *timer)
 {
+    panel_check_frame();
     render_freeze(lv_timer_get_user_data(timer));
     if (ota_client_render_frozen()) return;
     ota_client_note_loop();
@@ -942,6 +943,7 @@ void app_main(void)
     ESP_ERROR_CHECK(bsp_knob_15_md50et_init(&handles));
     bsp_knob_15_md50et_register_knob_cb(knob_cb);
     bsp_knob_15_md50et_register_button_cb(button_cb);
+    panel_check_init(handles.panel, handles.panel_io);
 
     bot_init(&s_bot, 0x454D4252ULL, now_s());
     s_fps_since = now_s();
@@ -981,10 +983,9 @@ void app_main(void)
 
     config_store_settings(s_ks_lv);
     uint8_t startup = s_ks_lv->startup;
-    ESP_ERROR_CHECK(bsp_knob_15_md50et_set_brightness_level(startup));
+    panel_check_brightness(startup);
     if (!s_setup) ember_client_dim_enable(startup);
     psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY);
-    panel_check_init(handles.panel, handles.panel_io);
     psram_task(link_task, "link", 4096, 1, 1);
     if (!s_setup) psram_task(orbit_task, "orbit", 3840, 1, 1);
     provision_usb_start();
