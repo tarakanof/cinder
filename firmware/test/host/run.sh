@@ -71,3 +71,7 @@ fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
 "${OUT}_ota_rec"
+cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$G/include" -I"$J" \
+    "$K/knob_view.c" "$K/ember_legacy.c" "$P/pomo.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
+    "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
+"${OUT}_legacy"

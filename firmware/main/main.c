@@ -38,6 +38,7 @@
 #include "ota_client.h"
 #include "ota_face.h"
 #include "screen_snap.h"
+#include "press_route.h"
 #include "provision_usb.h"
 #include "reset_gesture.h"
 #include "touch_swipe.h"
@@ -313,12 +314,16 @@ static void knob_cb(void *event)
     taskENTER_CRITICAL(&s_rg_mux);
     bool reset_turn = rg_turn(&s_rg, dir, now_s());
     taskEXIT_CRITICAL(&s_rg_mux);
-    if (reset_turn) return;
-    if (atomic_load(&s_button_down)) {
+    switch (pr_turn(reset_turn, atomic_load(&s_button_down))) {
+    case PR_TURN_PAGE:
         atomic_store(&s_turned_while_down, true);
         atomic_fetch_add(&s_page_steps, dir);
-    } else {
+        break;
+    case PR_TURN_DETENT:
         atomic_fetch_add(&s_detents, dir);
+        break;
+    default:
+        break;
     }
 }
 
@@ -342,8 +347,8 @@ static void button_cb(void *event)
         bool reset_press = rg_release(&s_rg, now_s());
         taskEXIT_CRITICAL(&s_rg_mux);
         atomic_store(&s_button_down, false);
-        if (!reset_press && !atomic_load(&s_turned_while_down))
-            atomic_fetch_add(atomic_load(&s_hold_seen) ? &s_long_pushes : &s_pushes, 1);
+        pr_press_t press = pr_release(reset_press, atomic_load(&s_turned_while_down), atomic_load(&s_hold_seen));
+        if (press != PR_PRESS_NONE) atomic_fetch_add(press == PR_PRESS_LONG ? &s_long_pushes : &s_pushes, 1);
         break;
     }
     default:

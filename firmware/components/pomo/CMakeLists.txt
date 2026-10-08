@@ -1,3 +1,3 @@
-idf_component_register(SRCS "pomo.c" "pomo_ring.c"
+idf_component_register(SRCS "pomo.c" "pomo_ring.c" "pomo_legacy.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES bot)
+                       REQUIRES bot json)
