@@ -446,7 +446,7 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 | `ember` | 1 / 3 | 6144 → **6912** | 3044 (3100) | 5056 (checkin answer parsed at 32 levels; without recursion budgets 4944: OTA service → fresh view → Pomodoro action → HTTP → lwIP OOM log) | 1856 |
 | `eye` | 1 / 5 | 2560 | 1260 (1300) | 1456 (raster) | 1104 |
 | `link` | 1 / 1 | 3072 → **4096** (PSRAM since 0.9.34) | 752 (2320) | 2960 (link check → SPI → error log); 0.9.34: 2704 (log line, the check runs on `lvgl`) | 1392 |
-| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 8400 (render, event cut at 2 entries, 4 redraw levels) | 1840 |
+| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 8368 (render, event cut at 2 entries, 4 redraw levels) | 1872 |
 | `prov` | 1 / 2 | 3584 → **5120** | 2316 (1268) | 4000 (CINDER1 parse at 32 levels; NVS write → mmap error log 3920) | 1120 |
 | `rim` | 1 / 2 | 6144 → **2560** (PSRAM since 0.9.34) | 4988 (1156) | 1312 (ring + raster) | 1248 |
 | `stats` | any / 1 | 3072 → **3840** (PSRAM since 0.9.34) | 568 (2504) | 2640 (log line); 0.9.34: 2688 (deletes `orbit`) | 1152 |
@@ -454,7 +454,7 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 | `weather` (Ember without view) | 1 / 3 | 6144 → **5120** (PSRAM since 0.9.34) | — | 3936; 0.9.34: 3920 | 1200 |
 | `orbit` (boot, ~5 s) | 1 / 1 | 2560 → **3328** (PSRAM since 0.9.34) | — | 2144 | 1184 |
 | `reset` (factory reset) | 1 / 4 | 3072 → **4864** | — | 3632 | 1232 |
-| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5728 (LVGL init events; NVS error log 4112); 0.9.34: 5744 (5568 once the memo bug is fixed: the 5744 path repeats LVGL layout functions) | 1168 |
+| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5552 (LVGL init events; NVS error log 4112); 0.9.34: 5616 | 1296 |
 | `esp_timer` (IDF) | 1 / 22 | 3584 → **4096** | — | 2768 (Wi-Fi reconnect log; Wi-Fi blob timers unresolved) | 1328 |
 | `sys_evt` (IDF) | 0 / 20 | 2304 → **3840** | — | 2784 (`esp_netif` connected log) | 1056 |
 | `ipc0` / `ipc1` (IDF) | 0, 1 / 24 | 1280 (IDF default, exempt) | — | 1168 (mostly the fixed overhead) | 112 |
@@ -462,7 +462,7 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 
 **`ipc0`/`ipc1` are exempt from the 1 KB rule** (user decision 2026-10-08): no app code runs there, IDF sizes them for its own IPC callbacks, and their 1168 B estimate is mostly the model's fixed 768 B overhead; they stay at IDF's 1280 B. Not estimated: `tiT` (3072, lwIP callbacks unresolved), `wifi` (blob), `IDLE0`/`IDLE1` (1536), the ISR stacks (2096 B per core, `port_IntStack`). The stats log line now appends the IDF tasks after `| idf` (`esp_timer`, `ipc0`/`ipc1`, `sys_evt`, `tiT`, `Tmr Svc`, `wifi`), so they can be sized from field data.
 
-Since 0.9.34 `rim`, `stats`, `link` and `orbit` have PSRAM stacks (architecture follow-ups below); the other app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same estimate of 0.9.31 found gaps: `prov` (4000 > 3584), `reset` (3632 > 3072), `main` (5728 > 3584) and `sys_evt` (2784 > 2304) could overflow on an error-log path; `link` and `ipc` had 112 B, `stats` 240 B, `esp_timer` 816 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
+Since 0.9.34 `rim`, `stats`, `link`, `orbit`, `pomo` and `weather` have PSRAM stacks (architecture follow-ups below); the other app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same estimate of 0.9.31 found gaps: `prov` (4000 > 3584), `reset` (3632 > 3072), `main` (5728 > 3584; over-counted by the old cache, 5552 with the fix) and `sys_evt` (2784 > 2304) could overflow on an error-log path; `link` and `ipc` had 112 B, `stats` 240 B, `esp_timer` 816 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
 
 - **Main fix: the triangle table.** `bot_shape.c` built it lazily on whichever task drew the first outline, with `double raw[720]` (5.76 KB) on that task's stack: the LVGL task in practice, where it set the 7756 B high-water mark. Now `bot_shape_init()` builds it once from `bot_view_create`, before the `rim` task exists and before the LVGL timer runs; the scratch is static in PSRAM, and `bot_body_ring` asserts the table is ready.
 - **stats**: its frame 336 → 144 B (the stats, refresh-kind and Wi-Fi structs and the stack line are static in PSRAM); the rest is the log path.
