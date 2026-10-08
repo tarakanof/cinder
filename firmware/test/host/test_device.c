@@ -161,13 +161,13 @@ static void test_checkin_answer(void)
     CHECK(!r.ok, "not json");
 
     dev_checkin_parse("{\"config_version\":2,\"config\":{\"a\":[{\"b\":{}},1],\"c\":2},\"x\":{\"y\":{\"z\":{\"w\":{\"v\":{}}}}}}", &r);
-    CHECK(r.ok && r.config && strcmp(r.config, "{\"a\":[{\"b\":{}},1],\"c\":2}") == 0, "config at 4 levels kept: %s",
+    CHECK(r.ok && r.config && !r.config_too_deep && strcmp(r.config, "{\"a\":[{\"b\":{}},1],\"c\":2}") == 0, "config at 4 levels kept: %s",
           r.config ? r.config : "(null)");
     dev_checkin_result_free(&r);
     dev_checkin_parse("{\"config_version\":2,\"config\":{\"a\":[{\"b\":{\"c\":[]}}]}}", &r);
-    CHECK(r.ok && r.config_version == 2 && !r.config, "config at 5 levels dropped");
+    CHECK(r.ok && r.config_version == 2 && !r.config && r.config_too_deep, "config at 5 levels dropped");
     dev_checkin_parse("{\"config_version\":2,\"config\":{\"p\":[[1],{\"q\":[2]}],\"r\":[[[[3]]]]}}", &r);
-    CHECK(r.ok && !r.config, "deep tail after a shallow sibling dropped");
+    CHECK(r.ok && !r.config && r.config_too_deep, "deep tail after a shallow sibling dropped");
     dev_checkin_result_free(&r);
 }
 

@@ -127,6 +127,7 @@ typedef struct {
     bool ok;
     uint32_t config_version;
     char *config;                 /* malloc'd compact JSON of "config", or NULL (absent, or nested deeper than DEV_CONFIG_MAX_DEPTH); caller frees */
+    bool config_too_deep;         /* "config" dropped for depth */
     bool has_new_token;
     char new_token[DEV_TOKEN_MAX + 1];
     long long diag_live_until;   /* server Unix s; 0 = absent */
