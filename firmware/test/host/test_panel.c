@@ -211,10 +211,11 @@ static void test_restore_fails(void)
     F.fail_write_at = 2;
     F.fail_write_until = 3;
     t = pr_check_post(&P, 0);
-    frames(0, 300);
+    frames(0, 32);
     pr_brightness(&P, 50);
-    frames(316, 600);
-    CHECK(F.level == 50, "a newer level wins over the queued restore (%d)", F.level);
+    frames(48, 600);
+    CHECK(pr_check_result(&P, t, &bad, NULL) && bad == -1, "restore fails with a newer level pending: -1");
+    CHECK(F.level == 50, "a level posted mid-check wins over the queued restore (%d)", F.level);
 }
 
 static void test_brightness_write_fails(void)
