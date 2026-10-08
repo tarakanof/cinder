@@ -69,7 +69,7 @@ const char *dev_boot_reason_name(int reset_reason, bool lvgl_stall);
 #define DEV_STALL_MAGIC 0x4C565354u
 #define DEV_STALL_MAX_RESETS 3
 #define DEV_STALL_CLEAR_MS (10 * 60 * 1000)
-/* Lives in RTC_NOINIT memory; any field may be garbage until dev_stall_boot. */
+/* Lives in RTC_NOINIT memory; any field may be garbage until dev_stall_boot. Bump DEV_STALL_MAGIC whenever this layout changes. */
 typedef struct {
     uint32_t magic;
     uint32_t resets;
