@@ -19,7 +19,8 @@ CALL_MID = re.compile(r'\scall(?:0|8)\s+[0-9a-f]{8} <[^>+]+\+0x')
 CALLS = re.compile(r'\scallx?(?:0|8)\s')
 INSN = re.compile(r'^\s*([0-9a-f]{8}):\s+(\S+)\s*(.*)$')
 TARGET = re.compile(r'([0-9a-f]{8}) <[^>]*>$')
-JUMPS = ('j', 'loop', 'loopnez', 'loopgtz')
+LOOPS = ('loop', 'loopnez', 'loopgtz')
+JUMPS = ('j',) + LOOPS
 STOPS = ('j', 'jx', 'ret', 'ret.n', 'retw', 'retw.n', 'rfe', 'rfi', 'rfde', 'rfwo', 'rfwu', 'ill', 'ill.n', '.byte')
 REG = re.compile(r'\ba\d+\b')
 TABLE_MAX = 1024
@@ -93,7 +94,7 @@ def writes(line, mn, regs):
 
 def prev(pred, bpred, x):
     ps = ([(pred[x], False)] if x in pred else []) + [(b, True) for b in bpred.get(x, ())]
-    return ps[0] if len(ps) == 1 else None
+    return ps[0] if len(ps) == 1 and ps[0][0] is not None else None
 
 
 def bound(mn, ops, args, idx, taken):
@@ -166,34 +167,48 @@ def table(elf, code, pred, bpred, a, s, e):
 
 def descend(f, elf):
     s, e, code = f['start'], f['end'], f['code']
-    live, pred, bpred, missing, whole, tails, outside, todo = set(), {}, {}, set(), False, [], [], [s]
-    while todo:
-        a = todo.pop()
-        while s <= a < e and a not in live:
-            if a not in code:
-                missing.add(a)
-                break
-            line, mn, ops, n = code[a]
-            live.add(a)
-            t = TARGET.search(ops)
-            if t and (mn in JUMPS or (mn.startswith('b') and not mn.startswith('break'))):
-                x = int(t.group(1), 16)
-                if s <= x < e:
-                    todo.append(x)
-                    bpred.setdefault(x, []).append(a)
-                elif '+0x' in t.group(0):
-                    outside.append(x)
-                else:
-                    tails.append(x)
-            if mn == 'jx':
-                tab, tail = table(elf, code, pred, bpred, a, s, e)
-                whole |= tab is None and tail is None
-                todo += tab or []
-                tails += [] if tail is None else [tail]
-            if mn in STOPS:
-                break
-            pred[a + n] = a
-            a += n
+    live, pred, bpred, missing, tails, outside, todo = set(), {}, {}, set(), [], [], [s]
+    sites, found = [], {}
+    for _ in range(64):
+        while todo:
+            a = todo.pop()
+            while s <= a < e and a not in live:
+                if a not in code:
+                    missing.add(a)
+                    break
+                line, mn, ops, n = code[a]
+                live.add(a)
+                t = TARGET.search(ops)
+                if t and (mn in JUMPS or (mn.startswith('b') and not mn.startswith('break'))):
+                    x = int(t.group(1), 16)
+                    if s <= x < e:
+                        todo.append(x)
+                        bpred.setdefault(x, []).append(a)
+                    elif '+0x' in t.group(0):
+                        outside.append(x)
+                    else:
+                        tails.append(x)
+                if mn in LOOPS:
+                    bpred.setdefault(a + n, []).append(None)
+                if mn == 'jx':
+                    sites.append(a)
+                if mn in STOPS:
+                    break
+                pred[a + n] = a
+                a += n
+        now = {a: table(elf, code, pred, bpred, a, s, e) for a in sites}
+        for a, (tab, _) in now.items():
+            for x in tab or ():
+                todo += [] if x in live else [x]
+                if None not in bpred.setdefault(x, []):
+                    bpred[x].append(None)
+        if not todo and now == found:
+            break
+        found = now
+    else:
+        found = {None: (None, None)}
+    whole = any(tab is None and tail is None for tab, tail in found.values())
+    tails += [tail for _, tail in found.values() if tail is not None]
     return {'live': live, 'missing': missing, 'whole': whole, 'tails': tails, 'outside': outside}
 
 

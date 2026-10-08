@@ -408,6 +408,106 @@ class Desync(unittest.TestCase):
         self.assertEqual(g.funcs[0x42000110]["ind"], 0)
         self.assertEqual((g.stats["dead_start"], g.stats["mid_live"]), (0, 0))
 
+    GUARDED = """
+42000000 <sw>:
+42000000:\tentry\ta1, 32
+42000003:\tmovi.n\ta9, %d
+42000005:\t%s
+42000008:\t%s
+4200000a:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+4200000d:\taddx4\ta8, a2, a8
+42000010:\tl32i.n\ta8, a8, 0
+42000012:\tjx\ta8
+42000015:\tcall8\t42000100 <leaf>
+42000018:\tretw.n
+4200001a:\tcall8\t42000200 <big>
+4200001d:\tretw.n
+
+42000100 <leaf>:
+42000100:\tentry\ta1, 48
+42000103:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+    TAKEN, FALL = "4200000a <sw+0xa>", "42000018 <sw+0x18>"
+
+    def guarded(self, k, guard, gap="nop.n", table=(0x42000015, 0x4200001a)):
+        g = load(self.GUARDED % (k, guard, "retw.n" if self.TAKEN in guard else gap), tables={0x3c000000: table})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        return g.stats["whole"]
+
+    def test_unsigned_guards_give_the_table_length(self):
+        for k, guard in ((0, "bltui\ta2, 2, " + self.TAKEN), (0, "bgeui\ta2, 2, " + self.FALL),
+                         (2, "bltu\ta2, a9, " + self.TAKEN), (1, "bltu\ta9, a2, " + self.FALL),
+                         (2, "bgeu\ta2, a9, " + self.FALL), (1, "bgeu\ta9, a2, " + self.TAKEN)):
+            self.assertEqual(self.guarded(k, guard), 0, guard)
+
+    def test_guards_that_do_not_bound_the_index_keep_the_whole_function(self):
+        for k, guard, gap in ((0, "blti\ta2, 2, " + self.TAKEN, "nop.n"), (0, "bgei\ta2, 2, " + self.FALL, "nop.n"),
+                              (0, "bgeui\ta2, 2, " + self.FALL, "addi.n\ta2, a2, 1"),
+                              (0, "bltui\ta3, 2, " + self.TAKEN, "nop.n"),
+                              (2000, "bltu\ta2, a9, " + self.TAKEN, "nop.n")):
+            self.assertEqual(self.guarded(k, guard, gap), 1, guard)
+
+    def test_short_table_read_keeps_the_whole_function(self):
+        self.assertEqual(self.guarded(0, "bltui\ta2, 2, " + self.TAKEN, table=(0x42000015,)), 1)
+
+    def test_a_later_branch_past_the_guard_keeps_the_whole_function(self):
+        text = """
+42000000 <sw>:
+42000000:\tentry\ta1, 32
+42000003:\tbeqz\ta5, 4200001e <sw+0x1e>
+42000006:\tbgeui\ta2, 1, 42000017 <sw+0x17>
+42000009:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+4200000c:\taddx4\ta8, a2, a8
+4200000f:\tl32i.n\ta8, a8, 0
+42000011:\tjx\ta8
+42000014:\tcall8\t42000100 <leaf>
+42000017:\tretw.n
+42000019:\tcall8\t42000200 <big>
+4200001c:\tretw.n
+4200001e:\tmovi.n\ta2, 1
+42000020:\tj\t42000009 <sw+0x9>
+
+42000100 <leaf>:
+42000100:\tentry\ta1, 48
+42000103:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        g = load(text, tables={0x3c000000: (0x42000014, 0x42000019)})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        self.assertEqual(g.stats["whole"], 1)
+
+    def test_jx_in_a_loop_body_does_not_trust_a_guard_before_the_loop(self):
+        text = """
+42000000 <sw>:
+42000000:\tentry\ta1, 32
+42000003:\tbgeui\ta2, 1, 4200001a <sw+0x1a>
+42000006:\tloopnez\ta3, 4200001a <sw+0x1a>
+42000009:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+4200000c:\taddx4\ta8, a2, a8
+4200000f:\tl32i.n\ta8, a8, 0
+42000011:\tjx\ta8
+42000014:\taddi.n\ta2, a2, 1
+42000016:\tj\t4200001a <sw+0x1a>
+42000019:\tnop.n
+4200001a:\tretw.n
+4200001c:\tcall8\t42000200 <big>
+4200001f:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        g = load(text, tables={0x3c000000: (0x42000014, 0x4200001c)})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        self.assertEqual(g.stats["whole"], 1)
+
     def test_unresolved_jx_keeps_the_whole_function(self):
         text = """
 42000000 <sw>:
