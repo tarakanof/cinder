@@ -94,11 +94,22 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release
           path: dist
+      - name: Check SHA256SUMS
+        working-directory: dist
+        run: sha256sum -c SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/cinder.bin
+            dist/cinder.elf
+            dist/SHA256SUMS
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,7 +121,6 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum -c SHA256SUMS
           if gh release view "$TAG" --json isDraft --jq .isDraft >draft 2>/dev/null; then
             if [ "$(cat draft)" = true ]; then
               gh release delete "$TAG" --yes
@@ -135,6 +145,6 @@ jobs:
           fi
           flags=(--verify-tag --title "cinder $VERSION")
           if [ "$PRERELEASE" = true ]; then flags+=(--prerelease --latest=false); fi
-          printf 'Secret-free build of %s (sdkconfig.defaults only) by [this run](%s).\n\nEmber serves it over OTA after tools/release.sh. SHA256SUMS covers cinder.bin and cinder.elf.\n' \
-            "$GITHUB_SHA" "$RUN_URL" >notes.md
+          printf 'Secret-free build of %s (sdkconfig.defaults only) by [this run](%s).\n\nEmber serves it over OTA after tools/release.sh. SHA256SUMS covers cinder.bin and cinder.elf. Each asset has a build provenance attestation, for example: gh attestation verify cinder.bin --repo %s --cert-identity %s/%s/.github/workflows/release.yml@refs/tags/%s\n' \
+            "$GITHUB_SHA" "$RUN_URL" "$GH_REPO" "$GITHUB_SERVER_URL" "$GH_REPO" "$TAG" >notes.md
           gh release create "$TAG" "${flags[@]}" --notes-file notes.md cinder.bin cinder.elf SHA256SUMS

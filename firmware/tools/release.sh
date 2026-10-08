@@ -4,19 +4,26 @@ set -euo pipefail
 if [ $# -ne 1 ] || ! [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
     echo "Usage: tools/release.sh X.Y.Z  (PROJECT_VER in firmware/CMakeLists.txt must already be X.Y.Z)" >&2
     echo "Tags and pushes vX.Y.Z, waits for the release workflow, checks that the GitHub Release assets came" >&2
-    echo "from that run at this commit and match its artifact and SHA256SUMS, then uploads those exact bytes" >&2
-    echo "to Ember (publish.sh --release --no-build). Never builds locally; a re-run skips what is done." >&2
+    echo "from that run at this commit, are immutable, match its artifact and SHA256SUMS and carry its build" >&2
+    echo "provenance attestation, then uploads those exact bytes to Ember (publish.sh --release --no-build)." >&2
+    echo "Never builds locally; a re-run skips what is done." >&2
     exit 2
 fi
 V="$1"
 TAG="v$V"
 WORKFLOW=release.yml
-API="repos/{owner}/{repo}"
+REPO=tarakanof/cinder
+API="repos/$REPO"
+export GH_REPO="$REPO"
 BOT="github-actions[bot]"
 FW="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$FW/.."
 
 command -v gh >/dev/null || { echo "gh (GitHub CLI) not found" >&2; exit 1; }
+HOST_RE='^(git@|ssh://git@|https://)github\.com(-personal)?[:/]'
+for url in "$(git remote get-url origin)" "$(git remote get-url --push origin)"; do
+    [[ "$url" =~ $HOST_RE"$REPO"(\.git)?$ ]] || { echo "git remote origin ($url) is not github.com/$REPO" >&2; exit 1; }
+done
 [ -z "${EMBER_ENV_FILE:-}" ] || echo "note: EMBER_ENV_FILE is set: publishing to the server in $EMBER_ENV_FILE" >&2
 git fetch -q origin main
 REFS="$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}")" || { echo "cannot list tags on origin" >&2; exit 1; }
@@ -87,6 +94,8 @@ for key, want in (("path", ".github/workflows/release.yml"), ("event", "push"), 
                   ("head_sha", sha), ("status", "completed"), ("conclusion", "success")):
     if run.get(key) != want:
         problems.append(f"run {key} is {run.get(key)!r}, want {want!r}")
+if rel.get("immutable") is not True:
+    problems.append("release is not immutable")
 if rel.get("tag_name") != tag or rel.get("draft") or rel.get("prerelease"):
     problems.append("release is not the published, non-prerelease " + tag)
 if (rel.get("author") or {}).get("login") != bot:
@@ -140,6 +149,13 @@ if built != version:
     sys.exit("cinder.bin is version " + built + ", want " + version)
 print("SHA256SUMS ok and equal to the run artifact: cinder.bin " + want["cinder.bin"])
 EOF
+for f in cinder.bin cinder.elf SHA256SUMS; do
+    gh attestation verify "$DIST/release/$f" --repo "$REPO" \
+        --cert-identity "https://github.com/$REPO/.github/workflows/$WORKFLOW@refs/tags/$TAG" \
+        --source-ref "refs/tags/$TAG" --source-digest "$REL_SHA" --deny-self-hosted-runners >/dev/null ||
+        { echo "$f: no valid build provenance attestation from $WORKFLOW at $TAG ($REL_SHA), refusing" >&2; exit 1; }
+done
+echo "attestations ok: cinder.bin, cinder.elf and SHA256SUMS were built by $WORKFLOW at $TAG ($REL_SHA)"
 
 "$FW/tools/publish.sh" --release --no-build --dir "$DIST/release"
 echo "released $V ($REL_SHA): GitHub Release $TAG, run $RUN's artifact and Ember channel release hold the same bytes"
