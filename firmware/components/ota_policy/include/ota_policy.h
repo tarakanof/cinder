@@ -65,6 +65,23 @@ typedef struct {
     char bad[OTA_SHA_HEX + 1];
 } ota_rec_t;
 
+/* Store behind the record: get false on a missing or wrong-type key; set/erase 0 or the store error (erase of a missing key: 0). */
+typedef struct {
+    void *ctx;
+    bool (*get_u8)(void *ctx, const char *key, uint8_t *v);
+    bool (*get_u32)(void *ctx, const char *key, uint32_t *v);
+    bool (*get_str)(void *ctx, const char *key, char *out, size_t cap);
+    int (*set_u8)(void *ctx, const char *key, uint8_t v);
+    int (*set_u32)(void *ctx, const char *key, uint32_t v);
+    int (*set_str)(void *ctx, const char *key, const char *v);
+    int (*erase)(void *ctx, const char *key);
+} ota_kv_t;
+
+/* Zeroes r, then reads each field's key; a missing key, a wrong type or an out-of-range enum leaves the zero default. */
+void ota_rec_load(ota_rec_t *r, const ota_kv_t *kv);
+/* Writes every field's key in a fixed order, an empty string as an erased key; stops at the first error and returns it. */
+int ota_rec_save(const ota_rec_t *r, const ota_kv_t *kv);
+
 const char *ota_result_name(ota_result_t r);
 void ota_rec_start(ota_rec_t *r, const ota_offer_t *o);
 void ota_rec_fail(ota_rec_t *r, const char *error, bool mark_bad);
