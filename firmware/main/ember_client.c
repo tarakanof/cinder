@@ -46,6 +46,7 @@ static const char *TAG = "ember";
 
 #define RESP_MAX (16 * 1024)
 #define BRIGHTNESS_LOCK_MS 1000
+#define BRIGHTNESS_RETRY_MS 5000
 
 static atomic_bool s_online;
 static atomic_bool s_join;
@@ -354,6 +355,20 @@ static void fade_start(void)
     }
 }
 
+static int64_t s_fade_hold_us;
+
+static int fade_step(void)
+{
+    int64_t now = esp_timer_get_time();
+    if (now < s_fade_hold_us) return (int)((s_fade_hold_us - now + 999) / 1000);
+    uint8_t v;
+    if (!s_fade_on || !dim_fade_tick(&s_fade, &v)) return -1;
+    if (bsp_knob_15_md50et_set_brightness_level_wait(v, BRIGHTNESS_LOCK_MS) != ESP_ERR_TIMEOUT) return DIM_STEP_MS;
+    dim_fade_retry(&s_fade);
+    s_fade_hold_us = esp_timer_get_time() + BRIGHTNESS_RETRY_MS * 1000LL;
+    return BRIGHTNESS_RETRY_MS;
+}
+
 #define EMBER_HANG_MS 90000
 static _Atomic int64_t s_alive_us;
 static esp_task_wdt_user_handle_t s_wdt;
@@ -394,13 +409,11 @@ static void wait_and_fade(int ms, char *buf)
         alive();
         int32_t left = (int32_t)(end - xTaskGetTickCount());
         if (left <= 0) return;
-        uint8_t v;
+        if (ota_client_mark_pending()) return;
         TickType_t wait = (TickType_t)left;
-        if (s_fade_on && dim_fade_tick(&s_fade, &v)) {
-            bsp_knob_15_md50et_set_brightness_level_wait(v, BRIGHTNESS_LOCK_MS);
-            TickType_t step = pdMS_TO_TICKS(DIM_STEP_MS);
-            if (wait > step) wait = step;
-        }
+        if (wait > pdMS_TO_TICKS(1000)) wait = pdMS_TO_TICKS(1000);
+        int next = fade_step();
+        if (next >= 0 && wait > pdMS_TO_TICKS(next)) wait = pdMS_TO_TICKS(next);
         if (!buf) {
             vTaskDelay(wait);
             continue;
@@ -741,10 +754,9 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
 {
     (void)ctx;
     alive();
-    uint8_t v;
-    bool fading = s_fade_on && dim_fade_tick(&s_fade, &v);
-    if (fading) bsp_knob_15_md50et_set_brightness_level_wait(v, BRIGHTNESS_LOCK_MS);
-    *next_slice_ms = fading ? DIM_STEP_MS : 1000;
+    int next = fade_step();
+    *next_slice_ms = next >= 0 && next < 1000 ? next : 1000;
+    if (ota_client_mark_pending()) return true;
     if (!atomic_load(&s_online) || config_store_token_gen() != P->token_gen) return true;
     if (config_store_settings_gen() != s_ks_gen) return true;
     if (np_client_pending()) return true;

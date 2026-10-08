@@ -228,6 +228,8 @@ void ota_client_note_input(void) { atomic_store(&s_last_input_us, esp_timer_get_
 
 bool ota_client_verifying(void) { return atomic_load(&s_verifying); }
 
+bool ota_client_mark_pending(void) { return atomic_load(&s_mark_req) == MARK_REQ; }
+
 bool ota_client_checkin_blocked(void) { return atomic_load(&s_verifying) && strcmp(TEST_FAULT, "no_checkin") == 0; }
 
 bool ota_client_render_frozen(void)

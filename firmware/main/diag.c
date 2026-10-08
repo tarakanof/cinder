@@ -286,6 +286,19 @@ void diag_health(ota_health_in_t *h)
     }
 }
 
+void diag_stacks_line(char *out, size_t cap)
+{
+    size_t len = 0;
+    out[0] = 0;
+    for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
+        TaskHandle_t t = xTaskGetHandle(TASKS[i]);
+        if (!t) continue;
+        int n = snprintf(out + len, cap - len, "%s%s %u", len ? ", " : "", TASKS[i], (unsigned)uxTaskGetStackHighWaterMark(t));
+        if (n < 0 || (size_t)n >= cap - len) break;
+        len += (size_t)n;
+    }
+}
+
 void diag_fill(dev_diag_t *d)
 {
     diag_track();

@@ -676,11 +676,14 @@ static void render_freeze(lv_display_t *disp)
     else lv_obj_invalidate(lv_screen_active());
 }
 
+static atomic_uint s_loop_ticks;
+
 static void frame_cb(lv_timer_t *timer)
 {
     render_freeze(lv_timer_get_user_data(timer));
     if (ota_client_render_frozen()) return;
     ota_client_note_loop();
+    atomic_fetch_add_explicit(&s_loop_ticks, 1, memory_order_relaxed);
     double t = now_s();
     double dt = s_last_frame_t > 0 ? t - s_last_frame_t : 0;
     s_last_frame_t = t;
@@ -825,6 +828,21 @@ static void setup_view_create(lv_obj_t *scr)
     lv_obj_align(idl, LV_ALIGN_CENTER, 0, 185);
 }
 
+#define LVGL_STALL_CHECKS 2
+
+static void lvgl_stall_check(void)
+{
+    static unsigned last;
+    static int same;
+    unsigned tick = atomic_load(&s_loop_ticks);
+    if (tick != last || ota_client_verifying() || ota_face_requested()) same = 0;
+    else if (++same >= LVGL_STALL_CHECKS) {
+        ESP_LOGE(TAG, "LVGL loop stalled for %d s: restarting", same * 30);
+        abort();
+    }
+    last = tick;
+}
+
 static void stats_task(void *arg)
 {
     (void)arg;
@@ -867,11 +885,10 @@ static void stats_task(void *arg)
         ESP_LOGI(TAG, "wifi: RSSI %d dBm (min %d), channel %d, %" PRIu32 " disconnects (last reason %d), %u beacon timeouts",
                  assoc ? rssi : 0, w.has_rssi_min ? w.rssi_min : 0, w.channel, w.disconnects, w.last_reason,
                  ember_client_beacon_timeouts());
-        TaskHandle_t lvgl = xTaskGetHandle("lvgl");
-        if (lvgl) ESP_LOGI(TAG, "LVGL task stack headroom %u B", (unsigned)uxTaskGetStackHighWaterMark(lvgl));
-        static bool hwm_logged;
-        if (!hwm_logged) ESP_LOGI(TAG, "stats task stack headroom %u B", (unsigned)uxTaskGetStackHighWaterMark(NULL));
-        hwm_logged = true;
+        static char stacks[160];
+        diag_stacks_line(stacks, sizeof stacks);
+        ESP_LOGI(TAG, "stack free B: %s", stacks);
+        lvgl_stall_check();
         prev = ns;
         s_fps_since = t;
     }
