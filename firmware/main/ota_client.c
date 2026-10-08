@@ -234,6 +234,8 @@ bool ota_client_checkin_blocked(void) { return atomic_load(&s_verifying) && strc
 
 bool ota_client_render_frozen(void)
 {
+    if (strcmp(TEST_FAULT, "lvgl_stall") == 0)
+        return !atomic_load(&s_verifying) && !diag_stall_reset() && uptime_ms() >= NO_RENDER_AFTER_MS;
     return atomic_load(&s_verifying) && strcmp(TEST_FAULT, "no_render") == 0 && uptime_ms() >= NO_RENDER_AFTER_MS;
 }
 

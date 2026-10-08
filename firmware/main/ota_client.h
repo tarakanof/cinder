@@ -15,7 +15,7 @@ void ota_client_note_frame(void);
 void ota_client_note_loop(void);
 /* Link task: OK for a completed check, FAIL for a confirmed failure at the 40 MHz clock (sticky). */
 void ota_client_note_link(ota_link_t r);
-/* LVGL task: true while the no_render OTA test fault freezes the screen. */
+/* LVGL task: true while the no_render or lvgl_stall OTA test fault freezes the screen. */
 bool ota_client_render_frozen(void);
 void ota_client_note_view_ok(void);
 void ota_client_note_input(void);
