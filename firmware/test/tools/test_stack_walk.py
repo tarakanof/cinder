@@ -168,7 +168,7 @@ def load(text, sizes=None, outputs=None, elf="app.elf", tables=None):
     g = stack_walk.Graph([])
     real = stack_walk.run, stack_walk.words
     stack_walk.run = fake_objdump(outputs or {})
-    stack_walk.words = lambda elf, addr, n: (tables or {}).get(addr, ())
+    stack_walk.words = lambda elf, addr, n: (tables or {}).get(addr, ())[:n]
     try:
         g.load(text, sizes or {}, elf)
     finally:
@@ -226,14 +226,20 @@ class Desync(unittest.TestCase):
         text = """
 42000000 <sw>:
 42000000:\tentry\ta1, 32
-42000003:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
-42000006:\taddx4\ta8, a2, a8
-42000009:\tl32i.n\ta8, a8, 0
-4200000b:\tjx\ta8
-4200000e:\tcall8\t42000100 <leaf>
-42000011:\tretw.n
-42000013:\tcall8\t42000200 <big>
-42000016:\tretw.n
+42000003:\tmovi.n\ta8, 1
+42000005:\tbgeu\ta8, a2, 4200000c <sw+0xc>
+42000008:\tretw.n
+4200000a:\t.byte\t0x00
+4200000b:\t.byte\t0x00
+4200000c:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+4200000f:\tslli\ta3, a2, 2
+42000012:\tadd.n\ta3, a8, a3
+42000014:\tl32i.n\ta3, a3, 0
+42000016:\tjx\ta3
+42000019:\tcall8\t42000100 <leaf>
+4200001c:\tretw.n
+4200001e:\tcall8\t42000200 <big>
+42000021:\tretw.n
 
 42000100 <leaf>:
 42000100:\tentry\ta1, 48
@@ -243,21 +249,23 @@ class Desync(unittest.TestCase):
 42000200:\tentry\ta1, 400
 42000203:\tretw.n
 """
-        g = load(text, tables={0x3c000000: (0x4200000e, 0x42000013, 0x3c001000)})
+        g = load(text, tables={0x3c000000: (0x42000019, 0x4200001e, 0x3c001000)})
         self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000100, 0x42000200})
         self.assertEqual(g.stats["whole"], 0)
 
+    GUARD = "bgeui\ta2, 1, 42000014 <sw+0x14>"
     SWITCH = """
 42000000 <sw>:
 42000000:\tentry\ta1, 32
-42000003:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
-42000006:\taddx4\ta8, a2, a8
-42000009:\tl32i.n\ta8, a8, 0
-4200000b:\tl32r\ta9, 41ffff04 <_lit+0x4> (3fc90000 <s_data>)
-4200000e:\t%s
-42000011:\tretw.n
-42000013:\tcall8\t42000200 <big>
-42000016:\tretw.n
+42000003:\t%s
+42000006:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+42000009:\taddx4\ta8, a2, a8
+4200000c:\tl32i.n\ta8, a8, 0
+4200000e:\tl32r\ta9, 41ffff04 <_lit+0x4> (3fc90000 <s_data>)
+42000011:\t%s
+42000014:\tretw.n
+42000016:\tcall8\t42000200 <big>
+42000019:\tretw.n
 
 42000200 <big>:
 42000200:\tentry\ta1, 400
@@ -265,18 +273,24 @@ class Desync(unittest.TestCase):
 """
 
     def test_jx_table_comes_from_the_jx_register_not_the_nearest_literal(self):
-        g = load(self.SWITCH % "jx\ta8", tables={0x3c000000: (0x42000013,)})
+        g = load(self.SWITCH % (self.GUARD, "jx\ta8"), tables={0x3c000000: (0x42000016,)})
         self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000200})
         self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
         self.assertEqual((g.stats["whole"], g.stats["dropped"]), (0, 0))
 
     def test_jx_through_an_unrelated_data_literal_keeps_the_whole_function(self):
-        g = load(self.SWITCH % "jx\ta9", tables={0x3c000000: (0x42000013,)})
+        g = load(self.SWITCH % (self.GUARD, "jx\ta9"), tables={0x3c000000: (0x42000016,)})
         self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
         self.assertEqual(g.stats["whole"], 1)
 
-    def test_jump_table_at_the_cap_is_not_resolved(self):
-        g = load(self.SWITCH % "jx\ta8", tables={0x3c000000: (0x42000011,) * 1024 + (0x42000013,)})
+    def test_jump_table_without_a_bound_check_is_not_resolved(self):
+        g = load(self.SWITCH % ("nop", "jx\ta8"), tables={0x3c000000: (0x42000014,) * 1025 + (0x42000016,)})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        self.assertEqual(g.stats["whole"], 1)
+
+    def test_jump_table_with_an_entry_outside_the_function_is_not_resolved(self):
+        g = load(self.SWITCH % ("bgeui\ta2, 2, 42000014 <sw+0x14>", "jx\ta8"),
+                 tables={0x3c000000: (0x42000014, 0x3c001000)})
         self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
         self.assertEqual(g.stats["whole"], 1)
 
@@ -310,6 +324,23 @@ class Desync(unittest.TestCase):
 42000005:\tl32r\ta8, 41ffff00 <_lit> (42000200 <big>)
 42000008:\tcallx8\ta8
 4200000b:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        g = load(text)
+        self.assertEqual(g.funcs[0x42000000]["ind"], 1)
+        self.assertEqual((g.stats["dead_start"], g.stats["dropped"]), (1, 0))
+
+    def test_reached_literal_before_an_unreached_long_call_counts_as_unresolved(self):
+        text = """
+42000000 <fn>:
+42000000:\tentry\ta1, 32
+42000003:\tl32r\ta8, 41ffff00 <_lit> (42000200 <big>)
+42000006:\tj\t4200000c <fn+0xc>
+42000009:\tcallx8\ta8
+4200000c:\tretw.n
 
 42000200 <big>:
 42000200:\tentry\ta1, 400

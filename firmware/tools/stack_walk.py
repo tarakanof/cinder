@@ -91,45 +91,82 @@ def writes(line, mn, regs):
     return w and not mn.startswith(KEEPS) and w.group(2) in regs and w.group(2)
 
 
-def table(elf, code, pred, a, s, e):
-    want, stage = {code[a][2].strip()}, 0
-    for _ in range(16):
-        a = pred.get(a)
-        if a is None:
+def prev(pred, bpred, x):
+    ps = ([(pred[x], False)] if x in pred else []) + [(b, True) for b in bpred.get(x, ())]
+    return ps[0] if len(ps) == 1 else None
+
+
+def bound(mn, ops, args, idx, taken):
+    imm = ops.split(', ')[1] if mn in ('bltui', 'bgeui') else None
+    if (mn, taken) in (('bltui', True), ('bgeui', False)) and args[0] == idx:
+        return int(imm, 0), None
+    if mn in ('bgeu', 'bltu') and idx in args[:2] and args[0] != args[1]:
+        k = args[1] if args[0] == idx else args[0]
+        rule = {('bgeu', True, 1): 1, ('bgeu', False, 0): 0, ('bltu', True, 0): 0, ('bltu', False, 1): 1}
+        plus = rule.get((mn, taken, args.index(idx)))
+        return (None, (k, plus)) if plus is not None else (None, None)
+    return None
+
+
+def table(elf, code, pred, bpred, a, s, e):
+    want, stage, tab, idx, k = {code[a][2].strip()}, 0, None, None, None
+    for _ in range(48):
+        p = prev(pred, bpred, a)
+        if p is None:
             return None, None
+        a, taken = p
         line, mn, ops = code[a][:3]
         if mn.startswith('call'):
             return None, None
-        reg = writes(line, mn, want)
+        lit, args = L32R.search(line), REG.findall(ops)
+        if stage == 3:
+            if writes(line, mn, {idx}):
+                return None, None
+            g = bound(mn, ops, args, idx, taken)
+            if g and g[0]:
+                n = g[0]
+                break
+            if g:
+                if g[1] is None:
+                    return None, None
+                k, stage = g[1], 4
+            continue
+        reg = writes(line, mn, want if stage < 4 else {k[0]})
         if not reg:
             continue
-        lit, args = L32R.search(line), REG.findall(ops)
+        if stage == 4:
+            if mn not in ('movi', 'movi.n'):
+                return None, None
+            n = int(ops.split(', ')[1], 0) + k[1]
+            break
         if stage == 0 and lit:
             v = int(lit.group(2), 16)
             return None, v if not lit.group(4) and not s <= v < e and IBUS[0] <= v < IBUS[1] else None
         if stage == 0 and mn in ('l32i', 'l32i.n') and ops.endswith(', 0'):
             want, stage = {args[1]}, 1
         elif stage == 1 and mn == 'addx4':
+            want, stage, idx = {args[2]}, 2, args[1]
+        elif stage == 1 and mn in ('add', 'add.n'):
             want, stage = set(args[1:3]), 2
         elif stage == 2 and lit:
-            got = []
-            for w in words(elf, int(lit.group(2), 16), TABLE_MAX + 1) if elf else ():
-                if not s <= w < e:
-                    break
-                got.append(w)
-            return (got if 0 < len(got) <= TABLE_MAX else None), None
-        elif stage == 2:
+            tab = int(lit.group(2), 16)
             want.discard(reg)
-            if not want:
-                return None, None
+        elif stage == 2 and idx is None and mn == 'slli' and ops.endswith(', 2'):
+            want.discard(reg)
+            idx = args[1]
         else:
             return None, None
-    return None, None
+        if stage == 2 and tab is not None and idx is not None and not want:
+            stage = 3
+    else:
+        return None, None
+    got = words(elf, tab, n) if elf and 0 < n <= TABLE_MAX else ()
+    return (list(got) if len(got) == n and all(s <= w < e for w in got) else None), None
 
 
 def descend(f, elf):
     s, e, code = f['start'], f['end'], f['code']
-    live, pred, missing, whole, tails, outside, todo = set(), {}, set(), False, [], [], [s]
+    live, pred, bpred, missing, whole, tails, outside, todo = set(), {}, {}, set(), False, [], [], [s]
     while todo:
         a = todo.pop()
         while s <= a < e and a not in live:
@@ -143,12 +180,13 @@ def descend(f, elf):
                 x = int(t.group(1), 16)
                 if s <= x < e:
                     todo.append(x)
+                    bpred.setdefault(x, []).append(a)
                 elif '+0x' in t.group(0):
                     outside.append(x)
                 else:
                     tails.append(x)
             if mn == 'jx':
-                tab, tail = table(elf, code, pred, a, s, e)
+                tab, tail = table(elf, code, pred, bpred, a, s, e)
                 whole |= tab is None and tail is None
                 todo += tab or []
                 tails += [] if tail is None else [tail]
@@ -259,27 +297,13 @@ class Graph:
         cur['ind'] += undecoded
         cur['into'] = f['outside']
         self.ends[f['start']] = f['end']
-        taken, regs, last = f.get('taken', live), {}, None
+        taken, regs, last, dregs, dlast = f.get('taken', live), {}, None, {}, None
         for a in sorted(code):
-            line, mn, n = code[a][0], code[a][1], code[a][3]
-            if a in taken:
-                last = None
+            if a not in live:
+                if a not in taken:
+                    dregs = self.dead(cur, code[a], regs if last == a else {}, dregs if dlast == a else None)
+                    dlast = a + code[a][3]
                 continue
-            if last != a:
-                regs = {}
-            last = a + n
-            lit, c, x = L32R.search(line), CALL.search(line), CALLX.search(line)
-            if lit:
-                regs[lit.group(1)] = (int(lit.group(2), 16), lit.group(4))
-            elif c or x:
-                t = regs.get(x.group(1)) if x else None
-                dead = 'dead_start' if (c and not c.group(3)) or (t and not t[1]) else 'dropped'
-                self.stats[dead] += 1
-                cur['ind'] += dead == 'dead_start'
-            elif writes(line, mn, regs):
-                regs.pop(WRITES.match(line).group(2), None)
-        regs, last = {}, None
-        for a in sorted(live):
             line, n = code[a][0], code[a][3]
             if last != a:
                 regs = {}
@@ -313,6 +337,21 @@ class Graph:
             w = WRITES.match(line)
             if w and not w.group(1).startswith(KEEPS):
                 regs.pop(w.group(2), None)
+
+    def dead(self, cur, insn, seed, regs):
+        line, mn = insn[0], insn[1]
+        regs = dict(seed) if regs is None else regs
+        lit, c, x = L32R.search(line), CALL.search(line), CALLX.search(line)
+        if lit:
+            regs[lit.group(1)] = (int(lit.group(2), 16), lit.group(4))
+        elif c or x:
+            t = regs.get(x.group(1)) if x else None
+            dead = 'dead_start' if (c and not c.group(3)) or (t and not t[1]) else 'dropped'
+            self.stats[dead] += 1
+            cur['ind'] += dead == 'dead_start'
+        elif writes(line, mn, regs):
+            regs.pop(WRITES.match(line).group(2), None)
+        return regs
 
     def link(self):
         starts = sorted(self.funcs)
