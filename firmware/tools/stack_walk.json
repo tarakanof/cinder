@@ -299,42 +299,50 @@
   "cJSON_ParseWithLengthOpts": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "parse_string": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "print$constprop$0": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "ensure": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "cJSON_Delete": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "parse_value": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "knob_view_parse": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "knob_settings_parse": [
    "malloc",
    "free",
-   "realloc"
+   "realloc",
+   "json_malloc"
   ],
   "http_conn_req_opts": [
    "alive",
@@ -410,6 +418,24 @@
    "esp_netif_action_stop",
    "esp_netif_action_connected",
    "esp_netif_action_disconnected"
+  ],
+  "pr_frame": [
+   "panel_rd",
+   "panel_wr",
+   "panel_now_ms"
+  ],
+  "pr_start": [
+   "panel_rd",
+   "panel_wr",
+   "panel_now_ms"
+  ],
+  "pr_finish": [
+   "panel_wr",
+   "panel_now_ms"
+  ],
+  "pr_write": [
+   "panel_wr",
+   "panel_now_ms"
   ]
  },
  "tasks": {

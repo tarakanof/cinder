@@ -2,15 +2,22 @@
 
 #include <stdatomic.h>
 
-#include "bsp_knob_15_md50et.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 
-/* WANTED -> READY only by CAS: a snapshot finished after the requester timed out is destroyed. */
-enum { ST_IDLE, ST_WANTED, ST_READY, ST_FAILED };
+/* WANTED -> READY only by CAS: a snapshot finished after the requester timed out is destroyed. RELEASE -> IDLE on the LVGL task. */
+enum { ST_IDLE, ST_WANTED, ST_READY, ST_FAILED, ST_RELEASE };
 static atomic_int s_state;
 static lv_draw_buf_t *s_buf;
+
+void screen_snap_reap(void)
+{
+    if (atomic_load(&s_state) != ST_RELEASE) return;
+    lv_draw_buf_destroy(s_buf);
+    s_buf = NULL;
+    atomic_store(&s_state, ST_IDLE);
+}
 
 void screen_snap_frame(void)
 {
@@ -26,9 +33,13 @@ void screen_snap_frame(void)
 
 snap_result_t screen_snap_take(uint32_t timeout_ms, const uint8_t **px, int *w, int *h, int *stride)
 {
-    int idle = ST_IDLE;
-    if (!atomic_compare_exchange_strong(&s_state, &idle, ST_WANTED)) return SNAP_BUSY;
-    for (uint32_t t = 0; t < timeout_ms && atomic_load(&s_state) == ST_WANTED; t += 10) vTaskDelay(pdMS_TO_TICKS(10));
+    uint32_t t = 0;
+    for (int idle = ST_IDLE; !atomic_compare_exchange_strong(&s_state, &idle, ST_WANTED); idle = ST_IDLE) {
+        if (idle != ST_RELEASE || t >= timeout_ms) return SNAP_BUSY;
+        vTaskDelay(pdMS_TO_TICKS(10));
+        t += 10;
+    }
+    for (; t < timeout_ms && atomic_load(&s_state) == ST_WANTED; t += 10) vTaskDelay(pdMS_TO_TICKS(10));
     int st = ST_WANTED;
     if (atomic_compare_exchange_strong(&s_state, &st, ST_IDLE)) return SNAP_FAILED;
     if (st != ST_READY) {
@@ -44,10 +55,6 @@ snap_result_t screen_snap_take(uint32_t timeout_ms, const uint8_t **px, int *w, 
 
 void screen_snap_release(void)
 {
-    if (atomic_load(&s_state) != ST_READY) return;
-    bsp_knob_15_md50et_lock(-1);
-    lv_draw_buf_destroy(s_buf);
-    bsp_knob_15_md50et_unlock();
-    s_buf = NULL;
-    atomic_store(&s_state, ST_IDLE);
+    int ready = ST_READY;
+    atomic_compare_exchange_strong(&s_state, &ready, ST_RELEASE);
 }

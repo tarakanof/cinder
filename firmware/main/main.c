@@ -15,6 +15,7 @@
 #include "iot_button.h"
 #include "iot_knob.h"
 #include "lvgl.h"
+#include "cJSON.h"
 
 #include "bot_behavior.h"
 #include "bot_view.h"
@@ -97,6 +98,7 @@ static int s_demo_index;
 static double s_demo_until;
 static double s_demo_hold_s = 20.0;
 #define LINK_FALLBACK 1
+#define LINK_CHECK_WAIT_MS 1000
 #define CHASE_LEAD_DEG 15.0
 /* Chase gaze reach is tuned against tearing without TE; the eye rate is CINDER1 chase fps (docs/features.md, chase tearing, chase near the ring). */
 #define CHASE_GAZE 0.6
@@ -121,13 +123,23 @@ int app_chase_request(int style, int fps, int laps)
 
 #define ORBIT_CHUNK 8
 static EXT_RAM_BSS_ATTR bot_orbit_table_t s_orbit;
+static TaskHandle_t s_orbit_task;
+static atomic_bool s_orbit_done;
 
 static void orbit_task(void *arg)
 {
     (void)arg;
     for (int k = 0; k < BOT_ORBIT_KINDS; k++)
         for (int i = 0; i < BOT_ORBIT_TAB_N; vTaskDelay(1)) i = bot_orbit_table_fill_part(&s_orbit, (bot_eyes_t)k, i, ORBIT_CHUNK);
-    vTaskDelete(NULL);
+    atomic_store(&s_orbit_done, true);
+    for (;;) vTaskSuspend(NULL);
+}
+
+static void orbit_reap(void)
+{
+    if (!s_orbit_task || !atomic_load(&s_orbit_done)) return;
+    vTaskDeleteWithCaps(s_orbit_task);
+    s_orbit_task = NULL;
 }
 
 static double chase_gaze(const bot_pose_t *p, double deg, double orbit)
@@ -218,7 +230,7 @@ static bool link_confirm_fail(int seed)
     int fails = 0;
     for (int k = 0; k < 3; k++) {
         uint8_t raw[32];
-        int bad = panel_check_run(seed + 1000 + k, raw);
+        int bad = panel_check_run(seed + 1000 + k, raw, LINK_CHECK_WAIT_MS);
         ESP_LOGW(TAG, "link recheck %d: %d (level %02X wrote %02X read %02X)", k, bad, raw[0], raw[1], raw[2]);
         fails += bad > 0;
     }
@@ -250,7 +262,7 @@ static void link_task(void *arg)
     if (bsp_knob_15_md50et_qspi_fallback_active()) ESP_LOGW(TAG, "display link: 40 MHz (fallback after a failed check)");
     for (int i = 0; i < 5; i++) {
         uint8_t raw[32];
-        int bad = panel_check_run(i, raw);
+        int bad = panel_check_run(i, raw, LINK_CHECK_WAIT_MS);
         ESP_LOGW(TAG, "link check %d at %d MHz: %d bad | %02X %02X %02X %02X %02X %02X %02X %02X", i,
                  bsp_knob_15_md50et_qspi_hz() / 1000000, bad, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5],
                  raw[6], raw[7]);
@@ -271,8 +283,7 @@ static void link_task(void *arg)
         if (want != (bool)fast && s_reboot_gate.held == OTA_REBOOT_NONE)
             link_reboot_request(OTA_REBOOT_RESTART,
                                 want ? "fast link turned on: rebooting at 80 MHz" : "fast link turned off: rebooting at 40 MHz");
-        int bad = panel_check_run(seed, NULL);
-        if (bad == -2) continue;
+        int bad = panel_check_run(seed, NULL, LINK_CHECK_WAIT_MS);
         runs++;
         if (bad < 0) errs++;
         else if (bad > 0) fails++;
@@ -680,6 +691,8 @@ static atomic_uint s_loop_ticks;
 
 static void frame_cb(lv_timer_t *timer)
 {
+    panel_check_frame();
+    screen_snap_reap();
     render_freeze(lv_timer_get_user_data(timer));
     if (ota_client_render_frozen()) return;
     ota_client_note_loop();
@@ -862,6 +875,7 @@ static void stats_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
+        orbit_reap();
         double t = now_s();
         int frames = s_frames, n = s_refr_count;
         int64_t total = s_refr_total_us, mx = s_refr_max_us;
@@ -903,8 +917,18 @@ static void stats_task(void *arg)
     }
 }
 
+static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBaseType_t prio, BaseType_t core,
+                       TaskHandle_t *out)
+{
+    if (xTaskCreatePinnedToCoreWithCaps(fn, name, stack, NULL, prio, out, core, MALLOC_CAP_SPIRAM) != pdPASS)
+        ESP_LOGE(TAG, "%s task not created", name);
+}
+
+static void *json_malloc(size_t n) { return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT); }
+
 void app_main(void)
 {
+    cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = json_malloc, .free_fn = free});
     ESP_LOGI(TAG, "cinder starting");
     http_conn_quiet_idf_logs();
     config_store_init();
@@ -936,6 +960,7 @@ void app_main(void)
     ESP_ERROR_CHECK(bsp_knob_15_md50et_init(&handles));
     bsp_knob_15_md50et_register_knob_cb(knob_cb);
     bsp_knob_15_md50et_register_button_cb(button_cb);
+    panel_check_init(handles.panel, handles.panel_io);
 
     bot_init(&s_bot, 0x454D4252ULL, now_s());
     s_fps_since = now_s();
@@ -975,12 +1000,11 @@ void app_main(void)
 
     config_store_settings(s_ks_lv);
     uint8_t startup = s_ks_lv->startup;
-    ESP_ERROR_CHECK(bsp_knob_15_md50et_set_brightness_level(startup));
+    panel_check_brightness(startup);
     if (!s_setup) ember_client_dim_enable(startup);
-    xTaskCreate(stats_task, "stats", 3840, NULL, 1, NULL);
-    panel_check_init(handles.panel, handles.panel_io);
-    xTaskCreatePinnedToCore(link_task, "link", 4096, NULL, 1, NULL, 1);
-    if (!s_setup) xTaskCreatePinnedToCore(orbit_task, "orbit", 3328, NULL, 1, NULL, 1);
+    if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
+    psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY, NULL);
+    psram_task(link_task, "link", 4096, 1, 1, NULL);
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),

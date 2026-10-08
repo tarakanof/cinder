@@ -241,7 +241,8 @@ void bot_view_create(lv_obj_t *parent)
     assert(s_label_buf && s_icon_buf);
     s_label = canvas_create(parent);
     lv_obj_add_flag(s_label, LV_OBJ_FLAG_HIDDEN);
-    xTaskCreatePinnedToCore(rim_task, "rim", 2560, NULL, 2, &s_rim_task, 1);
+    if (xTaskCreatePinnedToCoreWithCaps(rim_task, "rim", 2560, NULL, 2, &s_rim_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)
+        esp_system_abort("bot_view: rim task not created");
     s_eye_go = xSemaphoreCreateBinary();
     s_eye_done = xSemaphoreCreateBinary();
     assert(s_eye_go && s_eye_done);

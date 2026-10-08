@@ -23,11 +23,11 @@ typedef void (*bsp_knob_15_md50et_knob_cb_t)(void *event);
 
 typedef void (*bsp_knob_15_md50et_button_cb_t)(void *event);
 
-/* cinder: the panel comes up at brightness 0; set the level with bsp_knob_15_md50et_set_brightness_level() once the UI is built. */
+/* cinder: the panel comes up at brightness 0; after init only the LVGL task talks to the panel (main/panel_check.c sets the level). */
 esp_err_t bsp_knob_15_md50et_init(bsp_knob_15_md50et_handles_t *out_handles);
 
 esp_err_t bsp_knob_15_md50et_lock(int timeout_ms);
-/* cinder (#23) additions: qspi_*, set_qspi_fast, brightness_writes. */
+/* cinder (#23) additions: qspi_*, set_qspi_fast. */
 int bsp_knob_15_md50et_qspi_hz(void);
 /* esp_timer us of the last touch read that found a finger (0 before any); LVGL task only. */
 int64_t bsp_knob_15_md50et_touch_report_us(void);
@@ -37,18 +37,13 @@ void bsp_knob_15_md50et_qspi_fallback_reboot(void);
 /* cinder: call before bsp_knob_15_md50et_init(); the SPI clock is fixed at creation. */
 void bsp_knob_15_md50et_set_qspi_fast(bool on);
 bool bsp_knob_15_md50et_qspi_fallback_active(void);
-uint32_t bsp_knob_15_md50et_brightness_writes(void);
 void bsp_knob_15_md50et_unlock(void);
 
 void bsp_knob_15_md50et_backlight_on(void);
 void bsp_knob_15_md50et_backlight_off(void);
 
+/* cinder: unused; LVGL task only (main/panel_check.c owns the panel after boot). */
 esp_err_t bsp_knob_15_md50et_set_brightness(uint8_t percent);
-
-/** cinder: raw CO5300 WRDISBV level 0-255; takes the LVGL lock, call after init, safe from any task. */
-esp_err_t bsp_knob_15_md50et_set_brightness_level(uint8_t level);
-/* cinder (#1): same, waiting at most timeout_ms (-1 forever) for the LVGL lock; ESP_ERR_TIMEOUT skips the write. */
-esp_err_t bsp_knob_15_md50et_set_brightness_level_wait(uint8_t level, int timeout_ms);
 
 void bsp_knob_15_md50et_register_knob_cb(bsp_knob_15_md50et_knob_cb_t cb);
 void bsp_knob_15_md50et_register_button_cb(bsp_knob_15_md50et_button_cb_t cb);

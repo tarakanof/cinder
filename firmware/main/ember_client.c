@@ -18,6 +18,7 @@
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "http_conn.h"
+#include "panel_check.h"
 #include "wifi_backoff.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -45,8 +46,6 @@
 static const char *TAG = "ember";
 
 #define RESP_MAX (16 * 1024)
-#define BRIGHTNESS_LOCK_MS 1000
-#define BRIGHTNESS_RETRY_MS 5000
 
 static atomic_bool s_online;
 static atomic_bool s_join;
@@ -355,18 +354,12 @@ static void fade_start(void)
     }
 }
 
-static int64_t s_fade_hold_us;
-
 static int fade_step(void)
 {
-    int64_t now = esp_timer_get_time();
-    if (now < s_fade_hold_us) return (int)((s_fade_hold_us - now + 999) / 1000);
     uint8_t v;
     if (!s_fade_on || !dim_fade_tick(&s_fade, &v)) return -1;
-    if (bsp_knob_15_md50et_set_brightness_level_wait(v, BRIGHTNESS_LOCK_MS) != ESP_ERR_TIMEOUT) return DIM_STEP_MS;
-    dim_fade_retry(&s_fade);
-    s_fade_hold_us = esp_timer_get_time() + BRIGHTNESS_RETRY_MS * 1000LL;
-    return BRIGHTNESS_RETRY_MS;
+    panel_check_brightness(v);
+    return DIM_STEP_MS;
 }
 
 #define EMBER_HANG_MS 90000
@@ -1036,9 +1029,9 @@ static void poll_task(void *arg)
             brightness_poll(buf, bright_url);
             next_bright_us = esp_timer_get_time() + (int64_t)DIM_POLL_MS * 1000;
         }
+        pomo_client_legacy(P->vp.legacy);
+        weather_client_legacy(P->vp.legacy);
         if (P->vp.legacy) {
-            pomo_client_legacy(true);
-            weather_client_legacy(true);
             wait_and_fade(s_ks.poll_ms, NULL);
         } else if (P->rearm_ms >= 0 && P->waited) {
             if (P->rearm_ms > 0) wait_and_fade(P->rearm_ms, buf);

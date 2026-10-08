@@ -18,7 +18,6 @@ typedef struct {
     int target;
     int step;
     int floor;
-    bool retry;
 } dim_fade_t;
 
 void dim_fade_init(dim_fade_t *f, int cur);
@@ -28,9 +27,6 @@ void dim_fade_set_floor(dim_fade_t *f, int floor);
 bool dim_fade_set_target(dim_fade_t *f, int level);
 
 bool dim_fade_tick(dim_fade_t *f, uint8_t *out);
-
-/* The last ticked level was not written: the next tick returns it again. */
-void dim_fade_retry(dim_fade_t *f);
 
 bool dim_level_valid(bool present, double level);
 
