@@ -25,7 +25,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 ```sh
 . ~/.espressif/tools/activate_idf_v5.5.5.sh
 cd firmware
-test/host/run.sh          # host tests: pure C (bot, view, provision, ota, title font, ...) and tools/secret_scan.py
+test/host/run.sh          # host tests: pure C (bot, view, provision, ota, title font, ...), tools/secret_scan.py and tools/stack_walk.py
 idf.py build
 python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 ```

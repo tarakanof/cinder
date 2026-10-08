@@ -47,6 +47,7 @@ class Graph:
                 if len(p) == 4 and p[1] in 'tTwW':
                     self.src[int(p[0], 16)] = p[3]
             self.load(run(tool('objdump'), '-d', '--no-show-raw-insn', elf), sizes)
+        self.link()
 
     def load(self, text, sizes):
         cur, regs, end = None, {}, 0
@@ -54,7 +55,7 @@ class Graph:
             m = FUNC.match(line.strip())
             if m:
                 a = int(m.group(1), 16)
-                cur = {'name': m.group(2), 'frame': None, 'calls': set(), 'ind': 0}
+                cur = {'name': m.group(2), 'frame': None, 'calls': set(), 'xcalls': [], 'ind': 0}
                 self.funcs[a] = cur
                 self.by_name[cur['name']].append(a)
                 regs, end = {}, a + sizes.get(a, 0) if sizes.get(a) else 0
@@ -80,13 +81,22 @@ class Graph:
             if x:
                 t = regs.get(x.group(1))
                 if t and not t[1]:
-                    cur['calls'].add(t[0])
+                    cur['xcalls'].append(t[0])
                 else:
                     cur['ind'] += 1
                 continue
             w = WRITES.match(line)
             if w and not w.group(1).startswith(KEEPS):
                 regs.pop(w.group(2), None)
+
+    def link(self):
+        for f in self.funcs.values():
+            for t in f['xcalls']:
+                if t in self.funcs:
+                    f['calls'].add(t)
+                else:
+                    f['ind'] += 1
+            f['xcalls'] = []
 
     def names(self, pattern):
         rx = re.compile(pattern)
@@ -107,12 +117,19 @@ class Graph:
         nesting = cfg.get('nesting', {})
         self.group = {x for n in nesting.get('group', []) for x in self.addrs(n)}
         self.group_depth = nesting.get('depth', 0)
+        self.tabled = set()
         for key, targets in cfg.get('pointers', {}).items():
             callers = self.names(key[3:]) if key.startswith('re:') else [key]
             dst = {x for t in targets for x in self.addrs(t)}
             for n in callers:
                 for x in self.addrs(n):
                     self.funcs[x]['calls'] |= dst
+                    self.tabled.add(x)
+
+    def indirect(self, a):
+        reach = self.reach(a)
+        tabled = sum(self.funcs[x]['ind'] for x in reach if x in self.tabled)
+        return sum(self.funcs[x]['ind'] for x in reach) - tabled, tabled
 
     def worst(self, a, memo, stack, onstack, nest=0):
         key = (a, nest)
@@ -187,12 +204,15 @@ def main():
     elfs = [args[0]] + ([rom_elf()] if rom_elf() else [])
     g = Graph(elfs)
     g.apply(cfg)
-    covered = {x for k in cfg.get('pointers', {}) for n in (g.names(k[3:]) if k.startswith('re:') else [k])
-               for x in g.addrs(n)}
     overhead = cfg['overhead']
     tasks = args[1:] or list(cfg['tasks'])
-    print('estimates, not proven bounds: unresolved indirect calls count as 0 B')
-    print('%-10s %6s %6s %8s %6s %6s %10s' % ('task', 'path', 'recur', 'estimate', 'stack', 'margin', 'unresolved'))
+    print('estimates, not proven bounds: indirect calls not resolved statically count as 0 B')
+    print('unresolved: no pointer-table entry; tabled: in a function with one, assumed covered by its listed targets')
+    print('LVGL event nesting (%s) is a heuristic cut at %d entries per path, not a bound: a path never repeats '
+          'a function, so a nested dispatch re-running the same handlers is not counted'
+          % (', '.join(cfg.get('nesting', {}).get('group', [])), cfg.get('nesting', {}).get('depth', 0)))
+    print('%-10s %6s %6s %8s %6s %6s %10s %6s' % ('task', 'path', 'recur', 'estimate', 'stack', 'margin', 'unresolved',
+                                                 'tabled'))
     for t in tasks:
         spec = cfg['tasks'][t]
         entry = g.root(spec['entry'], spec.get('file'))
@@ -205,12 +225,11 @@ def main():
                 w = g.through(entry, h, g.worst(h, {}, [], {})[0], {}, set())
                 if w is not None and w + extra > best + recur:
                     best, recur = w, extra
-        reach = g.reach(entry)
-        unresolved = sum(g.funcs[x]['ind'] for x in reach if x not in covered)
+        unresolved, tabled = g.indirect(entry)
         total = best + recur + overhead
         stack = spec.get('stack')
         margin = stack - total if stack else ''
-        print('%-10s %6d %6d %8d %6s %6s %10d' % (t, best, recur, total, stack or '', margin, unresolved))
+        print('%-10s %6d %6d %8d %6s %6s %10d %6d' % (t, best, recur, total, stack or '', margin, unresolved, tabled))
         if '--path' in sys.argv:
             acc = 0
             for n, fr in path[1]:
