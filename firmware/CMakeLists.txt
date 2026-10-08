@@ -9,7 +9,7 @@ endif()
 if(CINDER_VERSION)
     set(PROJECT_VER "${CINDER_VERSION}")
 else()
-    set(PROJECT_VER "0.9.37")
+    set(PROJECT_VER "0.9.38")
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # LVGL joins only overlapping invalid areas and falls back to a full-screen redraw past

@@ -270,22 +270,22 @@ Question: can LVGL's parallel software draw units cut core 0 during a 60 fps cha
 
 | Task | Core | Prio | Stack | What it does |
 |---|---|---|---|---|
-| `lvgl` (esp_lvgl_adapter) | 0 | 6 | 10240 (8192 before 0.9.11) | `lv_timer_handler`: `frame_cb` every 16 ms (inputs, bot, chase, `bot_view_update`), refresh, QSPI flush, touch read (LVGL indev). Headroom logged every 30 s by `stats`. |
+| `lvgl` (esp_lvgl_adapter) | 0 | 6 | 10496 (8192 before 0.9.11, 10240 before 0.9.38) | `lv_timer_handler`: `frame_cb` every 16 ms (inputs, bot, chase, `bot_view_update`), refresh, QSPI flush, touch read (LVGL indev). Headroom logged every 30 s by `stats`. |
 | `eye` (new) | 1 | 5 | 2560 | Rasterises the second eye while the LVGL task does the first; the LVGL task waits for it (at most 1 s, so a long NVS sector erase can't trip it, then `esp_system_abort`) before touching the canvases. A failed create aborts too. |
-| `orbit` (new, boot only, not in setup mode) | 1 | 1 | 2560 | Fills the chase gaze table (`components/bot/orbit_table.c`, 4 eye shapes x 360 degrees, PSRAM) in ~5 s, 8 entries then a 1-tick yield (task WDT), then deletes itself; until then the LVGL task solves per frame as before. |
-| `rim` | 1 | 2 | 6144 | Outline squash/stretch variants after a mood change. |
-| `ember` | 1 | 3 | 6144 | View long-poll, checkin, stats, brightness, Wi-Fi bookkeeping. |
-| `pomo`, `weather` | 1 | 3 | 5120, 6144 | Legacy per-endpoint pollers; only when Ember has no knob view. |
-| `prov` | 1 | 2 | 3584 | USB-Serial/JTAG listener: Improv, CINDER1 dev tools, snapshot. |
-| `link` | 1 | 1 | 3072 | QSPI link check every 5 s (5 MHz 3-wire read). |
-| `reset` | 1 | 4 | 3072 | Factory reset (transient). |
-| `stats` | any | 1 | 3072 | 30 s stats log. |
-| `main` | 0 | 1 | 3584 | `app_main`; returns after setup. |
+| `orbit` (new, boot only, not in setup mode) | 1 | 1 | 3328 (PSRAM) | Fills the chase gaze table (`components/bot/orbit_table.c`, 4 eye shapes x 360 degrees, PSRAM) in ~5 s, 8 entries then a 1-tick yield (task WDT), then deletes itself; until then the LVGL task solves per frame as before. |
+| `rim` | 1 | 2 | 2560 (PSRAM) | Outline squash/stretch variants after a mood change. |
+| `ember` | 1 | 3 | 6912 | View long-poll, checkin, stats, brightness, Wi-Fi bookkeeping. |
+| `pomo`, `weather` | 1 | 3 | 5632, 5120 (PSRAM) | Legacy per-endpoint pollers; only when Ember has no knob view. |
+| `prov` | 1 | 2 | 5376 | USB-Serial/JTAG listener: Improv, CINDER1 dev tools, snapshot. |
+| `link` | 1 | 1 | 4096 (PSRAM) | QSPI link check every 5 s (5 MHz 3-wire read). |
+| `reset` | 1 | 4 | 5120 | Factory reset (transient). |
+| `stats` | any | 1 | 3840 (PSRAM) | 30 s stats log. |
+| `main` | 0 | 1 | 7232 | `app_main`; returns after setup. |
 | `wifi` (IDF) | 0 → **1** | 23 | IDF | Wi-Fi driver. |
-| `esp_timer` (IDF) | 0 → **1** | 22 | 3584 | Timer callbacks: LVGL tick (1 kHz), knob encoder poll (3 ms), button poll (5 ms), Wi-Fi reconnect timer. ISR stays on core 0. |
-| `sys_evt` (IDF default event loop) | 0 | 20 | 2304 + extra | Wi-Fi/IP events (`ember_client.c` handlers); short. |
+| `esp_timer` (IDF) | 0 → **1** | 22 | 4096 | Timer callbacks: LVGL tick (1 kHz), knob encoder poll (3 ms), button poll (5 ms), Wi-Fi reconnect timer. ISR stays on core 0. |
+| `sys_evt` (IDF default event loop) | 0 | 20 | 3840 | Wi-Fi/IP events (`ember_client.c` handlers); short. |
 | `tiT` (lwIP) | any | 18 | 3072 | TCP/IP stack. |
-| `Tmr Svc` (FreeRTOS timers) | any | 1 | 2048 | Unused by the app. |
+| `Tmr Svc` (FreeRTOS timers) | any | 1 | 2304 | Unused by the app. |
 | `ipc0`/`ipc1`, `IDLE0`/`IDLE1` | 0/1 | 24/0 | 1280/1536 | IDF. |
 
 USB-Serial/JTAG has no task (driver ring buffer, ISR); touch has no task (polled by the LVGL indev).
@@ -452,21 +452,21 @@ A `-fstack-usage` scratch build found no unbounded dynamic frames in app code (9
 | `ember` | 1 / 3 | 6144 → **6912** | 3044 (3100) | 5056 (checkin answer parsed at 32 levels; without recursion budgets 4944: OTA service → fresh view → Pomodoro action → HTTP → lwIP OOM log) | 1856 |
 | `eye` | 1 / 5 | 2560 | 1260 (1300) | 1472 (raster; was 1456) | 1088 |
 | `link` | 1 / 1 | 3072 → **4096** (PSRAM since 0.9.35) | 752 (2320) | 2960 (link check → SPI → error log); 0.9.35: 2704 (log line, the check runs on `lvgl`) | 1392 |
-| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 8896 (render, event cut at 2 entries, 4 redraw levels; SW draw dispatch → label → glyph image → bin decoder → malloc; was 8368) | **1344** |
-| `prov` | 1 / 2 | 3584 → **5120** | 2316 (1268) | 4320 (NVS write → entry erase → partition write → mmap error log; was 4000, CINDER1 parse at 32 levels) | **800** |
+| `lvgl` | 0 / 6 | 10240 → **10496** | 2484 (7756) | 8896 (render, event cut at 2 entries, 4 redraw levels; SW draw dispatch → label → glyph image → bin decoder → malloc; was 8368) | **1600** |
+| `prov` | 1 / 2 | 3584 → 5120 → **5376** | 2316 (1268) | 4320 (NVS write → entry erase → partition write → mmap error log; was 4000, CINDER1 parse at 32 levels) | **1056** |
 | `rim` | 1 / 2 | 6144 → **2560** (PSRAM since 0.9.35) | 4988 (1156) | 1328 (ring + raster; was 1312) | 1232 |
 | `stats` | any / 1 | 3072 → **3840** (PSRAM since 0.9.35) | 568 (2504) | 2640 (log line); 0.9.35: 2688 (deletes `orbit`) | 1152 |
 | `pomo` (Ember without view) | 1 / 3 | 5120 → **5632** (PSRAM since 0.9.35) | — | 4384; 0.9.35: 4368 | 1264 |
 | `weather` (Ember without view) | 1 / 3 | 6144 → **5120** (PSRAM since 0.9.35) | — | 3936; 0.9.35: 3920 | 1200 |
 | `orbit` (boot, ~5 s) | 1 / 1 | 2560 → **3328** (PSRAM since 0.9.35) | — | 2144 | 1184 |
-| `reset` (factory reset) | 1 / 4 | 3072 → **4864** | — | 4032 (NVS write → entry erase → mmap error log; was 3632) | **832** |
-| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 6192 (LVGL init events reaching the SW draw dispatch; was 5616) | **720** |
+| `reset` (factory reset) | 1 / 4 | 3072 → 4864 → **5120** | — | 4032 (NVS write → entry erase → mmap error log; was 3632) | **1088** |
+| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → 6912 → **7232** | — | 6192 (LVGL init events reaching the SW draw dispatch; was 5616) | **1040** |
 | `esp_timer` (IDF) | 1 / 22 | 3584 → **4096** | — | 2768 (Wi-Fi reconnect log; Wi-Fi blob timers unresolved) | 1328 |
 | `sys_evt` (IDF) | 0 / 20 | 2304 → **3840** | — | 2784 (`esp_netif` connected log) | 1056 |
 | `ipc0` / `ipc1` (IDF) | 0, 1 / 24 | 1280 (IDF default, exempt) | — | 1168 (mostly the fixed overhead) | 112 |
 | `Tmr Svc` (IDF) | any / 1 | 2048 → **2304** | — | 1136 (no app timers) | 1168 |
 
-**Under the rule since #15** (stacks not resized yet): `lvgl` 1344 < 1.5 KB, `prov` 800, `reset` 832 and `main` 720 < 1 KB. Sizes that restore the rule: `lvgl` 10496, `prov` 5376, `reset` 5120, `main` 7232 (`CONFIG_ESP_MAIN_TASK_STACK_SIZE`).
+**0.9.38 restores the rule** after #15 raised the estimates (`lvgl` margin was 1344 < 1.5 KB, `prov` 800, `reset` 832, `main` 720 < 1 KB): `lvgl` 10496, `prov` 5376, `reset` 5120, `main` 7232 (`CONFIG_ESP_MAIN_TASK_STACK_SIZE`): +512 B internal RAM steady (`lvgl`, `prov`), +1088 B peak (`reset` is transient, `main` is freed after `app_main`).
 
 **`ipc0`/`ipc1` are exempt from the 1 KB rule** (user decision 2026-10-08): no app code runs there, IDF sizes them for its own IPC callbacks, and their 1168 B estimate is mostly the model's fixed 768 B overhead; they stay at IDF's 1280 B. Not estimated: `tiT` (3072, lwIP callbacks unresolved), `wifi` (blob), `IDLE0`/`IDLE1` (1536), the ISR stacks (2096 B per core, `port_IntStack`). The stats log line now appends the IDF tasks after `| idf` (`esp_timer`, `ipc0`/`ipc1`, `sys_evt`, `tiT`, `Tmr Svc`, `wifi`), so they can be sized from field data.
 
@@ -474,7 +474,7 @@ Since 0.9.35 `rim`, `stats`, `link`, `orbit`, `pomo` and `weather` have PSRAM st
 
 - **Main fix: the triangle table.** `bot_shape.c` built it lazily on whichever task drew the first outline, with `double raw[720]` (5.76 KB) on that task's stack: the LVGL task in practice, where it set the 7756 B high-water mark. Now `bot_shape_init()` builds it once from `bot_view_create`, before the `rim` task exists and before the LVGL timer runs; the scratch is static in PSRAM, and `bot_body_ring` asserts the table is ready.
 - **stats**: its frame 336 → 144 B (the stats, refresh-kind and Wi-Fi structs and the stack line are static in PSRAM); the rest is the log path.
-- `lvgl` stays 10 KB until measured: without the 5.8 KB scratch its high-water mark should drop by several KB; then size it at 1.5 KB over the measured render peak.
+- `lvgl` is sized from the estimate (10496 since 0.9.38: 8896 + 1.5 KB); the measured high-water mark is far lower (5316 B free at its worst on 0.9.34), so a measured size could be smaller.
 - **Health floors** (`OTA_HEALTH_STACK_MIN` 512 B, `OTA_HEALTH_STACK_LVGL` 1024 B) unchanged: every gated task now has ≥ 1.1 KB estimated headroom and should idle well above the floor (eye ~1.26 KB, rim ~1.4 KB, stats ~1.5 KB, link ~1.8 KB expected), so the floors still catch a regression without tripping on a healthy image.
 - **Stale local `sdkconfig`**: an existing `firmware/sdkconfig` keeps the old stack sizes and features; delete it before building (CI and `build_release.sh` start fresh).
 

@@ -529,6 +529,6 @@ void provision_usb_start(void)
         return;
     }
     usb_serial_jtag_vfs_use_driver();
-    xTaskCreatePinnedToCore(listener_task, "prov", 5120, NULL, 2, NULL, 1);
+    xTaskCreatePinnedToCore(listener_task, "prov", 5376, NULL, 2, NULL, 1);
     ESP_LOGI(TAG, "USB provisioning listener up%s", s_pending ? " (after Improv Wi-Fi)" : "");
 }
