@@ -167,7 +167,7 @@ def table(elf, code, pred, bpred, a, s, e):
 
 def descend(f, elf):
     s, e, code = f['start'], f['end'], f['code']
-    live, pred, bpred, missing, tails, outside, todo = set(), {}, {}, set(), [], [], [s]
+    live, pred, bpred, missing, tails, outside, todo = set(), {}, {s: [None]}, set(), [], [], [s]
     sites, found = [], {}
     for _ in range(64):
         while todo:
@@ -206,6 +206,7 @@ def descend(f, elf):
             break
         found = now
     else:
+        tails += [tail for _, tail in found.values() if tail is not None]
         found = {None: (None, None)}
     whole = any(tab is None and tail is None for tab, tail in found.values())
     tails += [tail for _, tail in found.values() if tail is not None]

@@ -508,6 +508,29 @@ class Desync(unittest.TestCase):
         self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
         self.assertEqual(g.stats["whole"], 1)
 
+    def test_jx_does_not_trust_a_guard_on_a_branch_back_to_the_entry(self):
+        text = """
+42000000 <sw>:
+42000000:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+42000003:\taddx4\ta8, a2, a8
+42000006:\tl32i.n\ta8, a8, 0
+42000008:\tbeqz\ta5, 4200000e <sw+0xe>
+4200000b:\tjx\ta8
+4200000e:\taddi.n\ta2, a2, -1
+42000010:\tbltui\ta2, 1, 42000000 <sw>
+42000013:\tret.n
+42000015:\tret.n
+42000017:\tcall0\t42000200 <big>
+4200001a:\tret.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        g = load(text, tables={0x3c000000: (0x42000015, 0x42000017)})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 400)
+        self.assertEqual(g.stats["whole"], 1)
+
     def test_unresolved_jx_keeps_the_whole_function(self):
         text = """
 42000000 <sw>:
