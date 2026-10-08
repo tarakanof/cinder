@@ -461,6 +461,8 @@ static void poll_settings(int64_t *next_bright_us)
 static atomic_bool s_unauthorized;
 static atomic_bool s_checked_in;
 static bool s_rotated;
+static bool s_deep_warned;
+static uint32_t s_deep_version;
 static _Atomic int64_t s_last_checkin_us = -1;
 #define s_sched (P->sched)
 
@@ -710,6 +712,12 @@ static void checkin(char *buf)
         } else {
             ESP_LOGE(TAG, "storing the rotated token failed: %s", esp_err_to_name(err));
         }
+    }
+    if (r.ok && r.config_too_deep && r.config_version != applied && (!s_deep_warned || s_deep_version != r.config_version)) {
+        ESP_LOGW(TAG, "knob settings v%" PRIu32 " ignored: config nested deeper than %d levels", r.config_version,
+                 DEV_CONFIG_MAX_DEPTH);
+        s_deep_warned = true;
+        s_deep_version = r.config_version;
     }
     if (r.ok && r.config && r.config_version != applied) {
         esp_err_t err = config_store_apply_settings(r.config, r.config_version);
