@@ -126,7 +126,7 @@ int64_t dev_live_deadline_ms(long long live_until, long long server_now, int64_t
 typedef struct {
     bool ok;
     uint32_t config_version;
-    char *config;                 /* malloc'd compact JSON of "config", or NULL; caller frees */
+    char *config;                 /* malloc'd compact JSON of "config", or NULL (absent, or nested deeper than DEV_CONFIG_MAX_DEPTH); caller frees */
     bool has_new_token;
     char new_token[DEV_TOKEN_MAX + 1];
     long long diag_live_until;   /* server Unix s; 0 = absent */
@@ -137,6 +137,7 @@ typedef struct {
 } dev_checkin_result_t;
 
 #define DEV_OTA_MAX_SIZE (4u << 20)
+#define DEV_CONFIG_MAX_DEPTH 4 /* object/array levels, "config" itself = 1; bounds the cJSON print recursion */
 void dev_checkin_parse(const char *json, dev_checkin_result_t *out);
 void dev_checkin_result_free(dev_checkin_result_t *r);
 

@@ -262,6 +262,28 @@ static bool token_valid(const char *t)
     return true;
 }
 
+static bool depth_ok(const cJSON *root, int max)
+{
+    const cJSON *st[DEV_CONFIG_MAX_DEPTH + 1];
+    int d = 0;
+    st[0] = root;
+    for (;;) {
+        const cJSON *n = st[d];
+        if (n && (cJSON_IsObject(n) || cJSON_IsArray(n)) && d >= max) return false;
+        if (n && n->child) {
+            st[++d] = n->child;
+            continue;
+        }
+        if (d == 0) return true;
+        if (n) {
+            st[d] = n->next;
+            continue;
+        }
+        if (--d == 0) return true;
+        st[d] = st[d]->next;
+    }
+}
+
 void dev_checkin_parse(const char *json, dev_checkin_result_t *out)
 {
     memset(out, 0, sizeof *out);
@@ -276,7 +298,7 @@ void dev_checkin_parse(const char *json, dev_checkin_result_t *out)
         out->config_version = (uint32_t)v->valuedouble;
     }
     const cJSON *cfg = cJSON_GetObjectItemCaseSensitive(root, "config");
-    if (out->ok && cJSON_IsObject(cfg)) out->config = cJSON_PrintUnformatted(cfg);
+    if (out->ok && cJSON_IsObject(cfg) && depth_ok(cfg, DEV_CONFIG_MAX_DEPTH)) out->config = cJSON_PrintUnformatted(cfg);
     const char *tok = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "new_token"));
     if (tok && token_valid(tok)) {
         out->has_new_token = true;

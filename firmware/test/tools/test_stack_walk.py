@@ -67,6 +67,43 @@ class StackWalk(unittest.TestCase):
         self.assertEqual(size, 32 + 64 + 96)
         self.assertEqual([n for n, _ in path], ["entry_fn", "dispatch", "handler"])
 
+    def test_long_call_into_a_later_elf_resolves(self):
+        g = stack_walk.Graph([])
+        g.load("""
+42000000 <app_fn>:
+42000000:\tentry\ta1, 32
+42000003:\tl32r\ta8, 41ffff00 <_lit> (40001000 <rom_fn>)
+42000006:\tcallx8\ta8
+""", {})
+        g.load("""
+40001000 <rom_fn>:
+40001000:\tentry\ta1, 80
+""", {})
+        g.link()
+        g.apply({})
+        self.assertEqual(g.funcs[0x42000000]["calls"], {0x40001000})
+        self.assertEqual(g.funcs[0x42000000]["ind"], 0)
+        self.assertEqual(g.worst(0x42000000, {}, [], {})[0], 32 + 80)
+
+    def test_init_links_after_every_elf(self):
+        texts = iter(["""
+42000000 <app_fn>:
+42000000:\tentry\ta1, 32
+42000003:\tl32r\ta8, 41ffff00 <_lit> (40001000 <rom_fn>)
+42000006:\tcallx8\ta8
+""", """
+40001000 <rom_fn>:
+40001000:\tentry\ta1, 80
+"""])
+        real = stack_walk.run
+        stack_walk.run = lambda *a: next(texts) if a[0].endswith("objdump") else ""
+        try:
+            g = stack_walk.Graph(["app.elf", "rom.elf"])
+        finally:
+            stack_walk.run = real
+        self.assertEqual(g.funcs[0x42000000]["calls"], {0x40001000})
+        self.assertEqual(g.funcs[0x42000000]["ind"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
