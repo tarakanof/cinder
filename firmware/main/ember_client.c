@@ -1063,7 +1063,7 @@ void ember_client_start(void)
         if (fd >= 0) atomic_store(&s_wake_fd, fd);
     }
     if (atomic_load(&s_wake_fd) < 0) ESP_LOGW(TAG, "no wake fd: a push during a long-poll waits up to 1 s");
-    if (xTaskCreatePinnedToCore(poll_task, "ember", 6656, NULL, 3, NULL, 1) == pdPASS) watchdog_start();
+    if (xTaskCreatePinnedToCore(poll_task, "ember", 6912, NULL, 3, NULL, 1) == pdPASS) watchdog_start();
 }
 
 void ember_client_forget_wifi(void)

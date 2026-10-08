@@ -241,7 +241,7 @@ void pomo_client_legacy(bool on)
         http_conn_init(s_conn, "pomo");
     }
     atomic_store(&s_legacy_on, true);
-    if (xTaskCreatePinnedToCore(client_task, "pomo", 5376, NULL, 3, &s_task, 1) != pdPASS) {
+    if (xTaskCreatePinnedToCore(client_task, "pomo", 5632, NULL, 3, &s_task, 1) != pdPASS) {
         s_task = NULL;
         atomic_store(&s_legacy_on, false);
         publish_link(false, false);
