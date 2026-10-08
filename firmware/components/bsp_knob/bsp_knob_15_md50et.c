@@ -292,7 +292,7 @@ static esp_err_t lvgl_adapter_bringup(void)
     ESP_LOGI(TAG, "Initialize LVGL adapter");
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
     adapter_config.task_core_id = 0;   /* cinder: LVGL on core 0; outline variants render on core 1 */
-    adapter_config.task_stack_size = 10 * 1024;   /* cinder: 8 KB left ~400 B at the high-water mark (docs/features.md, core use) */
+    adapter_config.task_stack_size = 10496;   /* cinder: worst-case estimate 8896 B + 1.5 KB margin (docs/features.md, stack estimates) */
     ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_config), TAG, "adapter init");
 
     esp_lv_adapter_display_config_t display_config = ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(

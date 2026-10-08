@@ -670,7 +670,7 @@ static bool reset_frame(double t)
         }
         if (st == RG_CONFIRMED) {
             lv_label_set_text(s_reset_label, "Resetting");
-            xTaskCreatePinnedToCore(reset_task, "reset", 4864, NULL, 4, NULL, 1);
+            xTaskCreatePinnedToCore(reset_task, "reset", 5120, NULL, 4, NULL, 1);
         }
         s_reset_shown = st;
     }
