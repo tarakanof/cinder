@@ -52,6 +52,7 @@ void esp_task_wdt_isr_user_handler(void)
 
 static const char *const TASKS[] = {"ember", "eye", "link", "lvgl", "pomo", "prov", "rim", "stats", "weather"};
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= DEV_DIAG_MAX_TASKS, "task list fits");
+_Static_assert(sizeof TASKS / sizeof TASKS[0] <= OTA_HEALTH_TASKS_MAX, "task list fits the health gate");
 
 static atomic_int s_level;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -267,6 +268,21 @@ void diag_track(void)
     unsigned v = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
     unsigned cur = atomic_load(&s_largest_min);
     while (v < cur && !atomic_compare_exchange_weak(&s_largest_min, &cur, v)) {
+    }
+}
+
+void diag_health(ota_health_in_t *h)
+{
+    diag_track();
+    h->heap_internal_min = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+    h->heap_largest_min = atomic_load(&s_largest_min);
+    h->n_tasks = 0;
+    for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
+        TaskHandle_t t = xTaskGetHandle(TASKS[i]);
+        if (!t) continue;
+        h->tasks[h->n_tasks].name = TASKS[i];
+        h->tasks[h->n_tasks].stack_free = (uint32_t)uxTaskGetStackHighWaterMark(t);
+        h->n_tasks++;
     }
 }
 

@@ -11,6 +11,12 @@ void ota_client_boot(void);
 
 /* Any task. */
 void ota_client_note_frame(void);
+/* LVGL task, every frame_cb tick (liveness of the LVGL loop). */
+void ota_client_note_loop(void);
+/* Link task: OK for a completed check, FAIL for a confirmed failure at the 40 MHz clock (sticky). */
+void ota_client_note_link(ota_link_t r);
+/* LVGL task: true while the no_render OTA test fault freezes the screen. */
+bool ota_client_render_frozen(void);
 void ota_client_note_view_ok(void);
 void ota_client_note_input(void);
 bool ota_client_checkin_blocked(void);
@@ -18,6 +24,10 @@ bool ota_client_checkin_blocked(void);
 bool ota_client_verifying(void);
 /* CINDER1 ota_fault (CONFIG_CINDER_OTA_TEST): "net" or "sha" for the next download; false otherwise. */
 bool ota_client_fault(const char *fault);
+
+typedef enum { OTA_MARK_OK, OTA_MARK_NOT_PENDING, OTA_MARK_NO_CHECKIN, OTA_MARK_NOT_READY, OTA_MARK_BUSY, OTA_MARK_FAILED } ota_mark_t;
+/* CINDER1 ota_valid, USB task: the ember task marks the pending image valid (health checks skipped); blocks up to 30 s. */
+ota_mark_t ota_client_mark_valid(void);
 
 /* Callbacks run on the ember task. */
 typedef struct {

@@ -199,9 +199,9 @@ static void refr_cb(lv_event_t *e)
         k->n++;
         k->us += d;
         if (d > k->us_max) k->us_max = d;
+        ota_client_note_frame();
     }
     diag_note_frame(d);
-    ota_client_note_frame();
     s_refr_count++;
     s_refr_total_us += d;
     if (d > s_refr_max_us) s_refr_max_us = d;
@@ -254,8 +254,10 @@ static void link_task(void *arg)
         ESP_LOGW(TAG, "link check %d at %d MHz: %d bad | %02X %02X %02X %02X %02X %02X %02X %02X", i,
                  bsp_knob_15_md50et_qspi_hz() / 1000000, bad, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5],
                  raw[6], raw[7]);
-        if (bad == -2) continue;
-        if (bad > 0 && fast && LINK_FALLBACK && link_confirm_fail(i)) {
+        if (bad < 0) continue;
+        bool failed = bad > 0 && link_confirm_fail(i);
+        ota_client_note_link(ota_link_result(failed, fast));
+        if (failed && fast && LINK_FALLBACK) {
             link_reboot_request(OTA_REBOOT_FALLBACK, "check failed at boot: rebooting at 40 MHz");
         }
     }
@@ -276,6 +278,7 @@ static void link_task(void *arg)
         else if (bad > 0) fails++;
         if (bad > 0 && !link_confirm_fail(seed)) bad = 0;
         streak = bad > 0 ? streak + 1 : 0;
+        if (bad >= 0) ota_client_note_link(ota_link_result(streak >= 2, fast));
         if (streak >= 2 && fast && LINK_FALLBACK) {
             link_reboot_request(OTA_REBOOT_FALLBACK, "two checks failed: rebooting at 40 MHz");
             streak = 0;
@@ -662,9 +665,22 @@ static bool reset_frame(double t)
     return st != RG_IDLE;
 }
 
+static void render_freeze(lv_display_t *disp)
+{
+    static bool frozen;
+    bool want = ota_client_render_frozen();
+    if (want == frozen) return;
+    frozen = want;
+    lv_display_enable_invalidation(disp, !want);
+    if (want) ESP_LOGW(TAG, "OTA test fault no_render: screen frozen");
+    else lv_obj_invalidate(lv_screen_active());
+}
+
 static void frame_cb(lv_timer_t *timer)
 {
-    (void)timer;
+    render_freeze(lv_timer_get_user_data(timer));
+    if (ota_client_render_frozen()) return;
+    ota_client_note_loop();
     double t = now_s();
     double dt = s_last_frame_t > 0 ? t - s_last_frame_t : 0;
     s_last_frame_t = t;
@@ -926,7 +942,7 @@ void app_main(void)
     join_label_create();
     gc_init(&s_chase, esp_random());
     bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
-    lv_timer_create(frame_cb, 16, NULL);
+    lv_timer_create(frame_cb, 16, handles.disp);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_START, NULL);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_READY, NULL);
     bsp_knob_15_md50et_unlock();

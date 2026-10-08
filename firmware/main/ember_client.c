@@ -45,6 +45,7 @@
 static const char *TAG = "ember";
 
 #define RESP_MAX (16 * 1024)
+#define BRIGHTNESS_LOCK_MS 1000
 
 static atomic_bool s_online;
 static atomic_bool s_join;
@@ -396,7 +397,7 @@ static void wait_and_fade(int ms, char *buf)
         uint8_t v;
         TickType_t wait = (TickType_t)left;
         if (s_fade_on && dim_fade_tick(&s_fade, &v)) {
-            bsp_knob_15_md50et_set_brightness_level(v);
+            bsp_knob_15_md50et_set_brightness_level_wait(v, BRIGHTNESS_LOCK_MS);
             TickType_t step = pdMS_TO_TICKS(DIM_STEP_MS);
             if (wait > step) wait = step;
         }
@@ -742,7 +743,7 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     alive();
     uint8_t v;
     bool fading = s_fade_on && dim_fade_tick(&s_fade, &v);
-    if (fading) bsp_knob_15_md50et_set_brightness_level(v);
+    if (fading) bsp_knob_15_md50et_set_brightness_level_wait(v, BRIGHTNESS_LOCK_MS);
     *next_slice_ms = fading ? DIM_STEP_MS : 1000;
     if (!atomic_load(&s_online) || config_store_token_gen() != P->token_gen) return true;
     if (config_store_settings_gen() != s_ks_gen) return true;

@@ -15,6 +15,8 @@ void diag_boot(void);
 void diag_track(void);
 /* Ember task. */
 void diag_fill(dev_diag_t *d);
+/* Ember task: the heap and stack fields of the OTA health gate. */
+void diag_health(ota_health_in_t *h);
 /* Ember task. id: the IDF CRC-32 stored in the dump's last 4 bytes; size in bytes. */
 bool diag_crash_id(uint32_t *id, uint32_t *size);
 /* Ember task. The whole dump, read-only flash mapping; release with esp_partition_munmap. */

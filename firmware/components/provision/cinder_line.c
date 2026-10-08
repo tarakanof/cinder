@@ -138,6 +138,8 @@ cl_err_t cl_parse(const char *json, cl_req_t *out)
         if (!f) e = CL_E_BAD_JSON;
         else if (strcmp(f, "net") == 0 || strcmp(f, "sha") == 0) snprintf(out->fault, sizeof out->fault, "%s", f);
         else e = CL_E_BAD_VALUE;
+    } else if (strcmp(o, "ota_valid") == 0) {
+        out->op = CL_OP_OTA_VALID;
     } else if (strcmp(o, "diag_override") == 0) {
         out->op = CL_OP_DIAG_OVERRIDE;
         e = get_opt_int(root, "stats_s", CL_DIAG_STATS_S_MIN, CL_DIAG_STATS_S_MAX, &out->stats_s);
@@ -164,6 +166,9 @@ const char *cl_err_name(cl_err_t e)
     case CL_E_BUSY: return "busy";
     case CL_E_FAILED: return "failed";
     case CL_E_NOT_WORKING: return "not_working";
+    case CL_E_NOT_PENDING: return "not_pending";
+    case CL_E_NO_CHECKIN: return "no_checkin";
+    case CL_E_NOT_READY: return "not_ready";
     }
     return "bad_json";
 }
