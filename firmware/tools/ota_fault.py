@@ -8,8 +8,10 @@ download once at 50 % (the knob resumes with Range); sha fails the final SHA-256
 valid (CINDER1 {"op":"ota_valid"}, every image): marks the running image valid while it is
 pending verification, skipping only the health checks. Replies: ok; not_pending (the image is
 not pending verification); no_checkin (no 200 checkin this boot yet); not_ready (under 60 s
-uptime, no frame or no view poll yet); busy (a mark or rollback is running); failed (the
-otadata write failed).
+uptime, no frame or no view poll yet); busy (another ota_valid is running, or the ember task
+did not take the request within 25 s); failed (the otadata write failed, or the display link
+failed at 40 MHz and the rollback is due). The mark runs on the knob's ember task, so the
+reply can take up to ~30 s.
 
 The port is opened with raw termios and DTR/RTS left alone (snapshot.py's open_port), so
 opening it does not reset the knob.
@@ -33,8 +35,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("fault", choices=["net", "sha", "valid"])
     ap.add_argument("--port", default="/dev/cu.usbmodem1101")
-    ap.add_argument("--timeout", type=float, default=4)
+    ap.add_argument("--timeout", type=float, default=None)
     args = ap.parse_args()
+    if args.timeout is None:
+        args.timeout = 35 if args.fault == "valid" else 4
     fd = open_port(args.port)
     req = {"id": 7301, "op": "ota_valid"} if args.fault == "valid" else {"id": 7301, "op": "ota_fault", "fault": args.fault}
     os.write(fd, ("CINDER1 " + json.dumps(req) + "\n").encode())

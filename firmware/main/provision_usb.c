@@ -397,6 +397,7 @@ static void op_ota_fault(const cl_req_t *r)
 static void op_ota_valid(const cl_req_t *r)
 {
     static const cl_err_t E[] = {CL_OK, CL_E_NOT_PENDING, CL_E_NO_CHECKIN, CL_E_NOT_READY, CL_E_BUSY, CL_E_FAILED};
+    _Static_assert(sizeof E / sizeof E[0] == OTA_MARK_FAILED + 1, "one reply per ota_mark_t");
     ota_mark_t m = ota_client_mark_valid();
     if (m == OTA_MARK_OK) reply_ok(r);
     else reply_err(r, (unsigned)m < sizeof E / sizeof E[0] ? E[m] : CL_E_FAILED);

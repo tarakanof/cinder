@@ -26,7 +26,7 @@ bool ota_client_verifying(void);
 bool ota_client_fault(const char *fault);
 
 typedef enum { OTA_MARK_OK, OTA_MARK_NOT_PENDING, OTA_MARK_NO_CHECKIN, OTA_MARK_NOT_READY, OTA_MARK_BUSY, OTA_MARK_FAILED } ota_mark_t;
-/* CINDER1 ota_valid, any task: marks the pending image valid, skipping the health checks only. */
+/* CINDER1 ota_valid, USB task: the ember task marks the pending image valid (health checks skipped); blocks up to 30 s. */
 ota_mark_t ota_client_mark_valid(void);
 
 /* Callbacks run on the ember task. */

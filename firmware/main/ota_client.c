@@ -11,6 +11,7 @@
 #include "bsp_knob_15_md50et.h"
 #include "cfg.h"
 #include "diag.h"
+#include "ember_client.h"
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -41,6 +42,8 @@ static const char *TAG = "ota";
 #define TEST_FAULT ""
 #endif
 #define NO_RENDER_AFTER_MS (10 * 1000)
+#define MARK_WAIT_MS (25 * 1000)
+#define MARK_TAKEN_WAIT_MS (5 * 1000)
 
 typedef enum { PHASE_IDLE, PHASE_WAITING, PHASE_REBOOTING } phase_t;
 
@@ -73,7 +76,9 @@ static atomic_bool s_verifying;
 static atomic_bool s_view_ok;
 static atomic_uint s_frames, s_loop_ms;
 static atomic_int s_link = OTA_LINK_PENDING;
-static atomic_bool s_checkin_seen, s_switching, s_rec_valid_due;
+static atomic_bool s_checkin_seen;
+typedef enum { MARK_IDLE, MARK_REQ, MARK_TAKEN, MARK_DONE } mark_req_t;
+static atomic_int s_mark_req, s_mark_res;
 static _Atomic int64_t s_last_input_us = -1;
 static atomic_bool s_fault_net, s_fault_sha;
 
@@ -230,14 +235,6 @@ bool ota_client_render_frozen(void)
     return atomic_load(&s_verifying) && strcmp(TEST_FAULT, "no_render") == 0 && uptime_ms() >= NO_RENDER_AFTER_MS;
 }
 
-static bool switch_enter(void)
-{
-    bool idle = false;
-    return atomic_compare_exchange_strong(&s_switching, &idle, true);
-}
-
-static void switch_leave(void) { atomic_store(&s_switching, false); }
-
 static int64_t age_ms(uint32_t at, int64_t now)
 {
     if (!at) return -1;
@@ -253,8 +250,7 @@ static ota_health_t health_read(void)
     h->link = (ota_link_t)atomic_load(&s_link);
     h->frames = atomic_load(&s_frames);
     h->loop_age_ms = age_ms(atomic_load(&s_loop_ms), now);
-    h->touch_reads = bsp_knob_15_md50et_touch_reads();
-    h->touch_age_ms = age_ms(bsp_knob_15_md50et_touch_read_ms(), now);
+    h->touch_ok = bsp_knob_15_md50et_touch_ok();
     h->input_seen = atomic_load(&s_last_input_us) >= 0;
     diag_health(h);
     ota_health_t r = ota_health_check(h);
@@ -262,10 +258,10 @@ static ota_health_t health_read(void)
         O->health_logged = true;
         O->health_shown = r.reason;
         if (r.reason)
-            ESP_LOGW(TAG, "health %s: %s (link %d, frames %" PRIu32 ", loop %lld ms, touch reads %" PRIu32
+            ESP_LOGW(TAG, "health %s: %s (link %d, frames %" PRIu32 ", loop %lld ms, touch ok %" PRIu32
                           ", heap min %" PRIu32 " B, largest min %" PRIu32 " B)",
                      r.state == OTA_HEALTH_FAIL ? "failed" : "pending", r.reason, (int)h->link, h->frames,
-                     (long long)h->loop_age_ms, h->touch_reads, h->heap_internal_min, h->heap_largest_min);
+                     (long long)h->loop_age_ms, h->touch_ok, h->heap_internal_min, h->heap_largest_min);
         else
             ESP_LOGI(TAG, "health checks pass");
     }
@@ -283,9 +279,8 @@ static ota_valid_in_t valid_in(bool checkin_ok, ota_health_state_t health)
     };
 }
 
-ota_mark_t ota_client_mark_valid(void)
+static ota_mark_t mark_check(void)
 {
-    if (!O) return OTA_MARK_NOT_PENDING;
     ota_valid_in_t v = valid_in(atomic_load(&s_checkin_seen), OTA_HEALTH_PENDING);
     switch (ota_override_check(atomic_load(&s_verifying), &v)) {
     case OTA_OVERRIDE_NOT_PENDING: return OTA_MARK_NOT_PENDING;
@@ -293,22 +288,32 @@ ota_mark_t ota_client_mark_valid(void)
     case OTA_OVERRIDE_NOT_READY: return OTA_MARK_NOT_READY;
     case OTA_OVERRIDE_OK: break;
     }
-    if (!switch_enter()) return OTA_MARK_BUSY;
-    if (!atomic_load(&s_verifying)) {
-        switch_leave();
-        return OTA_MARK_NOT_PENDING;
-    }
-    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
-    if (err != ESP_OK) {
-        switch_leave();
-        ESP_LOGE(TAG, "marking the image valid over USB failed: %s", esp_err_to_name(err));
-        return OTA_MARK_FAILED;
-    }
-    atomic_store(&s_verifying, false);
-    atomic_store(&s_rec_valid_due, true);
-    switch_leave();
-    ESP_LOGW(TAG, "image %s marked valid over USB (health checks skipped)", esp_app_get_description()->version);
     return OTA_MARK_OK;
+}
+
+ota_mark_t ota_client_mark_valid(void)
+{
+    if (!O) return OTA_MARK_NOT_PENDING;
+    ota_mark_t pre = mark_check();
+    if (pre != OTA_MARK_OK) return pre;
+    int st = MARK_IDLE;
+    if (!atomic_compare_exchange_strong(&s_mark_req, &st, MARK_REQ)) {
+        st = MARK_DONE;
+        if (!atomic_compare_exchange_strong(&s_mark_req, &st, MARK_REQ)) return OTA_MARK_BUSY;
+    }
+    ember_client_wake();
+    for (int ms = 0; ms < MARK_WAIT_MS + MARK_TAKEN_WAIT_MS; ms += 100) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        st = atomic_load(&s_mark_req);
+        if (st == MARK_DONE) {
+            ota_mark_t r = (ota_mark_t)atomic_load(&s_mark_res);
+            atomic_store(&s_mark_req, MARK_IDLE);
+            return r;
+        }
+        int req = MARK_REQ;
+        if (ms >= MARK_WAIT_MS && atomic_compare_exchange_strong(&s_mark_req, &req, MARK_IDLE)) return OTA_MARK_BUSY;
+    }
+    return OTA_MARK_BUSY;
 }
 
 bool ota_client_fault(const char *fault)
@@ -342,17 +347,35 @@ void ota_client_report(ota_report_t *out)
 static void roll_back(const char *why)
 {
     if (!ota_backoff_due(&O->rb, uptime_ms())) return;
-    if (!switch_enter()) return;
-    if (!atomic_load(&s_verifying)) {
-        switch_leave();
-        return;
-    }
+    if (!atomic_load(&s_verifying)) return;
     if (ota_rec_rollback(&O->rec, why)) rec_save();
     ESP_LOGE(TAG, "%s: rolling back to the previous image", why);
     esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
-    switch_leave();
     ota_backoff_failed(&O->rb, uptime_ms());
     ESP_LOGE(TAG, "rollback failed: %s; retry in %d min", esp_err_to_name(err), ota_backoff_ms(O->rb.fails) / 60000);
+}
+
+typedef enum { MARKED, MARK_LINK_FAILED, MARK_WRITE_FAILED } mark_out_t;
+
+static mark_out_t mark_valid(const ota_ctx_t *ctx, const char *how)
+{
+    if (atomic_load(&s_link) == OTA_LINK_FAIL) {
+        ESP_LOGW(TAG, "not marking the image valid: the display link failed at 40 MHz");
+        return MARK_LINK_FAILED;
+    }
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "marking the image valid failed: %s", esp_err_to_name(err));
+        return MARK_WRITE_FAILED;
+    }
+    atomic_store(&s_verifying, false);
+    read_state();
+    ota_rec_valid(&O->rec);
+    rec_save();
+    ESP_LOGI(TAG, "image %s marked valid after %lld s%s", esp_app_get_description()->version,
+             (long long)(uptime_ms() / 1000), how);
+    ctx->checkin_soon();
+    return MARKED;
 }
 
 void ota_client_checkin_done(int status, const dev_checkin_result_t *r, const ota_ctx_t *ctx)
@@ -364,26 +387,20 @@ void ota_client_checkin_done(int status, const dev_checkin_result_t *r, const ot
     if (status == 200) atomic_store(&s_checkin_seen, true);
     ota_valid_in_t v = valid_in(status == 200, health_read().state);
     if (!ota_valid_ready(&v)) return;
-    if (!switch_enter()) return;
-    if (!atomic_load(&s_verifying)) {
-        switch_leave();
-        return;
+    if (mark_valid(ctx, "") == MARK_WRITE_FAILED && ++O->mark_fails >= OTA_MARK_TRIES) roll_back("mark_valid");
+}
+
+static void mark_serve(const ota_ctx_t *ctx)
+{
+    int req = MARK_REQ;
+    if (!atomic_compare_exchange_strong(&s_mark_req, &req, MARK_TAKEN)) return;
+    ota_mark_t r = mark_check();
+    if (r == OTA_MARK_OK) {
+        mark_out_t m = mark_valid(ctx, " over USB (health checks skipped)");
+        if (m != MARKED) r = OTA_MARK_FAILED;
     }
-    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
-    if (err != ESP_OK) {
-        switch_leave();
-        ESP_LOGE(TAG, "marking the image valid failed: %s", esp_err_to_name(err));
-        if (++O->mark_fails >= OTA_MARK_TRIES) roll_back("mark_valid");
-        return;
-    }
-    atomic_store(&s_verifying, false);
-    switch_leave();
-    read_state();
-    ota_rec_valid(&O->rec);
-    rec_save();
-    ESP_LOGI(TAG, "image %s marked valid after %lld s", esp_app_get_description()->version,
-             (long long)(uptime_ms() / 1000));
-    ctx->checkin_soon();
+    atomic_store(&s_mark_res, r);
+    atomic_store(&s_mark_req, MARK_DONE);
 }
 
 typedef struct {
@@ -701,20 +718,16 @@ static void finish(const ota_ctx_t *ctx)
 
 void ota_client_service(const ota_ctx_t *ctx)
 {
-    if (atomic_exchange(&s_rec_valid_due, false)) {
-        read_state();
-        ota_rec_valid(&O->rec);
-        rec_save();
-        ctx->checkin_soon();
-    }
     if (atomic_load(&s_verifying)) {
         bool due = ota_rollback_due(uptime_ms(), ctx->pomo_active(), ROLLBACK_LIMIT_MS);
-        if (!due && atomic_load(&s_link) != OTA_LINK_FAIL) return;
-        ota_health_t h = health_read();
-        const char *why = ota_verify_rollback(due, atomic_load(&s_checkin_seen), &h);
-        if (why) roll_back(why);
-        return;
+        if (ota_verify_needs_health(due, (ota_link_t)atomic_load(&s_link))) {
+            ota_health_t h = health_read();
+            const char *why = ota_verify_rollback(due, atomic_load(&s_checkin_seen), &h);
+            if (why) roll_back(why);
+        }
     }
+    mark_serve(ctx);
+    if (atomic_load(&s_verifying)) return;
     if (O->ready) {
         finish(ctx);
         return;

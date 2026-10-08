@@ -344,6 +344,11 @@ int ota_pct(uint32_t written, uint32_t size)
     return p > 100 ? 100 : (int)p;
 }
 
+ota_link_t ota_link_result(bool failed, bool fast_clock)
+{
+    return failed && !fast_clock ? OTA_LINK_FAIL : OTA_LINK_OK;
+}
+
 static bool recent(int64_t age_ms, int64_t limit_ms) { return age_ms >= 0 && age_ms <= limit_ms; }
 
 static bool stacks_ok(const ota_health_in_t *in)
@@ -362,9 +367,7 @@ ota_health_t ota_health_check(const ota_health_in_t *in)
     const char *why = NULL;
     if (in->link != OTA_LINK_OK) why = "health_display";
     else if (in->frames < OTA_HEALTH_MIN_FRAMES || !recent(in->loop_age_ms, OTA_HEALTH_LOOP_MS)) why = "health_render";
-    else if (!in->input_seen &&
-             (in->touch_reads < OTA_HEALTH_MIN_TOUCH_READS || !recent(in->touch_age_ms, OTA_HEALTH_TOUCH_MS)))
-        why = "health_input";
+    else if (!in->input_seen && in->touch_ok < OTA_HEALTH_MIN_TOUCH_OK) why = "health_input";
     else if (in->heap_internal_min < OTA_HEALTH_HEAP_MIN || in->heap_largest_min < OTA_HEALTH_LARGEST_MIN)
         why = "health_heap";
     else if (!stacks_ok(in)) why = "health_stack";
@@ -390,6 +393,8 @@ const char *ota_verify_rollback(bool due, bool checkin_seen, const ota_health_t 
     if (checkin_seen && h->state == OTA_HEALTH_PENDING && h->reason) return h->reason;
     return "no_checkin";
 }
+
+bool ota_verify_needs_health(bool due, ota_link_t link) { return due || link == OTA_LINK_FAIL; }
 
 ota_override_t ota_override_check(bool verifying, const ota_valid_in_t *v)
 {

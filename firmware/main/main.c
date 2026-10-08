@@ -199,9 +199,9 @@ static void refr_cb(lv_event_t *e)
         k->n++;
         k->us += d;
         if (d > k->us_max) k->us_max = d;
+        ota_client_note_frame();
     }
     diag_note_frame(d);
-    ota_client_note_frame();
     s_refr_count++;
     s_refr_total_us += d;
     if (d > s_refr_max_us) s_refr_max_us = d;
@@ -256,7 +256,7 @@ static void link_task(void *arg)
                  raw[6], raw[7]);
         if (bad < 0) continue;
         bool failed = bad > 0 && link_confirm_fail(i);
-        ota_client_note_link(failed && !fast ? OTA_LINK_FAIL : OTA_LINK_OK);
+        ota_client_note_link(ota_link_result(failed, fast));
         if (failed && fast && LINK_FALLBACK) {
             link_reboot_request(OTA_REBOOT_FALLBACK, "check failed at boot: rebooting at 40 MHz");
         }
@@ -278,7 +278,7 @@ static void link_task(void *arg)
         else if (bad > 0) fails++;
         if (bad > 0 && !link_confirm_fail(seed)) bad = 0;
         streak = bad > 0 ? streak + 1 : 0;
-        if (bad >= 0) ota_client_note_link(streak >= 2 && !fast ? OTA_LINK_FAIL : OTA_LINK_OK);
+        if (bad >= 0) ota_client_note_link(ota_link_result(streak >= 2, fast));
         if (streak >= 2 && fast && LINK_FALLBACK) {
             link_reboot_request(OTA_REBOOT_FALLBACK, "two checks failed: rebooting at 40 MHz");
             streak = 0;

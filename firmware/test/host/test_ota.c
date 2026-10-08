@@ -544,8 +544,7 @@ static ota_health_in_t healthy(void)
         .link = OTA_LINK_OK,
         .frames = 750,
         .loop_age_ms = 16,
-        .touch_reads = 5000,
-        .touch_age_ms = 16,
+        .touch_ok = 1,
         .heap_internal_min = 84 * 1024,
         .heap_largest_min = 31 * 1024,
         .n_tasks = 3,
@@ -594,17 +593,14 @@ static void test_health(void)
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "loop never ran: render");
 
     h = healthy();
-    h.touch_reads = OTA_HEALTH_MIN_TOUCH_READS - 1;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "too few touch reads: input");
-    h.touch_reads = OTA_HEALTH_MIN_TOUCH_READS;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "20 touch reads pass");
-    h.touch_age_ms = OTA_HEALTH_TOUCH_MS + 1;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "touch reads stalled: input");
-    h.touch_age_ms = -1;
-    h.touch_reads = 0;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "no touch reads: input");
+    h.touch_ok = 0;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "touch controller never answered: input");
     h.input_seen = true;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "a real turn or press passes input");
+    h.input_seen = false;
+    h.touch_ok = OTA_HEALTH_MIN_TOUCH_OK;
+    h.loop_age_ms = 0;
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "one good controller read passes");
 
     h = healthy();
     h.heap_internal_min = OTA_HEALTH_HEAP_MIN - 1;
@@ -635,7 +631,7 @@ static void test_health(void)
     h.link = OTA_LINK_PENDING;
     h.frames = 0;
     h.input_seen = false;
-    h.touch_reads = 0;
+    h.touch_ok = 0;
     h.heap_internal_min = 0;
     h.tasks[0].stack_free = 0;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_display"), "order: display first");
@@ -643,7 +639,7 @@ static void test_health(void)
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "order: then render");
     h.frames = 750;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "order: then input");
-    h.touch_reads = 5000;
+    h.touch_ok = 1;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "order: then heap");
     h.heap_internal_min = 84 * 1024;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_stack"), "order: then stack");
@@ -700,6 +696,23 @@ static void test_verify_rollback(void)
     CHECK(s && strcmp(s, "health_render") == 0, "test build: health_render at 2 min");
 }
 
+static void test_link_mapping(void)
+{
+    CHECK(ota_link_result(false, true) == OTA_LINK_OK, "80 MHz pass: ok");
+    CHECK(ota_link_result(true, true) == OTA_LINK_OK, "80 MHz confirmed fail: ok (the held fallback fixes it)");
+    CHECK(ota_link_result(false, false) == OTA_LINK_OK, "40 MHz pass: ok");
+    CHECK(ota_link_result(true, false) == OTA_LINK_FAIL, "40 MHz confirmed fail: hard fail");
+    CHECK(!ota_verify_needs_health(false, OTA_LINK_PENDING) && !ota_verify_needs_health(false, OTA_LINK_OK),
+          "no health read before the deadline without a hard fail");
+    CHECK(ota_verify_needs_health(false, OTA_LINK_FAIL), "a hard link fail is checked at once");
+    CHECK(ota_verify_needs_health(true, OTA_LINK_OK) && ota_verify_needs_health(true, OTA_LINK_PENDING), "deadline");
+    ota_health_in_t h = healthy();
+    h.link = ota_link_result(true, false);
+    ota_health_t r = ota_health_check(&h);
+    const char *s = ota_verify_rollback(ota_rollback_due(5 * 1000, true, OTA_ROLLBACK_MS), false, &r);
+    CHECK(s && strcmp(s, "health_display") == 0, "a hard fail ignores the pomodoro deferral and the 60 s rule");
+}
+
 static void test_override(void)
 {
     ota_valid_in_t v = {.uptime_ms = 60000, .checkin_ok = true, .frame = true, .view_ok = true,
@@ -742,6 +755,7 @@ int main(int argc, char **argv)
     test_health();
     test_verify_rollback();
     test_override();
+    test_link_mapping();
     if (failures) {
         printf("ota: %d failure(s)\n", failures);
         return 1;

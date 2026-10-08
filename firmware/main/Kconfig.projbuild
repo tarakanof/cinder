@@ -61,8 +61,9 @@ config CINDER_OTA_TEST_FAULT
     default ""
     help
         crash_boot: abort 20 s after boot. no_checkin: never check in, so the rollback
-        timer fires. no_render: freeze the screen and the LVGL frame timer 10 s after
-        boot, so the health gate rolls back with health_render. Only while the running image is pending verification, so the
-        same image never breaks a knob that already accepted it.
+        timer fires. no_render: 10 s after boot freeze the screen and stop the LVGL
+        frame callback, so the health gate rolls back with health_render (about 2 min;
+        62 min while a Pomodoro runs). Only while the running image is pending
+        verification, so the same image never breaks a knob that already accepted it.
 
 endmenu

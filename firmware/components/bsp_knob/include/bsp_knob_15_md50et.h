@@ -31,9 +31,8 @@ esp_err_t bsp_knob_15_md50et_lock(int timeout_ms);
 int bsp_knob_15_md50et_qspi_hz(void);
 /* esp_timer us of the last touch read that found a finger (0 before any); LVGL task only. */
 int64_t bsp_knob_15_md50et_touch_report_us(void);
-/* cinder (#1): touch indev reads since boot, and the uptime ms of the last one (0 before any); any task. */
-uint32_t bsp_knob_15_md50et_touch_reads(void);
-uint32_t bsp_knob_15_md50et_touch_read_ms(void);
+/* cinder (#1): successful CST820 reads since boot (after an INT, while pressed, and once at start); any task. */
+uint32_t bsp_knob_15_md50et_touch_ok(void);
 void bsp_knob_15_md50et_qspi_fallback_reboot(void);
 /* cinder: call before bsp_knob_15_md50et_init(); the SPI clock is fixed at creation. */
 void bsp_knob_15_md50et_set_qspi_fast(bool on);
@@ -48,6 +47,8 @@ esp_err_t bsp_knob_15_md50et_set_brightness(uint8_t percent);
 
 /** cinder: raw CO5300 WRDISBV level 0-255; takes the LVGL lock, call after init, safe from any task. */
 esp_err_t bsp_knob_15_md50et_set_brightness_level(uint8_t level);
+/* cinder (#1): same, waiting at most timeout_ms (-1 forever) for the LVGL lock; ESP_ERR_TIMEOUT skips the write. */
+esp_err_t bsp_knob_15_md50et_set_brightness_level_wait(uint8_t level, int timeout_ms);
 
 void bsp_knob_15_md50et_register_knob_cb(bsp_knob_15_md50et_knob_cb_t cb);
 void bsp_knob_15_md50et_register_button_cb(bsp_knob_15_md50et_button_cb_t cb);

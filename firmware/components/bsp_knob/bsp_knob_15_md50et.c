@@ -43,7 +43,7 @@ static atomic_int s_tp_irq = 1;
 static bool s_tp_down;
 static lv_point_t s_tp_point;
 static int64_t s_tp_report_us;
-static atomic_uint s_tp_reads, s_tp_read_ms;
+static atomic_uint s_tp_ok;
 
 static void tp_isr(esp_lcd_touch_handle_t tp)
 {
@@ -55,12 +55,11 @@ static void tp_isr(esp_lcd_touch_handle_t tp)
 static void tp_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
     (void)indev;
-    atomic_fetch_add_explicit(&s_tp_reads, 1, memory_order_relaxed);
-    atomic_store_explicit(&s_tp_read_ms, (unsigned)(esp_timer_get_time() / 1000) | 1u, memory_order_relaxed);
     if (atomic_exchange(&s_tp_irq, 0) || s_tp_down) {
         esp_lcd_touch_point_data_t pt[1] = {0};
         uint8_t n = 0;
         bool ok = esp_lcd_touch_read_data(s_tp) == ESP_OK && esp_lcd_touch_get_data(s_tp, pt, &n, 1) == ESP_OK;
+        if (ok) atomic_fetch_add_explicit(&s_tp_ok, 1, memory_order_relaxed);
         s_tp_down = ok && n > 0;
         if (s_tp_down) {
             s_tp_point.x = pt[0].x;
@@ -73,8 +72,7 @@ static void tp_read(lv_indev_t *indev, lv_indev_data_t *data)
 }
 
 int64_t bsp_knob_15_md50et_touch_report_us(void) { return s_tp_report_us; }
-uint32_t bsp_knob_15_md50et_touch_reads(void) { return atomic_load_explicit(&s_tp_reads, memory_order_relaxed); }
-uint32_t bsp_knob_15_md50et_touch_read_ms(void) { return atomic_load_explicit(&s_tp_read_ms, memory_order_relaxed); }
+uint32_t bsp_knob_15_md50et_touch_ok(void) { return atomic_load_explicit(&s_tp_ok, memory_order_relaxed); }
 
 /* Vendor init table; the driver default does not work on this panel (docs/llm.md). */
 static const co5300_lcd_init_cmd_t s_lcd_init_cmds[] = {
@@ -383,8 +381,13 @@ esp_err_t bsp_knob_15_md50et_set_brightness(uint8_t percent)
 /* cinder: raw WRDISBV (0x51) write; QSPI encoding is opcode 0x02 in bits 24-31, command in bits 8-15 */
 esp_err_t bsp_knob_15_md50et_set_brightness_level(uint8_t level)
 {
+    return bsp_knob_15_md50et_set_brightness_level_wait(level, -1);
+}
+
+esp_err_t bsp_knob_15_md50et_set_brightness_level_wait(uint8_t level, int timeout_ms)
+{
     ESP_RETURN_ON_FALSE(s_panel && s_panel_io, ESP_ERR_INVALID_STATE, TAG, "panel not ready");
-    ESP_RETURN_ON_ERROR(bsp_knob_15_md50et_lock(-1), TAG, "lock");
+    if (bsp_knob_15_md50et_lock(timeout_ms) != ESP_OK) return ESP_ERR_TIMEOUT;
     esp_err_t err = esp_lcd_panel_io_tx_param(s_panel_io, (0x02 << 24) | (0x51 << 8), &level, 1);
     s_brightness_writes++;
     bsp_knob_15_md50et_unlock();

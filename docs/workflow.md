@@ -74,7 +74,7 @@ python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
   Automatic mode installs only `release` builds.
 - OTA test images: `publish.sh --dir build-test --version <next> [--ota-test FAULT]`
   (`CONFIG_CINDER_OTA_TEST`: 2 min rollback timer, CINDER1 `ota_fault`; `no_render` freezes the
-  screen and should roll back with `health_render` about 2 min after boot). A pending image the
+  screen and should roll back with `health_render` about 2 min after boot; 62 min while a Pomodoro runs). A pending image the
   health gate holds back can be accepted over USB with `tools/ota_fault.py valid` (any build). Delete test
   uploads afterwards (`DELETE /v1/firmware/{version}`, once the knob runs a release build).
 - Design and the on-knob test plan: [`features.md`](features.md), "OTA from Ember".
