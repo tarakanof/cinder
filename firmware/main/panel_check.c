@@ -18,14 +18,13 @@
 
 static esp_lcd_panel_io_handle_t s_io;
 static spi_device_handle_t s_rd;
-static panel_req_t s_req;
+static panel_req_t s_req = PR_INIT;
 static atomic_bool s_ready;
 
 void panel_check_init(esp_lcd_panel_handle_t panel, esp_lcd_panel_io_handle_t io)
 {
     (void)panel;
     s_io = io;
-    pr_init(&s_req);
     /* The panel answers reads on SIO0 with no CS of its own: CS is driven by hand, then handed back to FSPICS0. */
     spi_device_interface_config_t c = {.command_bits = 8, .address_bits = 24, .mode = 0,
                                        .clock_speed_hz = 5 * 1000 * 1000, .spics_io_num = -1,
@@ -53,6 +52,7 @@ static int panel_rd(void *ctx, uint8_t *level)
     return e == ESP_OK ? 0 : -1;
 }
 
+/* Raw WRDISBV (0x51): QSPI opcode 0x02 in bits 24-31, command in bits 8-15 (docs/llm.md). */
 static int panel_wr(void *ctx, uint8_t level)
 {
     (void)ctx;

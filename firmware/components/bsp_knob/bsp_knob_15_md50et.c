@@ -122,7 +122,6 @@ static esp_err_t backlight_init(void)
 #define QSPI_FALLBACK_MAGIC 0x51F040u
 static RTC_NOINIT_ATTR uint32_t s_qspi_fallback;
 static int s_qspi_hz;
-static volatile uint32_t s_brightness_writes;
 
 static bool s_qspi_want_fast = true;
 
@@ -378,23 +377,6 @@ esp_err_t bsp_knob_15_md50et_set_brightness(uint8_t percent)
     return esp_lcd_panel_co5300_set_brightness(s_panel, percent);
 }
 
-/* cinder: raw WRDISBV (0x51) write; QSPI encoding is opcode 0x02 in bits 24-31, command in bits 8-15 */
-esp_err_t bsp_knob_15_md50et_set_brightness_level(uint8_t level)
-{
-    return bsp_knob_15_md50et_set_brightness_level_wait(level, -1);
-}
-
-esp_err_t bsp_knob_15_md50et_set_brightness_level_wait(uint8_t level, int timeout_ms)
-{
-    ESP_RETURN_ON_FALSE(s_panel && s_panel_io, ESP_ERR_INVALID_STATE, TAG, "panel not ready");
-    if (bsp_knob_15_md50et_lock(timeout_ms) != ESP_OK) return ESP_ERR_TIMEOUT;
-    esp_err_t err = esp_lcd_panel_io_tx_param(s_panel_io, (0x02 << 24) | (0x51 << 8), &level, 1);
-    s_brightness_writes++;
-    bsp_knob_15_md50et_unlock();
-    return err;
-}
-
-uint32_t bsp_knob_15_md50et_brightness_writes(void) { return s_brightness_writes; }
 
 void bsp_knob_15_md50et_register_knob_cb(bsp_knob_15_md50et_knob_cb_t cb)
 {

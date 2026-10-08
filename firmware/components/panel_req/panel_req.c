@@ -11,6 +11,14 @@ void pr_init(panel_req_t *p)
     p->run = 0;
     p->dirty = false;
     p->bad = 0;
+    p->wrote_ms = -PR_SETTLE_MS;
+    p->retry_ms = 0;
+}
+
+static int pr_write(panel_req_t *p, const pr_io_t *io, uint8_t level, int64_t now_ms)
+{
+    p->wrote_ms = now_ms;
+    return io->write(io->ctx, level);
 }
 
 void pr_brightness(panel_req_t *p, uint8_t level) { atomic_store(&p->bright, level); }
@@ -37,9 +45,9 @@ bool pr_check_result(panel_req_t *p, uint32_t ticket, int *bad, uint8_t raw[3])
     return true;
 }
 
-static void pr_finish(panel_req_t *p, const pr_io_t *io, int bad)
+static void pr_finish(panel_req_t *p, const pr_io_t *io, int bad, int64_t now_ms)
 {
-    if (bad < 0 && p->dirty) io->write(io->ctx, p->cur);
+    if (bad < 0 && p->dirty) pr_write(p, io, p->cur, now_ms);
     p->dirty = false;
     p->step = 0;
     atomic_store(&p->result, (unsigned)(bad + 1) | (unsigned)p->cur << 8 | (unsigned)p->vals[0] << 16 |
@@ -54,14 +62,14 @@ static void pr_start(panel_req_t *p, const pr_io_t *io, unsigned req, int64_t no
     p->cur = p->got = 0;
     p->vals[0] = p->vals[1] = 0;
     if (io->read(io->ctx, &p->cur) != 0) {
-        pr_finish(p, io, -1);
+        pr_finish(p, io, -1, now_ms);
         return;
     }
     p->vals[0] = (uint8_t)(p->cur ^ (1 + (req & 1)));
     p->vals[1] = p->cur;
     p->dirty = true;
-    if (io->write(io->ctx, p->vals[0]) != 0) {
-        pr_finish(p, io, -1);
+    if (pr_write(p, io, p->vals[0], now_ms) != 0) {
+        pr_finish(p, io, -1, now_ms);
         return;
     }
     p->at_ms = now_ms;
@@ -71,25 +79,33 @@ static void pr_start(panel_req_t *p, const pr_io_t *io, unsigned req, int64_t no
 void pr_frame(panel_req_t *p, const pr_io_t *io, int64_t now_ms)
 {
     if (p->step == 0) {
-        int b = atomic_exchange(&p->bright, -1);
-        if (b >= 0) io->write(io->ctx, (uint8_t)b);
         unsigned req = atomic_load(&p->req);
-        if ((req >> 1) != 0 && (req >> 1) != p->run) pr_start(p, io, req, now_ms);
+        if ((req >> 1) != 0 && (req >> 1) != p->run) {
+            if (now_ms - p->wrote_ms >= PR_SETTLE_MS) pr_start(p, io, req, now_ms);
+            return;
+        }
+        if (now_ms < p->retry_ms) return;
+        int b = atomic_exchange(&p->bright, -1);
+        if (b >= 0 && pr_write(p, io, (uint8_t)b, now_ms) != 0) {
+            int none = -1;
+            atomic_compare_exchange_strong(&p->bright, &none, b);
+            p->retry_ms = now_ms + PR_RETRY_MS;
+        }
         return;
     }
     if (now_ms - p->at_ms < PR_SETTLE_MS) return;
     int k = p->step - 1;
     if (io->read(io->ctx, &p->got) != 0) {
-        pr_finish(p, io, -1);
+        pr_finish(p, io, -1, now_ms);
         return;
     }
     p->bad += p->got != p->vals[k];
     if (k == 1) {
-        pr_finish(p, io, p->bad);
+        pr_finish(p, io, p->bad, now_ms);
         return;
     }
-    if (io->write(io->ctx, p->vals[1]) != 0) {
-        pr_finish(p, io, -1);
+    if (pr_write(p, io, p->vals[1], now_ms) != 0) {
+        pr_finish(p, io, -1, now_ms);
         return;
     }
     p->dirty = false;

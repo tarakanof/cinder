@@ -13,13 +13,18 @@ typedef struct {
     bool stuck;
     uint8_t stuck_at;
     int fail_read_at, fail_write_at, corrupt_from;
+    int lag_ms;
+    uint8_t prev;
+    int64_t wrote_at;
 } fake_t;
+
+static int64_t g_now;
 
 static int fk_read(void *ctx, uint8_t *v)
 {
     fake_t *f = ctx;
     if (++f->reads == f->fail_read_at) return -1;
-    *v = f->stuck ? f->stuck_at : f->level;
+    *v = f->stuck ? f->stuck_at : f->lag_ms && g_now - f->wrote_at < f->lag_ms ? f->prev : f->level;
     if (f->corrupt_from && f->reads >= f->corrupt_from) *v ^= 0x80;
     return 0;
 }
@@ -29,6 +34,8 @@ static int fk_write(void *ctx, uint8_t v)
     fake_t *f = ctx;
     if (++f->writes == f->fail_write_at) return -1;
     if (f->writes <= 16) f->written[f->writes - 1] = v;
+    f->prev = f->level;
+    f->wrote_at = g_now;
     f->level = v;
     return 0;
 }
@@ -44,21 +51,27 @@ static void reset(uint8_t level)
     F.level = level;
 }
 
+static void frame(int64_t t)
+{
+    g_now = t;
+    pr_frame(&P, &IO, t);
+}
+
 static void frames(int64_t from, int64_t to)
 {
-    for (int64_t t = from; t <= to; t += 16) pr_frame(&P, &IO, t);
+    for (int64_t t = from; t <= to; t += 16) frame(t);
 }
 
 static void test_brightness(void)
 {
     reset(100);
-    pr_frame(&P, &IO, 0);
+    frame(0);
     CHECK(F.writes == 0, "nothing queued: no write");
     pr_brightness(&P, 40);
     pr_brightness(&P, 50);
-    pr_frame(&P, &IO, 16);
+    frame(16);
     CHECK(F.writes == 1 && F.level == 50, "newest level wins, one write (%d writes, level %d)", F.writes, F.level);
-    pr_frame(&P, &IO, 32);
+    frame(32);
     CHECK(F.writes == 1, "written once");
 }
 
@@ -69,14 +82,14 @@ static void test_check_good(void)
     uint8_t raw[3];
     uint32_t t = pr_check_post(&P, 4);
     CHECK(!pr_check_result(&P, t, &bad, raw), "no result before a frame");
-    pr_frame(&P, &IO, 0);
+    frame(0);
     CHECK(F.level == (100 ^ 1), "even seed writes level ^ 1 (%d)", F.level);
-    pr_frame(&P, &IO, PR_SETTLE_MS - 1);
+    frame(PR_SETTLE_MS - 1);
     CHECK(F.reads == 1, "waits %d ms before the read back", PR_SETTLE_MS);
     CHECK(!pr_check_result(&P, t, &bad, raw), "no result mid-check");
-    pr_frame(&P, &IO, PR_SETTLE_MS);
+    frame(PR_SETTLE_MS);
     CHECK(F.level == 100, "second write restores the level");
-    pr_frame(&P, &IO, 2 * PR_SETTLE_MS);
+    frame(2 * PR_SETTLE_MS);
     CHECK(pr_check_result(&P, t, &bad, raw) && bad == 0, "good loopback: 0 bad (%d)", bad);
     CHECK(raw[0] == 100 && raw[1] == (100 ^ 1) && raw[2] == 100, "raw %d %d %d", raw[0], raw[1], raw[2]);
     CHECK(F.writes == 2 && F.level == 100, "two writes, level restored");
@@ -106,13 +119,13 @@ static void test_brightness_waits_for_check(void)
     reset(100);
     int bad;
     uint32_t t = pr_check_post(&P, 0);
-    pr_frame(&P, &IO, 0);
+    frame(0);
     pr_brightness(&P, 30);
-    pr_frame(&P, &IO, 16);
+    frame(16);
     CHECK(F.level == (100 ^ 1), "no brightness write while the check runs");
     frames(32, 2 * PR_SETTLE_MS + 16);
     CHECK(pr_check_result(&P, t, &bad, NULL) && bad == 0, "check unaffected (%d)", bad);
-    pr_frame(&P, &IO, 200);
+    frame(200);
     CHECK(F.level == 30, "brightness written after the check (%d)", F.level);
 }
 
@@ -124,8 +137,73 @@ static void test_brightness_before_check(void)
     pr_brightness(&P, 30);
     uint32_t t = pr_check_post(&P, 0);
     frames(0, 300);
-    CHECK(pr_check_result(&P, t, &bad, raw) && bad == 0 && raw[0] == 30, "queued level written first, then checked");
-    CHECK(F.level == 30, "level kept");
+    CHECK(pr_check_result(&P, t, &bad, raw) && bad == 0, "check passes (%d)", bad);
+    CHECK(F.level == 30, "queued level kept (%d)", F.level);
+}
+
+static void test_readback_lag(void)
+{
+    int bad;
+    uint8_t raw[3];
+    reset(100);
+    F.lag_ms = PR_SETTLE_MS - 1;
+    pr_brightness(&P, 30);
+    uint32_t t = pr_check_post(&P, 0);
+    frames(0, 400);
+    CHECK(pr_check_result(&P, t, &bad, raw) && bad == 0, "lagging RDDISBV, level and check in one frame: passes (%d)", bad);
+    CHECK(F.level == 30, "the check never restores a level read before it settled (%d)", F.level);
+
+    reset(100);
+    F.lag_ms = PR_SETTLE_MS - 1;
+    pr_brightness(&P, 30);
+    frame(0);
+    t = pr_check_post(&P, 0);
+    frames(16, 400);
+    CHECK(pr_check_result(&P, t, &bad, raw) && bad == 0 && raw[0] == 30, "check posted just after a write reads the new level (%d)", raw[0]);
+    CHECK(F.level == 30, "level kept (%d)", F.level);
+
+    reset(100);
+    F.lag_ms = PR_SETTLE_MS - 1;
+    t = pr_check_post(&P, 1);
+    for (int64_t ms = 0; ms <= 1000; ms += 16) {
+        if (ms % 96 == 0) pr_brightness(&P, (uint8_t)(100 + ms / 96));
+        frame(ms);
+    }
+    frames(1016, 1400);
+    CHECK(pr_check_result(&P, t, &bad, NULL) && bad == 0, "a fade every 96 ms does not starve the check (%d)", bad);
+    CHECK(F.level == 110, "fade ends at its last level (%d)", F.level);
+}
+
+static void test_brightness_write_fails(void)
+{
+    reset(100);
+    F.fail_write_at = 1;
+    pr_brightness(&P, 30);
+    frame(0);
+    CHECK(F.level == 100, "write failed");
+    frames(16, 300);
+    CHECK(F.level == 30 && F.writes == 2, "failed level retried (%d writes, level %d)", F.writes, F.level);
+
+    reset(100);
+    F.fail_write_at = 1;
+    pr_brightness(&P, 30);
+    frame(0);
+    pr_brightness(&P, 40);
+    frames(16, 300);
+    CHECK(F.level == 40 && F.writes == 2, "a newer level wins over the retry (%d writes, level %d)", F.writes, F.level);
+}
+
+static void test_static_init(void)
+{
+    static panel_req_t q = PR_INIT;
+    pr_brightness(&q, 77);
+    memset(&F, 0, sizeof F);
+    F.level = 5;
+    g_now = 1000;
+    pr_frame(&q, &IO, 1000);
+    CHECK(F.level == 77, "a level queued before the owner starts is written (%d)", F.level);
+    pr_frame(&q, &IO, 1016);
+    CHECK(F.writes == 1, "no check without a ticket");
 }
 
 static void test_errors(void)
@@ -134,7 +212,7 @@ static void test_errors(void)
     int bad;
     F.fail_read_at = 1;
     uint32_t t = pr_check_post(&P, 0);
-    pr_frame(&P, &IO, 0);
+    frame(0);
     CHECK(pr_check_result(&P, t, &bad, NULL) && bad == -1, "first read fails: -1");
     CHECK(F.writes == 0, "nothing written");
 
@@ -168,7 +246,7 @@ static void test_tickets(void)
 
     reset(100);
     a = pr_check_post(&P, 0);
-    pr_frame(&P, &IO, 0);
+    frame(0);
     b = pr_check_post(&P, 0);
     frames(16, 2 * PR_SETTLE_MS + 16);
     CHECK(pr_check_result(&P, a, &bad, NULL) && !pr_check_result(&P, b, &bad, NULL), "a running check finishes first");
@@ -183,6 +261,9 @@ int main(void)
     test_check_mismatch();
     test_brightness_waits_for_check();
     test_brightness_before_check();
+    test_readback_lag();
+    test_brightness_write_fails();
+    test_static_init();
     test_errors();
     test_tickets();
     if (failures) {
