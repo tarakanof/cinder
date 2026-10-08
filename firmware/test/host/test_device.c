@@ -458,6 +458,9 @@ static void test_stall_guard(void)
     dev_stall_note_t n;
     memset(&n, 0xA5, sizeof n);
     CHECK(!dev_stall_boot(&n, DEV_RR_PANIC) && n.resets == 0 && n.magic == DEV_STALL_MAGIC, "garbage note: cleared");
+    memset(&n, 0xA5, sizeof n);
+    CHECK(!dev_stall_boot(&n, DEV_RR_SW) && n.resets == 0 && !n.marked && n.magic == DEV_STALL_MAGIC,
+          "garbage note plus SW reset (first boot after an OTA): cleared");
     CHECK(dev_stall_check(&n, false, 60000) == DEV_STALL_NONE, "no stall: nothing");
     for (int i = 1; i <= DEV_STALL_MAX_RESETS; i++) CHECK(stall_cycle(&n) && n.resets == (uint32_t)i, "stall reset %d counted", i);
     CHECK(dev_stall_check(&n, true, 90000) == DEV_STALL_LOG && !n.marked, "after %d resets: log only", DEV_STALL_MAX_RESETS);

@@ -59,6 +59,10 @@ typedef struct dev_diag {
 
 #define DEV_RR_SW 3
 #define DEV_RR_PANIC 4
+#define DEV_RR_INT_WDT 5
+#define DEV_RR_TASK_WDT 6
+#define DEV_RR_WDT 7
+#define DEV_RR_COUNT 16
 #define DEV_RR_LVGL_STALL 0x40
 
 /* A dump is only written by a panic or watchdog path; any other reset reason seen with a new dump gives "unknown". DEV_RR_LVGL_STALL: "lvgl_stall". */
@@ -69,7 +73,7 @@ const char *dev_boot_reason_name(int reset_reason, bool lvgl_stall);
 #define DEV_STALL_MAGIC 0x4C565354u
 #define DEV_STALL_MAX_RESETS 3
 #define DEV_STALL_CLEAR_MS (10 * 60 * 1000)
-/* Lives in RTC_NOINIT memory; any field may be garbage until dev_stall_boot. */
+/* Lives in RTC_NOINIT memory; any field may be garbage until dev_stall_boot. Bump DEV_STALL_MAGIC whenever this layout changes. */
 typedef struct {
     uint32_t magic;
     uint32_t resets;

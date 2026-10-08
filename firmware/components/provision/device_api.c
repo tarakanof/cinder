@@ -174,13 +174,14 @@ const char *dev_reset_reason_name(int reason)
     static const char *const N[] = {"unknown", "poweron",  "ext",     "sw",   "panic", "int_wdt",
                                     "task_wdt", "wdt",     "deepsleep", "brownout", "sdio", "usb",
                                     "jtag",    "efuse",    "pwr_glitch", "cpu_lockup"};
+    _Static_assert(sizeof N / sizeof N[0] == DEV_RR_COUNT, "one name per esp_reset_reason_t value");
     return reason >= 0 && reason < (int)(sizeof N / sizeof N[0]) ? N[reason] : "unknown";
 }
 
 const char *dev_crash_reason_name(int reset_reason)
 {
     switch (reset_reason) {
-    case 4: case 5: case 6: case 7: return dev_reset_reason_name(reset_reason);
+    case DEV_RR_PANIC: case DEV_RR_INT_WDT: case DEV_RR_TASK_WDT: case DEV_RR_WDT: return dev_reset_reason_name(reset_reason);
     case DEV_RR_LVGL_STALL: return "lvgl_stall";
     default: return "unknown";
     }

@@ -52,17 +52,33 @@ void esp_task_wdt_isr_user_handler(void)
     s_twdt.magic = TWDT_MAGIC;
 }
 
-static const char TASKS[][8] = {"ember", "eye", "link", "lvgl", "pomo", "prov", "rim", "stats", "weather"};
+#define DIAG_TASKS(X) X("ember") X("eye") X("link") X("lvgl") X("pomo") X("prov") X("rim") X("stats") X("weather")
+#define DIAG_TASK_ENTRY(name) name,
+#define DIAG_TASK_FITS(name) \
+    _Static_assert(sizeof name <= sizeof TASKS[0], "task name " name " fits TASKS[] with its NUL");
+static const char TASKS[][8] = {DIAG_TASKS(DIAG_TASK_ENTRY)};
+DIAG_TASKS(DIAG_TASK_FITS)
 _Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[0] - 1 + 1 + 10) + 1 <= DIAG_STACKS_LINE_MAX,
                "worst-case stack line fits");
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= DEV_DIAG_MAX_TASKS, "task list fits");
 _Static_assert(sizeof TASKS[0] <= DEV_TASK_NAME_MAX + 1, "task name fits dev_diag_t");
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= OTA_HEALTH_TASKS_MAX, "task list fits the health gate");
-static const char IDF_TASKS[][10] = {"esp_timer", "ipc0", "ipc1", "sys_evt", "tiT", "Tmr Svc", "wifi"};
+#define DIAG_IDF_TASKS(X) X("esp_timer") X("ipc0") X("ipc1") X("sys_evt") X("tiT") X("Tmr Svc") X("wifi")
+#define DIAG_IDF_TASK_FITS(name) \
+    _Static_assert(sizeof name <= sizeof IDF_TASKS[0], "task name " name " fits IDF_TASKS[] with its NUL");
+static const char IDF_TASKS[][10] = {DIAG_IDF_TASKS(DIAG_TASK_ENTRY)};
+DIAG_IDF_TASKS(DIAG_IDF_TASK_FITS)
 _Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[0] - 1 + 1 + 10) + sizeof " | idf " - 1 +
                        sizeof IDF_TASKS / sizeof IDF_TASKS[0] * (sizeof ", " - 1 + sizeof IDF_TASKS[0] - 1 + 1 + 10) + 1 <=
                    DIAG_STACKS_LINE_MAX,
                "worst-case stack line with IDF tasks fits");
+
+_Static_assert(ESP_RST_UNKNOWN == 0 && ESP_RST_POWERON == 1 && ESP_RST_EXT == 2 && ESP_RST_SW == DEV_RR_SW &&
+                   ESP_RST_PANIC == DEV_RR_PANIC && ESP_RST_INT_WDT == DEV_RR_INT_WDT && ESP_RST_TASK_WDT == DEV_RR_TASK_WDT &&
+                   ESP_RST_WDT == DEV_RR_WDT && ESP_RST_DEEPSLEEP == 8 && ESP_RST_BROWNOUT == 9 && ESP_RST_SDIO == 10 &&
+                   ESP_RST_USB == 11 && ESP_RST_JTAG == 12 && ESP_RST_EFUSE == 13 && ESP_RST_PWR_GLITCH == 14 &&
+                   ESP_RST_CPU_LOCKUP == DEV_RR_COUNT - 1 && DEV_RR_LVGL_STALL >= DEV_RR_COUNT,
+               "dev_reset_reason_name and DEV_RR_* follow esp_reset_reason_t");
 
 static atomic_int s_level;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
