@@ -123,13 +123,23 @@ int app_chase_request(int style, int fps, int laps)
 
 #define ORBIT_CHUNK 8
 static EXT_RAM_BSS_ATTR bot_orbit_table_t s_orbit;
+static TaskHandle_t s_orbit_task;
+static atomic_bool s_orbit_done;
 
 static void orbit_task(void *arg)
 {
     (void)arg;
     for (int k = 0; k < BOT_ORBIT_KINDS; k++)
         for (int i = 0; i < BOT_ORBIT_TAB_N; vTaskDelay(1)) i = bot_orbit_table_fill_part(&s_orbit, (bot_eyes_t)k, i, ORBIT_CHUNK);
-    vTaskDeleteWithCaps(NULL);
+    atomic_store(&s_orbit_done, true);
+    for (;;) vTaskSuspend(NULL);
+}
+
+static void orbit_reap(void)
+{
+    if (!s_orbit_task || !atomic_load(&s_orbit_done)) return;
+    vTaskDeleteWithCaps(s_orbit_task);
+    s_orbit_task = NULL;
 }
 
 static double chase_gaze(const bot_pose_t *p, double deg, double orbit)
@@ -865,6 +875,7 @@ static void stats_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
+        orbit_reap();
         double t = now_s();
         int frames = s_frames, n = s_refr_count;
         int64_t total = s_refr_total_us, mx = s_refr_max_us;
@@ -906,9 +917,10 @@ static void stats_task(void *arg)
     }
 }
 
-static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBaseType_t prio, BaseType_t core)
+static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBaseType_t prio, BaseType_t core,
+                       TaskHandle_t *out)
 {
-    if (xTaskCreatePinnedToCoreWithCaps(fn, name, stack, NULL, prio, NULL, core, MALLOC_CAP_SPIRAM) != pdPASS)
+    if (xTaskCreatePinnedToCoreWithCaps(fn, name, stack, NULL, prio, out, core, MALLOC_CAP_SPIRAM) != pdPASS)
         ESP_LOGE(TAG, "%s task not created", name);
 }
 
@@ -990,9 +1002,9 @@ void app_main(void)
     uint8_t startup = s_ks_lv->startup;
     panel_check_brightness(startup);
     if (!s_setup) ember_client_dim_enable(startup);
-    psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY);
-    psram_task(link_task, "link", 4096, 1, 1);
-    if (!s_setup) psram_task(orbit_task, "orbit", 3840, 1, 1);
+    if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
+    psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY, NULL);
+    psram_task(link_task, "link", 4096, 1, 1, NULL);
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),

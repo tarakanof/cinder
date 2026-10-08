@@ -472,7 +472,7 @@
   },
   "orbit": {
    "entry": "orbit_task",
-   "stack": 3840
+   "stack": 3328
   },
   "reset": {
    "entry": "reset_task",
