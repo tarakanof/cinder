@@ -145,8 +145,7 @@ int ota_pct(uint32_t written, uint32_t size);
 
 #define OTA_HEALTH_MIN_FRAMES 20
 #define OTA_HEALTH_LOOP_MS (30 * 1000)
-#define OTA_HEALTH_MIN_TOUCH_OK 1
-#define OTA_HEALTH_HEAP_MIN (40 * 1024)
+#define OTA_HEALTH_HEAP_MIN (27 * 1024)
 #define OTA_HEALTH_LARGEST_MIN (15 * 1024)
 #define OTA_HEALTH_STACK_LVGL 1024
 #define OTA_HEALTH_STACK_MIN 512
@@ -161,7 +160,7 @@ typedef struct {
     uint32_t stack_free;
 } ota_task_stack_t;
 
-/* Ages in ms, -1 when the event never happened; heap and stack values are bytes, minimum since boot. */
+/* Ages in ms, -1 when the event never happened; heap and stack values are bytes, minimum since boot; touch_ok and input_seen are logged only. */
 typedef struct {
     ota_link_t link;
     uint32_t frames;

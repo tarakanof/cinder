@@ -257,13 +257,12 @@ static ota_health_t health_read(void)
     if (!O->health_logged || r.reason != O->health_shown) {
         O->health_logged = true;
         O->health_shown = r.reason;
-        if (r.reason)
-            ESP_LOGW(TAG, "health %s: %s (link %d, frames %" PRIu32 ", loop %lld ms, touch ok %" PRIu32
-                          ", heap min %" PRIu32 " B, largest min %" PRIu32 " B)",
-                     r.state == OTA_HEALTH_FAIL ? "failed" : "pending", r.reason, (int)h->link, h->frames,
-                     (long long)h->loop_age_ms, h->touch_ok, h->heap_internal_min, h->heap_largest_min);
-        else
-            ESP_LOGI(TAG, "health checks pass");
+        ESP_LOGW(TAG,
+                 "health %s%s%s (link %d, frames %" PRIu32 ", loop %lld ms, heap min %" PRIu32 " B, largest min %" PRIu32
+                 " B; touch reads ok %" PRIu32 ", input %s)",
+                 r.state == OTA_HEALTH_FAIL ? "failed" : r.reason ? "pending" : "pass", r.reason ? ": " : "",
+                 r.reason ? r.reason : "", (int)h->link, h->frames, (long long)h->loop_age_ms, h->heap_internal_min,
+                 h->heap_largest_min, h->touch_ok, h->input_seen ? "yes" : "no");
     }
     return r;
 }

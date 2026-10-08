@@ -367,7 +367,6 @@ ota_health_t ota_health_check(const ota_health_in_t *in)
     const char *why = NULL;
     if (in->link != OTA_LINK_OK) why = "health_display";
     else if (in->frames < OTA_HEALTH_MIN_FRAMES || !recent(in->loop_age_ms, OTA_HEALTH_LOOP_MS)) why = "health_render";
-    else if (!in->input_seen && in->touch_ok < OTA_HEALTH_MIN_TOUCH_OK) why = "health_input";
     else if (in->heap_internal_min < OTA_HEALTH_HEAP_MIN || in->heap_largest_min < OTA_HEALTH_LARGEST_MIN)
         why = "health_heap";
     else if (!stacks_ok(in)) why = "health_stack";

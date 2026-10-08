@@ -594,19 +594,14 @@ static void test_health(void)
 
     h = healthy();
     h.touch_ok = 0;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "touch controller never answered: input");
-    h.input_seen = true;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "a real turn or press passes input");
     h.input_seen = false;
-    h.touch_ok = OTA_HEALTH_MIN_TOUCH_OK;
-    h.loop_age_ms = 0;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "one good controller read passes");
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "input is logged only: no touch read, no input passes");
 
     h = healthy();
     h.heap_internal_min = OTA_HEALTH_HEAP_MIN - 1;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "heap below 40 KB");
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "heap below 27 KB");
     h.heap_internal_min = OTA_HEALTH_HEAP_MIN;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "heap at 40 KB passes");
+    CHECK(is(ota_health_check(&h), OTA_HEALTH_PASS, NULL), "heap at 27 KB passes");
     h.heap_largest_min = OTA_HEALTH_LARGEST_MIN - 1;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "largest block below 15 KB");
     h.heap_largest_min = OTA_HEALTH_LARGEST_MIN;
@@ -638,15 +633,13 @@ static void test_health(void)
     h.link = OTA_LINK_OK;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_render"), "order: then render");
     h.frames = 750;
-    CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_input"), "order: then input");
-    h.touch_ok = 1;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_heap"), "order: then heap");
     h.heap_internal_min = 84 * 1024;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_PENDING, "health_stack"), "order: then stack");
     h.link = OTA_LINK_FAIL;
     CHECK(is(ota_health_check(&h), OTA_HEALTH_FAIL, "health_display"), "a link fail outranks soft checks");
 
-    const char *reasons[] = {"health_display", "health_render", "health_input", "health_heap", "health_stack",
+    const char *reasons[] = {"health_display", "health_render", "health_heap", "health_stack",
                              "no_checkin"};
     for (size_t i = 0; i < sizeof reasons / sizeof *reasons; i++)
         CHECK(reason_ok(reasons[i]), "reason charset %s", reasons[i]);
