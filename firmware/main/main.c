@@ -127,7 +127,7 @@ static void orbit_task(void *arg)
     (void)arg;
     for (int k = 0; k < BOT_ORBIT_KINDS; k++)
         for (int i = 0; i < BOT_ORBIT_TAB_N; vTaskDelay(1)) i = bot_orbit_table_fill_part(&s_orbit, (bot_eyes_t)k, i, ORBIT_CHUNK);
-    vTaskDelete(NULL);
+    vTaskDeleteWithCaps(NULL);
 }
 
 static double chase_gaze(const bot_pose_t *p, double deg, double orbit)
@@ -903,6 +903,12 @@ static void stats_task(void *arg)
     }
 }
 
+static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBaseType_t prio, BaseType_t core)
+{
+    if (xTaskCreatePinnedToCoreWithCaps(fn, name, stack, NULL, prio, NULL, core, MALLOC_CAP_SPIRAM) != pdPASS)
+        ESP_LOGE(TAG, "%s task not created", name);
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "cinder starting");
@@ -977,10 +983,10 @@ void app_main(void)
     uint8_t startup = s_ks_lv->startup;
     ESP_ERROR_CHECK(bsp_knob_15_md50et_set_brightness_level(startup));
     if (!s_setup) ember_client_dim_enable(startup);
-    xTaskCreate(stats_task, "stats", 3840, NULL, 1, NULL);
+    psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY);
     panel_check_init(handles.panel, handles.panel_io);
-    xTaskCreatePinnedToCore(link_task, "link", 4096, NULL, 1, NULL, 1);
-    if (!s_setup) xTaskCreatePinnedToCore(orbit_task, "orbit", 3328, NULL, 1, NULL, 1);
+    psram_task(link_task, "link", 4096, 1, 1);
+    if (!s_setup) psram_task(orbit_task, "orbit", 3840, 1, 1);
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),

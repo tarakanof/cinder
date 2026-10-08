@@ -445,14 +445,14 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 |---|---|---|---|---|---|
 | `ember` | 1 / 3 | 6144 → **6912** | 3044 (3100) | 5056 (checkin answer parsed at 32 levels; without recursion budgets 4944: OTA service → fresh view → Pomodoro action → HTTP → lwIP OOM log) | 1856 |
 | `eye` | 1 / 5 | 2560 | 1260 (1300) | 1456 (raster) | 1104 |
-| `link` | 1 / 1 | 3072 → **4096** | 752 (2320) | 2960 (link check → SPI → error log) | 1136 |
-| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 8368 (render, event cut at 2 entries, 4 redraw levels) | 1872 |
+| `link` | 1 / 1 | 3072 → **4096** (PSRAM since 0.9.34) | 752 (2320) | 2960 (link check → SPI → error log) | 1136 |
+| `lvgl` | 0 / 6 | 10240 | 2484 (7756) | 8400 (render, event cut at 2 entries, 4 redraw levels) | 1840 |
 | `prov` | 1 / 2 | 3584 → **5120** | 2316 (1268) | 4000 (CINDER1 parse at 32 levels; NVS write → mmap error log 3920) | 1120 |
-| `rim` | 1 / 2 | 6144 → **2560** | 4988 (1156) | 1312 (ring + raster) | 1248 |
-| `stats` | any / 1 | 3072 → **3840** | 568 (2504) | 2640 (log line) | 1200 |
+| `rim` | 1 / 2 | 6144 → **2560** (PSRAM since 0.9.34) | 4988 (1156) | 1312 (ring + raster) | 1248 |
+| `stats` | any / 1 | 3072 → **3840** (PSRAM since 0.9.34) | 568 (2504) | 2640 (log line) | 1200 |
 | `pomo` (Ember without view) | 1 / 3 | 5120 → **5632** | — | 4384 | 1248 |
 | `weather` (Ember without view) | 1 / 3 | 6144 → **5120** | — | 3936 | 1184 |
-| `orbit` (boot, ~5 s) | 1 / 1 | 2560 → **3328** | — | 2144 | 1184 |
+| `orbit` (boot, ~5 s) | 1 / 1 | 2560 → 3328 → **3840** (PSRAM since 0.9.34) | — | 2576 (0.9.34: `vTaskDeleteWithCaps` error log) | 1264 |
 | `reset` (factory reset) | 1 / 4 | 3072 → **4864** | — | 3632 | 1232 |
 | `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5552 (LVGL init events; NVS error log 4112) | 1360 |
 | `esp_timer` (IDF) | 1 / 22 | 3584 → **4096** | — | 2768 (Wi-Fi reconnect log; Wi-Fi blob timers unresolved) | 1328 |
@@ -462,7 +462,7 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 
 **`ipc0`/`ipc1` are exempt from the 1 KB rule** (user decision 2026-10-08): no app code runs there, IDF sizes them for its own IPC callbacks, and their 1168 B estimate is mostly the model's fixed 768 B overhead; they stay at IDF's 1280 B. Not estimated: `tiT` (3072, lwIP callbacks unresolved), `wifi` (blob), `IDLE0`/`IDLE1` (1536), the ISR stacks (2096 B per core, `port_IntStack`). The stats log line now appends the IDF tasks after `| idf` (`esp_timer`, `ipc0`/`ipc1`, `sys_evt`, `tiT`, `Tmr Svc`, `wifi`), so they can be sized from field data.
 
-All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same estimate of 0.9.31 found gaps: `prov` (4000 > 3584), `reset` (3632 > 3072), `main` (5728 > 3584; over-counted by the old cache, 5552 with the fix) and `sys_evt` (2784 > 2304) could overflow on an error-log path; `link` and `ipc` had 112 B, `stats` 240 B, `esp_timer` 816 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
+Since 0.9.34 `rim`, `stats`, `link` and `orbit` have PSRAM stacks (architecture follow-ups below); the other app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same estimate of 0.9.31 found gaps: `prov` (4000 > 3584), `reset` (3632 > 3072), `main` (5728 > 3584) and `sys_evt` (2784 > 2304) could overflow on an error-log path; `link` and `ipc` had 112 B, `stats` 240 B, `esp_timer` 816 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
 
 - **Main fix: the triangle table.** `bot_shape.c` built it lazily on whichever task drew the first outline, with `double raw[720]` (5.76 KB) on that task's stack: the LVGL task in practice, where it set the 7756 B high-water mark. Now `bot_shape_init()` builds it once from `bot_view_create`, before the `rim` task exists and before the LVGL timer runs; the scratch is static in PSRAM, and `bot_body_ring` asserts the table is ready.
 - **stats**: its frame 336 → 144 B (the stats, refresh-kind and Wi-Fi structs and the stack line are static in PSRAM); the rest is the log path.
@@ -496,7 +496,7 @@ All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` 
 - `label_draw` creates and deletes a temporary canvas object for every host-label change (rare).
 
 **Architecture findings** (analysis only; ranked by value / effort):
-1. **PSRAM stacks** (`xTaskCreatePinnedToCoreWithCaps(…, MALLOC_CAP_SPIRAM)`; `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` is already on). Only for tasks that never touch flash (no NVS read or write, no OTA, no partition I/O: flash ops disable the cache, and IDF rejects a PSRAM stack there). Candidates: `rim` (pure compute), `stats` (logs, heap queries; its `abort()` panics on the core-dump stack, which is internal for this reason), `link` (SPI polling with a 32 B buffer on the stack; the SPI driver bounces non-DMA buffers), `orbit`; `eye` after a frame-time check. ~10 KB internal (13 KB with eye, +3.3 KB at boot), small effort, low-medium risk. Not candidates: `ember`, `prov`, `reset`, `main` (NVS/OTA), the LVGL task (10 KB, but every stack access goes through the cache at 60 fps; measure first), Wi-Fi/lwIP.
+1. **Done in 0.9.34** (below). **PSRAM stacks** (`xTaskCreatePinnedToCoreWithCaps(…, MALLOC_CAP_SPIRAM)`; `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY` is already on). Only for tasks that never touch flash (no NVS read or write, no OTA, no partition I/O: flash ops disable the cache, and IDF rejects a PSRAM stack there). Candidates: `rim` (pure compute), `stats` (logs, heap queries; its `abort()` panics on the core-dump stack, which is internal for this reason), `link` (SPI polling with a 32 B buffer on the stack; the SPI driver bounces non-DMA buffers), `orbit`; `eye` after a frame-time check. ~10 KB internal (13 KB with eye, +3.3 KB at boot), small effort, low-medium risk. Not candidates: `ember`, `prov`, `reset`, `main` (NVS/OTA), the LVGL task (10 KB, but every stack access goes through the cache at 60 fps; measure first), Wi-Fi/lwIP.
 2. **One owner for the panel and LVGL.** Lock takers after boot: the LVGL task, `link` (panel read every 5 s, waits up to 1 s), `ember` (dimmer brightness writes with a timeout), `prov` (frees the snapshot buffer). The OTA face, views and snapshot already pass messages. A small request queue serviced by the LVGL task between frames (brightness, link read, snapshot release) removes all other lock holders: no memory change, medium effort, removes the "task stuck holding the lock" class behind #7's stall watchdog.
 3. **Re-measure `lvgl`, then shrink to ~8 KB**: ~2 KB, trivial, after this release.
 4. **Internal malloc threshold / cJSON in PSRAM** (above): 5-15 KB, medium effort and risk.
@@ -511,3 +511,13 @@ All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` 
 - USB: `status`, `diag_override`, Improv Wi-Fi with the same network, and `set_ember` with the same URL and token (`prov` NVS path; do not point the knob elsewhere).
 - An OTA download from channel `test` and a core dump upload (`ember`), a Wi-Fi drop and reconnect (`esp_timer`, `sys_evt`, `tiT`).
 - Ember without the view (proxy answering 404) for `pomo` and `weather`.
+
+### Architecture follow-ups (#12, 0.9.34)
+
+**PSRAM stacks: `rim`, `stats`, `link`, `orbit`** (`xTaskCreatePinnedToCoreWithCaps(…, MALLOC_CAP_SPIRAM)`; the TCB stays internal; `CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y` is the S3 default). A PSRAM stack must never be in use while the cache is off, so each task was checked for flash access (NVS, OTA, partitions, `esp_core_dump`, `spi_flash`):
+- `rim`: raster into PSRAM buffers, `bot_body_ring`, `vTaskDelay`. No flash. `orbit`: table fill and `vTaskDelay`, then `vTaskDeleteWithCaps(NULL)` (IDF deletes it from a short-lived helper task; the error log there before its `abort()` makes the estimate 2576 B, so the stack grew 3328 → 3840 B, PSRAM).
+- `stats`: logs, heap queries, `esp_wifi_sta_get_ap_info`, `uxTaskGetStackHighWaterMark`, `diag_stall_check` (RTC no-init memory only). Its `abort()` on an LVGL stall panics on the task stack (PSRAM, cache on); the core dump then switches to its own 1792 B internal stack before it writes flash (`CONFIG_ESP_COREDUMP_USE_STACK_SIZE`, on whenever external task stacks are allowed), and `esp_restart_noos` moves SP to internal RAM before it disables the cache.
+- `link`: settings copy (RAM), OTA health notes (atomics), `esp_restart` (shutdown handlers: Wi-Fi stop, timekeeping; no flash; SP moved as above) and, until the single panel owner below, the panel read over SPI (the driver bounces non-DMA buffers; cache on).
+- Not moved: `eye` (frame-time check first), `lvgl`, `ember`, `prov`, `reset` (NVS or OTA), the pollers (below).
+- Internal RAM: −10,496 B of stacks in a normal run (`rim` 2560, `stats` 3840, `link` 4096), −3,328 B more at boot (`orbit`). PSRAM +14,336 B. PSRAM stacks are slower than internal ones; none of these tasks is on the frame path.
+
