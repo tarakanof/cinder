@@ -26,6 +26,10 @@
   [
    "^(spi_flash_chip_|spi_flash_hal_|esp_flash_)",
    "^esp_log$"
+  ],
+  [
+   "^assert_valid_block$",
+   "^__call_ets_printf$"
   ]
  ],
  "pointers": {
