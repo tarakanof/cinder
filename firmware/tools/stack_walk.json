@@ -473,7 +473,7 @@
   },
   "ipc": {
    "entry": "ipc_task",
-   "stack": 2304
+   "stack": 1280
   },
   "Tmr Svc": {
    "entry": "prvTimerTask",

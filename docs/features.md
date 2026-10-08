@@ -457,10 +457,10 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 | `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5728 (LVGL init events; NVS error log 4112) | 1184 |
 | `esp_timer` (IDF) | 1 / 22 | 3584 → **4096** | — | 2768 (Wi-Fi reconnect log; Wi-Fi blob timers unresolved) | 1328 |
 | `sys_evt` (IDF) | 0 / 20 | 2304 → **3840** | — | 2784 (`esp_netif` connected log) | 1056 |
-| `ipc0` / `ipc1` (IDF) | 0, 1 / 24 | 1280 → **2304** | — | 1168 (mostly the fixed overhead) | 1136 |
+| `ipc0` / `ipc1` (IDF) | 0, 1 / 24 | 1280 (IDF default, exempt) | — | 1168 (mostly the fixed overhead) | 112 |
 | `Tmr Svc` (IDF) | any / 1 | 2048 → **2304** | — | 1136 (no app timers) | 1168 |
 
-Not estimated: `tiT` (3072, lwIP callbacks unresolved), `wifi` (blob), `IDLE0`/`IDLE1` (1536), the ISR stacks (2096 B per core, `port_IntStack`). The stats log line now appends the IDF tasks after `| idf` (`esp_timer`, `ipc0`/`ipc1`, `sys_evt`, `tiT`, `Tmr Svc`, `wifi`), so they can be sized from field data.
+**`ipc0`/`ipc1` are exempt from the 1 KB rule** (user decision 2026-10-08): no app code runs there, IDF sizes them for its own IPC callbacks, and their 1168 B estimate is mostly the model's fixed 768 B overhead; they stay at IDF's 1280 B. Not estimated: `tiT` (3072, lwIP callbacks unresolved), `wifi` (blob), `IDLE0`/`IDLE1` (1536), the ISR stacks (2096 B per core, `port_IntStack`). The stats log line now appends the IDF tasks after `| idf` (`esp_timer`, `ipc0`/`ipc1`, `sys_evt`, `tiT`, `Tmr Svc`, `wifi`), so they can be sized from field data.
 
 All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` is false). The same estimate of 0.9.31 found gaps: `prov` (4000 > 3584), `reset` (3632 > 3072), `main` (5728 > 3584) and `sys_evt` (2784 > 2304) could overflow on an error-log path; `link` and `ipc` had 112 B, `stats` 240 B, `esp_timer` 816 B; `rim` would have overflowed (7216 > 6144) had it built the triangle table before the LVGL task did. Tracked in `diag.c` `TASKS[]`: all app tasks except `orbit` (deletes itself before the first checkin) and `reset` (reboots within a second); `main` is gone after boot.
 
@@ -481,9 +481,9 @@ All app stacks are internal RAM (`xTaskCreate*`; the adapter's `stack_in_psram` 
 | IRAM | 16,384 (`.text` 15,356) | unchanged | 0 |
 | PSRAM `.bss` | 42,060 B | 49,092 B | +7,032 |
 | App task stacks, normal run | 34,816 B | 35,328 B | +512 |
-| IDF task stacks (esp_timer, sys_evt, ipc ×2, Tmr Svc) | 10,496 B | 14,848 B | +4,352 |
-| Internal heap free, normal run | — | — | ≈ −3.7 KB (stacks +4.9 KB, static −1.2 KB) |
-| Boot transient | | | `main` +3.3 KB, `orbit` +0.75 KB on top: boot minimum may drop up to ~8 KB (54 → ~46 KB; floor 27 KB) |
+| IDF task stacks (esp_timer, sys_evt, Tmr Svc) | 7,936 B | 10,240 B | +2,304 |
+| Internal heap free, normal run | — | — | ≈ −1.6 KB (stacks +2.8 KB, static −1.2 KB) |
+| Boot transient | | | `main` +3.3 KB, `orbit` +0.75 KB on top: boot minimum may drop up to ~6 KB (54 → ~48 KB; floor 27 KB) |
 
 **Waste found, not changed** (needs a decision or hardware measurement):
 - `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384`: every malloc ≤ 16 KB lands in internal RAM (HTTP client buffers ~2.5 KB per kept handle, cJSON trees, LVGL objects). Lowering it, or cJSON hooks on a PSRAM allocator, could free 5-15 KB, after auditing plain-malloc users that need internal or DMA memory.

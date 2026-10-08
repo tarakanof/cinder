@@ -146,9 +146,8 @@ CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
 # Stack estimates from tools/stack_walk.py (docs/features.md, "Task stacks and internal RAM"), 1 KB margin:
 # app_main 5.7 KB (LVGL init events, NVS error logs; freed after boot), esp_timer 2.8 KB (Wi-Fi
-# reconnect log), sys_evt 2.8 KB (esp_netif connected log), Tmr Svc 1.1 KB, ipc0/1 1.2 KB
+# reconnect log), sys_evt 2.8 KB (esp_netif connected log), Tmr Svc 1.1 KB
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=6912
 CONFIG_ESP_TIMER_TASK_STACK_SIZE=4096
 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=3840
 CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=2304
-CONFIG_ESP_IPC_TASK_STACK_SIZE=2304
