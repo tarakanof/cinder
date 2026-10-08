@@ -5,13 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cJSON.h"
 #include "config_store.h"
 #include "diag.h"
 #include "ember_client.h"
 #include "esp_heap_caps.h"
 #include "http_conn.h"
 #include "legacy_task.h"
+#include "wx_legacy.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -64,62 +64,6 @@ static int http_get(http_conn_t *conn, const char *url, char *buf, int cap)
     return status == 200 ? (int)strlen(buf) : -1;
 }
 
-/* Empty the "hourly" arrays: ~150 small cJSON allocations would eat internal RAM. */
-static void drop_hourly(char *body)
-{
-    static const char key[] = "\"hourly\":[";
-    char *p = body;
-    while ((p = strstr(p, key)) != NULL) {
-        char *open = p + sizeof key - 1, *close = strchr(open, ']');
-        if (!close) return;
-        memmove(open, close, strlen(close) + 1);
-        p = open;
-    }
-}
-
-static void copy_str(char *dst, size_t cap, const cJSON *item)
-{
-    dst[0] = 0;
-    if (cJSON_IsString(item) && item->valuestring) strlcpy(dst, item->valuestring, cap);
-}
-
-static int minute_of(const cJSON *obj, const char *key)
-{
-    const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
-    return cJSON_IsString(v) ? wx_minute_of_day(v->valuestring) : -1;
-}
-
-static bool parse(const char *body, wx_obs_t *o)
-{
-    cJSON *root = cJSON_Parse(body);
-    if (!root) return false;
-    memset(o, 0, sizeof *o);
-    o->enabled = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "enabled"));
-    copy_str(o->provider, sizeof o->provider, cJSON_GetObjectItemCaseSensitive(root, "provider"));
-    o->now_min = minute_of(root, "generated_at");
-    o->rise_min = o->set_min = -1;
-    const cJSON *sun = cJSON_GetObjectItemCaseSensitive(root, "sun");
-    if (cJSON_IsObject(sun)) {
-        o->rise_min = minute_of(sun, "sunrise");
-        o->set_min = minute_of(sun, "sunset");
-    }
-    const cJSON *cur = cJSON_GetObjectItemCaseSensitive(root, "current");
-    if (cJSON_IsObject(cur)) {
-        o->valid = true;
-        o->stale = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cur, "stale"));
-        o->severe = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cur, "severe"));
-        copy_str(o->condition, sizeof o->condition, cJSON_GetObjectItemCaseSensitive(cur, "condition"));
-        copy_str(o->code, sizeof o->code, cJSON_GetObjectItemCaseSensitive(cur, "condition_code"));
-        const cJSON *t = cJSON_GetObjectItemCaseSensitive(cur, "temp_c");
-        if (cJSON_IsNumber(t)) {
-            o->has_temp = true;
-            o->temp_c = (float)t->valuedouble;
-        }
-    }
-    cJSON_Delete(root);
-    return true;
-}
-
 static void ctx_free(poll_ctx_t *c)
 {
     if (!c) return;
@@ -164,8 +108,8 @@ static void poll_task(void *arg)
         }
         bool ok = http_get(conn, url, buf, RESP_MAX) > 0;
         if (ok) {
-            drop_hourly(buf);
-            ok = parse(buf, &obs);
+            wx_legacy_drop_hourly(buf);
+            ok = wx_legacy_parse(buf, &obs);
         }
         if (ok) {
             publish(&obs);

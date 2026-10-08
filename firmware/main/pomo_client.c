@@ -3,12 +3,12 @@
 #include <assert.h>
 #include <string.h>
 
-#include "cJSON.h"
 #include "config_store.h"
 #include "diag.h"
 #include "ember_client.h"
 #include "http_conn.h"
 #include "legacy_task.h"
+#include "pomo_legacy.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -31,29 +31,6 @@ static pomo_snapshot_t s_snap;
 static pomo_srv_clock_t s_srv;
 
 double pomo_client_now(void) { return esp_timer_get_time() / 1e6; }
-
-static bool parse_state(const char *body, pomo_state_t *out)
-{
-    cJSON *root = cJSON_Parse(body);
-    if (!root) return false;
-    const cJSON *phase = cJSON_GetObjectItemCaseSensitive(root, "phase");
-    bool ok = cJSON_IsString(phase);
-    if (ok) {
-        const cJSON *rem = cJSON_GetObjectItemCaseSensitive(root, "remaining_sec");
-        const cJSON *plan = cJSON_GetObjectItemCaseSensitive(root, "planned_sec");
-        const cJSON *round = cJSON_GetObjectItemCaseSensitive(root, "round");
-        *out = (pomo_state_t){
-            .phase = pomo_phase_from_wire(phase->valuestring),
-            .running = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "running")),
-            .paused = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "paused")),
-            .remaining_sec = cJSON_IsNumber(rem) ? rem->valueint : 0,
-            .planned_sec = cJSON_IsNumber(plan) ? plan->valueint : 0,
-            .round = cJSON_IsNumber(round) ? round->valueint : 0,
-        };
-    }
-    cJSON_Delete(root);
-    return ok;
-}
 
 static http_conn_t *s_conn;
 
@@ -106,7 +83,7 @@ static bool poll_once(http_conn_t *conn, char *buf, int cap)
     strlcat(url, "/v1/pomodoro/state", sizeof url);
     int status = http_do(conn, url, false, NULL, buf, cap);
     pomo_state_t s;
-    if (status == 200 && parse_state(buf, &s)) {
+    if (status == 200 && pomo_legacy_parse(buf, &s)) {
         s_fails = 0;
         publish_state(&s, pomo_client_now());
         return true;
@@ -155,7 +132,7 @@ void pomo_client_run_action(pomo_input_t in, http_conn_t *conn, char *buf, int c
     strlcat(url, path, sizeof url);
     int status = http_do(conn, url, true, a == POMO_ACT_START ? "{\"phase\":\"focus\"}" : NULL, buf, cap);
     pomo_state_t ns;
-    if (status == 200 && parse_state(buf, &ns)) {
+    if (status == 200 && pomo_legacy_parse(buf, &ns)) {
         publish_state(&ns, pomo_client_now());
         publish_action(0);
         ESP_LOGI(TAG, "%s -> %s %s, %d s left", path, PHASE_NAMES[ns.phase], MODE_NAMES[pomo_mode(&ns)],
