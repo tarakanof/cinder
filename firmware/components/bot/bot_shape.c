@@ -18,7 +18,7 @@ static bool s_tri_ready;
 static void tri_build(void)
 {
     const double R = 1.1, SAG = 0.11;
-    double raw[TRI_TABLE];
+    static EXT_RAM_BSS_ATTR double raw[TRI_TABLE];
     double vx[3], vy[3];
     for (int k = 0; k < 3; k++) {
         double a = M_PI / 2 + k * 2 * M_PI / 3;
