@@ -101,7 +101,7 @@ Measured on the knob (paired, bot page, mood working, RSSI −68 to −73 dBm): 
 
 - With a device token the ember task reads `GET /v1/devices/self/view` (Ember#234) instead of `/state`, `/v1/pomodoro/state`, `/v1/weather/state` and `/v1/display/brightness`: bearer on the GET, `If-None-Match` with the last good view's ETag, 304 = unchanged (empty body, never parsed; the cached view is handed to the pages again with the new `X-Ember-Now`). Pomodoro pushes run on the same connection from the ember task (`pomo_client_next_action` while it waits), and the view is polled right after a push. Poll every `poll_ms`; 1 s only once a running phase is within one `poll_ms` of its end (the countdown is local).
 - Pure, host-tested (`test/host/test_view.c`): `components/knob_view` (view JSON → mood counts + source, Pomodoro, `wx_obs_t`, brightness, `epoch/config_version` key for `dev_sched_epoch`), `net_policy/view_policy.c` (fallback decision, ETag validation, `X-Ember-Now` parse), `pomo_srv_clock_*` + `pomo_clock_sync_end` (Ember's clock offset from `X-Ember-Now` as an interval intersection over answers; `ends_at` is truncated by Ember, so the end is taken as `ends_at + 0.5`; the shown second flips when Ember's would). `wx_obs_t.has_night/night`: Ember's own day/night call wins; with no sunrise/sunset (no location) the provider code's suffix decides, as before.
-- **Fallback** (legacy per-endpoint pollers): no device id; 404/405 (older server, re-probe every 10 min); 401/403 (legacy reads keep the pages alive while "Not paired" shows; re-probe 60 s and on a new token); 3 × 5xx in a row (re-probe 60 s). Network errors and 429 change nothing. The pomo (5 KB) and weather (6 KB) tasks are created on the first fallback only, and idle (without reading the action queue) after a switch back to the view. Verified: a proxy answering 404 for the view → `reading Ember per endpoint (server has no view)`, the legacy tasks start, the pages work.
+- **Fallback** (legacy per-endpoint pollers): no device id; 404/405 (older server, re-probe every 10 min); 401/403 (legacy reads keep the pages alive while "Not paired" shows; re-probe 60 s and on a new token); 3 × 5xx in a row (re-probe 60 s). Network errors and 429 change nothing. The pomo (5 KB) and weather (6 KB) tasks are created on the first fallback only; since 0.9.34 they end themselves after a switch back to the view (freeing their stacks and the pomo HTTP handle) and are created again on the next fallback (architecture follow-ups, task stacks section). Verified: a proxy answering 404 for the view → `reading Ember per endpoint (server has no view)`, the legacy tasks start, the pages work.
 - `http_conn`: `http_conn_req_opts` (bearer on a GET, `If-None-Match`), stats count 304s and bytes received (status line + headers + body), User-Agent `cinder` (−22 B per request). Stats log: `net: N req (M x 304), B in, …`.
 
 Measured on the knob against a scratch Ember (main f0002ca) through a counting proxy on the Mac (exact request/response bytes on the wire minus TCP/IP framing), bot page, a session toggled running ↔ waiting every 15 s (4 view changes/min), Pomodoro started at 150 s, 5 min per run:
@@ -450,11 +450,11 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 | `prov` | 1 / 2 | 3584 → **5120** | 2316 (1268) | 4000 (CINDER1 parse at 32 levels; NVS write → mmap error log 3920) | 1120 |
 | `rim` | 1 / 2 | 6144 → **2560** (PSRAM since 0.9.34) | 4988 (1156) | 1312 (ring + raster) | 1248 |
 | `stats` | any / 1 | 3072 → **3840** (PSRAM since 0.9.34) | 568 (2504) | 2640 (log line) | 1200 |
-| `pomo` (Ember without view) | 1 / 3 | 5120 → **5632** | — | 4384 | 1248 |
+| `pomo` (Ember without view) | 1 / 3 | 5120 → **5632** | — | 4384; 0.9.34: 4368 | 1264 |
 | `weather` (Ember without view) | 1 / 3 | 6144 → **5120** | — | 3936 | 1184 |
 | `orbit` (boot, ~5 s) | 1 / 1 | 2560 → 3328 → **3840** (PSRAM since 0.9.34) | — | 2576 (0.9.34: `vTaskDeleteWithCaps` error log) | 1264 |
 | `reset` (factory reset) | 1 / 4 | 3072 → **4864** | — | 3632 | 1232 |
-| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5552 (LVGL init events; NVS error log 4112) | 1360 |
+| `main` (IDF, freed after `app_main`) | 0 / 1 | 3584 → **6912** | — | 5728 (LVGL init events; NVS error log 4112); 0.9.34: 5744 (5568 once the memo bug is fixed: the 5744 path repeats LVGL layout functions) | 1168 |
 | `esp_timer` (IDF) | 1 / 22 | 3584 → **4096** | — | 2768 (Wi-Fi reconnect log; Wi-Fi blob timers unresolved) | 1328 |
 | `sys_evt` (IDF) | 0 / 20 | 2304 → **3840** | — | 2784 (`esp_netif` connected log) | 1056 |
 | `ipc0` / `ipc1` (IDF) | 0, 1 / 24 | 1280 (IDF default, exempt) | — | 1168 (mostly the fixed overhead) | 112 |
@@ -492,7 +492,7 @@ Since 0.9.34 `rim`, `stats`, `link` and `orbit` have PSRAM stacks (architecture 
 - Wi-Fi: 8 static RX buffers (12.8 KB internal DMA), AMPDU RX/TX on; fewer buffers or AMPDU off may suit a polling client, but only with an on-air test.
 - mbedTLS TLS and X.509 (~35 KB flash) stay linked: `esp_http_client` references esp-tls and the SSL transport even with HTTPS off.
 - `weather_view` `s_scene` + draw list (1.3 KB `.bss`) could go to PSRAM; it runs per frame on the weather page (frame time not measured). The bot raster scratch, `added`, `st`, `ex`, `ey` (3.3 KB) stay internal: per-frame hot path.
-- The legacy `pomo` and `weather` tasks idle forever after Ember's view returns (10.5 KB); deleting them on the switch back would return it.
+- The legacy `pomo` and `weather` tasks idle forever after Ember's view returns (10.5 KB); deleting them on the switch back would return it. Done in 0.9.34 (below).
 - `label_draw` creates and deletes a temporary canvas object for every host-label change (rare).
 
 **Architecture findings** (analysis only; ranked by value / effort):
@@ -500,7 +500,7 @@ Since 0.9.34 `rim`, `stats`, `link` and `orbit` have PSRAM stacks (architecture 
 2. **Done in 0.9.34** (below). **One owner for the panel and LVGL.** Lock takers after boot: the LVGL task, `link` (panel read every 5 s, waits up to 1 s), `ember` (dimmer brightness writes with a timeout), `prov` (frees the snapshot buffer). The OTA face, views and snapshot already pass messages. A small request queue serviced by the LVGL task between frames (brightness, link read, snapshot release) removes all other lock holders: no memory change, medium effort, removes the "task stuck holding the lock" class behind #7's stall watchdog.
 3. **Re-measure `lvgl`, then shrink to ~8 KB**: ~2 KB, trivial, after this release.
 4. **cJSON in PSRAM done in 0.9.34** (below; the threshold stays). **Internal malloc threshold / cJSON in PSRAM** (above): 5-15 KB, medium effort and risk.
-5. **Legacy pollers**: delete `pomo`/`weather` on the switch back, or poll the legacy endpoints round-robin from the ember task on its connection (same host): 10.5 KB stacks + ~5 KB for two HTTP handles, only while Ember has no view; medium effort. Dropping the fallback altogether is a product decision (old Ember servers).
+5. **Done in 0.9.34** (below: delete on the switch back). **Legacy pollers**: delete `pomo`/`weather` on the switch back, or poll the legacy endpoints round-robin from the ember task on its connection (same host): 10.5 KB stacks + ~5 KB for two HTTP handles, only while Ember has no view; medium effort. Dropping the fallback altogether is a product decision (old Ember servers).
 6. **Merge `link` and `stats`** into one low-priority housekeeping task (5 s tick, stats every 6th): ~4 KB internal (none if item 1 is done first); the link check can slip by a stats log (ms, more if the USB console blocks). Small-medium effort.
 7. **A streaming JSON tokenizer** (fixed token pool in PSRAM) for the view: no allocation churn, no recursion; medium-high effort.
 8. **Kept separate on purpose**: `eye` (LVGL waits on it every frame; merging `rim`'s 120 ms jobs would stall frames), the single `ember` task (long-poll, checkin, OTA, core dump, Pomodoro pushes already share one task and one connection), `prov` (must answer USB while `ember` blocks for up to 20 s).
@@ -532,4 +532,24 @@ Since 0.9.34 `rim`, `stats`, `link` and `orbit` have PSRAM stacks (architecture 
 - PSRAM full: the hook falls back to internal RAM, as before.
 - Effect: every parsed view, checkin answer, settings blob and CINDER1 line now builds its tree in PSRAM. The 410 B view fixture of `test_view.c` makes 78 allocations; bigger views (now playing, hosts) scale with their size. This lowers the internal peak and churn (`heap_internal_min`, `heap_largest_min`), not the idle free figure. Parse time in PSRAM is not measured (one view per change).
 - The threshold stays at 16 KB: the remaining small internal mallocs (HTTP client buffers, LVGL objects) are per-frame or long-lived; moving them needs the audit above and a frame-time measurement.
+
+**Legacy pollers end when the view is back** (`net_policy/legacy_task.c`, host-tested in `test_net.c`). The ember task turns the `pomo` and `weather` tasks on at a fallback and off when the view returns, as before; the lifecycle is now a lock-free state (gone, run, stop):
+- Off: the task notices within one wait (pomo: one poll period or a queued action, which it puts back for the ember task; weather: 1 s slices; a request in flight finishes first), frees what the next instance shares (pomo's HTTP handle) or its own memory (weather: the 16 KB PSRAM body buffer and the connection struct), logs `legacy poll task ended (Ember's view is back)` and deletes itself.
+- On again before it ended: it keeps polling; no second task. On after it ended: a new task; a failed create backs off 5 s, doubling to 5 min, as before.
+- Old Ember servers keep the fallback: with no view the tasks are created at the first fallback and never stopped.
+- Internal RAM, only after a fallback and the switch back: −10,752 B of stacks (`pomo` 5632, `weather` 5120), two TCBs and the pomo HTTP client handle (its buffers, ~2.5 KB). A knob that never loses the view never creates them (unchanged).
+
+**Before → after** (main at #13 → 0.9.34, `idf.py size`; runtime figures are estimates, not measured):
+
+| | main (#13) | 0.9.34 | Δ |
+|---|---|---|---|
+| Image | 1,544,175 B | 1,545,827 B | +1,652 |
+| DIRAM (static) | 102,519 B (`.bss` 16,000) | 102,607 B (16,032) | +88 |
+| App task stacks in internal RAM, normal run | 35,328 B | 24,832 B | −10,496 (`rim`, `stats`, `link` in PSRAM) |
+| Boot transient | `orbit` 3,328 B internal | 0 (3,840 B PSRAM) | −3,328 |
+| After a view fallback and back | pollers idle: 10,752 B stacks + HTTP handle | freed | ≈ −13 KB |
+| cJSON trees | internal | PSRAM | lower `heap_internal_min`; size depends on the documents |
+| PSRAM | | | +14,336 B stacks |
+
+Exercise on hardware (0.9.34, Test channel): the stats line `stack free B:` for `rim`, `stats`, `link` (PSRAM now, expected free ≈ before: rim ~1.2-1.4 KB, stats ~1.2 KB, link ≥ 1.4 KB); `heap_internal_min` and the `internal free` in the net line (expect ~+10 KB over 0.9.32); the link soak lines (`link check N at 80 MHz: 0 bad`, `link soak: … 0 mismatches, 0 errors`) and `ota.image` turning `valid` after the update (health gate: link ok); brightness fades from Ember's dimmer; a USB `snapshot` twice in a row; Ember without the view and back (proxy answering 404, then normal) for `legacy poll task ended`; a stall abort, if one ever fires, still writes its core dump.
 

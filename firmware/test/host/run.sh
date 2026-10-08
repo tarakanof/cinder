@@ -31,7 +31,7 @@ cc $CFLAGS -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_u
     "$D/test_coredump.c" -lm -o "${OUT}_coredump"
 cc $CFLAGS -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$J/cJSON.c" \
     "$D/test_ota.c" -lm -o "${OUT}_ota"
-cc $CFLAGS -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$D/test_net.c" -o "${OUT}_net"
+cc $CFLAGS -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
 K="$D/../../components/knob_view"
 NP="$D/../../components/nowplaying"
 cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \

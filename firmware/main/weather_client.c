@@ -1,8 +1,8 @@
 #include "weather_client.h"
 
 #include <assert.h>
-#include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -10,6 +10,7 @@
 #include "ember_client.h"
 #include "esp_heap_caps.h"
 #include "http_conn.h"
+#include "legacy_task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -26,8 +27,7 @@ static SemaphoreHandle_t s_lock;
 static wx_obs_t s_obs;
 static bool s_have;
 static int64_t s_obs_us;
-static atomic_bool s_legacy_on;
-static TaskHandle_t s_task;
+static legacy_task_t s_lt;
 
 static void publish(const wx_obs_t *obs)
 {
@@ -41,7 +41,7 @@ static void publish(const wx_obs_t *obs)
 static bool wait_legacy(int ms)
 {
     for (; ms > 0; ms -= 1000) {
-        if (!atomic_load(&s_legacy_on)) return false;
+        if (!lt_on(&s_lt)) return false;
         vTaskDelay(pdMS_TO_TICKS(ms < 1000 ? ms : 1000));
     }
     return true;
@@ -125,7 +125,14 @@ static void poll_task(void *arg)
     assert(conn);
     http_conn_init(conn, "weather");
     for (;;) {
-        while (!atomic_load(&s_legacy_on) || !ember_client_online()) vTaskDelay(pdMS_TO_TICKS(1000));
+        if (!lt_on(&s_lt)) {
+            if (lt_exit(&s_lt)) break;
+            continue;
+        }
+        if (!ember_client_online()) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
         bool ok = http_get(conn, url, buf, RESP_MAX) > 0;
         if (ok) {
             drop_hourly(buf);
@@ -141,6 +148,11 @@ static void poll_task(void *arg)
         }
         wait_legacy(ok ? POLL_OK_MS : POLL_RETRY_MS);
     }
+    http_conn_free(conn);
+    free(conn);
+    free(buf);
+    ESP_LOGI(TAG, "legacy poll task ended (Ember's view is back)");
+    vTaskDelete(NULL);
 }
 
 void weather_client_init(void)
@@ -148,22 +160,17 @@ void weather_client_init(void)
     if (s_lock) return;
     s_lock = xSemaphoreCreateMutex();
     assert(s_lock);
+    lt_init(&s_lt);
 }
 
 void weather_client_legacy(bool on)
 {
-    static int64_t next_try_us;
-    static uint32_t backoff_ms;
-    atomic_store(&s_legacy_on, on);
-    if (!on || s_task || esp_timer_get_time() < next_try_us) return;
-    if (xTaskCreatePinnedToCore(poll_task, "weather", 5120, NULL, 3, &s_task, 1) != pdPASS) {
-        s_task = NULL;
-        backoff_ms = backoff_ms ? (backoff_ms * 2 > 300000 ? 300000 : backoff_ms * 2) : 5000;
-        next_try_us = esp_timer_get_time() + (int64_t)backoff_ms * 1000;
-        ESP_LOGE(TAG, "no memory for the weather poll task; retry in %u s", (unsigned)(backoff_ms / 1000));
-        return;
-    }
-    backoff_ms = 0;
+    if (!s_lock) return;
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    if (!lt_want(&s_lt, on, now_ms)) return;
+    bool ok = xTaskCreatePinnedToCore(poll_task, "weather", 5120, NULL, 3, NULL, 1) == pdPASS;
+    uint32_t retry_ms = lt_created(&s_lt, ok, now_ms);
+    if (!ok) ESP_LOGE(TAG, "no memory for the weather poll task; retry in %u s", (unsigned)(retry_ms / 1000));
 }
 
 void weather_client_feed(const wx_obs_t *obs)

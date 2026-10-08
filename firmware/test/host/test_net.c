@@ -3,6 +3,7 @@
 
 #include "fail_streak.h"
 #include "http_retry.h"
+#include "legacy_task.h"
 #include "view_wait.h"
 #include "wifi_backoff.h"
 
@@ -144,12 +145,55 @@ static void test_view_wait(void)
     CHECK(view_rearm_ms(304, 0, 30, 2000) == 2000, "plain 304: poll_ms as before");
 }
 
+static void test_legacy_task(void)
+{
+    legacy_task_t t;
+    lt_init(&t);
+    CHECK(!lt_on(&t), "starts without a task");
+    CHECK(!lt_want(&t, false, 0), "off without a task: nothing to do");
+    CHECK(lt_want(&t, true, 0), "first fallback creates the task");
+    CHECK(lt_created(&t, true, 0) == 0 && lt_on(&t), "created: polling");
+    CHECK(!lt_want(&t, true, 10), "on again: no second task");
+
+    CHECK(!lt_want(&t, false, 20) && !lt_on(&t), "view back: the task stops polling");
+    CHECK(!lt_want(&t, false, 30), "off twice: same");
+    CHECK(lt_exit(&t), "the task ends itself");
+    CHECK(!lt_exit(&t), "only once");
+    CHECK(lt_want(&t, true, 40) && lt_on(&t), "view lost again: a new task");
+    lt_created(&t, true, 40);
+
+    lt_want(&t, false, 50);
+    CHECK(!lt_want(&t, true, 60) && lt_on(&t), "on before the task ended: it keeps polling, no new task");
+    CHECK(!lt_exit(&t), "and does not end");
+
+    lt_init(&t);
+    CHECK(lt_want(&t, true, 0), "create");
+    CHECK(lt_created(&t, false, 0) == 5000 && !lt_on(&t), "no memory: retry in 5 s");
+    CHECK(!lt_want(&t, true, 4999), "not before the backoff");
+    CHECK(lt_want(&t, true, 5000), "retry after it");
+    CHECK(lt_created(&t, false, 5000) == 10000, "backoff doubles");
+    uint32_t b = 0;
+    for (int i = 0; i < 10; i++) {
+        lt_want(&t, true, 1000000LL * (i + 1));
+        b = lt_created(&t, false, 1000000LL * (i + 1));
+    }
+    CHECK(b == 300000, "backoff caps at 5 min (%u)", (unsigned)b);
+    CHECK(!lt_want(&t, false, 20000000) && !lt_exit(&t), "off without a task: nothing to end");
+    CHECK(lt_want(&t, true, 20000000), "on after the backoff");
+    CHECK(lt_created(&t, true, 20000000) == 0, "good create resets the backoff");
+    lt_want(&t, false, 20000001);
+    lt_exit(&t);
+    lt_want(&t, true, 20000002);
+    CHECK(lt_created(&t, false, 20000002) == 5000, "next failure starts at 5 s again");
+}
+
 int main(void)
 {
     test_streak();
     test_retry();
     test_backoff();
     test_view_wait();
+    test_legacy_task();
     if (failures) {
         printf("net: %d failure(s)\n", failures);
         return 1;
