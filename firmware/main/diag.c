@@ -350,6 +350,8 @@ void diag_health(ota_health_in_t *h)
     }
 }
 
+bool diag_stall_reset(void) { return s_stall_reset; }
+
 dev_stall_act_t diag_stall_check(bool stalled)
 {
     return dev_stall_check(&s_stall, stalled, esp_timer_get_time() / 1000);

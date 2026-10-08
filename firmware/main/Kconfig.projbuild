@@ -56,7 +56,7 @@ config CINDER_OTA_TEST
         image is pending verification.
 
 config CINDER_OTA_TEST_FAULT
-    string "Fault while pending verification: crash_boot, no_checkin or no_render"
+    string "Fault: crash_boot, no_checkin, no_render or lvgl_stall"
     depends on CINDER_OTA_TEST
     default ""
     help
@@ -65,5 +65,9 @@ config CINDER_OTA_TEST_FAULT
         frame callback, so the health gate rolls back with health_render (about 2 min;
         62 min while a Pomodoro runs). Only while the running image is pending
         verification, so the same image never breaks a knob that already accepted it.
+        lvgl_stall: the opposite window, for the LVGL stall watchdog (off while pending):
+        once the image is valid, frame_cb freezes as in no_render, so the watchdog aborts
+        60-90 s later; not on the boot after that abort, which reports lvgl_stall. Every
+        other boot stalls again until the image is replaced.
 
 endmenu

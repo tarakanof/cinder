@@ -57,7 +57,7 @@ python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 
 | Script | Does |
 |---|---|
-| `build_release.sh [--version X.Y.Z] [--ota-test crash_boot\|no_checkin\|no_render\|none] [--dir DIR]` | Secret-free build from `sdkconfig.defaults` only into `build-release/` (own `sdkconfig`); fails on `CINDER_DEV_SEED=y` or a secret scan hit; prints version, build, size, SHA-256 |
+| `build_release.sh [--version X.Y.Z] [--ota-test crash_boot\|no_checkin\|no_render\|lvgl_stall\|none] [--dir DIR]` | Secret-free build from `sdkconfig.defaults` only into `build-release/` (own `sdkconfig`); fails on `CINDER_DEV_SEED=y` or a secret scan hit; prints version, build, size, SHA-256 |
 | `publish.sh [--release] [--replace] [--no-build]` (+ build options) | Builds, then uploads `cinder.bin` (`POST /v1/firmware?channel=test\|release`) and `cinder.elf` (`PUT /v1/firmware/<version>/elf`) with only `EMBER_TOKEN`/`EMBER_SERVER_URL` read from `producer.env` (or `$EMBER_ENV_FILE`; not exported, never echoed); promotes the channel with `PATCH` when Ember already held the bytes on the other one; fails unless `GET /v1/firmware` then lists the local SHA-256, the channel and the ELF |
 | `release.sh X.Y.Z` | Clean, in-sync `main` with `PROJECT_VER` X.Y.Z: tags and pushes `vX.Y.Z`, waits for the release workflow, downloads the GitHub Release, checks it came from that run at that commit (immutable release, author, time window, exact assets, equal to the run's artifact), `SHA256SUMS` and each asset's build provenance attestation (`gh attestation verify --repo tarakanof/cinder --cert-identity https://github.com/tarakanof/cinder/.github/workflows/release.yml@refs/tags/vX.Y.Z --source-ref refs/tags/vX.Y.Z --source-digest <commit> --deny-self-hosted-runners`), then uploads those bytes (`publish.sh --release --no-build --dir`). Never builds locally; a re-run skips what is done, re-runs a failed workflow and resumes from the pushed tag even after `main` moved |
 
@@ -74,7 +74,8 @@ python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
   Automatic mode installs only `release` builds.
 - OTA test images: `publish.sh --dir build-test --version <next> [--ota-test FAULT]`
   (`CONFIG_CINDER_OTA_TEST`: 2 min rollback timer, CINDER1 `ota_fault`; `no_render` freezes the
-  screen and should roll back with `health_render` about 2 min after boot; 62 min while a Pomodoro runs). A pending image the
+  screen and should roll back with `health_render` about 2 min after boot; 62 min while a Pomodoro runs; `lvgl_stall`
+  freezes it once the image is valid, so the stall watchdog aborts and the next boot reports `lvgl_stall`). A pending image the
   health gate holds back can be accepted over USB with `tools/ota_fault.py valid` (any build). Delete test
   uploads afterwards (`DELETE /v1/firmware/{version}`, once the knob runs a release build).
 - Design and the on-knob test plan: [`features.md`](features.md), "OTA from Ember".

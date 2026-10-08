@@ -683,7 +683,7 @@ static void render_freeze(lv_display_t *disp)
     if (want == frozen) return;
     frozen = want;
     lv_display_enable_invalidation(disp, !want);
-    if (want) ESP_LOGW(TAG, "OTA test fault no_render: screen frozen");
+    if (want) ESP_LOGW(TAG, "OTA test fault: screen frozen");
     else lv_obj_invalidate(lv_screen_active());
 }
 

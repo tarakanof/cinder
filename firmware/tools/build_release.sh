@@ -3,7 +3,7 @@ set -eu
 
 usage() {
     cat <<'EOF'
-Usage: tools/build_release.sh [--dir DIR] [--version X.Y.Z] [--ota-test crash_boot|no_checkin|no_render|none]
+Usage: tools/build_release.sh [--dir DIR] [--version X.Y.Z] [--ota-test crash_boot|no_checkin|no_render|lvgl_stall|none]
 
 Secret-free build from sdkconfig.defaults only (never sdkconfig.secrets), into its own
 directory and sdkconfig (default build-release). Fails when the dev seed is on or the
@@ -12,6 +12,7 @@ image holds a value from sdkconfig.secrets or the Ember master token.
   --version X.Y.Z   override PROJECT_VER (OTA test images: the next versions up)
   --ota-test FAULT  CONFIG_CINDER_OTA_TEST image (2 min rollback timer, ota_fault op);
                     FAULT applies while the image is pending verification
+                    (lvgl_stall: once it is valid)
 EOF
 }
 
@@ -32,7 +33,7 @@ if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0
     echo "bad --version: $VERSION" >&2
     exit 2
 fi
-case "$TEST" in "" | crash_boot | no_checkin | no_render | none) ;; *) usage >&2; exit 2 ;; esac
+case "$TEST" in "" | crash_boot | no_checkin | no_render | lvgl_stall | none) ;; *) usage >&2; exit 2 ;; esac
 
 if [ -z "${IDF_PATH:-}" ] || [ -z "${IDF_PYTHON_ENV_PATH:-}" ]; then
     echo "ESP-IDF is not active: run . ~/.espressif/tools/activate_idf_v5.5.5.sh first" >&2
