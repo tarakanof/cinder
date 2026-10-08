@@ -63,6 +63,39 @@ _Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= DEV_DIAG_MAX_TASKS, "task list fits");
 _Static_assert(sizeof TASKS[0] <= DEV_TASK_NAME_MAX + 1, "task name fits dev_diag_t");
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= OTA_HEALTH_TASKS_MAX, "task list fits the health gate");
+/* Deleted at run time by another task: they report their own high-water mark, so no reader holds a handle to them. */
+static const char SELF_REPORTED[][8] = {"pomo", "weather"};
+static atomic_int s_self_free[2] = {-1, -1};
+_Static_assert(sizeof SELF_REPORTED / sizeof SELF_REPORTED[0] == sizeof s_self_free / sizeof s_self_free[0], "one slot each");
+
+static int self_index(const char *name)
+{
+    for (size_t i = 0; i < sizeof SELF_REPORTED / sizeof SELF_REPORTED[0]; i++)
+        if (strcmp(name, SELF_REPORTED[i]) == 0) return (int)i;
+    return -1;
+}
+
+void diag_note_stack(const char *task, int free_bytes)
+{
+    int i = self_index(task);
+    if (i >= 0) atomic_store(&s_self_free[i], free_bytes);
+}
+
+static bool task_free(const char *name, uint32_t *out)
+{
+    int s = self_index(name);
+    if (s >= 0) {
+        int v = atomic_load(&s_self_free[s]);
+        if (v < 0) return false;
+        *out = (uint32_t)v;
+        return true;
+    }
+    TaskHandle_t t = xTaskGetHandle(name);
+    if (!t) return false;
+    *out = (uint32_t)uxTaskGetStackHighWaterMark(t);
+    return true;
+}
+
 #define DIAG_IDF_TASKS(X) X("esp_timer") X("ipc0") X("ipc1") X("sys_evt") X("tiT") X("Tmr Svc") X("wifi")
 #define DIAG_IDF_TASK_FITS(name) \
     _Static_assert(sizeof name <= sizeof IDF_TASKS[0], "task name " name " fits IDF_TASKS[] with its NUL");
@@ -309,10 +342,10 @@ void diag_health(ota_health_in_t *h)
     h->heap_largest_min = atomic_load(&s_largest_min);
     h->n_tasks = 0;
     for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
-        TaskHandle_t t = xTaskGetHandle(TASKS[i]);
-        if (!t) continue;
+        uint32_t f;
+        if (!task_free(TASKS[i], &f)) continue;
         h->tasks[h->n_tasks].name = TASKS[i];
-        h->tasks[h->n_tasks].stack_free = (uint32_t)uxTaskGetStackHighWaterMark(t);
+        h->tasks[h->n_tasks].stack_free = f;
         h->n_tasks++;
     }
 }
@@ -328,9 +361,9 @@ void diag_stacks_line(char out[DIAG_STACKS_LINE_MAX])
     size_t len = 0;
     out[0] = 0;
     for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
-        TaskHandle_t t = xTaskGetHandle(TASKS[i]);
-        if (!t) continue;
-        int n = snprintf(out + len, cap - len, "%s%s %u", len ? ", " : "", TASKS[i], (unsigned)uxTaskGetStackHighWaterMark(t));
+        uint32_t f;
+        if (!task_free(TASKS[i], &f)) continue;
+        int n = snprintf(out + len, cap - len, "%s%s %u", len ? ", " : "", TASKS[i], (unsigned)f);
         if (n < 0 || (size_t)n >= cap - len) return;
         len += (size_t)n;
     }
@@ -354,10 +387,10 @@ void diag_fill(dev_diag_t *d)
     d->heap_internal_min = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
     d->heap_largest_min = atomic_load(&s_largest_min);
     for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
-        TaskHandle_t t = xTaskGetHandle(TASKS[i]);
-        if (!t) continue;
+        uint32_t f;
+        if (!task_free(TASKS[i], &f)) continue;
         memcpy(d->tasks[d->n_tasks].name, TASKS[i], sizeof TASKS[i]);
-        d->tasks[d->n_tasks].stack_free = (uint32_t)uxTaskGetStackHighWaterMark(t);
+        d->tasks[d->n_tasks].stack_free = f;
         d->n_tasks++;
     }
     d->has_crash = s_has_crash;

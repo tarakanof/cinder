@@ -10,18 +10,23 @@ void lt_init(legacy_task_t *t)
     t->backoff_ms = 0;
 }
 
-bool lt_want(legacy_task_t *t, bool on, int64_t now_ms)
+int lt_want(legacy_task_t *t, bool on, int64_t now_ms)
 {
+    int act = 0;
+    if (atomic_load(&t->state) == LT_PARKED) {
+        atomic_store(&t->state, LT_GONE);
+        act |= LT_REAP;
+    }
     if (!on) {
         int run = LT_RUN;
         atomic_compare_exchange_strong(&t->state, &run, LT_STOP);
-        return false;
+        return act;
     }
     int st = LT_STOP;
-    if (atomic_compare_exchange_strong(&t->state, &st, LT_RUN) || st == LT_RUN) return false;
-    if (now_ms < t->next_try_ms) return false;
+    if (atomic_compare_exchange_strong(&t->state, &st, LT_RUN) || st == LT_RUN) return act;
+    if (now_ms < t->next_try_ms) return act;
     atomic_store(&t->state, LT_RUN);
-    return true;
+    return act | LT_CREATE;
 }
 
 uint32_t lt_created(legacy_task_t *t, bool ok, int64_t now_ms)
@@ -40,8 +45,8 @@ uint32_t lt_created(legacy_task_t *t, bool ok, int64_t now_ms)
 
 bool lt_on(legacy_task_t *t) { return atomic_load(&t->state) == LT_RUN; }
 
-bool lt_exit(legacy_task_t *t)
+bool lt_park(legacy_task_t *t)
 {
     int stop = LT_STOP;
-    return atomic_compare_exchange_strong(&t->state, &stop, LT_GONE);
+    return atomic_compare_exchange_strong(&t->state, &stop, LT_PARKED);
 }

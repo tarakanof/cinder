@@ -5,6 +5,7 @@
 
 #include "cJSON.h"
 #include "config_store.h"
+#include "diag.h"
 #include "ember_client.h"
 #include "http_conn.h"
 #include "legacy_task.h"
@@ -24,6 +25,7 @@ static const char *TAG = "pomo";
 
 static QueueHandle_t s_queue;
 static legacy_task_t s_lt;
+static TaskHandle_t s_task;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static pomo_snapshot_t s_snap;
 static pomo_srv_clock_t s_srv;
@@ -191,10 +193,12 @@ static void client_task(void *arg)
     for (;;) {
         if (!lt_on(&s_lt)) {
             http_conn_free(s_conn);
-            if (!lt_exit(&s_lt)) continue;
-            ESP_LOGI(TAG, "legacy poll task ended (Ember's view is back)");
-            vTaskDelete(NULL);
+            diag_note_stack("pomo", -1);
+            ESP_LOGI(TAG, "legacy poll task stopping (Ember's view is back)");
+            if (!lt_park(&s_lt)) continue;
+            for (;;) vTaskSuspend(NULL);
         }
+        diag_note_stack("pomo", (int)uxTaskGetStackHighWaterMark(NULL));
         pomo_snapshot_t snap;
         bool have = pomo_client_get(&snap);
         pomo_mode_t mode = have ? pomo_mode(&snap.clock.state) : POMO_MODE_IDLE;
@@ -231,15 +235,19 @@ void pomo_client_init(void)
 void pomo_client_legacy(bool on)
 {
     if (!s_queue) return;
-    if (!on && !s_conn) return;
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    int act = lt_want(&s_lt, on, now_ms);
+    if (act & LT_REAP) {
+        vTaskDeleteWithCaps(s_task);
+        s_task = NULL;
+    }
+    if (!(act & LT_CREATE)) return;
     if (!s_conn) {
         s_conn = heap_caps_calloc(1, sizeof *s_conn, MALLOC_CAP_SPIRAM);
-        if (!s_conn) return;
-        http_conn_init(s_conn, "pomo");
+        if (s_conn) http_conn_init(s_conn, "pomo");
     }
-    int64_t now_ms = esp_timer_get_time() / 1000;
-    if (!lt_want(&s_lt, on, now_ms)) return;
-    bool ok = xTaskCreatePinnedToCore(client_task, "pomo", 5632, NULL, 3, NULL, 1) == pdPASS;
+    bool ok = s_conn && xTaskCreatePinnedToCoreWithCaps(client_task, "pomo", 5632, NULL, 3, &s_task, 1,
+                                                        MALLOC_CAP_SPIRAM) == pdPASS;
     uint32_t retry_ms = lt_created(&s_lt, ok, now_ms);
     if (ok) return;
     publish_link(false, false);

@@ -150,27 +150,34 @@ static void test_legacy_task(void)
     legacy_task_t t;
     lt_init(&t);
     CHECK(!lt_on(&t), "starts without a task");
-    CHECK(!lt_want(&t, false, 0), "off without a task: nothing to do");
-    CHECK(lt_want(&t, true, 0), "first fallback creates the task");
+    CHECK(lt_want(&t, false, 0) == 0, "off without a task: nothing to do");
+    CHECK(lt_want(&t, true, 0) == LT_CREATE, "first fallback creates the task");
     CHECK(lt_created(&t, true, 0) == 0 && lt_on(&t), "created: polling");
-    CHECK(!lt_want(&t, true, 10), "on again: no second task");
+    CHECK(lt_want(&t, true, 10) == 0, "on again: no second task");
 
-    CHECK(!lt_want(&t, false, 20) && !lt_on(&t), "view back: the task stops polling");
-    CHECK(!lt_want(&t, false, 30), "off twice: same");
-    CHECK(lt_exit(&t), "the task ends itself");
-    CHECK(!lt_exit(&t), "only once");
-    CHECK(lt_want(&t, true, 40) && lt_on(&t), "view lost again: a new task");
-    lt_created(&t, true, 40);
+    CHECK(lt_want(&t, false, 20) == 0 && !lt_on(&t), "view back: the task stops polling");
+    CHECK(lt_want(&t, false, 30) == 0, "off twice: the task has not parked yet, nothing to reap");
+    CHECK(lt_park(&t), "the task parks itself");
+    CHECK(!lt_park(&t), "only once");
+    CHECK(lt_want(&t, false, 40) == LT_REAP, "the controller deletes the parked task");
+    CHECK(lt_want(&t, false, 50) == 0, "and only once");
+    CHECK(lt_want(&t, true, 60) == LT_CREATE && lt_on(&t), "view lost again: a new task");
+    lt_created(&t, true, 60);
 
-    lt_want(&t, false, 50);
-    CHECK(!lt_want(&t, true, 60) && lt_on(&t), "on before the task ended: it keeps polling, no new task");
-    CHECK(!lt_exit(&t), "and does not end");
+    lt_want(&t, false, 70);
+    lt_park(&t);
+    CHECK(lt_want(&t, true, 80) == (LT_REAP | LT_CREATE), "parked and wanted again: reap, then a new task");
+    lt_created(&t, true, 80);
+
+    lt_want(&t, false, 90);
+    CHECK(lt_want(&t, true, 100) == 0 && lt_on(&t), "on before the task parked: it keeps polling, no new task");
+    CHECK(!lt_park(&t), "and does not park");
 
     lt_init(&t);
-    CHECK(lt_want(&t, true, 0), "create");
+    CHECK(lt_want(&t, true, 0) == LT_CREATE, "create");
     CHECK(lt_created(&t, false, 0) == 5000 && !lt_on(&t), "no memory: retry in 5 s");
-    CHECK(!lt_want(&t, true, 4999), "not before the backoff");
-    CHECK(lt_want(&t, true, 5000), "retry after it");
+    CHECK(lt_want(&t, true, 4999) == 0, "not before the backoff");
+    CHECK(lt_want(&t, true, 5000) == LT_CREATE, "retry after it");
     CHECK(lt_created(&t, false, 5000) == 10000, "backoff doubles");
     uint32_t b = 0;
     for (int i = 0; i < 10; i++) {
@@ -178,13 +185,14 @@ static void test_legacy_task(void)
         b = lt_created(&t, false, 1000000LL * (i + 1));
     }
     CHECK(b == 300000, "backoff caps at 5 min (%u)", (unsigned)b);
-    CHECK(!lt_want(&t, false, 20000000) && !lt_exit(&t), "off without a task: nothing to end");
-    CHECK(lt_want(&t, true, 20000000), "on after the backoff");
+    CHECK(lt_want(&t, false, 20000000) == 0 && !lt_park(&t), "off without a task: nothing to park or reap");
+    CHECK(lt_want(&t, true, 20000000) == LT_CREATE, "on after the backoff");
     CHECK(lt_created(&t, true, 20000000) == 0, "good create resets the backoff");
     lt_want(&t, false, 20000001);
-    lt_exit(&t);
-    lt_want(&t, true, 20000002);
+    lt_park(&t);
+    CHECK(lt_want(&t, true, 20000002) == (LT_REAP | LT_CREATE), "flap: reap and create");
     CHECK(lt_created(&t, false, 20000002) == 5000, "next failure starts at 5 s again");
+    CHECK(lt_want(&t, true, 20000003) == 0, "and backs off, nothing left to reap");
 }
 
 int main(void)

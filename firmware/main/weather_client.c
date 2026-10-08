@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "config_store.h"
+#include "diag.h"
 #include "ember_client.h"
 #include "esp_heap_caps.h"
 #include "http_conn.h"
@@ -28,6 +29,13 @@ static wx_obs_t s_obs;
 static bool s_have;
 static int64_t s_obs_us;
 static legacy_task_t s_lt;
+typedef struct {
+    char *buf;
+    http_conn_t *conn;
+} poll_ctx_t;
+
+static TaskHandle_t s_task;
+static poll_ctx_t *s_ctx;
 
 static void publish(const wx_obs_t *obs)
 {
@@ -112,23 +120,46 @@ static bool parse(const char *body, wx_obs_t *o)
     return true;
 }
 
+static void ctx_free(poll_ctx_t *c)
+{
+    if (!c) return;
+    free(c->conn);
+    free(c->buf);
+    free(c);
+}
+
+static poll_ctx_t *ctx_new(void)
+{
+    poll_ctx_t *c = heap_caps_calloc(1, sizeof *c, MALLOC_CAP_SPIRAM);
+    if (!c) return NULL;
+    c->buf = heap_caps_malloc(RESP_MAX, MALLOC_CAP_SPIRAM);
+    c->conn = heap_caps_calloc(1, sizeof *c->conn, MALLOC_CAP_SPIRAM);
+    if (!c->buf || !c->conn) {
+        ctx_free(c);
+        return NULL;
+    }
+    http_conn_init(c->conn, "weather");
+    return c;
+}
+
 static void poll_task(void *arg)
 {
-    (void)arg;
-    char *buf = heap_caps_malloc(RESP_MAX, MALLOC_CAP_SPIRAM);
-    assert(buf);
+    poll_ctx_t *ctx = arg;
+    char *buf = ctx->buf;
+    http_conn_t *conn = ctx->conn;
     char url[CFG_URL_MAX + 32];
     config_store_ember_url(url, sizeof url);
     strlcat(url, "/v1/weather/state", sizeof url);
     static wx_obs_t obs;
-    http_conn_t *conn = heap_caps_calloc(1, sizeof *conn, MALLOC_CAP_SPIRAM);
-    assert(conn);
-    http_conn_init(conn, "weather");
     for (;;) {
         if (!lt_on(&s_lt)) {
-            if (lt_exit(&s_lt)) break;
+            http_conn_free(conn);
+            diag_note_stack("weather", -1);
+            ESP_LOGI(TAG, "legacy poll task stopping (Ember's view is back)");
+            if (lt_park(&s_lt)) break;
             continue;
         }
+        diag_note_stack("weather", (int)uxTaskGetStackHighWaterMark(NULL));
         if (!ember_client_online()) {
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
@@ -148,11 +179,7 @@ static void poll_task(void *arg)
         }
         wait_legacy(ok ? POLL_OK_MS : POLL_RETRY_MS);
     }
-    http_conn_free(conn);
-    free(conn);
-    free(buf);
-    ESP_LOGI(TAG, "legacy poll task ended (Ember's view is back)");
-    vTaskDelete(NULL);
+    for (;;) vTaskSuspend(NULL);
 }
 
 void weather_client_init(void)
@@ -167,8 +194,21 @@ void weather_client_legacy(bool on)
 {
     if (!s_lock) return;
     int64_t now_ms = esp_timer_get_time() / 1000;
-    if (!lt_want(&s_lt, on, now_ms)) return;
-    bool ok = xTaskCreatePinnedToCore(poll_task, "weather", 5120, NULL, 3, NULL, 1) == pdPASS;
+    int act = lt_want(&s_lt, on, now_ms);
+    if (act & LT_REAP) {
+        vTaskDeleteWithCaps(s_task);
+        s_task = NULL;
+        ctx_free(s_ctx);
+        s_ctx = NULL;
+    }
+    if (!(act & LT_CREATE)) return;
+    s_ctx = ctx_new();
+    bool ok = s_ctx && xTaskCreatePinnedToCoreWithCaps(poll_task, "weather", 5120, s_ctx, 3, &s_task, 1,
+                                                       MALLOC_CAP_SPIRAM) == pdPASS;
+    if (!ok) {
+        ctx_free(s_ctx);
+        s_ctx = NULL;
+    }
     uint32_t retry_ms = lt_created(&s_lt, ok, now_ms);
     if (!ok) ESP_LOGE(TAG, "no memory for the weather poll task; retry in %u s", (unsigned)(retry_ms / 1000));
 }

@@ -1029,9 +1029,9 @@ static void poll_task(void *arg)
             brightness_poll(buf, bright_url);
             next_bright_us = esp_timer_get_time() + (int64_t)DIM_POLL_MS * 1000;
         }
+        pomo_client_legacy(P->vp.legacy);
+        weather_client_legacy(P->vp.legacy);
         if (P->vp.legacy) {
-            pomo_client_legacy(true);
-            weather_client_legacy(true);
             wait_and_fade(s_ks.poll_ms, NULL);
         } else if (P->rearm_ms >= 0 && P->waited) {
             if (P->rearm_ms > 0) wait_and_fade(P->rearm_ms, buf);
