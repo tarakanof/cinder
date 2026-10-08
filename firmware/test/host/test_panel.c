@@ -13,7 +13,7 @@ typedef struct {
     bool stuck;
     uint8_t stuck_at;
     int fail_read_at, fail_write_at, corrupt_from;
-    int lag_ms;
+    int lag_ms, write_ms, fail_write_until;
     uint8_t prev;
     int64_t wrote_at;
 } fake_t;
@@ -32,7 +32,9 @@ static int fk_read(void *ctx, uint8_t *v)
 static int fk_write(void *ctx, uint8_t v)
 {
     fake_t *f = ctx;
-    if (++f->writes == f->fail_write_at) return -1;
+    ++f->writes;
+    g_now += f->write_ms;
+    if (f->writes == f->fail_write_at || (f->writes > f->fail_write_at && f->writes <= f->fail_write_until)) return -1;
     if (f->writes <= 16) f->written[f->writes - 1] = v;
     f->prev = f->level;
     f->wrote_at = g_now;
@@ -42,13 +44,20 @@ static int fk_write(void *ctx, uint8_t v)
 
 static panel_req_t P;
 static fake_t F;
-static pr_io_t IO = {fk_read, fk_write, &F};
+static int64_t fk_now(void *ctx)
+{
+    (void)ctx;
+    return g_now;
+}
+
+static pr_io_t IO = {fk_read, fk_write, fk_now, &F};
 
 static void reset(uint8_t level)
 {
     pr_init(&P);
     memset(&F, 0, sizeof F);
-    F.level = level;
+    F.level = F.prev = level;
+    F.wrote_at = -1000;
 }
 
 static void frame(int64_t t)
@@ -174,6 +183,40 @@ static void test_readback_lag(void)
     CHECK(F.level == 110, "fade ends at its last level (%d)", F.level);
 }
 
+static void test_slow_write(void)
+{
+    int bad;
+    reset(100);
+    F.lag_ms = PR_SETTLE_MS - 1;
+    F.write_ms = 20;
+    uint32_t t = pr_check_post(&P, 0);
+    frames(0, 400);
+    CHECK(pr_check_result(&P, t, &bad, NULL) && bad == 0, "a write that blocks 20 ms: settle counts from its end (%d)", bad);
+    CHECK(F.level == 100, "level restored (%d)", F.level);
+}
+
+static void test_restore_fails(void)
+{
+    int bad;
+    reset(100);
+    F.fail_write_at = 2;
+    F.fail_write_until = 3;
+    uint32_t t = pr_check_post(&P, 0);
+    frames(0, 300);
+    CHECK(pr_check_result(&P, t, &bad, NULL) && bad == -1, "restore and its retry fail: -1");
+    frames(316, 600);
+    CHECK(F.level == 100, "the old level is queued and written later (%d)", F.level);
+
+    reset(100);
+    F.fail_write_at = 2;
+    F.fail_write_until = 3;
+    t = pr_check_post(&P, 0);
+    frames(0, 300);
+    pr_brightness(&P, 50);
+    frames(316, 600);
+    CHECK(F.level == 50, "a newer level wins over the queued restore (%d)", F.level);
+}
+
 static void test_brightness_write_fails(void)
 {
     reset(100);
@@ -263,6 +306,8 @@ int main(void)
     test_brightness_before_check();
     test_readback_lag();
     test_brightness_write_fails();
+    test_slow_write();
+    test_restore_fails();
     test_static_init();
     test_errors();
     test_tickets();

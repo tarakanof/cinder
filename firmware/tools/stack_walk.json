@@ -421,14 +421,21 @@
   ],
   "pr_frame": [
    "panel_rd",
-   "panel_wr"
+   "panel_wr",
+   "panel_now_ms"
   ],
   "pr_start": [
    "panel_rd",
-   "panel_wr"
+   "panel_wr",
+   "panel_now_ms"
   ],
   "pr_finish": [
-   "panel_wr"
+   "panel_wr",
+   "panel_now_ms"
+  ],
+  "pr_write": [
+   "panel_wr",
+   "panel_now_ms"
   ]
  },
  "tasks": {

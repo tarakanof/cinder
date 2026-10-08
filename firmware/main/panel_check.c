@@ -59,7 +59,13 @@ static int panel_wr(void *ctx, uint8_t level)
     return esp_lcd_panel_io_tx_param(s_io, (0x02 << 24) | (0x51 << 8), &level, 1) == ESP_OK ? 0 : -1;
 }
 
-static const pr_io_t IO = {panel_rd, panel_wr, NULL};
+static int64_t panel_now_ms(void *ctx)
+{
+    (void)ctx;
+    return esp_timer_get_time() / 1000;
+}
+
+static const pr_io_t IO = {panel_rd, panel_wr, panel_now_ms, NULL};
 
 void panel_check_frame(void)
 {

@@ -20,6 +20,8 @@ typedef struct {
     /* 0 on success. */
     int (*read)(void *ctx, uint8_t *level);
     int (*write)(void *ctx, uint8_t level);
+    /* Time after the I/O returned: the settle time counts from the end of a write. */
+    int64_t (*now_ms)(void *ctx);
     void *ctx;
 } pr_io_t;
 
