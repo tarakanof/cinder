@@ -39,6 +39,8 @@ typedef struct {
 } twdt_note_t;
 static RTC_NOINIT_ATTR twdt_note_t s_twdt;
 static char s_wdt_culprit[DEV_TASK_NAME_MAX + 1];
+static RTC_NOINIT_ATTR dev_stall_note_t s_stall;
+static bool s_stall_reset;
 
 static void twdt_msg(void *opaque, const char *msg) { dev_twdt_capture_msg(opaque, msg); }
 
@@ -50,8 +52,11 @@ void esp_task_wdt_isr_user_handler(void)
     s_twdt.magic = TWDT_MAGIC;
 }
 
-static const char *const TASKS[] = {"ember", "eye", "link", "lvgl", "pomo", "prov", "rim", "stats", "weather"};
+static const char TASKS[][8] = {"ember", "eye", "link", "lvgl", "pomo", "prov", "rim", "stats", "weather"};
+_Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[0] - 1 + 1 + 10) + 1 <= DIAG_STACKS_LINE_MAX,
+               "worst-case stack line fits");
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= DEV_DIAG_MAX_TASKS, "task list fits");
+_Static_assert(sizeof TASKS[0] <= DEV_TASK_NAME_MAX + 1, "task name fits dev_diag_t");
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= OTA_HEALTH_TASKS_MAX, "task list fits the health gate");
 
 static atomic_int s_level;
@@ -155,7 +160,7 @@ bool diag_sample(dev_stats_t *st)
         st->psram_largest = (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
     }
     st->has_temp = read_temp(&st->temp_c);
-    st->reset_reason = dev_reset_reason_name((int)esp_reset_reason());
+    st->reset_reason = dev_boot_reason_name((int)esp_reset_reason(), s_stall_reset);
     if (level == KS_DIAG_FULL) {
         taskENTER_CRITICAL(&s_mux);
         uint32_t frames = s_frames, ok = s_req_ok, fail = s_req_fail, rmax = s_req_ms_max;
@@ -228,9 +233,10 @@ static void coredump_boot(nvs_handle_t h, bool nvs_ok, int reset_reason)
             size_t n = sizeof culprit;
             if (nvs_get_str(h, "dump_wdt", culprit, &n) != ESP_OK) culprit[0] = 0;
         } else {
-            s_crash_reason = dev_crash_reason_name(reset_reason);
+            int code = s_stall_reset ? DEV_RR_LVGL_STALL : reset_reason;
+            s_crash_reason = dev_crash_reason_name(code);
             nvs_set_u32(h, "dump_crc", crc);
-            nvs_set_u8(h, "dump_rr", (uint8_t)reset_reason);
+            nvs_set_u8(h, "dump_rr", (uint8_t)code);
             nvs_set_str(h, "dump_wdt", culprit);
         }
     }
@@ -247,6 +253,10 @@ void diag_boot(void)
         snprintf(s_wdt_culprit, sizeof s_wdt_culprit, "%.*s", DEV_TASK_NAME_MAX, s_twdt.cap.name);
     s_twdt.magic = 0;
     if (s_wdt_culprit[0]) ESP_LOGW(TAG, "task watchdog culprit: %s", s_wdt_culprit);
+    s_stall_reset = dev_stall_boot(&s_stall, rr);
+    if (s_stall_reset)
+        ESP_LOGW(TAG, "reset by the LVGL stall watchdog (%" PRIu32 " in a row%s)", s_stall.resets,
+                 s_stall.resets >= DEV_STALL_MAX_RESETS ? ", log only this boot" : "");
     nvs_handle_t h = 0;
     bool nvs_ok = nvs_open("diag", NVS_READWRITE, &h) == ESP_OK;
     if (nvs_ok) {
@@ -286,18 +296,37 @@ void diag_health(ota_health_in_t *h)
     }
 }
 
+dev_stall_act_t diag_stall_check(bool stalled)
+{
+    return dev_stall_check(&s_stall, stalled, esp_timer_get_time() / 1000);
+}
+
+void diag_stacks_line(char out[DIAG_STACKS_LINE_MAX])
+{
+    const size_t cap = DIAG_STACKS_LINE_MAX;
+    size_t len = 0;
+    out[0] = 0;
+    for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
+        TaskHandle_t t = xTaskGetHandle(TASKS[i]);
+        if (!t) continue;
+        int n = snprintf(out + len, cap - len, "%s%s %u", len ? ", " : "", TASKS[i], (unsigned)uxTaskGetStackHighWaterMark(t));
+        if (n < 0 || (size_t)n >= cap - len) break;
+        len += (size_t)n;
+    }
+}
+
 void diag_fill(dev_diag_t *d)
 {
     diag_track();
     memset(d, 0, sizeof *d);
-    d->reset_reason = dev_reset_reason_name((int)esp_reset_reason());
+    d->reset_reason = dev_boot_reason_name((int)esp_reset_reason(), s_stall_reset);
     d->boots = s_boots;
     d->heap_internal_min = (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
     d->heap_largest_min = atomic_load(&s_largest_min);
     for (size_t i = 0; i < sizeof TASKS / sizeof TASKS[0]; i++) {
         TaskHandle_t t = xTaskGetHandle(TASKS[i]);
         if (!t) continue;
-        snprintf(d->tasks[d->n_tasks].name, sizeof d->tasks[0].name, "%s", TASKS[i]);
+        memcpy(d->tasks[d->n_tasks].name, TASKS[i], sizeof TASKS[i]);
         d->tasks[d->n_tasks].stack_free = (uint32_t)uxTaskGetStackHighWaterMark(t);
         d->n_tasks++;
     }

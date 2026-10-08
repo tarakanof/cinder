@@ -57,8 +57,30 @@ typedef struct dev_diag {
     char crash_elf[OTA_BUILD_HEX + 1];
 } dev_diag_t;
 
-/* A dump is only written by a panic or watchdog path; any other reset reason seen with a new dump gives "unknown". */
+#define DEV_RR_SW 3
+#define DEV_RR_PANIC 4
+#define DEV_RR_LVGL_STALL 0x40
+
+/* A dump is only written by a panic or watchdog path; any other reset reason seen with a new dump gives "unknown". DEV_RR_LVGL_STALL: "lvgl_stall". */
 const char *dev_crash_reason_name(int reset_reason);
+/* reset_reason for diag and stats: "lvgl_stall" when this boot follows the LVGL stall abort, else dev_reset_reason_name. */
+const char *dev_boot_reason_name(int reset_reason, bool lvgl_stall);
+
+#define DEV_STALL_MAGIC 0x4C565354u
+#define DEV_STALL_MAX_RESETS 3
+#define DEV_STALL_CLEAR_MS (10 * 60 * 1000)
+/* Lives in RTC_NOINIT memory; any field may be garbage until dev_stall_boot. */
+typedef struct {
+    uint32_t magic;
+    uint32_t resets;
+    uint32_t marked;
+    uint32_t seen;
+} dev_stall_note_t;
+typedef enum { DEV_STALL_NONE, DEV_STALL_LOG, DEV_STALL_ABORT } dev_stall_act_t;
+/* Once at boot: true when this reset was the stall abort. Counts consecutive stall resets; SW resets keep the count, any other reset clears it. */
+bool dev_stall_boot(dev_stall_note_t *n, int reset_reason);
+/* Every watchdog check: ABORT (marks the note) below DEV_STALL_MAX_RESETS, else LOG; a boot that reaches DEV_STALL_CLEAR_MS without a stall clears the count. */
+dev_stall_act_t dev_stall_check(dev_stall_note_t *n, bool stalled, int64_t uptime_ms);
 
 /* Collects the first name from esp_task_wdt_print_triggered_tasks messages; ISR-safe (no allocation, no libc stdio). */
 typedef struct {
@@ -67,7 +89,7 @@ typedef struct {
 } dev_twdt_capture_t;
 void dev_twdt_capture_msg(dev_twdt_capture_t *c, const char *msg);
 
-/* crash.task: the watchdog culprit for task_wdt ("twdt" if none was recorded), else the dump's task. */
+/* crash.task: the watchdog culprit for task_wdt ("twdt" if none was recorded), "lvgl" for lvgl_stall, else the dump's task. */
 const char *dev_crash_task(const char *reason, const char *wdt_culprit, const char *dump_task);
 
 #define DEV_STATS_MAX_CPU 8

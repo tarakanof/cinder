@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "device_api.h"
@@ -15,6 +16,11 @@ void diag_boot(void);
 void diag_track(void);
 /* Ember task. */
 void diag_fill(dev_diag_t *d);
+/* Stats task, every 30 s check of the LVGL loop; the restart-loop guard (dev_stall_check). */
+dev_stall_act_t diag_stall_check(bool stalled);
+/* Any task: "ember 1880, eye 900, ...", stack bytes never used, tasks that exist. */
+#define DIAG_STACKS_LINE_MAX 184
+void diag_stacks_line(char out[DIAG_STACKS_LINE_MAX]);
 /* Ember task: the heap and stack fields of the OTA health gate. */
 void diag_health(ota_health_in_t *h);
 /* Ember task. id: the IDF CRC-32 stored in the dump's last 4 bytes; size in bytes. */
