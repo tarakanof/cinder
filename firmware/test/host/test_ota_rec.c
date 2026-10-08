@@ -198,7 +198,7 @@ static void test_keys_and_types(void)
 
 static void test_each_state(void)
 {
-    for (int st = OTA_ATT_NONE; st <= OTA_ATT_BOOT; st++) {
+    for (int st = OTA_ATT_NONE; st <= OTA_ATT_READY; st++) {
         store_t s = {0};
         ota_rec_t in = full_rec(), out;
         in.att_state = (ota_att_state_t)st;
@@ -244,7 +244,7 @@ static void test_missing_and_bad_keys(void)
     ota_rec_load(&out, &kv);
     CHECK(memcmp(&out, &zero, sizeof zero) == 0, "empty namespace → zero record");
 
-    put(&s, "att_state", T_U8)->num = OTA_ATT_READY;
+    put(&s, "att_state", T_U8)->num = OTA_ATT_READY + 1;
     put(&s, "last_res", T_U8)->num = OTA_RES_ROLLED_BACK + 1;
     put(&s, "att_attempt", T_STR);
     put(&s, "last_att", T_U8)->num = 7;
@@ -253,7 +253,7 @@ static void test_missing_and_bad_keys(void)
     snprintf(put(&s, "last_ver", T_STR)->str, STR_MAX, "0.9.16");
     memset(&out, 0x5a, sizeof out);
     ota_rec_load(&out, &kv);
-    CHECK(out.att_state == OTA_ATT_NONE, "att_state ready is not loaded (unchanged behaviour)");
+    CHECK(out.att_state == OTA_ATT_NONE, "out-of-range att_state → none");
     CHECK(out.last.result == OTA_RES_NONE, "out-of-range last_res → none");
     CHECK(out.att_attempt == 0 && out.last.attempt == 0, "wrong-type numbers → 0");
     CHECK(out.att_sha[0] == 0, "wrong-type string → empty");

@@ -525,7 +525,7 @@ void ota_rec_load(ota_rec_t *r, const ota_kv_t *kv)
     memset(r, 0, sizeof *r);
     uint8_t u8 = 0;
     uint32_t u32 = 0;
-    if (kv->get_u8(kv->ctx, "att_state", &u8) && u8 <= OTA_ATT_BOOT) r->att_state = (ota_att_state_t)u8;
+    if (kv->get_u8(kv->ctx, "att_state", &u8) && u8 <= OTA_ATT_READY) r->att_state = (ota_att_state_t)u8;
     if (kv->get_u32(kv->ctx, "att_attempt", &u32)) r->att_attempt = u32;
     kv_str(kv, "att_sha", r->att_sha, sizeof r->att_sha);
     kv_str(kv, "att_ver", r->att_ver, sizeof r->att_ver);
