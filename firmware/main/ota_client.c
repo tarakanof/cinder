@@ -84,54 +84,62 @@ static atomic_bool s_fault_net, s_fault_sha;
 
 static int64_t uptime_ms(void) { return esp_timer_get_time() / 1000; }
 
-static void get_str(nvs_handle_t h, const char *key, char *out, size_t cap)
+static bool nv_get_u8(void *ctx, const char *key, uint8_t *v) { return nvs_get_u8(*(nvs_handle_t *)ctx, key, v) == ESP_OK; }
+
+static bool nv_get_u32(void *ctx, const char *key, uint32_t *v)
+{
+    return nvs_get_u32(*(nvs_handle_t *)ctx, key, v) == ESP_OK;
+}
+
+static bool nv_get_str(void *ctx, const char *key, char *out, size_t cap)
 {
     size_t n = cap;
-    if (nvs_get_str(h, key, out, &n) != ESP_OK) out[0] = 0;
+    return nvs_get_str(*(nvs_handle_t *)ctx, key, out, &n) == ESP_OK;
+}
+
+static int nv_set_u8(void *ctx, const char *key, uint8_t v) { return nvs_set_u8(*(nvs_handle_t *)ctx, key, v); }
+
+static int nv_set_u32(void *ctx, const char *key, uint32_t v) { return nvs_set_u32(*(nvs_handle_t *)ctx, key, v); }
+
+static int nv_set_str(void *ctx, const char *key, const char *v) { return nvs_set_str(*(nvs_handle_t *)ctx, key, v); }
+
+static int nv_erase(void *ctx, const char *key)
+{
+    esp_err_t err = nvs_erase_key(*(nvs_handle_t *)ctx, key);
+    return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
+}
+
+static ota_kv_t nv_kv(nvs_handle_t *h)
+{
+    return (ota_kv_t){.ctx = h,
+                      .get_u8 = nv_get_u8,
+                      .get_u32 = nv_get_u32,
+                      .get_str = nv_get_str,
+                      .set_u8 = nv_set_u8,
+                      .set_u32 = nv_set_u32,
+                      .set_str = nv_set_str,
+                      .erase = nv_erase};
 }
 
 static void rec_load(ota_rec_t *r)
 {
-    memset(r, 0, sizeof *r);
     nvs_handle_t h;
-    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
-    uint8_t u8 = 0;
-    if (nvs_get_u8(h, "att_state", &u8) == ESP_OK && u8 <= OTA_ATT_BOOT) r->att_state = (ota_att_state_t)u8;
-    nvs_get_u32(h, "att_attempt", &r->att_attempt);
-    get_str(h, "att_sha", r->att_sha, sizeof r->att_sha);
-    get_str(h, "att_ver", r->att_ver, sizeof r->att_ver);
-    get_str(h, "att_build", r->att_build, sizeof r->att_build);
-    if (nvs_get_u8(h, "last_res", &u8) == ESP_OK && u8 <= OTA_RES_ROLLED_BACK) r->last.result = (ota_result_t)u8;
-    nvs_get_u32(h, "last_att", &r->last.attempt);
-    get_str(h, "last_err", r->last.error, sizeof r->last.error);
-    get_str(h, "last_ver", r->last.version, sizeof r->last.version);
-    get_str(h, "bad", r->bad, sizeof r->bad);
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) {
+        memset(r, 0, sizeof *r);
+        return;
+    }
+    ota_kv_t kv = nv_kv(&h);
+    ota_rec_load(r, &kv);
     nvs_close(h);
-}
-
-static esp_err_t put_str(nvs_handle_t h, const char *key, const char *v)
-{
-    if (v[0]) return nvs_set_str(h, key, v);
-    esp_err_t err = nvs_erase_key(h, key);
-    return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
 }
 
 static void rec_save(void)
 {
-    const ota_rec_t *r = &O->rec;
     nvs_handle_t h;
     esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
     if (err == ESP_OK) {
-        err = nvs_set_u8(h, "att_state", (uint8_t)r->att_state);
-        if (err == ESP_OK) err = nvs_set_u32(h, "att_attempt", r->att_attempt);
-        if (err == ESP_OK) err = put_str(h, "att_sha", r->att_sha);
-        if (err == ESP_OK) err = put_str(h, "att_ver", r->att_ver);
-        if (err == ESP_OK) err = put_str(h, "att_build", r->att_build);
-        if (err == ESP_OK) err = nvs_set_u8(h, "last_res", (uint8_t)r->last.result);
-        if (err == ESP_OK) err = nvs_set_u32(h, "last_att", r->last.attempt);
-        if (err == ESP_OK) err = put_str(h, "last_err", r->last.error);
-        if (err == ESP_OK) err = put_str(h, "last_ver", r->last.version);
-        if (err == ESP_OK) err = put_str(h, "bad", r->bad);
+        ota_kv_t kv = nv_kv(&h);
+        err = ota_rec_save(&O->rec, &kv);
         if (err == ESP_OK) err = nvs_commit(h);
         nvs_close(h);
     }

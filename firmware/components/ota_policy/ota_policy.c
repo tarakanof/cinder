@@ -514,3 +514,45 @@ void ota_build_hex(const uint8_t *elf_sha, char out[OTA_BUILD_HEX + 1])
 {
     snprintf(out, OTA_BUILD_HEX + 1, "%02x%02x%02x%02x", elf_sha[0], elf_sha[1], elf_sha[2], elf_sha[3]);
 }
+
+static void kv_str(const ota_kv_t *kv, const char *key, char *out, size_t cap)
+{
+    if (!kv->get_str(kv->ctx, key, out, cap)) out[0] = 0;
+}
+
+void ota_rec_load(ota_rec_t *r, const ota_kv_t *kv)
+{
+    memset(r, 0, sizeof *r);
+    uint8_t u8 = 0;
+    uint32_t u32 = 0;
+    if (kv->get_u8(kv->ctx, "att_state", &u8) && u8 <= OTA_ATT_READY) r->att_state = (ota_att_state_t)u8;
+    if (kv->get_u32(kv->ctx, "att_attempt", &u32)) r->att_attempt = u32;
+    kv_str(kv, "att_sha", r->att_sha, sizeof r->att_sha);
+    kv_str(kv, "att_ver", r->att_ver, sizeof r->att_ver);
+    kv_str(kv, "att_build", r->att_build, sizeof r->att_build);
+    if (kv->get_u8(kv->ctx, "last_res", &u8) && u8 <= OTA_RES_ROLLED_BACK) r->last.result = (ota_result_t)u8;
+    if (kv->get_u32(kv->ctx, "last_att", &u32)) r->last.attempt = u32;
+    kv_str(kv, "last_err", r->last.error, sizeof r->last.error);
+    kv_str(kv, "last_ver", r->last.version, sizeof r->last.version);
+    kv_str(kv, "bad", r->bad, sizeof r->bad);
+}
+
+static int kv_put_str(const ota_kv_t *kv, const char *key, const char *v)
+{
+    return v[0] ? kv->set_str(kv->ctx, key, v) : kv->erase(kv->ctx, key);
+}
+
+int ota_rec_save(const ota_rec_t *r, const ota_kv_t *kv)
+{
+    int err = kv->set_u8(kv->ctx, "att_state", (uint8_t)r->att_state);
+    if (!err) err = kv->set_u32(kv->ctx, "att_attempt", r->att_attempt);
+    if (!err) err = kv_put_str(kv, "att_sha", r->att_sha);
+    if (!err) err = kv_put_str(kv, "att_ver", r->att_ver);
+    if (!err) err = kv_put_str(kv, "att_build", r->att_build);
+    if (!err) err = kv->set_u8(kv->ctx, "last_res", (uint8_t)r->last.result);
+    if (!err) err = kv->set_u32(kv->ctx, "last_att", r->last.attempt);
+    if (!err) err = kv_put_str(kv, "last_err", r->last.error);
+    if (!err) err = kv_put_str(kv, "last_ver", r->last.version);
+    if (!err) err = kv_put_str(kv, "bad", r->bad);
+    return err;
+}
