@@ -133,30 +133,31 @@ class Graph:
 
     def worst(self, a, memo, stack, onstack, nest=0):
         key = (a, nest)
-        if key in memo:
-            return memo[key]
+        hit = memo.get(key)
+        if hit is not None and not any(x in onstack for x in hit[3]):
+            return hit
         f = self.funcs.get(a)
         if f is None:
-            return 0, [], INF
+            return 0, [], INF, ()
         if a in onstack:
-            return 0, [], onstack[a]
+            return 0, [], onstack[a], ()
         if a in self.group:
             if nest >= self.group_depth:
-                return 0, [], INF
+                return 0, [], INF, ()
             nest += 1
         depth = len(stack)
         onstack[a] = depth
         stack.append(a)
-        best, low = (0, []), INF
+        best, low = (0, [], INF, ()), INF
         for c in f['calls']:
             w = self.worst(c, memo, stack, onstack, nest)
             low = min(low, w[2])
             if w[0] > best[0]:
-                best = w[:2]
+                best = w
         stack.pop()
         del onstack[a]
         frame = f['frame'] or 0
-        r = (frame + best[0], [(f['name'], frame)] + best[1], low if low < depth else INF)
+        r = (frame + best[0], [(f['name'], frame)] + best[1], low if low < depth else INF, (a,) + best[3])
         if low >= depth:
             memo[key] = r
         return r

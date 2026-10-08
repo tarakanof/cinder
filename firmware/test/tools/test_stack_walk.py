@@ -63,7 +63,7 @@ class StackWalk(unittest.TestCase):
 
     def test_worst_path_follows_table_edges(self):
         g = graph({"pointers": {"dispatch": ["handler"]}})
-        size, path, _ = g.worst(0x42000000, {}, [], {})
+        size, path = g.worst(0x42000000, {}, [], {})[:2]
         self.assertEqual(size, 32 + 64 + 96)
         self.assertEqual([n for n, _ in path], ["entry_fn", "dispatch", "handler"])
 
@@ -103,6 +103,29 @@ class StackWalk(unittest.TestCase):
             stack_walk.run = real
         self.assertEqual(g.funcs[0x42000000]["calls"], {0x40001000})
         self.assertEqual(g.funcs[0x42000000]["ind"], 0)
+
+    def test_memo_hit_never_repeats_an_on_path_function(self):
+        g = stack_walk.Graph([])
+        g.load("""
+42000000 <top>:
+42000000:\tentry\ta1, 16
+42000003:\tcall8\t42000100 <c>
+42000006:\tcall8\t42000200 <log>
+
+42000100 <c>:
+42000100:\tentry\ta1, 32
+42000103:\tcall8\t42000200 <log>
+
+42000200 <log>:
+42000200:\tentry\ta1, 64
+42000203:\tcall8\t42000100 <c>
+""", {})
+        g.link()
+        g.apply({})
+        size, path = g.worst(0x42000000, {}, [], {})[:2]
+        names = [n for n, _ in path]
+        self.assertEqual(len(names), len(set(names)), names)
+        self.assertEqual(size, 16 + 32 + 64)
 
 
 if __name__ == "__main__":
