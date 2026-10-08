@@ -154,8 +154,6 @@ static void poll_task(void *arg)
     for (;;) {
         if (!lt_on(&s_lt)) {
             http_conn_free(conn);
-            diag_note_stack("weather", -1);
-            ESP_LOGI(TAG, "legacy poll task stopping (Ember's view is back)");
             if (lt_park(&s_lt)) break;
             continue;
         }
@@ -177,8 +175,10 @@ static void poll_task(void *arg)
         } else {
             if (fs_fails(&conn->streak) <= 1) ESP_LOGW(TAG, "poll failed; retry in %d s", POLL_RETRY_MS / 1000);
         }
+        diag_note_stack("weather", (int)uxTaskGetStackHighWaterMark(NULL));
         wait_legacy(ok ? POLL_OK_MS : POLL_RETRY_MS);
     }
+    diag_note_stack("weather", -1);
     for (;;) vTaskSuspend(NULL);
 }
 
@@ -200,6 +200,8 @@ void weather_client_legacy(bool on)
         s_task = NULL;
         ctx_free(s_ctx);
         s_ctx = NULL;
+        diag_note_stack("weather", -1);
+        ESP_LOGI(TAG, "legacy poll task removed");
     }
     if (!(act & LT_CREATE)) return;
     s_ctx = ctx_new();

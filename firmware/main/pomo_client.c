@@ -193,9 +193,8 @@ static void client_task(void *arg)
     for (;;) {
         if (!lt_on(&s_lt)) {
             http_conn_free(s_conn);
-            diag_note_stack("pomo", -1);
-            ESP_LOGI(TAG, "legacy poll task stopping (Ember's view is back)");
             if (!lt_park(&s_lt)) continue;
+            diag_note_stack("pomo", -1);
             for (;;) vTaskSuspend(NULL);
         }
         diag_note_stack("pomo", (int)uxTaskGetStackHighWaterMark(NULL));
@@ -219,6 +218,7 @@ static void client_task(void *arg)
             poll_failed();
         }
         pomo_client_log_state();
+        diag_note_stack("pomo", (int)uxTaskGetStackHighWaterMark(NULL));
     }
 }
 
@@ -240,6 +240,8 @@ void pomo_client_legacy(bool on)
     if (act & LT_REAP) {
         vTaskDeleteWithCaps(s_task);
         s_task = NULL;
+        diag_note_stack("pomo", -1);
+        ESP_LOGI(TAG, "legacy poll task removed");
     }
     if (!(act & LT_CREATE)) return;
     if (!s_conn) {

@@ -145,6 +145,30 @@ static void test_view_wait(void)
     CHECK(view_rearm_ms(304, 0, 30, 2000) == 2000, "plain 304: poll_ms as before");
 }
 
+static bool s_park_in_race;
+
+void lt_race_point(legacy_task_t *t);
+void lt_race_point(legacy_task_t *t)
+{
+    if (!s_park_in_race) return;
+    s_park_in_race = false;
+    CHECK(lt_park(t), "the poller parks between the controller's load and its CAS");
+}
+
+static void test_legacy_park_race(void)
+{
+    legacy_task_t t;
+    lt_init(&t);
+    lt_want(&t, true, 0);
+    lt_created(&t, true, 0);
+    lt_want(&t, false, 10);
+    s_park_in_race = true;
+    int act = lt_want(&t, true, 20);
+    CHECK(act == (LT_REAP | LT_CREATE), "view lost while the task parks: reap it, then create (act %d)", act);
+    CHECK(lt_on(&t), "the new task polls");
+    CHECK(lt_want(&t, true, 30) == 0, "nothing left to reap");
+}
+
 static void test_legacy_task(void)
 {
     legacy_task_t t;
@@ -202,6 +226,7 @@ int main(void)
     test_backoff();
     test_view_wait();
     test_legacy_task();
+    test_legacy_park_race();
     if (failures) {
         printf("net: %d failure(s)\n", failures);
         return 1;

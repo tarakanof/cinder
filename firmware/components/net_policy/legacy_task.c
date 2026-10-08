@@ -3,6 +3,13 @@
 #define LT_BACKOFF_MIN_MS 5000u
 #define LT_BACKOFF_MAX_MS 300000u
 
+/* Host tests only: runs the poller's side between the controller's load and its CAS. */
+#ifdef LT_RACE_POINT
+void lt_race_point(legacy_task_t *t);
+#else
+#define LT_RACE_POINT(t)
+#endif
+
 void lt_init(legacy_task_t *t)
 {
     atomic_init(&t->state, LT_GONE);
@@ -23,7 +30,12 @@ int lt_want(legacy_task_t *t, bool on, int64_t now_ms)
         return act;
     }
     int st = LT_STOP;
+    LT_RACE_POINT(t);
     if (atomic_compare_exchange_strong(&t->state, &st, LT_RUN) || st == LT_RUN) return act;
+    if (st == LT_PARKED) {
+        atomic_store(&t->state, LT_GONE);
+        act |= LT_REAP;
+    }
     if (now_ms < t->next_try_ms) return act;
     atomic_store(&t->state, LT_RUN);
     return act | LT_CREATE;
