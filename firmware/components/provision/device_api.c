@@ -181,8 +181,38 @@ const char *dev_crash_reason_name(int reset_reason)
 {
     switch (reset_reason) {
     case 4: case 5: case 6: case 7: return dev_reset_reason_name(reset_reason);
+    case DEV_RR_LVGL_STALL: return "lvgl_stall";
     default: return "unknown";
     }
+}
+
+const char *dev_boot_reason_name(int reset_reason, bool lvgl_stall)
+{
+    return lvgl_stall ? "lvgl_stall" : dev_reset_reason_name(reset_reason);
+}
+
+bool dev_stall_boot(dev_stall_note_t *n, int reset_reason)
+{
+    bool valid = n->magic == DEV_STALL_MAGIC;
+    bool stall = valid && n->marked && reset_reason == DEV_RR_PANIC;
+    if (!valid || (!stall && reset_reason != DEV_RR_SW)) n->resets = 0;
+    else if (stall && n->resets < DEV_STALL_MAX_RESETS) n->resets++;
+    n->magic = DEV_STALL_MAGIC;
+    n->marked = 0;
+    n->seen = 0;
+    return stall;
+}
+
+dev_stall_act_t dev_stall_check(dev_stall_note_t *n, bool stalled, int64_t uptime_ms)
+{
+    if (stalled) {
+        n->seen = 1;
+        if (n->resets >= DEV_STALL_MAX_RESETS) return DEV_STALL_LOG;
+        n->marked = 1;
+        return DEV_STALL_ABORT;
+    }
+    if (!n->seen && n->resets && uptime_ms >= DEV_STALL_CLEAR_MS) n->resets = 0;
+    return DEV_STALL_NONE;
 }
 
 void dev_twdt_capture_msg(dev_twdt_capture_t *c, const char *msg)
@@ -202,6 +232,7 @@ void dev_twdt_capture_msg(dev_twdt_capture_t *c, const char *msg)
 const char *dev_crash_task(const char *reason, const char *wdt_culprit, const char *dump_task)
 {
     if (reason && strcmp(reason, "task_wdt") == 0) return wdt_culprit && wdt_culprit[0] ? wdt_culprit : "twdt";
+    if (reason && strcmp(reason, "lvgl_stall") == 0) return "lvgl";
     return dump_task ? dump_task : "";
 }
 

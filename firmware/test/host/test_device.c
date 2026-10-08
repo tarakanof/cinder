@@ -428,13 +428,53 @@ static void test_checkin_diag(void)
               strcmp(dev_crash_task("task_wdt", "", "IDLE1"), "twdt") == 0 &&
               strcmp(dev_crash_task("task_wdt", NULL, "IDLE1"), "twdt") == 0 &&
               strcmp(dev_crash_task("panic", "ember", "lvgl"), "lvgl") == 0 &&
-              strcmp(dev_crash_task("unknown", NULL, "lvgl"), "lvgl") == 0,
+              strcmp(dev_crash_task("unknown", NULL, "lvgl"), "lvgl") == 0 &&
+              strcmp(dev_crash_task("lvgl_stall", NULL, "stats"), "lvgl") == 0,
           "crash task");
+    CHECK(strcmp(dev_crash_reason_name(DEV_RR_LVGL_STALL), "lvgl_stall") == 0 &&
+              strcmp(dev_boot_reason_name(DEV_RR_PANIC, true), "lvgl_stall") == 0 &&
+              strcmp(dev_boot_reason_name(DEV_RR_PANIC, false), "panic") == 0,
+          "lvgl_stall names");
+}
+
+static int stall_cycle(dev_stall_note_t *n)
+{
+    CHECK(dev_stall_check(n, true, 90000) == DEV_STALL_ABORT, "stall aborts below the cap");
+    return dev_stall_boot(n, DEV_RR_PANIC);
+}
+
+static void test_stall_guard(void)
+{
+    dev_stall_note_t n;
+    memset(&n, 0xA5, sizeof n);
+    CHECK(!dev_stall_boot(&n, DEV_RR_PANIC) && n.resets == 0 && n.magic == DEV_STALL_MAGIC, "garbage note: cleared");
+    CHECK(dev_stall_check(&n, false, 60000) == DEV_STALL_NONE, "no stall: nothing");
+    for (int i = 1; i <= DEV_STALL_MAX_RESETS; i++) CHECK(stall_cycle(&n) && n.resets == (uint32_t)i, "stall reset %d counted", i);
+    CHECK(dev_stall_check(&n, true, 90000) == DEV_STALL_LOG && !n.marked, "after %d resets: log only", DEV_STALL_MAX_RESETS);
+    CHECK(dev_stall_check(&n, false, DEV_STALL_CLEAR_MS) == DEV_STALL_NONE && n.resets == DEV_STALL_MAX_RESETS,
+          "a boot that stalled does not clear");
+    CHECK(!dev_stall_boot(&n, DEV_RR_SW) && n.resets == DEV_STALL_MAX_RESETS, "SW reset keeps the count");
+    CHECK(dev_stall_check(&n, false, DEV_STALL_CLEAR_MS - 1) == DEV_STALL_NONE && n.resets == DEV_STALL_MAX_RESETS,
+          "not yet 10 min");
+    dev_stall_check(&n, false, DEV_STALL_CLEAR_MS);
+    CHECK(n.resets == 0, "10 min without a stall clears");
+    CHECK(dev_stall_check(&n, true, DEV_STALL_CLEAR_MS + 30000) == DEV_STALL_ABORT, "armed again in the same boot");
+
+    dev_stall_boot(&n, DEV_RR_PANIC);
+    CHECK(n.resets == 1, "stall counted");
+    CHECK(!dev_stall_boot(&n, DEV_RR_PANIC) && n.resets == 0, "panic without the mark clears");
+    stall_cycle(&n);
+    CHECK(!dev_stall_boot(&n, 1) && n.resets == 0, "power-on clears");
+    stall_cycle(&n);
+    CHECK(!dev_stall_boot(&n, 6) && n.resets == 0, "task_wdt clears");
+    n.marked = 1;
+    CHECK(!dev_stall_boot(&n, DEV_RR_SW) && !n.marked, "the mark is one boot only");
 }
 
 int main(void)
 {
     test_intervals();
+    test_stall_guard();
     test_epoch_reset();
     test_diagnostics();
     test_link();

@@ -828,6 +828,7 @@ static void setup_view_create(lv_obj_t *scr)
     lv_obj_align(idl, LV_ALIGN_CENTER, 0, 185);
 }
 
+#define STATS_PERIOD_MS 30000
 #define LVGL_STALL_CHECKS 2
 
 static void lvgl_stall_check(void)
@@ -836,11 +837,20 @@ static void lvgl_stall_check(void)
     static int same;
     unsigned tick = atomic_load(&s_loop_ticks);
     if (tick != last || ota_client_verifying() || ota_face_requested()) same = 0;
-    else if (++same >= LVGL_STALL_CHECKS) {
-        ESP_LOGE(TAG, "LVGL loop stalled for %d s: restarting", same * 30);
-        abort();
-    }
+    else same++;
     last = tick;
+    if (same > LVGL_STALL_CHECKS) return;
+    int s = LVGL_STALL_CHECKS * STATS_PERIOD_MS / 1000;
+    switch (diag_stall_check(same == LVGL_STALL_CHECKS)) {
+    case DEV_STALL_ABORT:
+        ESP_LOGE(TAG, "LVGL loop stalled for %d s: restarting", s);
+        abort();
+    case DEV_STALL_LOG:
+        ESP_LOGE(TAG, "LVGL loop stalled for %d s: not restarting (%d stall resets in a row)", s, DEV_STALL_MAX_RESETS);
+        break;
+    case DEV_STALL_NONE:
+        break;
+    }
 }
 
 static void stats_task(void *arg)
@@ -848,7 +858,7 @@ static void stats_task(void *arg)
     (void)arg;
     http_conn_stats_t prev = {0};
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(30000));
+        vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
         double t = now_s();
         int frames = s_frames, n = s_refr_count;
@@ -885,8 +895,8 @@ static void stats_task(void *arg)
         ESP_LOGI(TAG, "wifi: RSSI %d dBm (min %d), channel %d, %" PRIu32 " disconnects (last reason %d), %u beacon timeouts",
                  assoc ? rssi : 0, w.has_rssi_min ? w.rssi_min : 0, w.channel, w.disconnects, w.last_reason,
                  ember_client_beacon_timeouts());
-        static char stacks[160];
-        diag_stacks_line(stacks, sizeof stacks);
+        static char stacks[DIAG_STACKS_LINE_MAX];
+        diag_stacks_line(stacks);
         ESP_LOGI(TAG, "stack free B: %s", stacks);
         lvgl_stall_check();
         prev = ns;
