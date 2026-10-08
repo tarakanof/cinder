@@ -172,22 +172,35 @@ class Graph:
             todo.extend(self.funcs[x]['calls'])
         return seen
 
-    def through(self, a, target, worst_target, memo, onstack):
+    def through(self, a, target, head, memo, stack, onstack):
         if a == target:
-            return worst_target
-        if a in memo:
-            return memo[a]
-        if a in onstack or a not in self.funcs:
-            return None
-        onstack.add(a)
-        best = None
+            return head[0], head[1], INF, (a,)
+        hit = memo.get(a)
+        if hit is not None and not any(x in onstack for x in hit[3]):
+            return hit
+        if a not in self.funcs:
+            return None, [], INF, ()
+        if a in onstack:
+            return None, [], onstack[a], ()
+        depth = len(stack)
+        onstack[a] = depth
+        stack.append(a)
+        best, low = (None, [], INF, ()), INF
         for c in self.funcs[a]['calls']:
-            w = self.through(c, target, worst_target, memo, onstack)
-            if w is not None and (best is None or w > best):
+            w = self.through(c, target, head, memo, stack, onstack)
+            low = min(low, w[2])
+            if w[0] is not None and (best[0] is None or w[0] > best[0]):
                 best = w
-        onstack.discard(a)
-        r = None if best is None else best + (self.funcs[a]['frame'] or 0)
-        memo[a] = r
+        stack.pop()
+        del onstack[a]
+        frame = self.funcs[a]['frame'] or 0
+        if best[0] is None:
+            r = (None, [], low if low < depth else INF, ())
+        else:
+            r = (frame + best[0], [(self.funcs[a]['name'], frame)] + best[1], low if low < depth else INF,
+                 (a,) + best[3])
+        if low >= depth:
+            memo[a] = r
         return r
 
     def root(self, name, file_suffix=None):
@@ -218,14 +231,13 @@ def main():
         spec = cfg['tasks'][t]
         entry = g.root(spec['entry'], spec.get('file'))
         path = g.worst(entry, {}, [], {})
-        best, recur = path[0], 0
+        best, recur, head = path[0], 0, None
         for r in cfg.get('recursion', []):
-            heads = [x for x in g.addrs(r['head'])]
-            for h in heads:
+            for h in g.addrs(r['head']):
                 extra = (r['depth'] - 1) * sum(g.funcs[x]['frame'] or 0 for n in r['cycle'] for x in g.addrs(n))
-                w = g.through(entry, h, g.worst(h, {}, [], {})[0], {}, set())
-                if w is not None and w + extra > best + recur:
-                    best, recur = w, extra
+                w = g.through(entry, h, g.worst(h, {}, [], {}), {}, [], {})
+                if w[0] is not None and w[0] + extra > best + recur:
+                    best, recur, head, path = w[0], extra, r, w
         unresolved, tabled = g.indirect(entry)
         total = best + recur + overhead
         stack = spec.get('stack')
@@ -236,6 +248,8 @@ def main():
             for n, fr in path[1]:
                 acc += fr
                 print('    %6d %5d %s' % (acc, fr, n))
+                if head and n == head['head']:
+                    print('    %6s %5d recursion: %s x %d more' % ('', recur, '/'.join(head['cycle']), head['depth'] - 1))
 
 
 if __name__ == '__main__':

@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import unittest
 
@@ -126,6 +127,54 @@ class StackWalk(unittest.TestCase):
         names = [n for n, _ in path]
         self.assertEqual(len(names), len(set(names)), names)
         self.assertEqual(size, 16 + 32 + 64)
+
+
+def random_graph(rng, n):
+    g = stack_walk.Graph([])
+    for a in range(n):
+        g.funcs[a] = {"name": "f%d" % a, "frame": rng.choice((16, 32, 48, 64, 96)), "xcalls": [], "ind": 0,
+                      "calls": {b for b in range(n) if rng.random() < 0.35}}
+        g.by_name["f%d" % a].append(a)
+    g.apply({})
+    return g
+
+
+def brute(g, a, seen=()):
+    seen = seen + (a,)
+    return g.funcs[a]["frame"] + max([brute(g, c, seen) for c in g.funcs[a]["calls"] if c not in seen] or [0])
+
+
+def brute_through(g, a, target, head, seen=()):
+    if a == target:
+        return head
+    seen = seen + (a,)
+    ws = [w for c in g.funcs[a]["calls"] if c not in seen
+          for w in [brute_through(g, c, target, head, seen)] if w is not None]
+    return g.funcs[a]["frame"] + max(ws) if ws else None
+
+
+class Exhaustive(unittest.TestCase):
+    def test_worst_is_the_longest_simple_path(self):
+        rng = random.Random(12)
+        for _ in range(400):
+            g = random_graph(rng, rng.randint(2, 8))
+            size, path = g.worst(0, {}, [], {})[:2]
+            names = [n for n, _ in path]
+            self.assertEqual(size, brute(g, 0))
+            self.assertEqual(len(names), len(set(names)), names)
+            self.assertEqual(size, sum(fr for _, fr in path))
+
+    def test_through_is_the_longest_simple_prefix_to_the_head(self):
+        rng = random.Random(34)
+        for _ in range(400):
+            n = rng.randint(2, 8)
+            g = random_graph(rng, n)
+            h = rng.randrange(1, n)
+            head = g.worst(h, {}, [], {})
+            w = g.through(0, h, head, {}, [], {})
+            self.assertEqual(w[0], brute_through(g, 0, h, head[0]))
+            if w[0] is not None:
+                self.assertEqual(w[0], sum(fr for _, fr in w[1]))
 
 
 if __name__ == "__main__":
