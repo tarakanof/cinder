@@ -52,8 +52,8 @@ config CINDER_OTA_TEST
     help
         Test images for the OTA rollback paths (docs/features.md, OTA): the no-checkin
         rollback timer is 2 min instead of 30, CINDER1 {"op":"ota_fault"} arms a net or
-        sha fault for the next download, and CINDER_OTA_TEST_FAULT applies while this
-        image is pending verification.
+        sha fault for the next download, and CINDER_OTA_TEST_FAULT applies (lvgl_stall
+        once the image is valid, the others while it is pending verification).
 
 config CINDER_OTA_TEST_FAULT
     string "Fault: crash_boot, no_checkin, no_render or lvgl_stall"
@@ -63,8 +63,8 @@ config CINDER_OTA_TEST_FAULT
         crash_boot: abort 20 s after boot. no_checkin: never check in, so the rollback
         timer fires. no_render: 10 s after boot freeze the screen and stop the LVGL
         frame callback, so the health gate rolls back with health_render (about 2 min;
-        62 min while a Pomodoro runs). Only while the running image is pending
-        verification, so the same image never breaks a knob that already accepted it.
+        62 min while a Pomodoro runs). These three only while the running image is
+        pending verification, so the same image never breaks a knob that accepted it.
         lvgl_stall: the opposite window, for the LVGL stall watchdog (off while pending):
         once the image is valid, frame_cb freezes as in no_render, so the watchdog aborts
         60-90 s later; not on the boot after that abort, which reports lvgl_stall. Every
