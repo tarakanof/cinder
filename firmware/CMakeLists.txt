@@ -16,4 +16,6 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # LV_INV_BUF_SIZE (default 32). Set for every component: it sizes a struct in
 # lv_display_private.h that the display adapter also includes (#20).
 idf_build_set_property(COMPILE_DEFINITIONS "LV_INV_BUF_SIZE=64" APPEND)
+# Bounds cJSON's parse recursion (default 1000 levels); Ember's deepest document is a few levels.
+idf_build_set_property(COMPILE_DEFINITIONS "CJSON_NESTING_LIMIT=32" APPEND)
 project(cinder)
