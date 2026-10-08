@@ -15,7 +15,8 @@ CALL = re.compile(r'\scall(?:0|8)\s+([0-9a-f]{8}) <([^>+]+)(\+0x[0-9a-f]+)?>')
 L32R = re.compile(r'\sl32r\s+(a\d+), [0-9a-f]+ <[^>]*> \(([0-9a-f]+) <([^>+]+)(\+0x[0-9a-f]+)?>\)')
 CALLX = re.compile(r'\scallx(?:0|8)\s+(a\d+)')
 WRITES = re.compile(r'^\s*[0-9a-f]+:\s+([a-z0-9_.]+)\s+(a\d+)\b')
-KEEPS = ('s', 'b', 'j', 'call', 'ret', 'l32r', 'entry', 'wsr', 'wur', 'ee.')
+KEEPS = ('s8i', 's16i', 's32i', 's32e', 'ssi', 'ssx', 'sdi', 'b', 'j', 'call', 'ret', 'entry', 'wsr', 'wur')
+INF = float('inf')
 
 
 def tool(name):
@@ -103,6 +104,9 @@ class Graph:
             for n in self.names(a_pat):
                 for x in self.addrs(n):
                     self.funcs[x]['calls'] -= drop
+        nesting = cfg.get('nesting', {})
+        self.group = {x for n in nesting.get('group', []) for x in self.addrs(n)}
+        self.group_depth = nesting.get('depth', 0)
         for key, targets in cfg.get('pointers', {}).items():
             callers = self.names(key[3:]) if key.startswith('re:') else [key]
             dst = {x for t in targets for x in self.addrs(t)}
@@ -110,22 +114,63 @@ class Graph:
                 for x in self.addrs(n):
                     self.funcs[x]['calls'] |= dst
 
-    def worst(self, a, memo, stack):
+    def worst(self, a, memo, stack, onstack, nest=0):
+        key = (a, nest)
+        if key in memo:
+            return memo[key]
+        f = self.funcs.get(a)
+        if f is None:
+            return 0, [], INF
+        if a in onstack:
+            return 0, [], onstack[a]
+        if a in self.group:
+            if nest >= self.group_depth:
+                return 0, [], INF
+            nest += 1
+        depth = len(stack)
+        onstack[a] = depth
+        stack.append(a)
+        best, low = (0, []), INF
+        for c in f['calls']:
+            w = self.worst(c, memo, stack, onstack, nest)
+            low = min(low, w[2])
+            if w[0] > best[0]:
+                best = w[:2]
+        stack.pop()
+        del onstack[a]
+        frame = f['frame'] or 0
+        r = (frame + best[0], [(f['name'], frame)] + best[1], low if low < depth else INF)
+        if low >= depth:
+            memo[key] = r
+        return r
+
+    def reach(self, a):
+        seen, todo = set(), [a]
+        while todo:
+            x = todo.pop()
+            if x in seen or x not in self.funcs:
+                continue
+            seen.add(x)
+            todo.extend(self.funcs[x]['calls'])
+        return seen
+
+    def through(self, a, target, worst_target, memo, onstack):
+        if a == target:
+            return worst_target
         if a in memo:
             return memo[a]
-        f = self.funcs.get(a)
-        if f is None or a in stack:
-            return 0, []
-        stack.append(a)
-        best = (0, [])
-        for c in f['calls']:
-            w = self.worst(c, memo, stack)
-            if w[0] > best[0]:
+        if a in onstack or a not in self.funcs:
+            return None
+        onstack.add(a)
+        best = None
+        for c in self.funcs[a]['calls']:
+            w = self.through(c, target, worst_target, memo, onstack)
+            if w is not None and (best is None or w > best):
                 best = w
-        stack.pop()
-        frame = f['frame'] or 0
-        memo[a] = (frame + best[0], [(f['name'], frame)] + best[1])
-        return memo[a]
+        onstack.discard(a)
+        r = None if best is None else best + (self.funcs[a]['frame'] or 0)
+        memo[a] = r
+        return r
 
     def root(self, name, file_suffix=None):
         cands = [a for a in self.addrs(name) if not file_suffix or file_suffix in self.src.get(a, '')]
@@ -142,15 +187,30 @@ def main():
     elfs = [args[0]] + ([rom_elf()] if rom_elf() else [])
     g = Graph(elfs)
     g.apply(cfg)
+    covered = {x for k in cfg.get('pointers', {}) for n in (g.names(k[3:]) if k.startswith('re:') else [k])
+               for x in g.addrs(n)}
     overhead = cfg['overhead']
     tasks = args[1:] or list(cfg['tasks'])
-    print('%-10s %6s %6s %6s %6s' % ('task', 'path', 'recur', 'total', 'stack'))
+    print('estimates, not proven bounds: unresolved indirect calls count as 0 B')
+    print('%-10s %6s %6s %8s %6s %6s %10s' % ('task', 'path', 'recur', 'estimate', 'stack', 'margin', 'unresolved'))
     for t in tasks:
         spec = cfg['tasks'][t]
-        path = g.worst(g.root(spec['entry'], spec.get('file')), {}, [])
-        recur = spec.get('recursion', 0)
-        total = path[0] + recur + overhead
-        print('%-10s %6d %6d %6d %6s' % (t, path[0], recur, total, spec.get('stack', '')))
+        entry = g.root(spec['entry'], spec.get('file'))
+        path = g.worst(entry, {}, [], {})
+        best, recur = path[0], 0
+        for r in cfg.get('recursion', []):
+            heads = [x for x in g.addrs(r['head'])]
+            for h in heads:
+                extra = (r['depth'] - 1) * sum(g.funcs[x]['frame'] or 0 for n in r['cycle'] for x in g.addrs(n))
+                w = g.through(entry, h, g.worst(h, {}, [], {})[0], {}, set())
+                if w is not None and w + extra > best + recur:
+                    best, recur = w, extra
+        reach = g.reach(entry)
+        unresolved = sum(g.funcs[x]['ind'] for x in reach if x not in covered)
+        total = best + recur + overhead
+        stack = spec.get('stack')
+        margin = stack - total if stack else ''
+        print('%-10s %6d %6d %8d %6s %6s %10d' % (t, best, recur, total, stack or '', margin, unresolved))
         if '--path' in sys.argv:
             acc = 0
             for n, fr in path[1]:

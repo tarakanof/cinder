@@ -64,8 +64,7 @@
    "refr_cb"
   ],
   "lv_obj_event_base": [
-   "lv_obj_event",
-   "lv_image_event"
+   "lv_obj_event"
   ],
   "lv_draw_finalize_task_creation": [
    "evaluate"
@@ -180,20 +179,6 @@
   ],
   "esp_transport_poll_write": [
    "base_poll_write"
-  ],
-  "mbedtls_ssl_fetch_input": [
-   "mbedtls_net_recv"
-  ],
-  "mbedtls_ssl_flush_output": [
-   "mbedtls_net_send"
-  ],
-  "mbedtls_pk_verify_restartable": [
-   "rsa_verify_wrap",
-   "ecdsa_verify_wrap"
-  ],
-  "mbedtls_pk_verify_ext": [
-   "rsa_verify_wrap",
-   "ecdsa_verify_wrap"
   ],
   "esp_flash_write": [
    "spi_flash_chip_generic_write",
@@ -431,7 +416,7 @@
   "ember": {
    "entry": "poll_task",
    "file": "main/ember_client.c",
-   "stack": 6656
+   "stack": 6912
   },
   "eye": {
    "entry": "eye_task",
@@ -443,8 +428,7 @@
   },
   "lvgl": {
    "entry": "lvgl_worker",
-   "stack": 10240,
-   "recursion": 1920
+   "stack": 10240
   },
   "prov": {
    "entry": "listener_task",
@@ -460,7 +444,7 @@
   },
   "pomo": {
    "entry": "client_task",
-   "stack": 5376
+   "stack": 5632
   },
   "weather": {
    "entry": "poll_task",
@@ -477,23 +461,61 @@
   },
   "main": {
    "entry": "app_main",
-   "stack": 5632
+   "stack": 6912
   },
   "esp_timer": {
    "entry": "timer_task",
-   "stack": 3584
+   "stack": 4096
   },
   "sys_evt": {
    "entry": "esp_event_loop_run_task",
-   "stack": 2304
+   "stack": 3840
   },
   "ipc": {
    "entry": "ipc_task",
-   "stack": 1280
+   "stack": 2304
   },
   "Tmr Svc": {
    "entry": "prvTimerTask",
-   "stack": 2048
+   "stack": 2304
   }
+ },
+ "recursion": [
+  {
+   "head": "lv_obj_redraw",
+   "cycle": [
+    "lv_obj_redraw",
+    "lv_obj_refr$part$0"
+   ],
+   "depth": 4
+  },
+  {
+   "head": "parse_value",
+   "cycle": [
+    "parse_value"
+   ],
+   "depth": 32
+  },
+  {
+   "head": "cJSON_Delete",
+   "cycle": [
+    "cJSON_Delete"
+   ],
+   "depth": 32
+  },
+  {
+   "head": "print_value",
+   "cycle": [
+    "print_value"
+   ],
+   "depth": 8
+  }
+ ],
+ "nesting": {
+  "group": [
+   "event_send_core",
+   "lv_event_send$part$0"
+  ],
+  "depth": 2
  }
 }
