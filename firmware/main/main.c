@@ -682,6 +682,7 @@ static atomic_uint s_loop_ticks;
 static void frame_cb(lv_timer_t *timer)
 {
     panel_check_frame();
+    screen_snap_reap();
     render_freeze(lv_timer_get_user_data(timer));
     if (ota_client_render_frozen()) return;
     ota_client_note_loop();

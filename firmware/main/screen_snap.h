@@ -6,7 +6,9 @@
 
 typedef enum { SNAP_OK, SNAP_BUSY, SNAP_FAILED } snap_result_t;
 
-/* LVGL task. */
+/* LVGL task: frees a released snapshot; every frame, also while the screen is frozen. */
+void screen_snap_reap(void);
+/* LVGL task: takes a requested snapshot. */
 void screen_snap_frame(void);
 /* Any other task; on SNAP_OK the pixels stay valid until screen_snap_release(). Waits for a pending release within timeout_ms. */
 snap_result_t screen_snap_take(uint32_t timeout_ms, const uint8_t **px, int *w, int *h, int *stride);
