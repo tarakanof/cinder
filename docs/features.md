@@ -439,7 +439,7 @@ Goal: size every task stack from its worst case, cut internal RAM waste, never t
 - **Fixed overhead 768 B per task**: coprocessor save area 316 B (+ alignment), the initial exception frame 192 B (`XT_STK_FRMSZ`), one interrupt frame 192 B, window base save area and slack. Calibrated on 0.9.31: the LVGL path through `tri_build` estimates 7,056 + 768 = 7,824 B, measured 7,756 B used.
 - Error-path logs count (e.g. lwIP's out-of-memory log in `sys_thread_sem_init`, NVS → `esp_mmu_map` failure). One `ESP_LOG` costs ~1.2 KB of stack (`_vfprintf_r` alone is 800 B), and it sets the worst case of most tasks.
 
-**Per task** (stack bytes; measured = 0.9.31 boot free / used; estimate = path + recursion budget + 768; with the checkin `config` depth check. two builds of the same source in different directories gave figures up to 32 B per task apart: the code is identical, but objdump's linear sweep loses sync after an unconditional jump followed by alignment padding, and the misdecoded bytes depend on placement, so a few call sites, possibly real ones, appear or disappear; the tool can under-count, tracked in #15):
+**Per task** (stack bytes; measured = 0.9.31 boot free / used; estimate = path + recursion budget + 768; with the checkin `config` depth check. Builds of the same source used to differ by up to 32 B per task; that was the old cache, fixed. Separately, objdump's linear sweep can lose sync after an unconditional jump followed by alignment padding, so the tool may miss real call sites and under-count, tracked in #15):
 
 | Task | Core / prio | Before → after | Measured free (used) | Estimate | Margin after |
 |---|---|---|---|---|---|
