@@ -21,6 +21,9 @@ INSN = re.compile(r'^\s*([0-9a-f]{8}):\s+(\S+)\s*(.*)$')
 TARGET = re.compile(r'([0-9a-f]{8}) <[^>]*>$')
 JUMPS = ('j', 'loop', 'loopnez', 'loopgtz')
 STOPS = ('j', 'jx', 'ret', 'ret.n', 'retw', 'retw.n', 'rfe', 'rfi', 'rfde', 'rfwo', 'rfwu', 'ill', 'ill.n', '.byte')
+REG = re.compile(r'\ba\d+\b')
+TABLE_MAX = 1024
+IBUS = (0x40000000, 0x50000000)
 CALLX = re.compile(r'\scallx(?:0|8)\s+(a\d+)')
 WRITES = re.compile(r'^\s*[0-9a-f]+:\s+([a-z0-9_.]+)\s+(a\d+)\b')
 KEEPS = ('s8i', 's16i', 's32i', 's32e', 'ssi', 'ssx', 'sdi', 'b', 'j', 'call', 'ret', 'entry', 'wsr', 'wur')
@@ -83,25 +86,50 @@ def merge(code, seq, stop, end):
         code[a] = (line, mn, ops, n)
 
 
+def writes(line, mn, regs):
+    w = WRITES.match(line)
+    return w and not mn.startswith(KEEPS) and w.group(2) in regs and w.group(2)
+
+
 def table(elf, code, pred, a, s, e):
-    for _ in range(8):
+    want, stage = {code[a][2].strip()}, 0
+    for _ in range(16):
         a = pred.get(a)
         if a is None:
             return None, None
-        lit = L32R.search(code[a][0])
-        if lit:
-            v, got = int(lit.group(2), 16), []
-            for w in words(elf, v, 1024) if elf else ():
+        line, mn, ops = code[a][:3]
+        if mn.startswith('call'):
+            return None, None
+        reg = writes(line, mn, want)
+        if not reg:
+            continue
+        lit, args = L32R.search(line), REG.findall(ops)
+        if stage == 0 and lit:
+            v = int(lit.group(2), 16)
+            return None, v if not lit.group(4) and not s <= v < e and IBUS[0] <= v < IBUS[1] else None
+        if stage == 0 and mn in ('l32i', 'l32i.n') and ops.endswith(', 0'):
+            want, stage = {args[1]}, 1
+        elif stage == 1 and mn == 'addx4':
+            want, stage = set(args[1:3]), 2
+        elif stage == 2 and lit:
+            got = []
+            for w in words(elf, int(lit.group(2), 16), TABLE_MAX + 1) if elf else ():
                 if not s <= w < e:
                     break
                 got.append(w)
-            return got or None, None if got or lit.group(4) or s <= v < e else v
+            return (got if 0 < len(got) <= TABLE_MAX else None), None
+        elif stage == 2:
+            want.discard(reg)
+            if not want:
+                return None, None
+        else:
+            return None, None
     return None, None
 
 
 def descend(f, elf):
     s, e, code = f['start'], f['end'], f['code']
-    live, pred, missing, whole, tails, todo = set(), {}, set(), False, [], [s]
+    live, pred, missing, whole, tails, outside, todo = set(), {}, set(), False, [], [], [s]
     while todo:
         a = todo.pop()
         while s <= a < e and a not in live:
@@ -112,7 +140,13 @@ def descend(f, elf):
             live.add(a)
             t = TARGET.search(ops)
             if t and (mn in JUMPS or (mn.startswith('b') and not mn.startswith('break'))):
-                todo.append(int(t.group(1), 16))
+                x = int(t.group(1), 16)
+                if s <= x < e:
+                    todo.append(x)
+                elif '+0x' in t.group(0):
+                    outside.append(x)
+                else:
+                    tails.append(x)
             if mn == 'jx':
                 tab, tail = table(elf, code, pred, a, s, e)
                 whole |= tab is None and tail is None
@@ -122,13 +156,13 @@ def descend(f, elf):
                 break
             pred[a + n] = a
             a += n
-    return live, missing, whole, tails
+    return {'live': live, 'missing': missing, 'whole': whole, 'tails': tails, 'outside': outside}
 
 
 class Graph:
     def __init__(self, elfs):
         self.funcs, self.by_name, self.src = {}, collections.defaultdict(list), {}
-        self.stats, self.spans = collections.Counter(), {}
+        self.stats, self.spans, self.ends = collections.Counter(), {}, {}
         for elf in elfs:
             sizes = {}
             for line in run(tool('nm'), '-S', '--defined-only', elf).splitlines():
@@ -153,15 +187,15 @@ class Graph:
             gaps = []
             for t in sorted({t for f in fns for t in self.funcs[f['start']]['mids']}):
                 i = bisect.bisect_right(spans, (t, INF)) - 1
-                if elf and t not in self.funcs and (i < 0 or t >= spans[i][1]) and i + 1 < len(spans):
+                if elf and t not in self.funcs and i >= 0 and t >= spans[i][1] and i + 1 < len(spans):
                     gaps.append(t)
             fns = []
             for k, t in enumerate(gaps):
                 stop = min([spans[bisect.bisect_right(spans, (t, INF))][0]] + gaps[k + 1:k + 2])
                 fns += self.decode(run(tool('objdump'), '-d', '--no-show-raw-insn', '--start-address=0x%x' % t,
-                                       '--stop-address=0x%x' % stop, elf), {t: stop - t}, elf)
+                                       '--stop-address=0x%x' % stop, elf), {t: stop - t}, elf, True)
 
-    def decode(self, text, sizes, elf):
+    def decode(self, text, sizes, elf, anon=False):
         heads = []
         for line in text.splitlines():
             m = FUNC.match(line.strip())
@@ -180,11 +214,28 @@ class Graph:
             for i, (b, line, mn, ops) in enumerate(seq):
                 code[b] = (line, mn, ops, (seq[i + 1][0] if i + 1 < len(seq) else end) - b)
             fns.append({'start': a, 'end': end, 'name': name, 'code': code, 'tried': set()})
-        todo = fns
+        self.resolve(fns, elf)
+        if anon:
+            for f in list(fns):
+                f['taken'] = set(f['live'])
+                base, _, off = f['name'].partition('+0x')
+                for x in sorted(f['code']):
+                    if x not in f['taken'] and f['code'][x][1] == 'entry':
+                        g = {'start': x, 'end': f['end'], 'code': f['code'], 'tried': f['tried'],
+                             'name': '%s+0x%x' % (base, int(off or '0', 16) + x - f['start'])}
+                        self.resolve([g], elf)
+                        g['taken'] = set(g['code'])
+                        f['taken'] |= g['live']
+                        fns.append(g)
+        for f in fns:
+            self.scan(f)
+        return fns
+
+    def resolve(self, todo, elf):
         while todo:
             need = []
             for f in todo:
-                f['live'], f['missing'], f['whole'], f['tails'] = descend(f, elf)
+                f.update(descend(f, elf))
                 need += [(f, t) for t in sorted(f['missing'] - f['tried'])]
             if not elf:
                 break
@@ -196,9 +247,6 @@ class Graph:
                 merge(f['code'], sweep(out.splitlines()), min(f['end'], t + 256), f['end'])
                 self.stats['resynced'] += 1
             todo = list({id(f): f for f, _ in need}.values())
-        for f in fns:
-            self.scan(f)
-        return fns
 
     def scan(self, f):
         cur = {'name': f['name'], 'frame': None, 'calls': set(), 'xcalls': list(f['tails']), 'ind': 0, 'mids': []}
@@ -206,13 +254,30 @@ class Graph:
         self.by_name[cur['name']].append(f['start'])
         code, live = f['code'], set(f['code']) if f['whole'] else f['live']
         self.stats['whole'] += f['whole']
-        self.stats['missing'] += len(f['missing'] - set(code))
-        for a in code:
-            if a not in live and CALLS.search(code[a][0]):
-                c = CALL.search(code[a][0])
-                dead = 'dead_start' if c and not c.group(3) else 'dropped'
+        undecoded = len(f['missing'] - set(code))
+        self.stats['missing'] += undecoded
+        cur['ind'] += undecoded
+        cur['into'] = f['outside']
+        self.ends[f['start']] = f['end']
+        taken, regs, last = f.get('taken', live), {}, None
+        for a in sorted(code):
+            line, mn, n = code[a][0], code[a][1], code[a][3]
+            if a in taken:
+                last = None
+                continue
+            if last != a:
+                regs = {}
+            last = a + n
+            lit, c, x = L32R.search(line), CALL.search(line), CALLX.search(line)
+            if lit:
+                regs[lit.group(1)] = (int(lit.group(2), 16), lit.group(4))
+            elif c or x:
+                t = regs.get(x.group(1)) if x else None
+                dead = 'dead_start' if (c and not c.group(3)) or (t and not t[1]) else 'dropped'
                 self.stats[dead] += 1
                 cur['ind'] += dead == 'dead_start'
+            elif writes(line, mn, regs):
+                regs.pop(WRITES.match(line).group(2), None)
         regs, last = {}, None
         for a in sorted(live):
             line, n = code[a][0], code[a][3]
@@ -240,6 +305,8 @@ class Graph:
                 t = regs.get(x.group(1))
                 if t and not t[1]:
                     cur['xcalls'].append(t[0])
+                elif t:
+                    cur['mids'].append(t[0])
                 else:
                     cur['ind'] += 1
                 continue
@@ -248,6 +315,7 @@ class Graph:
                 regs.pop(w.group(2), None)
 
     def link(self):
+        starts = sorted(self.funcs)
         for f in self.funcs.values():
             for t in f['xcalls']:
                 if t in self.funcs:
@@ -261,7 +329,15 @@ class Graph:
                 else:
                     f['ind'] += 1
                     self.stats['mid_live'] += 1
-            f['xcalls'], f['mids'] = [], []
+            for t in f.get('into', ()):
+                i = bisect.bisect_right(starts, t) - 1
+                if i >= 0 and t < self.ends.get(starts[i], 0):
+                    f['calls'].add(starts[i])
+                    self.stats['into'] += 1
+                else:
+                    f['ind'] += 1
+                    self.stats['outside'] += 1
+            f['xcalls'], f['mids'], f['into'] = [], [], []
 
     def names(self, pattern):
         rx = re.compile(pattern)
@@ -391,13 +467,15 @@ def main():
           'a function, so a nested dispatch re-running the same handlers is not counted'
           % (', '.join(cfg.get('nesting', {}).get('group', [])), cfg.get('nesting', {}).get('depth', 0)))
     st = g.stats
-    print('objdump resync: %d branch targets re-disassembled, %d still undecoded; %d functions with an unresolved jx '
-          'kept whole' % (st['resynced'], st['missing'], st['whole']))
+    print('objdump resync: %d branch targets re-disassembled, %d still undecoded (counted as unresolved); %d functions '
+          'with an unresolved jx kept whole' % (st['resynced'], st['missing'], st['whole']))
+    print('branches into another function: %d into a known function (an edge to it, over-counts its frame), %d '
+          'elsewhere (counted as unresolved)' % (st['into'], st['outside']))
     print('call sites only in unreachable bytes: %d to a symbol start (counted as unresolved: EH landing pads, '
           'unreferenced code past a symbol), %d to <sym+0x..> or through a register (dropped as decode garbage)'
           % (st['dead_start'], st['dropped']))
     print('call0/call8 to <sym+0x..>: %d in the linear sweep; in reachable code %d past the symbol\'s size '
-          '(decoded as anonymous functions), %d inside a function (counted as unresolved)'
+          '(anonymous functions), %d inside a function (counted as unresolved)'
           % (st['mid_sweep'], st['mid_anon'], st['mid_live']))
     print('%-10s %6s %6s %8s %6s %6s %10s %6s' % ('task', 'path', 'recur', 'estimate', 'stack', 'margin', 'unresolved',
                                                  'tabled'))

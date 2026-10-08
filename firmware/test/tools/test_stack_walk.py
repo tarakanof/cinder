@@ -13,7 +13,7 @@ DISASM = """
 42000006:\tcallx8\ta8
 42000009:\tl32r\ta8, 41ffff04 <_lit+0x4> (3fc90000 <s_data>)
 4200000c:\tcallx8\ta8
-4200000f:\tl32r\ta9, 41ffff08 <_lit+0x8> (42000100 <leaf+0x4>)
+4200000f:\tl32r\ta9, 41ffff08 <_lit+0x8> (42000104 <leaf+0x4>)
 42000012:\tcallx8\ta9
 42000015:\tcall8\t42000200 <dispatch>
 42000018:\tretw.n
@@ -246,6 +246,136 @@ class Desync(unittest.TestCase):
         g = load(text, tables={0x3c000000: (0x4200000e, 0x42000013, 0x3c001000)})
         self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000100, 0x42000200})
         self.assertEqual(g.stats["whole"], 0)
+
+    SWITCH = """
+42000000 <sw>:
+42000000:\tentry\ta1, 32
+42000003:\tl32r\ta8, 41ffff00 <_lit> (3c000000 <tbl>)
+42000006:\taddx4\ta8, a2, a8
+42000009:\tl32i.n\ta8, a8, 0
+4200000b:\tl32r\ta9, 41ffff04 <_lit+0x4> (3fc90000 <s_data>)
+4200000e:\t%s
+42000011:\tretw.n
+42000013:\tcall8\t42000200 <big>
+42000016:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+
+    def test_jx_table_comes_from_the_jx_register_not_the_nearest_literal(self):
+        g = load(self.SWITCH % "jx\ta8", tables={0x3c000000: (0x42000013,)})
+        self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000200})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        self.assertEqual((g.stats["whole"], g.stats["dropped"]), (0, 0))
+
+    def test_jx_through_an_unrelated_data_literal_keeps_the_whole_function(self):
+        g = load(self.SWITCH % "jx\ta9", tables={0x3c000000: (0x42000013,)})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        self.assertEqual(g.stats["whole"], 1)
+
+    def test_jump_table_at_the_cap_is_not_resolved(self):
+        g = load(self.SWITCH % "jx\ta8", tables={0x3c000000: (0x42000011,) * 1024 + (0x42000013,)})
+        self.assertGreaterEqual(g.worst(0x42000000, {}, [], {})[0], 432)
+        self.assertEqual(g.stats["whole"], 1)
+
+    def test_loop_end_target_is_followed_and_resynced(self):
+        text = """
+42000000 <fn>:
+42000000:\tentry\ta1, 32
+42000003:\tloopnez\ta3, 4200000c <fn+0xc>
+42000006:\tcall8\t42000100 <leaf>
+42000009:\tj\t42000006 <fn+0x6>
+4200000b:\tquou\ta0, a0, a0
+4200000e:\t.byte\t0xa0
+4200000f:\tretw.n
+
+42000100 <leaf>:
+42000100:\tentry\ta1, 48
+42000103:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        g = load(text, outputs={0x4200000c: RESYNC.replace("l32i.n\ta8, a1, 0", "retw.n")})
+        self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000100, 0x42000200})
+
+    def test_unreachable_long_call_to_a_function_counts_as_unresolved(self):
+        text = """
+42000000 <fn>:
+42000000:\tentry\ta1, 32
+42000003:\tretw.n
+42000005:\tl32r\ta8, 41ffff00 <_lit> (42000200 <big>)
+42000008:\tcallx8\ta8
+4200000b:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        g = load(text)
+        self.assertEqual(g.funcs[0x42000000]["ind"], 1)
+        self.assertEqual((g.stats["dead_start"], g.stats["dropped"]), (1, 0))
+
+    def test_undecoded_and_stray_branch_targets_count_on_the_owner(self):
+        text = """
+42000000 <fn>:
+42000000:\tentry\ta1, 32
+42000003:\tbnez.n\ta2, 4200000c <fn+0xc>
+42000005:\tbeqz.n\ta3, 42000102 <leaf+0x2>
+42000007:\tj\t42000100 <leaf>
+4200000b:\tquou\ta0, a0, a0
+4200000e:\tretw.n
+
+42000100 <leaf>:
+42000100:\tentry\ta1, 48
+42000103:\tretw.n
+"""
+        g = load(text, elf=None)
+        self.assertEqual(g.funcs[0x42000000]["ind"], 1)
+        self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000100})
+        g = load(text.replace("42000102 <leaf+0x2>", "42000302 <leaf+0x202>"), elf=None)
+        self.assertEqual(g.funcs[0x42000000]["ind"], 2)
+
+    def test_sibling_stripped_statics_in_a_gap_are_their_own_functions(self):
+        text = """
+42000000 <fn>:
+42000000:\tentry\ta1, 32
+42000003:\tcall8\t42000110 <leaf+0x10>
+42000006:\tl32r\ta9, 41ffff00 <_lit> (42000116 <leaf+0x16>)
+42000009:\tcallx8\ta9
+4200000c:\tretw.n
+
+42000100 <leaf>:
+42000100:\tentry\ta1, 48
+42000103:\tretw.n
+
+42000200 <big>:
+42000200:\tentry\ta1, 400
+42000203:\tretw.n
+"""
+        gap = """
+42000110 <leaf+0x10>:
+42000110:\tentry\ta1, 80
+42000113:\tretw.n
+42000115:\t.byte\t0x00
+42000116:\tentry\ta1, 96
+42000119:\tl32r\ta8, 41ffff04 <_lit+0x4> (42000200 <big>)
+4200011c:\tcallx8\ta8
+4200011f:\tretw.n
+"""
+        sizes = {0x42000000: 14, 0x42000100: 5, 0x42000200: 5}
+        second = "\n42000116 <leaf+0x16>:\n" + gap.split("42000115:\t.byte\t0x00\n")[1]
+        g = load(text, sizes=sizes, outputs={0x42000110: gap, 0x42000116: second})
+        self.assertEqual(g.funcs[0x42000000]["calls"], {0x42000110, 0x42000116})
+        self.assertEqual(g.worst(0x42000000, {}, [], {})[0], 32 + 96 + 400)
+        g = load(text.replace("callx8\ta9", "nop.n"), sizes=sizes, outputs={0x42000110: gap})
+        self.assertEqual(g.funcs[0x42000116]["name"], "leaf+0x16")
+        self.assertEqual(g.funcs[0x42000116]["calls"], {0x42000200})
+        self.assertEqual(g.funcs[0x42000110]["ind"], 0)
+        self.assertEqual((g.stats["dead_start"], g.stats["mid_live"]), (0, 0))
 
     def test_unresolved_jx_keeps_the_whole_function(self):
         text = """
