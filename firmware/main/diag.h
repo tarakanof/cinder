@@ -18,8 +18,8 @@ void diag_track(void);
 void diag_fill(dev_diag_t *d);
 /* Stats task, every 30 s check of the LVGL loop; the restart-loop guard (dev_stall_check). */
 dev_stall_act_t diag_stall_check(bool stalled);
-/* Any task: "ember 1880, eye 900, ...", stack bytes never used, tasks that exist. */
-#define DIAG_STACKS_LINE_MAX 184
+/* Any task: "ember 1880, eye 900, ... | idf esp_timer 1200, ...", stack bytes never used, tasks that exist. */
+#define DIAG_STACKS_LINE_MAX 344
 void diag_stacks_line(char out[DIAG_STACKS_LINE_MAX]);
 /* Ember task: the heap and stack fields of the OTA health gate. */
 void diag_health(ota_health_in_t *h);

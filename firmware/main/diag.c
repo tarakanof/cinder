@@ -58,6 +58,11 @@ _Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= DEV_DIAG_MAX_TASKS, "task list fits");
 _Static_assert(sizeof TASKS[0] <= DEV_TASK_NAME_MAX + 1, "task name fits dev_diag_t");
 _Static_assert(sizeof TASKS / sizeof TASKS[0] <= OTA_HEALTH_TASKS_MAX, "task list fits the health gate");
+static const char IDF_TASKS[][10] = {"esp_timer", "ipc0", "ipc1", "sys_evt", "tiT", "Tmr Svc", "wifi"};
+_Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[0] - 1 + 1 + 10) + sizeof " | idf " - 1 +
+                       sizeof IDF_TASKS / sizeof IDF_TASKS[0] * (sizeof ", " - 1 + sizeof IDF_TASKS[0] - 1 + 1 + 10) + 1 <=
+                   DIAG_STACKS_LINE_MAX,
+               "worst-case stack line with IDF tasks fits");
 
 static atomic_int s_level;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -310,8 +315,17 @@ void diag_stacks_line(char out[DIAG_STACKS_LINE_MAX])
         TaskHandle_t t = xTaskGetHandle(TASKS[i]);
         if (!t) continue;
         int n = snprintf(out + len, cap - len, "%s%s %u", len ? ", " : "", TASKS[i], (unsigned)uxTaskGetStackHighWaterMark(t));
-        if (n < 0 || (size_t)n >= cap - len) break;
+        if (n < 0 || (size_t)n >= cap - len) return;
         len += (size_t)n;
+    }
+    const char *sep = " | idf ";
+    for (size_t i = 0; i < sizeof IDF_TASKS / sizeof IDF_TASKS[0]; i++) {
+        TaskHandle_t t = xTaskGetHandle(IDF_TASKS[i]);
+        if (!t) continue;
+        int n = snprintf(out + len, cap - len, "%s%s %u", sep, IDF_TASKS[i], (unsigned)uxTaskGetStackHighWaterMark(t));
+        if (n < 0 || (size_t)n >= cap - len) return;
+        len += (size_t)n;
+        sep = ", ";
     }
 }
 
