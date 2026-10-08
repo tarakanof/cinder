@@ -73,7 +73,12 @@ _Static_assert(sizeof TASKS / sizeof TASKS[0] * (sizeof ", " - 1 + sizeof TASKS[
                    DIAG_STACKS_LINE_MAX,
                "worst-case stack line with IDF tasks fits");
 
-_Static_assert(DEV_RR_SW == ESP_RST_SW && DEV_RR_PANIC == ESP_RST_PANIC, "DEV_RR_* match esp_reset_reason_t");
+_Static_assert(ESP_RST_UNKNOWN == 0 && ESP_RST_POWERON == 1 && ESP_RST_EXT == 2 && ESP_RST_SW == DEV_RR_SW &&
+                   ESP_RST_PANIC == DEV_RR_PANIC && ESP_RST_INT_WDT == DEV_RR_INT_WDT && ESP_RST_TASK_WDT == DEV_RR_TASK_WDT &&
+                   ESP_RST_WDT == DEV_RR_WDT && ESP_RST_DEEPSLEEP == 8 && ESP_RST_BROWNOUT == 9 && ESP_RST_SDIO == 10 &&
+                   ESP_RST_USB == 11 && ESP_RST_JTAG == 12 && ESP_RST_EFUSE == 13 && ESP_RST_PWR_GLITCH == 14 &&
+                   ESP_RST_CPU_LOCKUP == DEV_RR_COUNT - 1 && DEV_RR_LVGL_STALL >= DEV_RR_COUNT,
+               "dev_reset_reason_name and DEV_RR_* follow esp_reset_reason_t");
 
 static atomic_int s_level;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;

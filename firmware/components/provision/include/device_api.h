@@ -59,6 +59,10 @@ typedef struct dev_diag {
 
 #define DEV_RR_SW 3
 #define DEV_RR_PANIC 4
+#define DEV_RR_INT_WDT 5
+#define DEV_RR_TASK_WDT 6
+#define DEV_RR_WDT 7
+#define DEV_RR_COUNT 16
 #define DEV_RR_LVGL_STALL 0x40
 
 /* A dump is only written by a panic or watchdog path; any other reset reason seen with a new dump gives "unknown". DEV_RR_LVGL_STALL: "lvgl_stall". */
