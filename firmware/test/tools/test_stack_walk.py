@@ -1,4 +1,5 @@
 import os
+import random
 import sys
 import unittest
 
@@ -63,7 +64,7 @@ class StackWalk(unittest.TestCase):
 
     def test_worst_path_follows_table_edges(self):
         g = graph({"pointers": {"dispatch": ["handler"]}})
-        size, path, _ = g.worst(0x42000000, {}, [], {})
+        size, path = g.worst(0x42000000, {}, [], {})[:2]
         self.assertEqual(size, 32 + 64 + 96)
         self.assertEqual([n for n, _ in path], ["entry_fn", "dispatch", "handler"])
 
@@ -103,6 +104,77 @@ class StackWalk(unittest.TestCase):
             stack_walk.run = real
         self.assertEqual(g.funcs[0x42000000]["calls"], {0x40001000})
         self.assertEqual(g.funcs[0x42000000]["ind"], 0)
+
+    def test_memo_hit_never_repeats_an_on_path_function(self):
+        g = stack_walk.Graph([])
+        g.load("""
+42000000 <top>:
+42000000:\tentry\ta1, 16
+42000003:\tcall8\t42000100 <c>
+42000006:\tcall8\t42000200 <log>
+
+42000100 <c>:
+42000100:\tentry\ta1, 32
+42000103:\tcall8\t42000200 <log>
+
+42000200 <log>:
+42000200:\tentry\ta1, 64
+42000203:\tcall8\t42000100 <c>
+""", {})
+        g.link()
+        g.apply({})
+        size, path = g.worst(0x42000000, {}, [], {})[:2]
+        names = [n for n, _ in path]
+        self.assertEqual(len(names), len(set(names)), names)
+        self.assertEqual(size, 16 + 32 + 64)
+
+
+def random_graph(rng, n):
+    g = stack_walk.Graph([])
+    for a in range(n):
+        g.funcs[a] = {"name": "f%d" % a, "frame": rng.choice((16, 32, 48, 64, 96)), "xcalls": [], "ind": 0,
+                      "calls": {b for b in range(n) if rng.random() < 0.35}}
+        g.by_name["f%d" % a].append(a)
+    g.apply({})
+    return g
+
+
+def brute(g, a, seen=()):
+    seen = seen + (a,)
+    return g.funcs[a]["frame"] + max([brute(g, c, seen) for c in g.funcs[a]["calls"] if c not in seen] or [0])
+
+
+def brute_through(g, a, target, head, seen=()):
+    if a == target:
+        return head
+    seen = seen + (a,)
+    ws = [w for c in g.funcs[a]["calls"] if c not in seen
+          for w in [brute_through(g, c, target, head, seen)] if w is not None]
+    return g.funcs[a]["frame"] + max(ws) if ws else None
+
+
+class Exhaustive(unittest.TestCase):
+    def test_worst_is_the_longest_simple_path(self):
+        rng = random.Random(12)
+        for _ in range(400):
+            g = random_graph(rng, rng.randint(2, 8))
+            size, path = g.worst(0, {}, [], {})[:2]
+            names = [n for n, _ in path]
+            self.assertEqual(size, brute(g, 0))
+            self.assertEqual(len(names), len(set(names)), names)
+            self.assertEqual(size, sum(fr for _, fr in path))
+
+    def test_through_is_the_longest_simple_prefix_to_the_head(self):
+        rng = random.Random(34)
+        for _ in range(400):
+            n = rng.randint(2, 8)
+            g = random_graph(rng, n)
+            h = rng.randrange(1, n)
+            head = g.worst(h, {}, [], {})
+            w = g.through(0, h, head, {}, [], {})
+            self.assertEqual(w[0], brute_through(g, 0, h, head[0]))
+            if w[0] is not None:
+                self.assertEqual(w[0], sum(fr for _, fr in w[1]))
 
 
 if __name__ == "__main__":
