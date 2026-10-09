@@ -739,7 +739,6 @@ static void apply_mode(void)
     if (legacy) {
         view_etag_clear(&P->etag);
         P->have_view = false;
-        set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_LEGACY, false));
     }
     dev_sched_epoch_reset(&s_sched);
     pomo_client_legacy(legacy);
