@@ -6,6 +6,7 @@ ESP-IDF firmware for the VIEWE round AMOLED knob: Ember's desk display (bot face
 
 - [`docs/workflow.md`](docs/workflow.md): issues, PRs, build, sdkconfig fixes, flashing, dev tools. Read before building or flashing.
 - [`docs/llm.md`](docs/llm.md): verified pin map, board facts, toolchain decisions. Read before touching hardware, pins or the BSP.
+- [`docs/hardware-expansion.md`](docs/hardware-expansion.md): speaker and sensor add-ons over J2, parts list, voltage rules, enclosure fit. Read before wiring anything to J2.
 - [`docs/features.md`](docs/features.md): design, measurements and user decisions per feature. Read the feature's section before changing it.
 - [`docs/firmware-plan.md`](docs/firmware-plan.md): pages, input model, build order. Read before adding a page or input.
 - [`docs/face-design.md`](docs/face-design.md): face design system, device rendering rules, next-session guide. Read before building a weather, music or bot-moment face.
