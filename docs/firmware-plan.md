@@ -26,6 +26,8 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |
 | Debug | Wi-Fi, BLE, heap, Ember health | `GET /v1/clock/health` |
 
+Built pages are rows of the page table (`firmware/components/pages`, `features.md` "Page table"): adding one is a table row plus its hooks.
+
 ## Input model
 
 One rule for every page: **push and turn** (hold the knob down while turning) changes the page. A plain turn and a plain push act on the current page. This keeps "turn" free for volume on the Media page.

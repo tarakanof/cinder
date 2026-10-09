@@ -37,6 +37,8 @@
 #include "nowplaying_view.h"
 #include "ota_client.h"
 #include "ota_face.h"
+#include "page_ops.h"
+#include "pages.h"
 #include "press_route.h"
 #include "provision_usb.h"
 #include "screen_snap.h"
@@ -47,8 +49,6 @@
 #include "bsp_knob_15_md50et.h"
 
 static const char *TAG = "cinder";
-
-typedef enum { PAGE_BOT, PAGE_POMO, PAGE_WEATHER, PAGE_NP, PAGE_COUNT } page_t;
 
 /* The iot_knob "left" event fires on a clockwise turn (docs/llm.md). */
 #define KNOB_EVENT_CLOCKWISE KNOB_LEFT
@@ -74,10 +74,9 @@ static int s_reset_progress_shown = -1;
 static bool s_setup;
 static lv_obj_t *s_join_label;
 static int s_join_shown;
-static page_t s_page = PAGE_BOT;
-static const char *const PAGE_IDS[PAGE_COUNT] = {"bot", "pomodoro", "weather", "nowplaying"};
-static page_t s_order[PAGE_COUNT] = {PAGE_BOT, PAGE_POMO, PAGE_WEATHER};
-static int s_norder = PAGE_NP, s_pos;
+static int s_page;
+static int s_order[PAGES_N];
+static int s_norder = 1, s_pos;
 static uint32_t s_settings_gen;
 static knob_settings_t *s_ks_lv;
 static lv_obj_t *s_bot_page;
@@ -472,13 +471,20 @@ static void page_fx_frame(double t)
     if (e <= -TS_WIPE_BAND_PX) s_wipe_dir = 0;
 }
 
-static void show_page(page_t p)
+void page_bot_show(bool on)
 {
-    if (p == PAGE_BOT) lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
+    if (!s_bot_page) return;
+    if (on) lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
-    pomo_view_show(p == PAGE_POMO);
-    weather_view_show(p == PAGE_WEATHER);
-    np_view_show(p == PAGE_NP);
+}
+
+void page_pomo_show(bool on) { pomo_view_show(on); }
+void page_weather_show(bool on) { weather_view_show(on); }
+void page_np_show(bool on) { np_view_show(on); }
+
+static void show_page(int p)
+{
+    for (int i = 0; i < PAGES_N; i++) PAGES[i].show(i == p);
     s_page = p;
     s_drawn = false;
 }
@@ -487,10 +493,7 @@ static bool s_ota_paused;
 
 static void pages_pause(void)
 {
-    if (s_bot_page) lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
-    pomo_view_show(false);
-    weather_view_show(false);
-    np_view_show(false);
+    for (int i = 0; i < PAGES_N; i++) PAGES[i].show(false);
     if (s_wipe) s_wipe_dir = 0;
     if (s_dots) {
         lv_obj_delete(s_dots);
@@ -541,16 +544,37 @@ static void page_go(int steps, double t)
     dots_show(t + TS_DOTS_S);
 }
 
-static void pomo_frame(double t, int pushes, int longs)
+struct page_frame {
+    double t;
+    bot_pose_t pose;
+    gc_out_t chase;
+};
+
+void page_pomo_input(const page_input_t *in, double t)
 {
-    for (; pushes > 0; pushes--) pomo_client_action(POMO_INPUT_PUSH);
-    for (; longs > 0; longs--) pomo_client_action(POMO_INPUT_LONG_PUSH);
+    (void)t;
+    for (int n = in->pushes; n > 0; n--) pomo_client_action(POMO_INPUT_PUSH);
+    for (int n = in->longs; n > 0; n--) pomo_client_action(POMO_INPUT_LONG_PUSH);
+}
+
+void page_pomo_frame(const page_frame_t *f)
+{
     pomo_snapshot_t snap;
     bool ok = pomo_client_get(&snap);
-    pomo_state_t ps = pomo_clock_at(&snap.clock, t);
-    pomo_view_set_note(pomo_client_note(&snap, t));
-    pomo_view_update(ok ? &ps : NULL, t);
+    pomo_state_t ps = pomo_clock_at(&snap.clock, f->t);
+    pomo_view_set_note(pomo_client_note(&snap, f->t));
+    pomo_view_update(ok ? &ps : NULL, f->t);
 }
+
+void page_np_input(const page_input_t *in, double t)
+{
+    if (in->detents || in->pushes || in->longs || in->touches || in->wakes) np_view_input(t);
+    if (in->detents) np_view_turn(in->detents, t);
+    for (int n = in->pushes; n > 0; n--) np_view_push(t);
+    for (int n = in->longs; n > 0; n--) np_view_long_push(t);
+}
+
+void page_np_frame(const page_frame_t *f) { np_view_update(f->t, ember_client_link() == EMBER_LINK_UNREACHABLE); }
 
 static void reset_task(void *arg)
 {
@@ -602,11 +626,12 @@ static void settings_frame(double t)
     bool first = s_settings_gen == 0;
     s_settings_gen = gen;
     config_store_settings(s_ks_lv);
-    int idx[PAGE_COUNT], home;
-    s_norder = knob_settings_page_order(s_ks_lv, PAGE_IDS, PAGE_COUNT, idx, &home);
+    const char *ids[PAGES_N];
+    int idx[PAGES_N], home;
+    s_norder = knob_settings_page_order(s_ks_lv, ids, pages_ids(ids, PAGES_N), idx, &home);
     int pos = -1;
     for (int i = 0; i < s_norder; i++) {
-        s_order[i] = (page_t)idx[i];
+        s_order[i] = idx[i];
         if (s_order[i] == s_page) pos = i;
     }
     if (first || pos < 0) {
@@ -692,6 +717,107 @@ static void render_freeze(lv_display_t *disp)
     else lv_obj_invalidate(lv_screen_active());
 }
 
+void page_bot_input(const page_input_t *in, double t)
+{
+    if (in->detents) {
+        s_ring_deg += in->detents * DEGREES_PER_DETENT;
+        double a = s_ring_deg * M_PI / 180;
+        bot_look(&s_bot, sin(a) * 0.85, cos(a) * 0.85, t);
+    }
+    for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);
+    for (int n = in->longs; n > 0; n--) {
+        s_demo_index = (s_demo_index + 1) % (int)(sizeof DEMO_MOODS / sizeof DEMO_MOODS[0]);
+        bot_set_mood(&s_bot, DEMO_MOODS[s_demo_index], t);
+        s_demo_until = t + s_demo_hold_s;
+    }
+}
+
+void page_bot_frame(const page_frame_t *f)
+{
+    double t = f->t;
+    const bot_pose_t *p = &f->pose;
+    const gc_out_t *chase = &f->chase;
+    ember_host_info_t host;
+    ember_client_host(&host);
+    bot_view_set_host(&host);
+    bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
+    if (pose && s_drawn && chase->chasing && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps)) pose = false;
+    bot_view_chase(chase->chasing, chase->chasing && chase->label_opa > 0);
+    if (pose) s_pose_drawn_at = t;
+    if (pose) {
+        bot_view_update(p);
+        s_last_pose = *p;
+        s_drawn = true;
+        s_frames++;
+        s_frame_kind |= 1;
+    }
+    if (bot_view_tick(t, pose && !chase->chasing)) s_frame_kind |= 2;
+    bot_view_label_fx(chase->label_opa, chase->shift_x, chase->shift_y);
+}
+
+static __attribute__((noinline)) void page_tick(double t, double dt)
+{
+    const page_desc_t *pg = &PAGES[s_page];
+    page_input_t in;
+    in.detents = atomic_exchange(&s_detents, 0);
+    in.pushes = atomic_exchange(&s_pushes, 0);
+    in.touches = atomic_exchange(&s_touches, 0);
+    in.longs = atomic_exchange(&s_long_pushes, 0);
+    in.wakes = atomic_exchange(&s_np_wakes, 0);
+    in = pages_route(pg, in);
+
+    wx_obs_t wx;
+    bool have_wx = weather_client_get(&wx);
+    weather_view_update(have_wx ? &wx : NULL, dt);
+
+    if (pg->input) pg->input(&in, t);
+    bot_mood_t em;
+    if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
+
+    float gdeg;
+    bool glint = (pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg);
+    int req = atomic_exchange(&s_chase_req, -1);
+    if (req >= 0 && glint && gc_start_now(&s_chase, req & 15, req >> 4)) {
+        gc_half_reset(&s_half);
+        s_half_hold_deg = 0;
+        s_half_snapped = false;
+    }
+    page_frame_t f = {.t = t};
+    gc_out_t *chase = &f.chase;
+    gc_tick(&s_chase, t, glint, 3.0, chase);
+    atomic_store(&s_chase_status, !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
+    double psi = fmod(t / 3.0, 1.0) * 360.0 - 90.0;
+    bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
+    if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
+        gc_half_out_t h;
+        gc_half_step(&s_half, psi, CHASE_LEAD_DEG, &h);
+        if (h.follow) {
+            s_half_snapped = false;
+            s_half_hold_deg = h.target_deg;
+            chase_track(&ref, h.target_deg, chase->orbit, t);
+        } else {
+            bot_hold_gaze(&s_bot, t + 0.5);
+            if (h.blink) bot_blink(&s_bot, t);
+            if (h.snap) {
+                if (s_bot.tracking) bot_track_end(&s_bot, t);
+                s_half_snapped = true;
+                bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
+            } else if (!s_half_snapped) {
+                chase_track(&ref, s_half_hold_deg, chase->orbit, t);
+            }
+        }
+    } else if (chase->chasing && glint) {
+        chase_track(&ref, psi + CHASE_LEAD_DEG, chase->orbit, t);
+    } else if (s_bot.tracking) {
+        bot_track_end(&s_bot, t);
+    }
+
+    f.pose = bot_pose(&s_bot, t);
+    f.pose.orbit = chase->chasing ? chase->orbit : 0;
+    s_cur_mood = f.pose.mood;
+    if (pg->frame) pg->frame(&f);
+}
+
 static atomic_uint s_loop_ticks;
 
 static void frame_cb(lv_timer_t *timer)
@@ -719,103 +845,7 @@ static void frame_cb(lv_timer_t *timer)
     if (s_ks_lv->swipe_pages) steps += swipes;
     if (steps) page_go(steps, t);
     page_fx_frame(t);
-    int d = atomic_exchange(&s_detents, 0);
-    int pushes = atomic_exchange(&s_pushes, 0);
-    int touches = atomic_exchange(&s_touches, 0);
-    int longs = atomic_exchange(&s_long_pushes, 0);
-    int wakes = atomic_exchange(&s_np_wakes, 0);
-    if (s_page != PAGE_NP) pushes += touches;
-
-    wx_obs_t wx;
-    bool have_wx = weather_client_get(&wx);
-    weather_view_update(have_wx ? &wx : NULL, dt);
-
-    if (s_page == PAGE_POMO) {
-        pomo_frame(t, pushes, longs);
-        pushes = longs = 0;
-    } else if (s_page == PAGE_NP) {
-        if (d || pushes || longs || touches || wakes) np_view_input(t);
-        if (d) np_view_turn(d, t);
-        for (; pushes > 0; pushes--) np_view_push(t);
-        for (; longs > 0; longs--) np_view_long_push(t);
-        np_view_update(t, ember_client_link() == EMBER_LINK_UNREACHABLE);
-        pushes = longs = 0;
-    } else if (s_page != PAGE_BOT) {
-        pushes = longs = 0;
-    }
-    if (s_page != PAGE_BOT) d = 0;
-
-    if (d) {
-        s_ring_deg += d * DEGREES_PER_DETENT;
-        double a = s_ring_deg * M_PI / 180;
-        bot_look(&s_bot, sin(a) * 0.85, cos(a) * 0.85, t);
-    }
-    for (; pushes > 0; pushes--) bot_push(&s_bot, t);
-    for (; longs > 0; longs--) {
-        s_demo_index = (s_demo_index + 1) % (int)(sizeof DEMO_MOODS / sizeof DEMO_MOODS[0]);
-        bot_set_mood(&s_bot, DEMO_MOODS[s_demo_index], t);
-        s_demo_until = t + s_demo_hold_s;
-    }
-    bot_mood_t em;
-    if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
-
-    float gdeg;
-    bool glint = s_page == PAGE_BOT && bot_view_glint_deg(t, &gdeg);
-    int req = atomic_exchange(&s_chase_req, -1);
-    if (req >= 0 && glint && gc_start_now(&s_chase, req & 15, req >> 4)) {
-        gc_half_reset(&s_half);
-        s_half_hold_deg = 0;
-        s_half_snapped = false;
-    }
-    gc_out_t chase;
-    gc_tick(&s_chase, t, glint, 3.0, &chase);
-    atomic_store(&s_chase_status, !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
-    double psi = fmod(t / 3.0, 1.0) * 360.0 - 90.0;
-    bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
-    if (chase.chasing && glint && chase.style == GC_STYLE_HALF) {
-        gc_half_out_t h;
-        gc_half_step(&s_half, psi, CHASE_LEAD_DEG, &h);
-        if (h.follow) {
-            s_half_snapped = false;
-            s_half_hold_deg = h.target_deg;
-            chase_track(&ref, h.target_deg, chase.orbit, t);
-        } else {
-            bot_hold_gaze(&s_bot, t + 0.5);
-            if (h.blink) bot_blink(&s_bot, t);
-            if (h.snap) {
-                if (s_bot.tracking) bot_track_end(&s_bot, t);
-                s_half_snapped = true;
-                bot_look_still(&s_bot, chase_gaze(&ref, 0, chase.orbit), 0, t);
-            } else if (!s_half_snapped) {
-                chase_track(&ref, s_half_hold_deg, chase.orbit, t);
-            }
-        }
-    } else if (chase.chasing && glint) {
-        chase_track(&ref, psi + CHASE_LEAD_DEG, chase.orbit, t);
-    } else if (s_bot.tracking) {
-        bot_track_end(&s_bot, t);
-    }
-
-    bot_pose_t p = bot_pose(&s_bot, t);
-    p.orbit = chase.chasing ? chase.orbit : 0;
-    s_cur_mood = p.mood;
-    if (s_page != PAGE_BOT) return;
-    ember_host_info_t host;
-    ember_client_host(&host);
-    bot_view_set_host(&host);
-    bool pose = !s_drawn || !bot_pose_same(&p, &s_last_pose, bot_view_radius_px());
-    if (pose && s_drawn && chase.chasing && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps)) pose = false;
-    bot_view_chase(chase.chasing, chase.chasing && chase.label_opa > 0);
-    if (pose) s_pose_drawn_at = t;
-    if (pose) {
-        bot_view_update(&p);
-        s_last_pose = p;
-        s_drawn = true;
-        s_frames++;
-        s_frame_kind |= 1;
-    }
-    if (bot_view_tick(t, pose && !chase.chasing)) s_frame_kind |= 2;
-    bot_view_label_fx(chase.label_opa, chase.shift_x, chase.shift_y);
+    page_tick(t, dt);
 }
 
 static void setup_view_create(lv_obj_t *scr)
@@ -986,7 +1016,7 @@ void app_main(void)
         pomo_view_create(scr);
         weather_view_create(scr);
         np_view_create(scr);
-        show_page(PAGE_BOT);
+        show_page(0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSED, NULL);
         lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSING, NULL);

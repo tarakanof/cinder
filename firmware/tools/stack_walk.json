@@ -440,6 +440,30 @@
   "pr_write": [
    "panel_wr",
    "panel_now_ms"
+  ],
+  "page_tick": [
+   "page_bot_show",
+   "page_bot_input",
+   "page_bot_frame",
+   "page_pomo_show",
+   "page_pomo_input",
+   "page_pomo_frame",
+   "page_weather_show",
+   "page_np_show",
+   "page_np_input",
+   "page_np_frame"
+  ],
+  "frame_cb": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
+  ],
+  "app_main": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
   ]
  },
  "tasks": {
