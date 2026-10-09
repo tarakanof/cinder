@@ -668,7 +668,13 @@ static void checkin(char *buf)
     dev_stats_t *st = &P->stats;
     bool live = s_sched.live_until_ms > now_ms();
     bool with_stats = diag_due(stats_interval_s() * 1000, s_sched.period_ms, live) && diag_sample(st);
-    if (!dev_checkin_body(&c, with_stats ? st : NULL, body, sizeof P->body)) return;
+    if (!dev_checkin_body(&c, with_stats ? st : NULL, body, sizeof P->body)) {
+        static bool logged;
+        if (!logged) ESP_LOGE(TAG, "checkin body over %u B: not sent", (unsigned)sizeof P->body);
+        logged = true;
+        dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
+        return;
+    }
     P->hdrs.now[0] = 0;
     double sent = pomo_client_now();
     int status = http_req(url, body, buf, RESP_MAX, &P->hdrs);
