@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Music, BLE remote</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxfadein{0%{opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{opacity:1}}
+@keyframes wxsteps{0%{stroke-dasharray:0.1 999;animation-timing-function:step-end}4%{stroke-dasharray:27.1 999;animation-timing-function:step-end}9%{stroke-dasharray:54.2 999;animation-timing-function:step-end}14%,100%{stroke-dasharray:81.4 999}}
+@keyframes wxstepfade{0%,30%{opacity:1}40%,100%{opacity:0}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<div style="position: absolute; inset: 0; animation: wxfadein 6s linear infinite">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Connected as a media remote: a play and pause symbol in a blue ring; turning shows +3 volume steps in the bezel" style="position: absolute; left: 0; top: 0;">
+<path d="M 189 160 L 231 190 L 189 220 Z" style="fill: #E8ECF2; stroke: #E8ECF2; stroke-width: 6; stroke-linejoin: round"></path><rect x="243" y="159" width="13" height="62" rx="4" style="fill: #E8ECF2"></rect><rect x="264" y="159" width="13" height="62" rx="4" style="fill: #E8ECF2"></rect><circle cx="233" cy="190" r="84" style="fill: none; stroke: #7FA8FF; stroke-width: 5"></circle><g style="animation: wxstepfade 6s linear infinite"><path d="M 455.0 233.0 A 222 222 0 0 0 425.26 122.0" style="fill: none; stroke: #F4F4F2; stroke-width: 12; stroke-linecap: round; animation: wxsteps 6s linear infinite"></path></g>
+</svg>
+<div style="position: absolute; left: 0; top: 318px; width: 466px; display: flex; justify-content: center; align-items: center; gap: 10px"><svg viewBox="-6 -16 34 32" width="34" height="32" aria-hidden="true"><g transform="translate(0 0)"><circle cx="0" cy="0" r="5" style="fill: #7FA8FF"></circle><path d="M 9 -8 Q 15 0 9 8" style="fill: none; stroke: #7FA8FF; stroke-width: 3; stroke-linecap: round"></path><path d="M 15 -14 Q 25 0 15 14" style="fill: none; stroke: #7FA8FF; stroke-width: 3; stroke-linecap: round"></path></g></svg><div style="font-size: 24px; line-height: 28px; color: #BDBDBD">MacBook</div></div><div style="position: absolute; left: 330px; top: 158px; width: 70px; text-align: center; font-size: 30px; line-height: 36px; color: #F4F4F2; animation: wxstepfade 6s linear infinite">+3</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

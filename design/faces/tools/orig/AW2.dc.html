@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wind, windsock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxsock{0%{transform:rotate(9deg) scaleX(0.9)}25%{transform:rotate(2deg) scaleX(1)}50%{transform:rotate(6deg) scaleX(0.95)}75%{transform:rotate(0deg) scaleX(1.03)}100%{transform:rotate(9deg) scaleX(0.9)}}
+@keyframes wxstreak{0%{transform:translateX(-14px);opacity:0}30%{opacity:0.8}100%{transform:translateX(26px);opacity:0}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Wind speed gauge from calm to 50 kilometres per hour and more, with a ring marking 18" style="position: absolute; left: 0; top: 0">
+<circle cx="76.02" cy="389.98" r="6" style="fill: #3A4048"></circle>
+<circle cx="389.98" cy="389.98" r="6" style="fill: #D0DCE8"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(135 233 233)" style="fill: none; stroke: #3A4048; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(157.5 233 233)" style="fill: none; stroke: #484E57; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(180 233 233)" style="fill: none; stroke: #555C65; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(202.5 233 233)" style="fill: none; stroke: #636B74; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(225 233 233)" style="fill: none; stroke: #717982; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(247.5 233 233)" style="fill: none; stroke: #7E8791; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(270 233 233)" style="fill: none; stroke: #8C959F; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(292.5 233 233)" style="fill: none; stroke: #99A3AE; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(315 233 233)" style="fill: none; stroke: #A7B1BC; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(337.5 233 233)" style="fill: none; stroke: #B5C0CB; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(0 233 233)" style="fill: none; stroke: #C2CED9; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(22.5 233 233)" style="fill: none; stroke: #D0DCE8; stroke-width: 12; stroke-dasharray: 87.18 1394.87"></circle>
+<circle cx="96.93" cy="57.59" r="17" style="fill: #000000"></circle>
+<circle cx="96.93" cy="57.59" r="10" style="fill: #000000; stroke: #F4F4F2; stroke-width: 5"></circle>
+</svg>
+<div style="position: absolute; left: 96px; top: 366px; font-size: 30px; line-height: 36px; color: #8A8A8A">0</div>
+<div style="position: absolute; right: 96px; top: 366px; font-size: 30px; line-height: 36px; color: #D0DCE8">50+</div>
+<div style="position: absolute; left: 0; top: 76px; width: 466px; text-align: center; font-size: 24px; line-height: 30px; color: #BDBDBD">Wind</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="A striped windsock on a pole, flapping in the wind" style="position: absolute; left: 0; top: 0">
+<line x1="236" y1="160" x2="262" y2="160" style="stroke: #9AA4B0; stroke-width: 3; stroke-linecap: round; animation: wxstreak 1.6s linear infinite"></line>
+<line x1="246" y1="182" x2="266" y2="182" style="stroke: #9AA4B0; stroke-width: 3; stroke-linecap: round; animation: wxstreak 1.6s linear -0.8s infinite"></line>
+<line x1="200" y1="116" x2="200" y2="204" style="stroke: #9AA4B0; stroke-width: 5; stroke-linecap: round"></line>
+<line x1="186" y1="204" x2="214" y2="204" style="stroke: #9AA4B0; stroke-width: 5; stroke-linecap: round"></line>
+<g style="transform-origin: 202px 134px; transform: rotate(5deg); animation: wxsock 1.3s ease-in-out infinite">
+<polygon points="204,122 228,124.33 228,143.67 204,146" style="fill: #FF8A3D"></polygon>
+<polygon points="228,124.33 252,126.67 252,141.33 228,143.67" style="fill: #F4F4F2"></polygon>
+<polygon points="252,126.67 276,129 276,139 252,141.33" style="fill: #FF8A3D"></polygon>
+</g>
+</svg>
+<div style="position: absolute; left: 0; top: 212px; width: 466px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+<div style="display: flex; align-items: baseline; gap: 6px">
+<div style="font-size: 96px; line-height: 84px; letter-spacing: -2px">18</div>
+<div style="font-size: 30px; line-height: 36px; color: #9A9A9A">km/h</div>
+</div>
+<div style="font-size: 30px; line-height: 36px; color: #BDBDBD">SW, gusts 34</div>
+</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Weather face 3 of 6" style="position: absolute; left: 0; top: 0; pointer-events: none">
+<circle cx="193.28" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="209.07" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="225.01" cy="438.84" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="240.99" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="256.93" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="272.72" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+</svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

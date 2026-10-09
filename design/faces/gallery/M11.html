@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Music, BLE remote</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxfadein{0%{opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{opacity:1}}
+@keyframes wxsteps{0%{stroke-dasharray:0.1 999;animation-timing-function:step-end}4%{stroke-dasharray:27.1 999;animation-timing-function:step-end}9%{stroke-dasharray:54.2 999;animation-timing-function:step-end}14%,100%{stroke-dasharray:81.4 999}}
+@keyframes wxstepfade{0%,30%{opacity:1}40%,100%{opacity:0}}
+</style>
+<style>body{margin:0;padding:24px;background:#151515;color:#d8d8d8;font:14px/1.4 system-ui,sans-serif}body.embed{padding:0;background:#000}body.embed .chrome{display:none}#face{width:466px;height:466px}.chrome{margin-top:16px;max-width:466px}.chrome h1{font-size:16px;margin:0 0 4px}.chrome p{margin:0 0 12px;color:#999}#controls{display:flex;flex-wrap:wrap;gap:8px 16px}#controls label{display:flex;align-items:center;gap:6px}a{color:#8ab4f8}</style>
+</head>
+<body>
+<div id="face"></div>
+<div class="chrome"><h1>Music, BLE remote</h1><p>M11.dc.html · <a href="index.html">all faces</a></p><div id="controls"></div></div>
+<script>
+const SCHEMA = {"$preview": {"width": 466, "height": 466}};
+const TEMPLATE = "<div style=\"width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500\">\n<div style=\"position: absolute; inset: 0; animation: wxfadein 6s linear infinite\">\n<svg viewBox=\"0 0 466 466\" width=\"466\" height=\"466\" role=\"img\" aria-label=\"Connected as a media remote: a play and pause symbol in a blue ring; turning shows +3 volume steps in the bezel\" style=\"position: absolute; left: 0; top: 0;\">\n<path d=\"M 189 160 L 231 190 L 189 220 Z\" style=\"fill: #E8ECF2; stroke: #E8ECF2; stroke-width: 6; stroke-linejoin: round\"><\/path><rect x=\"243\" y=\"159\" width=\"13\" height=\"62\" rx=\"4\" style=\"fill: #E8ECF2\"><\/rect><rect x=\"264\" y=\"159\" width=\"13\" height=\"62\" rx=\"4\" style=\"fill: #E8ECF2\"><\/rect><circle cx=\"233\" cy=\"190\" r=\"84\" style=\"fill: none; stroke: #7FA8FF; stroke-width: 5\"><\/circle><g style=\"animation: wxstepfade 6s linear infinite\"><path d=\"M 455.0 233.0 A 222 222 0 0 0 425.26 122.0\" style=\"fill: none; stroke: #F4F4F2; stroke-width: 12; stroke-linecap: round; animation: wxsteps 6s linear infinite\"><\/path><\/g>\n<\/svg>\n<div style=\"position: absolute; left: 0; top: 318px; width: 466px; display: flex; justify-content: center; align-items: center; gap: 10px\"><svg viewBox=\"-6 -16 34 32\" width=\"34\" height=\"32\" aria-hidden=\"true\"><g transform=\"translate(0 0)\"><circle cx=\"0\" cy=\"0\" r=\"5\" style=\"fill: #7FA8FF\"><\/circle><path d=\"M 9 -8 Q 15 0 9 8\" style=\"fill: none; stroke: #7FA8FF; stroke-width: 3; stroke-linecap: round\"><\/path><path d=\"M 15 -14 Q 25 0 15 14\" style=\"fill: none; stroke: #7FA8FF; stroke-width: 3; stroke-linecap: round\"><\/path><\/g><\/svg><div style=\"font-size: 24px; line-height: 28px; color: #BDBDBD\">MacBook<\/div><\/div><div style=\"position: absolute; left: 330px; top: 158px; width: 70px; text-align: center; font-size: 30px; line-height: 36px; color: #F4F4F2; animation: wxstepfade 6s linear infinite\">+3<\/div>\n<\/div>\n<\/div>";
+
+let __schedule = () => {};
+class DCLogic {
+  constructor(props) { this.props = props; this.state = {}; }
+  setState(u) {
+    const next = typeof u === 'function' ? u(this.state, this.props) : u;
+    this.state = Object.assign({}, this.state, next);
+    __schedule();
+  }
+}
+
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+
+(function () {
+  const root = document.getElementById('face');
+  const q = new URLSearchParams(location.search);
+  if (q.get('embed') === '1') document.body.classList.add('embed');
+  const coerce = (d, v) => d.editor === 'boolean' ? (v === true || v === 'true' || v === '1') : d.editor === 'range' ? Number(v) : v;
+  const props = {};
+  for (const [k, d] of Object.entries(SCHEMA)) {
+    if (k[0] === '$') continue;
+    props[k] = q.has(k) ? coerce(d, q.get(k)) : d.default;
+  }
+  const comp = typeof Component === 'function' ? new Component(Object.assign({}, props)) : null;
+  let last = null, pending = false;
+  const render = () => {
+    pending = false;
+    const vals = Object.assign({}, props, comp && comp.renderVals ? (comp.renderVals() || {}) : {});
+    const out = TEMPLATE.replace(/\{\{(\w+)\}\}/g, (m, k) => (vals[k] == null ? '' : String(vals[k])));
+    if (out !== last) { root.innerHTML = out; last = out; }
+  };
+  __schedule = () => { if (!pending) { pending = true; Promise.resolve().then(render); } };
+  render();
+  if (comp && comp.componentDidMount) comp.componentDidMount();
+  window.addEventListener('pagehide', () => { if (comp && comp.componentWillUnmount) comp.componentWillUnmount(); });
+  const box = document.getElementById('controls');
+  const set = (k, v) => {
+    props[k] = v;
+    if (comp) comp.props = Object.assign({}, props);
+    const u = new URL(location.href); u.searchParams.set(k, String(v)); history.replaceState(null, '', u);
+    render();
+  };
+  for (const [k, d] of Object.entries(SCHEMA)) {
+    if (k[0] === '$') continue;
+    const label = document.createElement('label');
+    label.textContent = k + ' ';
+    let input;
+    if (d.editor === 'enum') {
+      input = document.createElement('select');
+      for (const o of d.options) { const op = document.createElement('option'); op.value = o; op.textContent = o; input.appendChild(op); }
+      input.value = props[k];
+      input.onchange = () => set(k, input.value);
+    } else if (d.editor === 'boolean') {
+      input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!props[k];
+      input.onchange = () => set(k, input.checked);
+    } else if (d.editor === 'range') {
+      input = document.createElement('input'); input.type = 'range';
+      input.min = d.min; input.max = d.max; input.step = d.step || 1; input.value = props[k];
+      const out = document.createElement('output'); out.textContent = props[k] + (d.unit || '');
+      input.oninput = () => { out.textContent = input.value + (d.unit || ''); set(k, Number(input.value)); };
+      label.appendChild(input); label.appendChild(out); box.appendChild(label); continue;
+    } else continue;
+    label.appendChild(input); box.appendChild(label);
+  }
+  if (!box.children.length) box.textContent = 'No props on this face.';
+})();
+
+</script>
+</body>
+</html>

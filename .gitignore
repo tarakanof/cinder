@@ -41,3 +41,6 @@ __pycache__/
 
 # OTA test images (firmware/tools/build_release.sh --dir build-test, copied for upload)
 ota-test/
+
+# Face design scratch output (design/faces/tools/shoot.py, bot2shot.py)
+design/faces/build/

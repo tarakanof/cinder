@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Air, leaves on a poor day</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxsag{0%,100%{transform:rotate(16deg)}50%{transform:rotate(22deg)}}
+@keyframes wxdust{0%{transform:translate(-12px,4px);opacity:0}25%{opacity:0.9}100%{transform:translate(28px,-10px);opacity:0}}
+@keyframes wxwarn{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.18);opacity:0.55}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Air quality gauge in five bands from a leaf at the clean end to a hazard sign at the polluted end, with a ring marking 68 in the poor band" style="position: absolute; left: 0; top: 0">
+<circle cx="76.02" cy="389.98" r="6" style="fill: #4FD6CC"></circle>
+<circle cx="389.98" cy="389.98" r="6" style="fill: #D03060"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(135 233 233)" style="fill: none; stroke: #4FD6CC; stroke-width: 12; stroke-dasharray: 210.23 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(189 233 233)" style="fill: none; stroke: #50CCAA; stroke-width: 12; stroke-dasharray: 210.23 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(243 233 233)" style="fill: none; stroke: #F0E641; stroke-width: 12; stroke-dasharray: 210.23 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(297 233 233)" style="fill: none; stroke: #FF5050; stroke-width: 12; stroke-dasharray: 210.23 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(351 233 233)" style="fill: none; stroke: #D03060; stroke-width: 12; stroke-dasharray: 209.23 1394.87"></circle>
+<circle cx="399.52" cy="86.19" r="17" style="fill: #000000"></circle>
+<circle cx="399.52" cy="86.19" r="10" style="fill: #000000; stroke: #F4F4F2; stroke-width: 5"></circle>
+<g transform="translate(104 394) rotate(-40)">
+<path d="M 0 0 C 7 -8, 21 -8, 28 0 C 21 8, 7 8, 0 0 Z" style="fill: none; stroke: #4FD6CC; stroke-width: 3; stroke-linejoin: round"></path>
+<line x1="3" y1="0" x2="25" y2="0" style="stroke: #4FD6CC; stroke-width: 2; stroke-linecap: round"></line>
+</g>
+<polygon points="352,368 370,399 334,399" style="fill: none; stroke: #D03060; stroke-width: 3.5; stroke-linejoin: round"></polygon>
+<line x1="352" y1="378" x2="352" y2="388" style="stroke: #D03060; stroke-width: 3.5; stroke-linecap: round"></line>
+<circle cx="352" cy="394" r="2" style="fill: #D03060"></circle>
+</svg>
+<div style="position: absolute; left: 0; top: 76px; width: 466px; text-align: center; font-size: 24px; line-height: 30px; color: #BDBDBD">Air</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="A wilted grey-green sprig drooping in thick dust, a hazard sign pulsing beside it" style="position: absolute; left: 0; top: 0">
+<g style="transform-origin: 222px 204px; transform: rotate(18deg); animation: wxsag 4s ease-in-out infinite">
+<path d="M 222 204 Q 218 172 222 138" style="fill: none; stroke: #6A8A7E; stroke-width: 4; stroke-linecap: round"></path>
+<g transform="translate(220 182) rotate(-170)">
+<path d="M 0 0 C 10 -10, 28 -8, 36 4 C 26 12, 10 10, 0 0 Z" style="fill: #000000; stroke: #6A8A7E; stroke-width: 4; stroke-linejoin: round"></path>
+</g>
+<g transform="translate(220 162) rotate(10)">
+<path d="M 0 0 C 10 -10, 28 -8, 36 4 C 26 12, 10 10, 0 0 Z" style="fill: #000000; stroke: #6A8A7E; stroke-width: 4; stroke-linejoin: round"></path>
+</g>
+<g transform="translate(222 140) rotate(60) scale(0.75)">
+<path d="M 0 0 C 10 -10, 28 -8, 36 4 C 26 12, 10 10, 0 0 Z" style="fill: #000000; stroke: #6A8A7E; stroke-width: 5; stroke-linejoin: round"></path>
+</g>
+</g>
+<circle cx="176" cy="140" r="3" style="fill: #8A8A8A; animation: wxdust 2.6s linear infinite"></circle>
+<circle cx="190" cy="176" r="3.5" style="fill: #8A8A8A; animation: wxdust 2.6s linear -0.9s infinite"></circle>
+<circle cx="204" cy="122" r="2.5" style="fill: #8A8A8A; animation: wxdust 2.6s linear -1.7s infinite"></circle>
+<circle cx="250" cy="196" r="3" style="fill: #8A8A8A; animation: wxdust 2.6s linear -0.4s infinite"></circle>
+<circle cx="238" cy="152" r="2.5" style="fill: #8A8A8A; animation: wxdust 2.6s linear -2.2s infinite"></circle>
+<circle cx="182" cy="198" r="2.5" style="fill: #8A8A8A; animation: wxdust 2.6s linear -1.3s infinite"></circle>
+<g style="transform-origin: 274px 150px; animation: wxwarn 1.6s ease-in-out infinite">
+<polygon points="274,130 296,168 252,168" style="fill: #000000; stroke: #FF5050; stroke-width: 4; stroke-linejoin: round"></polygon>
+<line x1="274" y1="143" x2="274" y2="155" style="stroke: #FF5050; stroke-width: 4; stroke-linecap: round"></line>
+<circle cx="274" cy="161" r="2.5" style="fill: #FF5050"></circle>
+</g>
+</svg>
+<div style="position: absolute; left: 0; top: 212px; width: 466px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+<div style="display: flex; align-items: baseline; gap: 6px">
+<div style="font-size: 96px; line-height: 84px; letter-spacing: -2px; color: #FF5050">68</div>
+<div style="font-size: 30px; line-height: 36px; color: #9A9A9A">AQI</div>
+</div>
+<div style="font-size: 30px; line-height: 36px; color: #FF5050">Poor</div>
+</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Weather face 5 of 6" style="position: absolute; left: 0; top: 0; pointer-events: none">
+<circle cx="193.28" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="209.07" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="225.01" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="240.99" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="256.93" cy="437.6" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="272.72" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+</svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

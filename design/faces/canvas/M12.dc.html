@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Music, BLE pairing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxfadein{0%{opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{opacity:1}}
+@keyframes wxpair{0%,100%{opacity:0.25;transform:scale(0.96)}50%{opacity:0.9;transform:scale(1.04)}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<div style="position: absolute; inset: 0; animation: wxfadein 6s linear infinite">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Not connected: a dimmed play and pause symbol inside a slowly pulsing ring, pairing as Ember Knob" style="position: absolute; left: 0; top: 0;">
+<g style="opacity: 0.35"><path d="M 189 160 L 231 190 L 189 220 Z" style="fill: #E8ECF2; stroke: #E8ECF2; stroke-width: 6; stroke-linejoin: round"></path><rect x="243" y="159" width="13" height="62" rx="4" style="fill: #E8ECF2"></rect><rect x="264" y="159" width="13" height="62" rx="4" style="fill: #E8ECF2"></rect></g><circle cx="233" cy="190" r="84" style="fill: none; stroke: #7FA8FF; stroke-width: 5; transform-origin: 233px 190px; animation: wxpair 2.4s ease-in-out infinite"></circle>
+</svg>
+<div style="position: absolute; left: 0; top: 312px; width: 466px; display: flex; flex-direction: column; align-items: center"><div style="font-size: 30px; line-height: 36px; color: #F4F4F2">Pairing…</div><div style="font-size: 24px; line-height: 28px; color: #9A9A9A; margin-top: 4px">Ember Knob</div></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rain forecast · light later</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxslide{0%{transform:rotate(0deg);animation-timing-function:cubic-bezier(0.45,0,0.25,1)}16%,100%{transform:rotate(78deg)}}
+@keyframes wxdropfade{0%{opacity:0}3%{opacity:1}16%{opacity:1}20%,100%{opacity:0}}
+@keyframes wxglow{0%,16%{opacity:0.6}22%,100%{opacity:1}}
+@keyframes wxlabelin{0%,16%{opacity:0}22%,100%{opacity:1}}
+@keyframes wxcome{0%{transform:translateX(90px);opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}10%{opacity:1}22%,100%{transform:translateX(0px);opacity:1}}
+@keyframes wxbreathe{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+@keyframes wxraingate{0%,16%{opacity:0}19%,100%{opacity:1}}
+@keyframes wxgloom{0%,100%{opacity:1}50%{opacity:0.7}}
+@keyframes wxcount{0%{transform:translateY(0px);animation-timing-function:step-end}1.577%{transform:translateY(-84px);animation-timing-function:step-end}3.444%{transform:translateY(-168px);animation-timing-function:step-end}5.79%{transform:translateY(-252px);animation-timing-function:step-end}9.134%{transform:translateY(-336px);animation-timing-function:step-end}22%,100%{transform:translateY(-420px);animation-timing-function:step-end}}
+@keyframes wxsheetAD4C{0%{transform:translateY(0px)}100%{transform:translateY(80px)}}
+</style>
+<style>body{margin:0;padding:24px;background:#151515;color:#d8d8d8;font:14px/1.4 system-ui,sans-serif}body.embed{padding:0;background:#000}body.embed .chrome{display:none}#face{width:466px;height:466px}.chrome{margin-top:16px;max-width:466px}.chrome h1{font-size:16px;margin:0 0 4px}.chrome p{margin:0 0 12px;color:#999}#controls{display:flex;flex-wrap:wrap;gap:8px 16px}#controls label{display:flex;align-items:center;gap:6px}a{color:#8ab4f8}</style>
+</head>
+<body>
+<div id="face"></div>
+<div class="chrome"><h1>Rain forecast · light later</h1><p>AD4.dc.html · <a href="index.html">all faces</a></p><div id="controls"></div></div>
+<script>
+const SCHEMA = {"$preview": {"width": 466, "height": 466}};
+const TEMPLATE = "<div style=\"width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500\">\n<svg viewBox=\"0 0 466 466\" width=\"466\" height=\"466\" role=\"img\" aria-label=\"Clock dial of the next 12 hours, dry now at 14:30 with a ring marking the time; a drop slides from now to the rain, light rain from 17:00 to 19:00\" style=\"position: absolute; left: 0; top: 0\">\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(-88.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(-58.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(-28.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(1.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(31.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(61.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(91.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(121.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(151.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(181.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(211.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<circle cx=\"233\" cy=\"233\" r=\"222\" transform=\"rotate(241.5 233 233)\" style=\"fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87\"><\/circle>\n<path d=\"M 338.93 428.1 A 222 222 0 0 1 238.81 454.92\" style=\"fill: none; stroke: #4F81B7; stroke-width: 12; opacity: 1; animation: wxglow 6s linear infinite\"><\/path>\n<path d=\"M 227.19 454.92 A 222 222 0 0 1 127.07 428.1\" style=\"fill: none; stroke: #4F81B7; stroke-width: 12; opacity: 1; animation: wxglow 6s linear infinite\"><\/path>\n<circle cx=\"447.44\" cy=\"175.54\" r=\"17\" style=\"fill: #000000\"><\/circle>\n<circle cx=\"447.44\" cy=\"175.54\" r=\"10\" style=\"fill: #000000; stroke: #F4F4F2; stroke-width: 5\"><\/circle>\n<g style=\"transform-origin: 233px 233px; animation: wxslide 6s linear infinite\">\n<g style=\"opacity: 0; animation: wxdropfade 6s linear infinite\">\n<path d=\"M -15 0 C -9 -1.5, -6.5 -7, 0 -7 A 7 7 0 0 1 0 7 C -6.5 7, -9 1.5, -15 0 Z\" transform=\"translate(447.44 175.54) rotate(75)\" style=\"fill: #5C9CE0; stroke: #000000; stroke-width: 2; stroke-linejoin: round\"><\/path>\n<\/g>\n<\/g>\n<text x=\"327.0\" y=\"395.81\" text-anchor=\"middle\" dominant-baseline=\"central\" style=\"font-size: 22px; fill: #5C9CE0; opacity: 1; animation: wxlabelin 6s linear infinite\">17<\/text>\n<\/svg>\n<svg viewBox=\"0 0 466 466\" width=\"466\" height=\"466\" role=\"img\" aria-label=\"A white rain cloud drifting in from the right, starting light rain once the drop reaches the rain on the dial, the rain stopping short of the countdown; device-optimized: 2 redraw areas at 15 fps (the drifting cloud box, the drizzle sheet below it)\" style=\"position: absolute; left: 0; top: 0\">\n<g style=\"animation: wxraingate 6s linear infinite\"><defs><clipPath id=\"sheetclipAD4C\"><rect x=\"160\" y=\"172\" width=\"142\" height=\"36\"><\/rect><\/clipPath><linearGradient id=\"sheetfadeAD4C\" gradientUnits=\"userSpaceOnUse\" x1=\"0\" y1=\"172\" x2=\"0\" y2=\"208\"><stop offset=\"0\" stop-color=\"#000000\"><\/stop><stop offset=\"0.08\" stop-color=\"#FFFFFF\"><\/stop><stop offset=\"0.92\" stop-color=\"#FFFFFF\"><\/stop><stop offset=\"1\" stop-color=\"#000000\"><\/stop><\/linearGradient><mask id=\"sheetmaskAD4C\" maskUnits=\"userSpaceOnUse\" x=\"160\" y=\"172\" width=\"142\" height=\"36\"><rect x=\"160\" y=\"172\" width=\"142\" height=\"36\" style=\"fill: url(#sheetfadeAD4C)\"><\/rect><\/mask><\/defs><g clip-path=\"url(#sheetclipAD4C)\" mask=\"url(#sheetmaskAD4C)\"><g style=\"animation: wxsheetAD4C 4.0s steps(60, end) -0.0s infinite\"><g transform=\"translate(0 92)\"><line x1=\"176\" y1=\"6\" x2=\"176\" y2=\"11\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.8\"><\/line><line x1=\"214\" y1=\"22\" x2=\"214\" y2=\"27\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 1\"><\/line><line x1=\"248\" y1=\"10\" x2=\"248\" y2=\"15\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.7\"><\/line><line x1=\"282\" y1=\"30\" x2=\"282\" y2=\"35\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.9\"><\/line><line x1=\"196\" y1=\"34\" x2=\"196\" y2=\"39\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.6\"><\/line><g transform=\"translate(0 40)\"><line x1=\"186\" y1=\"14\" x2=\"186\" y2=\"19\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.9\"><\/line><line x1=\"232\" y1=\"2\" x2=\"232\" y2=\"7\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.75\"><\/line><line x1=\"266\" y1=\"20\" x2=\"266\" y2=\"25\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 1\"><\/line><line x1=\"204\" y1=\"28\" x2=\"204\" y2=\"33\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.65\"><\/line><line x1=\"292\" y1=\"8\" x2=\"292\" y2=\"13\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.8\"><\/line><\/g><\/g><g transform=\"translate(0 172)\"><line x1=\"176\" y1=\"6\" x2=\"176\" y2=\"11\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.8\"><\/line><line x1=\"214\" y1=\"22\" x2=\"214\" y2=\"27\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 1\"><\/line><line x1=\"248\" y1=\"10\" x2=\"248\" y2=\"15\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.7\"><\/line><line x1=\"282\" y1=\"30\" x2=\"282\" y2=\"35\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.9\"><\/line><line x1=\"196\" y1=\"34\" x2=\"196\" y2=\"39\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.6\"><\/line><g transform=\"translate(0 40)\"><line x1=\"186\" y1=\"14\" x2=\"186\" y2=\"19\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.9\"><\/line><line x1=\"232\" y1=\"2\" x2=\"232\" y2=\"7\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.75\"><\/line><line x1=\"266\" y1=\"20\" x2=\"266\" y2=\"25\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 1\"><\/line><line x1=\"204\" y1=\"28\" x2=\"204\" y2=\"33\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.65\"><\/line><line x1=\"292\" y1=\"8\" x2=\"292\" y2=\"13\" style=\"stroke: #5C9CE0; stroke-width: 3; stroke-linecap: round; stroke-opacity: 0.8\"><\/line><\/g><\/g><\/g><\/g><\/g>\n<g style=\"animation: wxcome 6s linear infinite\">\n<g style=\"animation: wxbreathe 8s steps(60) infinite\">\n<path d=\"M 154.43 170 A 19.5 19.5 0 0 1 176.04 138.52 A 27.0 27.0 0 0 1 220.5 119.44 A 28.5 28.5 0 0 1 273.03 139.15 A 22.5 22.5 0 1 1 305 170 Z\" style=\"fill: #E6ECF2; stroke: #C4CCD4; stroke-width: 4.5; stroke-linejoin: round\"><\/path>\n<\/g>\n<\/g>\n<\/svg>\n<div style=\"position: absolute; left: 0; top: 212px; width: 466px; display: flex; flex-direction: column; align-items: center; gap: 4px\">\n<div style=\"display: flex; align-items: baseline; gap: 6px\">\n<div style=\"position: relative; font-size: 96px; line-height: 84px; letter-spacing: -2px; color: #5C9CE0\"><span style=\"color: transparent\">2½<\/span><div aria-hidden=\"true\" style=\"position: absolute; right: 0; top: 0; width: max-content; height: 84px; overflow: hidden; font-size: 96px; line-height: 84px; letter-spacing: -2px\">\n<div style=\"animation: wxcount 6s infinite\">\n<div style=\"height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0\">0<\/div>\n<div style=\"height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0\">½<\/div>\n<div style=\"height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0\">1<\/div>\n<div style=\"height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0\">1½<\/div>\n<div style=\"height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0\">2<\/div>\n<div style=\"height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0\">2½<\/div>\n<\/div>\n<\/div>\n<\/div>\n<div style=\"font-size: 30px; line-height: 36px; color: #9A9A9A\">h<\/div>\n<\/div>\n<div style=\"font-size: 30px; line-height: 36px; color: #BDBDBD; white-space: nowrap\"><span style=\"color: #5C9CE0\">light rain<\/span> at 17:00<\/div>\n<\/div>\n<svg viewBox=\"0 0 466 466\" width=\"466\" height=\"466\" role=\"img\" aria-label=\"Rain view 2 of 2, weather face 2 of 6\" style=\"position: absolute; left: 0; top: 0; pointer-events: none\">\n<circle cx=\"33\" cy=\"225\" r=\"4\" style=\"fill: #4A4A4A\"><\/circle>\n<circle cx=\"33\" cy=\"241\" r=\"4\" style=\"fill: #FFFFFF\"><\/circle>\n<circle cx=\"193.28\" cy=\"435.13\" r=\"4\" style=\"fill: #4A4A4A\"><\/circle>\n<circle cx=\"209.07\" cy=\"437.6\" r=\"4\" style=\"fill: #FFFFFF\"><\/circle>\n<circle cx=\"225.01\" cy=\"438.84\" r=\"4\" style=\"fill: #4A4A4A\"><\/circle>\n<circle cx=\"240.99\" cy=\"438.84\" r=\"4\" style=\"fill: #4A4A4A\"><\/circle>\n<circle cx=\"256.93\" cy=\"437.6\" r=\"4\" style=\"fill: #4A4A4A\"><\/circle>\n<circle cx=\"272.72\" cy=\"435.13\" r=\"4\" style=\"fill: #4A4A4A\"><\/circle>\n<\/svg>\n<\/div>";
+
+let __schedule = () => {};
+class DCLogic {
+  constructor(props) { this.props = props; this.state = {}; }
+  setState(u) {
+    const next = typeof u === 'function' ? u(this.state, this.props) : u;
+    this.state = Object.assign({}, this.state, next);
+    __schedule();
+  }
+}
+
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+
+(function () {
+  const root = document.getElementById('face');
+  const q = new URLSearchParams(location.search);
+  if (q.get('embed') === '1') document.body.classList.add('embed');
+  const coerce = (d, v) => d.editor === 'boolean' ? (v === true || v === 'true' || v === '1') : d.editor === 'range' ? Number(v) : v;
+  const props = {};
+  for (const [k, d] of Object.entries(SCHEMA)) {
+    if (k[0] === '$') continue;
+    props[k] = q.has(k) ? coerce(d, q.get(k)) : d.default;
+  }
+  const comp = typeof Component === 'function' ? new Component(Object.assign({}, props)) : null;
+  let last = null, pending = false;
+  const render = () => {
+    pending = false;
+    const vals = Object.assign({}, props, comp && comp.renderVals ? (comp.renderVals() || {}) : {});
+    const out = TEMPLATE.replace(/\{\{(\w+)\}\}/g, (m, k) => (vals[k] == null ? '' : String(vals[k])));
+    if (out !== last) { root.innerHTML = out; last = out; }
+  };
+  __schedule = () => { if (!pending) { pending = true; Promise.resolve().then(render); } };
+  render();
+  if (comp && comp.componentDidMount) comp.componentDidMount();
+  window.addEventListener('pagehide', () => { if (comp && comp.componentWillUnmount) comp.componentWillUnmount(); });
+  const box = document.getElementById('controls');
+  const set = (k, v) => {
+    props[k] = v;
+    if (comp) comp.props = Object.assign({}, props);
+    const u = new URL(location.href); u.searchParams.set(k, String(v)); history.replaceState(null, '', u);
+    render();
+  };
+  for (const [k, d] of Object.entries(SCHEMA)) {
+    if (k[0] === '$') continue;
+    const label = document.createElement('label');
+    label.textContent = k + ' ';
+    let input;
+    if (d.editor === 'enum') {
+      input = document.createElement('select');
+      for (const o of d.options) { const op = document.createElement('option'); op.value = o; op.textContent = o; input.appendChild(op); }
+      input.value = props[k];
+      input.onchange = () => set(k, input.value);
+    } else if (d.editor === 'boolean') {
+      input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!props[k];
+      input.onchange = () => set(k, input.checked);
+    } else if (d.editor === 'range') {
+      input = document.createElement('input'); input.type = 'range';
+      input.min = d.min; input.max = d.max; input.step = d.step || 1; input.value = props[k];
+      const out = document.createElement('output'); out.textContent = props[k] + (d.unit || '');
+      input.oninput = () => { out.textContent = input.value + (d.unit || ''); set(k, Number(input.value)); };
+      label.appendChild(input); label.appendChild(out); box.appendChild(label); continue;
+    } else continue;
+    label.appendChild(input); box.appendChild(label);
+  }
+  if (!box.children.length) box.textContent = 'No props on this face.';
+})();
+
+</script>
+</body>
+</html>

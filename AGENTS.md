@@ -8,6 +8,9 @@ ESP-IDF firmware for the VIEWE round AMOLED knob: Ember's desk display (bot face
 - [`docs/llm.md`](docs/llm.md): verified pin map, board facts, toolchain decisions. Read before touching hardware, pins or the BSP.
 - [`docs/features.md`](docs/features.md): design, measurements and user decisions per feature. Read the feature's section before changing it.
 - [`docs/firmware-plan.md`](docs/firmware-plan.md): pages, input model, build order. Read before adding a page or input.
+- [`docs/face-design.md`](docs/face-design.md): face design system, device rendering rules, next-session guide. Read before building a weather, music or bot-moment face.
+- [`docs/bot-review.md`](docs/bot-review.md): review of the bot face and the BotNext proposals, with measurements. Read before changing `bot_behavior.c` or `bot_view.c`.
+- [`design/faces/README.md`](design/faces/README.md): the face design sources (canvas export, gallery, generators). Read before editing anything under `design/faces/`.
 - `AGENTS.local.md` (gitignored; template `AGENTS.local.md.example`): toolchain notes, doc sources, notes location. Read before installing tools or editing `docs/enclosure.html`.
 
 ## Maintainer rules (live device)

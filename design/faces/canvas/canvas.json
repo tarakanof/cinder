@@ -1,0 +1,451 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "AA2.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Air \u00b7 flower",
+      "w": 466,
+      "x": 2730,
+      "y": 3600
+    },
+    "AR2.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Rain \u00b7 umbrella catches drops",
+      "w": 466,
+      "x": 546,
+      "y": 3600
+    },
+    "AS2.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Sun \u00b7 rising at the horizon",
+      "w": 466,
+      "x": 2184,
+      "y": 3600
+    },
+    "AT1.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Temperature \u00b7 rising mercury",
+      "w": 466,
+      "x": 0,
+      "y": 3600
+    },
+    "AW2.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Wind \u00b7 windsock",
+      "w": 466,
+      "x": 1638,
+      "y": 3600
+    },
+    "AT3.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Temperature \u00b7 cold day",
+      "w": 466,
+      "x": 0,
+      "y": 4186
+    },
+    "AT4.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Temperature \u00b7 hot day",
+      "w": 466,
+      "x": 0,
+      "y": 4772
+    },
+    "AW3.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Wind \u00b7 calm day",
+      "w": 466,
+      "x": 1638,
+      "y": 4186
+    },
+    "AW4.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Wind \u00b7 strong wind",
+      "w": 466,
+      "x": 1638,
+      "y": 4772
+    },
+    "AD3.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Rain forecast \u00b7 heavy soon",
+      "w": 466,
+      "x": 1092,
+      "y": 4772
+    },
+    "AD4.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Rain forecast \u00b7 light later",
+      "w": 466,
+      "x": 1092,
+      "y": 3600
+    },
+    "AD5.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Rain forecast \u00b7 moderate",
+      "w": 466,
+      "x": 1092,
+      "y": 4186
+    },
+    "AT5.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Temperature \u00b7 clear night",
+      "w": 466,
+      "x": 0,
+      "y": 5358
+    },
+    "AT6.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Temperature \u00b7 cloudy night",
+      "w": 466,
+      "x": 0,
+      "y": 5944
+    },
+    "AA4.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Air \u00b7 flower, poor day",
+      "w": 466,
+      "x": 2730,
+      "y": 4186
+    },
+    "AN1.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Next days",
+      "w": 466,
+      "x": 3276,
+      "y": 3600
+    },
+    "M1.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, playing",
+      "w": 466,
+      "x": 0,
+      "y": 6800
+    },
+    "M2.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, paused",
+      "w": 466,
+      "x": 546,
+      "y": 6800
+    },
+    "M3.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, nothing playing",
+      "w": 466,
+      "x": 1092,
+      "y": 6800
+    },
+    "M4.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, dimmed",
+      "w": 466,
+      "x": 1638,
+      "y": 6800
+    },
+    "M6.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, type first",
+      "w": 466,
+      "x": 2184,
+      "y": 6800
+    },
+    "M7.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, volume",
+      "w": 466,
+      "x": 0,
+      "y": 7386
+    },
+    "M8.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, next track",
+      "w": 466,
+      "x": 546,
+      "y": 7386
+    },
+    "M9.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, resume tap",
+      "w": 466,
+      "x": 1092,
+      "y": 7386
+    },
+    "M10.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, Ember offline",
+      "w": 466,
+      "x": 1638,
+      "y": 7386
+    },
+    "M11.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, BLE remote",
+      "w": 466,
+      "x": 2184,
+      "y": 7386
+    },
+    "M12.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, BLE pairing",
+      "w": 466,
+      "x": 2730,
+      "y": 7386
+    },
+    "M13.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot, listening",
+      "w": 466,
+      "x": 0,
+      "y": 7972
+    },
+    "M14.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot, new track",
+      "w": 466,
+      "x": 546,
+      "y": 7972
+    },
+    "M15.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Music, no cover",
+      "w": 466,
+      "x": 2730,
+      "y": 6800
+    },
+    "B2-Glance.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, periodic glance",
+      "w": 466,
+      "x": 1092,
+      "y": 1800
+    },
+    "B2-Rain.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, raining",
+      "w": 466,
+      "x": 1638,
+      "y": 1800
+    },
+    "B2-Storm.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, storm",
+      "w": 466,
+      "x": 2184,
+      "y": 1800
+    },
+    "B2-Snow.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, snow",
+      "w": 466,
+      "x": 2730,
+      "y": 1800
+    },
+    "B2-Wind.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, wind",
+      "w": 466,
+      "x": 3276,
+      "y": 1800
+    },
+    "B2-Heat.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, heat",
+      "w": 466,
+      "x": 3822,
+      "y": 1800
+    },
+    "B2-Night.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, clear night",
+      "w": 466,
+      "x": 4368,
+      "y": 1800
+    },
+    "B2-AfterRain.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, rain stops",
+      "w": 466,
+      "x": 4914,
+      "y": 1800
+    },
+    "B2-RainWorking.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot moment, rain while working",
+      "w": 466,
+      "x": 5460,
+      "y": 1800
+    },
+    "BotNow.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot today (firmware simulation)",
+      "w": 466,
+      "x": 0,
+      "y": 1800
+    },
+    "BotNext.dc.html": {
+      "h": 466,
+      "is_interactive": true,
+      "radius": 233,
+      "title": "Bot proposed (simulation)",
+      "w": 466,
+      "x": 546,
+      "y": 1800
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-07T14:55:08Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "row-anim": {
+      "kind": "title1",
+      "maxW": 3742,
+      "text": "Weather faces: one column per face, press Play",
+      "x": 0,
+      "y": 3300
+    },
+    "row-music": {
+      "kind": "title1",
+      "maxW": 3742,
+      "text": "Music faces: now playing, alternatives, feedback, BLE remote, bot moments. Press Play",
+      "x": 0,
+      "y": 6500
+    },
+    "row-bot2": {
+      "kind": "title1",
+      "maxW": 5926,
+      "text": "Bot: today vs proposed (live simulations, pick a mood), then weather moments v2. Press Play",
+      "x": 0,
+      "y": 1500
+    }
+  },
+  "order": [
+    "BotNow.dc.html",
+    "BotNext.dc.html",
+    "B2-Glance.dc.html",
+    "B2-Rain.dc.html",
+    "B2-Storm.dc.html",
+    "B2-Snow.dc.html",
+    "B2-Wind.dc.html",
+    "B2-Heat.dc.html",
+    "B2-Night.dc.html",
+    "B2-AfterRain.dc.html",
+    "B2-RainWorking.dc.html",
+    "AT1.dc.html",
+    "AT3.dc.html",
+    "AT4.dc.html",
+    "AT5.dc.html",
+    "AT6.dc.html",
+    "AR2.dc.html",
+    "AD4.dc.html",
+    "AD5.dc.html",
+    "AD3.dc.html",
+    "AW2.dc.html",
+    "AW3.dc.html",
+    "AW4.dc.html",
+    "AS2.dc.html",
+    "AA2.dc.html",
+    "AA4.dc.html",
+    "AN1.dc.html",
+    "M1.dc.html",
+    "M2.dc.html",
+    "M3.dc.html",
+    "M4.dc.html",
+    "M6.dc.html",
+    "M15.dc.html",
+    "M7.dc.html",
+    "M8.dc.html",
+    "M9.dc.html",
+    "M10.dc.html",
+    "M11.dc.html",
+    "M12.dc.html",
+    "M13.dc.html",
+    "M14.dc.html"
+  ],
+  "pages": [],
+  "title": "Cinder Weather"
+}

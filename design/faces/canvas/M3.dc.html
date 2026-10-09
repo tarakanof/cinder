@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Music, nothing playing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxspin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+@keyframes wxfadein{0%{opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{opacity:1}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<div style="position: absolute; inset: 0; animation: wxfadein 6s linear infinite">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="A faint outline of a vinyl record, slowly turning" style="position: absolute; left: 0; top: 0;">
+<circle cx="233" cy="186" r="122" style="fill: none; stroke: #2A2A2A; stroke-width: 2"></circle><circle cx="233" cy="186" r="52" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="61" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="70" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="79" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="88" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="97" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="106" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="115" style="fill: none; stroke: #1C1C1C; stroke-width: 1.5"></circle><circle cx="233" cy="186" r="40" style="fill: none; stroke: #2A2A2A; stroke-width: 2"></circle><circle cx="233" cy="186" r="4" style="fill: #2A2A2A"></circle><g style="transform-origin: 233px 186px; animation: wxspin 24s linear infinite"><path d="M 233 86 A 100 100 0 0 1 314 128" style="fill: none; stroke: #3A3A3A; stroke-width: 3; stroke-linecap: round"></path><path d="M 233 286 A 100 100 0 0 1 152 244" style="fill: none; stroke: #2E2E2E; stroke-width: 3; stroke-linecap: round"></path></g>
+</svg>
+<div style="position: absolute; left: 0; top: 326px; width: 466px; display: flex; flex-direction: column; align-items: center"><div style="font-size: 30px; line-height: 36px; color: #BDBDBD">Nothing playing</div><div style="font-size: 24px; line-height: 28px; color: #6A6A6A; margin-top: 6px">push to resume</div></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

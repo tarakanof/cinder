@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot today, baseline</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+<style>body{margin:0;padding:24px;background:#151515;color:#d8d8d8;font:14px/1.4 system-ui,sans-serif}body.embed{padding:0;background:#000}body.embed .chrome{display:none}#face{width:466px;height:466px}.chrome{margin-top:16px;max-width:466px}.chrome h1{font-size:16px;margin:0 0 4px}.chrome p{margin:0 0 12px;color:#999}#controls{display:flex;flex-wrap:wrap;gap:8px 16px}#controls label{display:flex;align-items:center;gap:6px}a{color:#8ab4f8}</style>
+</head>
+<body>
+<div id="face"></div>
+<div class="chrome"><h1>Bot today (firmware simulation)</h1><p>BotNow.dc.html · <a href="index.html">all faces</a></p><div id="controls"></div></div>
+<script>
+const SCHEMA = {"mood": {"editor": "enum", "options": ["idle", "sleepy", "working", "waiting", "done", "error"], "default": "working"}, "$preview": {"width": 466, "height": 466}};
+const TEMPLATE = "<div style=\"width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500\">\n<svg viewBox=\"0 0 466 466\" width=\"466\" height=\"466\" role=\"img\" aria-label=\"Live simulation of the bot face as the firmware draws it today: outline ring in the mood colour, two white eye strokes with gaze, saccades, blinks and lids, the waiting hop with pre-rendered squash variants, the badge for waiting and done, the working glint at 15 fps and the curved CLAUDE label with the tool mark\" style=\"position: absolute; left: 0; top: 0\">\n<defs><linearGradient id=\"botnowglint\" gradientUnits=\"userSpaceOnUse\" x1=\"{{gtx}}\" y1=\"{{gty}}\" x2=\"{{ghx}}\" y2=\"{{ghy}}\"><stop offset=\"0\" stop-color=\"#E0FCE7\" stop-opacity=\"0\"><\/stop><stop offset=\"1\" stop-color=\"#E0FCE7\" stop-opacity=\"1\"><\/stop><\/linearGradient><\/defs>\n<g style=\"transform: translateY({{dy}}px)\">\n<path d=\"{{ringD}}\" style=\"fill: none; stroke: {{ringColor}}; stroke-opacity: {{ringOpacity}}; stroke-width: 6; stroke-linejoin: round\"><\/path>\n<g style=\"display: {{glintDisplay}}\">\n<path d=\"{{glintD}}\" style=\"fill: none; stroke: url(#botnowglint); stroke-width: 12\"><\/path>\n<circle cx=\"{{ghx}}\" cy=\"{{ghy}}\" r=\"6.5\" style=\"fill: #E0FCE7\"><\/circle>\n<\/g>\n<\/g>\n<path d=\"{{eyeL}}\" style=\"fill: none; stroke: #F4F4F2; stroke-width: {{eyeLw}}; stroke-linecap: round; stroke-linejoin: round\"><\/path>\n<path d=\"{{eyeR}}\" style=\"fill: none; stroke: #F4F4F2; stroke-width: {{eyeRw}}; stroke-linecap: round; stroke-linejoin: round\"><\/path>\n<g style=\"display: {{badgeDisplay}}\">\n<circle cx=\"{{badgeX}}\" cy=\"{{badgeY}}\" r=\"{{gapR}}\" style=\"fill: #000000\"><\/circle>\n<circle cx=\"{{badgeX}}\" cy=\"{{badgeY}}\" r=\"{{dotR}}\" style=\"fill: {{badgeColor}}\"><\/circle>\n<\/g>\n<g style=\"display: {{labelDisplay}}; transform: translateY({{dy}}px)\">\n<path d=\"M 209 331 h4 v8 h-4 Z M 209 339 h4 v8 h-4 Z M 213 331 h4 v8 h-4 Z M 217 331 h4 v8 h-4 Z M 213 339 h4 v8 h-4 Z M 221 331 h4 v8 h-4 Z M 225 331 h4 v8 h-4 Z M 221 339 h4 v8 h-4 Z M 225 339 h4 v8 h-4 Z M 229 331 h4 v8 h-4 Z M 233 331 h4 v8 h-4 Z M 229 339 h4 v8 h-4 Z M 233 339 h4 v8 h-4 Z M 237 331 h4 v8 h-4 Z M 241 331 h4 v8 h-4 Z M 237 339 h4 v8 h-4 Z M 241 339 h4 v8 h-4 Z M 245 331 h4 v8 h-4 Z M 249 331 h4 v8 h-4 Z M 249 339 h4 v8 h-4 Z M 253 331 h4 v8 h-4 Z M 253 339 h4 v8 h-4 Z M 201 347 h4 v8 h-4 Z M 205 347 h4 v8 h-4 Z M 209 347 h4 v8 h-4 Z M 209 355 h4 v8 h-4 Z M 213 347 h4 v8 h-4 Z M 217 347 h4 v8 h-4 Z M 213 355 h4 v8 h-4 Z M 217 355 h4 v8 h-4 Z M 221 347 h4 v8 h-4 Z M 225 347 h4 v8 h-4 Z M 221 355 h4 v8 h-4 Z M 225 355 h4 v8 h-4 Z M 229 347 h4 v8 h-4 Z M 233 347 h4 v8 h-4 Z M 229 355 h4 v8 h-4 Z M 233 355 h4 v8 h-4 Z M 237 347 h4 v8 h-4 Z M 241 347 h4 v8 h-4 Z M 237 355 h4 v8 h-4 Z M 241 355 h4 v8 h-4 Z M 245 347 h4 v8 h-4 Z M 249 347 h4 v8 h-4 Z M 245 355 h4 v8 h-4 Z M 249 355 h4 v8 h-4 Z M 253 347 h4 v8 h-4 Z M 257 347 h4 v8 h-4 Z M 253 355 h4 v8 h-4 Z M 261 347 h4 v8 h-4 Z M 213 363 h4 v8 h-4 Z M 221 363 h4 v8 h-4 Z M 241 363 h4 v8 h-4 Z M 249 363 h4 v8 h-4 Z\" style=\"fill: #D77757\"><\/path>\n<text x=\"0\" y=\"0\" style=\"transform: {{l0}}; fill: {{labelColor}}; font-size: 30px; text-anchor: middle\">C<\/text>\n<text x=\"0\" y=\"0\" style=\"transform: {{l1}}; fill: {{labelColor}}; font-size: 30px; text-anchor: middle\">L<\/text>\n<text x=\"0\" y=\"0\" style=\"transform: {{l2}}; fill: {{labelColor}}; font-size: 30px; text-anchor: middle\">A<\/text>\n<text x=\"0\" y=\"0\" style=\"transform: {{l3}}; fill: {{labelColor}}; font-size: 30px; text-anchor: middle\">U<\/text>\n<text x=\"0\" y=\"0\" style=\"transform: {{l4}}; fill: {{labelColor}}; font-size: 30px; text-anchor: middle\">D<\/text>\n<text x=\"0\" y=\"0\" style=\"transform: {{l5}}; fill: {{labelColor}}; font-size: 30px; text-anchor: middle\">E<\/text>\n<\/g>\n<\/svg>\n<\/div>";
+
+let __schedule = () => {};
+class DCLogic {
+  constructor(props) { this.props = props; this.state = {}; }
+  setState(u) {
+    const next = typeof u === 'function' ? u(this.state, this.props) : u;
+    this.state = Object.assign({}, this.state, next);
+    __schedule();
+  }
+}
+
+class Component extends DCLogic {
+componentDidMount() {
+  this._alive = true;
+  const loop = (ms) => {
+    if (!this._alive) return;
+    if (this._t0 == null) this._t0 = ms / 1000;
+    this._stepAt(ms / 1000 - this._t0);
+    this.setState({ f: ((this.state && this.state.f) || 0) + 1 });
+    this._raf = requestAnimationFrame(loop);
+  };
+  this._raf = requestAnimationFrame(loop);
+}
+componentWillUnmount() { this._alive = false; cancelAnimationFrame(this._raf); }
+
+_makeSim(seed) {
+  const M64 = (1n << 64n) - 1n;
+  const IDLE = 0, SLEEPY = 1, WORKING = 2, WAITING = 3, ERROR = 4, DONE = 5;
+  const DASH = 0, ROUND = 1, HAPPY = 2, ANGRY = 3;
+  const REST_X = 0.67, REST_Y = 0.77, VIEWER_X = 0, VIEWER_Y = 0.1;
+  const HOP_LEN = 1.0, HOP_CURVE_LEN = 0.62, HOP_SQUASH = 0.75;
+  const EIO = 0, EOB = 1;
+  let rng = BigInt.asUintN(64, BigInt(seed));
+  const next = () => {
+    rng = (rng + 0x9E3779B97F4A7C15n) & M64;
+    let z = rng;
+    z = ((z ^ (z >> 30n)) * 0xBF58476D1CE4E5B9n) & M64;
+    z = ((z ^ (z >> 27n)) * 0x94D049BB133111EBn) & M64;
+    return z ^ (z >> 31n);
+  };
+  const unit = () => Number(next() >> 11n) * Math.pow(2, -53);
+  const range = (lo, hi) => lo + (hi - lo) * unit();
+  const jitter = (a) => range(-a, a);
+  const clamp01 = (u) => (u < 0 ? 0 : u > 1 ? 1 : u);
+  const ease = (k, u) => {
+    u = clamp01(u);
+    if (k === EIO) return u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    const c1 = 1.4, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2);
+  };
+  const tconst = (v) => ({ from: v, to: v, start: 0, dur: 0, e: EIO });
+  const tween = (from, to, start, dur, e) => ({ from, to, start, dur, e });
+  const tval = (tw, t) => {
+    if (t < tw.start) return tw.from;
+    if (tw.dur <= 0 || t >= tw.start + tw.dur) return tw.to;
+    return tw.from + (tw.to - tw.from) * ease(tw.e, (t - tw.start) / tw.dur);
+  };
+  const tactive = (tw, t) => tw.from !== tw.to && t < tw.start + tw.dur;
+  const lognormal = (median, sigma, lo, hi) => {
+    let u1 = unit(); const u2 = unit();
+    if (u1 < 1e-300) u1 = 1e-300;
+    const n = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    const v = median * Math.exp(sigma * n);
+    return v < lo ? lo : v > hi ? hi : v;
+  };
+  const eyesFor = (m) => (m === WAITING ? ROUND : m === DONE ? HAPPY : m === ERROR ? ANGRY : DASH);
+  const lidCurve = (u, speed) => {
+    const close = 0.075 * speed, hold = 0.035 * speed, open = 0.15 * speed;
+    if (u <= 0) return 0;
+    if (u < close) { const v = u / close; return v * v; }
+    if (u < close + hold) return 1;
+    if (u < close + hold + open) { const v = (u - close - hold) / open; return (1 - v) * (1 - v); }
+    return 0;
+  };
+  const blinkLength = (speed) => (0.075 + 0.035 + 0.15) * speed;
+  const lerp = (a, b, k) => a + (b - a) * clamp01(k);
+  const hopCurve = (u) => {
+    if (u < 0.12) { const k = ease(EIO, u / 0.12); return [1 + 0.1 * k, 1 - 0.14 * k, 0]; }
+    if (u < 0.30) {
+      const v = (u - 0.12) / 0.18; let sx, sy;
+      if (v < 0.3) { sx = lerp(1.1, 0.93, v / 0.3); sy = lerp(0.86, 1.1, v / 0.3); }
+      else { sx = lerp(0.93, 1, (v - 0.3) / 0.7); sy = lerp(1.1, 1, (v - 0.3) / 0.7); }
+      return [sx, sy, 0.22 * (1 - (1 - v) * (1 - v))];
+    }
+    if (u < 0.46) { const v = (u - 0.30) / 0.16; return [lerp(1, 0.95, v), lerp(1, 1.07, v), 0.22 * (1 - v * v)]; }
+    let v = (u - 0.46) / 0.16; if (v > 1) v = 1;
+    const k = Math.sin(Math.PI * v);
+    return [1 + 0.1 * k, 1 - 0.12 * k, 0];
+  };
+
+  const b = {};
+  const currentGaze = (t) => {
+    if (!(b.gaze_start >= 0 && t < b.gaze_start + b.gaze_dur)) return [b.gaze_to_x, b.gaze_to_y];
+    const k = ease(b.gaze_ease, (t - b.gaze_start) / b.gaze_dur);
+    return [b.gaze_from_x + (b.gaze_to_x - b.gaze_from_x) * k, b.gaze_from_y + (b.gaze_to_y - b.gaze_from_y) * k];
+  };
+  const blinkInterval = () => {
+    const med = { [WORKING]: 6.0, [WAITING]: 3.0, [SLEEPY]: 2.8, [ERROR]: 2.2, [DONE]: 3.2 }[b.mood] || 4.0;
+    return lognormal(med, 0.45, 1.0, 12);
+  };
+  const fixation = () => {
+    switch (b.mood) {
+      case WORKING: return lognormal(0.9, 0.35, 0.35, 2);
+      case WAITING: return lognormal(2.5, 0.4, 0.8, 6);
+      case SLEEPY: return lognormal(8, 0.4, 4, 20);
+      case ERROR: return lognormal(0.9, 0.4, 0.3, 2.5);
+      case DONE: return lognormal(2.5, 0.4, 0.8, 6);
+      default: return lognormal(2.2, 0.5, 0.6, 7);
+    }
+  };
+  const nextTarget = () => {
+    const r = unit();
+    switch (b.mood) {
+      case IDLE: {
+        if (r < 0.45) { const x = REST_X + jitter(0.1); return [x, REST_Y + jitter(0.08)]; }
+        if (r < 0.7) { const x = VIEWER_X + jitter(0.08); return [x, VIEWER_Y + jitter(0.08)]; }
+        const x = jitter(0.9); return [x, range(-0.6, 0.8)];
+      }
+      case WORKING: {
+        if (r < 0.1) return [VIEWER_X + jitter(0.05), VIEWER_Y];
+        b.read_x += range(0.28, 0.45);
+        if (b.read_x > 0.7) b.read_x = -0.7;
+        return [b.read_x, -0.15 + jitter(0.04)];
+      }
+      case WAITING: {
+        if (r < 0.75) { const x = VIEWER_X + jitter(0.05); return [x, VIEWER_Y + jitter(0.05)]; }
+        return [r < 0.875 ? -0.7 : 0.7, jitter(0.2)];
+      }
+      case SLEEPY: { const x = jitter(0.5); return [x, range(-0.5, -0.2)]; }
+      case ERROR: { const x = jitter(0.9); return [x, jitter(0.7)]; }
+      default: {
+        if (r < 0.5) { const x = REST_X + jitter(0.08); return [x, REST_Y + jitter(0.06)]; }
+        const x = VIEWER_X + jitter(0.06); return [x, VIEWER_Y + jitter(0.06)];
+      }
+    }
+  };
+  const startBlink = (t) => {
+    b.blinking = true; b.blink_start = t; b.last_blink_at = t;
+    b.blink_lag = range(0, 0.02);
+    b.blink_speed = b.mood === SLEEPY ? 2.2 : 1;
+    b.double_blink_pending = unit() < 0.12;
+    b.next_blink_at = t + blinkInterval();
+  };
+  const startSaccadeTo = (t, glide, tx, ty) => {
+    const [fx, fy] = currentGaze(t);
+    const amp = Math.hypot(tx - fx, ty - fy);
+    b.gaze_from_x = fx; b.gaze_from_y = fy; b.gaze_to_x = tx; b.gaze_to_y = ty;
+    b.gaze_start = t;
+    b.gaze_dur = glide ? 0.42 : 0.025 + 0.045 * amp;
+    b.gaze_ease = glide ? EIO : EOB;
+    if (!glide && amp > 0.8 && !b.blinking && t - b.last_blink_at > 1.2 && unit() < 0.6) startBlink(t);
+    const leanDur = glide ? 0.5 : 0.2;
+    b.lean_x = tween(tval(b.lean_x, t), tx * 0.045, t + 0.03, leanDur, EIO);
+    b.lean_y = tween(tval(b.lean_y, t), ty * 0.03, t + 0.03, leanDur, EIO);
+    b.next_saccade_at = t + b.gaze_dur + fixation();
+  };
+  const startSaccade = (t, glide) => { const [x, y] = nextTarget(); startSaccadeTo(t, glide, x, y); };
+  const enter = (m, t) => {
+    const waking = b.mood === SLEEPY;
+    b.mood = m; b.mood_since = t; b.swap_eyes_on_close = true;
+    if (!b.blinking) { startBlink(t); if (b.blink_speed < 1.6) b.blink_speed = 1.6; }
+    else b.double_blink_pending = true;
+    if (waking) b.double_blink_pending = true;
+    const morph = 0.45;
+    b.triangle = tween(tval(b.triangle, t), m === ERROR ? 1 : 0, t, morph, EIO);
+    b.slump = tween(tval(b.slump, t), m === SLEEPY ? 1 : 0, t, m === SLEEPY ? 1.6 : morph, EIO);
+    const badged = m === WAITING || m === DONE;
+    b.badge = tween(tval(b.badge, t), badged ? 1 : 0, t + 0.1, 0.35, badged ? EOB : EIO);
+    b.popping = m !== SLEEPY; b.pop_start = t;
+    b.read_x = -0.6;
+    startSaccade(t, true);
+    b.next_hop_at = m === WAITING ? t + 0.6 : Infinity;
+  };
+  const init = (now) => {
+    Object.assign(b, {
+      mood: IDLE, eyes: DASH, swap_eyes_on_close: false, mood_since: now, sleep_after_s: 300,
+      gaze_from_x: REST_X, gaze_to_x: REST_X, gaze_from_y: REST_Y, gaze_to_y: REST_Y,
+      gaze_start: -1, gaze_dur: 0, gaze_ease: EOB, next_saccade_at: now + 1, read_x: -0.6,
+      blinking: false, blink_start: 0, blink_lag: 0, blink_speed: 1, double_blink_pending: false,
+      next_blink_at: now + 0.8, last_blink_at: -Infinity,
+      triangle: tconst(0), slump: tconst(0), badge: tconst(0), lean_x: tconst(0), lean_y: tconst(0),
+      popping: false, hopping: false, pop_start: 0, hop_start: 0, next_hop_at: Infinity,
+    });
+  };
+  const setMood = (m, t) => {
+    if (m === b.mood || (m === IDLE && b.mood === SLEEPY)) return false;
+    enter(m, t); return true;
+  };
+  const pose = (t) => {
+    if (b.mood === IDLE && b.sleep_after_s > 0 && t - b.mood_since >= b.sleep_after_s) enter(SLEEPY, t);
+    if (!b.blinking && t >= b.next_blink_at) startBlink(t);
+    if (t >= b.next_saccade_at) startSaccade(t, false);
+    if (t >= b.next_hop_at) { b.hopping = true; b.hop_start = t; b.next_hop_at = t + lognormal(4.5, 0.35, 2.5, 9); }
+    const p = { mood: b.mood, scale_x: 1, scale_y: 1, orbit: 0 };
+    let bl = 0, br = 0;
+    if (b.blinking) {
+      const u = t - b.blink_start;
+      bl = lidCurve(u, b.blink_speed);
+      br = lidCurve(u - b.blink_lag, b.blink_speed);
+      if (b.swap_eyes_on_close && Math.max(bl, br) >= 0.9) { b.eyes = eyesFor(b.mood); b.swap_eyes_on_close = false; }
+      if (u - b.blink_lag >= blinkLength(b.blink_speed)) {
+        if (b.swap_eyes_on_close && !b.double_blink_pending) { b.eyes = eyesFor(b.mood); b.swap_eyes_on_close = false; }
+        b.blinking = false;
+        if (b.double_blink_pending) { b.double_blink_pending = false; b.blinking = true; b.blink_start = t + 0.06; }
+      }
+    }
+    p.eyes = b.eyes;
+    const heavy = tval(b.slump, t) * 0.55;
+    p.lid_l = heavy + (1 - heavy) * bl;
+    p.lid_r = heavy + (1 - heavy) * br;
+    [p.gaze_x, p.gaze_y] = currentGaze(t);
+    p.triangle = tval(b.triangle, t); p.slump = tval(b.slump, t); p.badge = tval(b.badge, t);
+    p.offset_x = tval(b.lean_x, t); p.offset_y = tval(b.lean_y, t);
+    if (b.hopping) {
+      const u = t - b.hop_start;
+      if (u < HOP_LEN) {
+        const [sx, sy, dy] = hopCurve(u * HOP_CURVE_LEN / HOP_LEN);
+        p.scale_x *= 1 + (sx - 1) * HOP_SQUASH; p.scale_y *= 1 + (sy - 1) * HOP_SQUASH; p.offset_y += dy;
+      } else b.hopping = false;
+    }
+    if (b.popping) {
+      const u = (t - b.pop_start) / 0.4;
+      if (u < 1) { const k = 1 + 0.1 * Math.sin(Math.PI * u) * (1 - u); p.scale_x *= k; p.scale_y *= k; }
+      else b.popping = false;
+    }
+    return p;
+  };
+  init(0);
+  return { setMood, pose, enter, b, IDLE, SLEEPY, WORKING, WAITING, ERROR, DONE, DASH, ROUND, HAPPY, ANGRY };
+}
+
+_shapes() {
+  if (this._shp) return this._shp;
+  const TRI = 720, R = 1.1, SAG = 0.11;
+  const raw = new Float64Array(TRI), tri = new Float64Array(TRI);
+  const vx = [], vy = [];
+  for (let k = 0; k < 3; k++) { const a = Math.PI / 2 + k * 2 * Math.PI / 3; vx[k] = R * Math.cos(a); vy[k] = R * Math.sin(a); }
+  for (let k = 0; k < 3; k++) {
+    const ax = vx[k], ay = vy[k], bx = vx[(k + 1) % 3], by = vy[(k + 1) % 3];
+    const c = Math.hypot(bx - ax, by - ay), rho = (c * c / 4 + SAG * SAG) / (2 * SAG);
+    const mx = (ax + bx) / 2, my = (ay + by) / 2, nl = Math.hypot(mx, my), nx = mx / nl, ny = my / nl;
+    for (let i = 0; i <= 2000; i++) {
+      const t = i / 2000, x = (t - 0.5) * c;
+      const off = Math.sqrt(rho * rho - x * x) - (rho - SAG);
+      const px = ax + (bx - ax) * t + nx * off, py = ay + (by - ay) * t + ny * off;
+      let ang = Math.atan2(py, px); if (ang < 0) ang += 2 * Math.PI;
+      const bin = Math.floor(ang / (2 * Math.PI) * TRI) % TRI;
+      const r = Math.hypot(px, py); if (r > raw[bin]) raw[bin] = r;
+    }
+  }
+  for (let i = 0; i < TRI; i++) if (raw[i] === 0) raw[i] = raw[(i + TRI - 1) % TRI];
+  const sig = 1.2 / 360 * TRI, w = Math.ceil(3 * sig);
+  for (let i = 0; i < TRI; i++) {
+    let acc = 0, ws = 0;
+    for (let d = -w; d <= w; d++) { const g = Math.exp(-(d * d) / (2 * sig * sig)); acc += g * raw[(i + d + TRI) % TRI]; ws += g; }
+    tri[i] = acc / ws;
+  }
+  const triR = (a) => {
+    let x = (a / (2 * Math.PI) * TRI) % TRI; if (x < 0) x += TRI;
+    const i = Math.floor(x), f = x - i;
+    return tri[i % TRI] * (1 - f) + tri[(i + 1) % TRI] * f;
+  };
+  const ring = (k) => {
+    const xs = [], ys = [];
+    for (let i = 0; i < 192; i++) { const a = i / 192 * 2 * Math.PI, r = 1 + (triR(a) - 1) * k; xs.push(r * Math.cos(a)); ys.push(r * Math.sin(a)); }
+    return [xs, ys];
+  };
+  const capsule = (cx, cy, w, h, angle) => {
+    let half, dx, dy, width;
+    if (h >= w) { half = (h - w) / 2; dx = -Math.sin(angle); dy = Math.cos(angle); width = w; }
+    else { half = (w - h) / 2; dx = Math.cos(angle); dy = Math.sin(angle); width = h; }
+    if (half < 0.002) half = 0.002;
+    return { x: [cx - dx * half, cx + dx * half], y: [cy - dy * half, cy + dy * half], width };
+  };
+  const eyeStrokes = (p, scale) => {
+    const reach = 0.6 - 0.2 * p.triangle;
+    let cx = p.gaze_x * reach, cy = p.gaze_y * reach - 0.12 * p.triangle - 0.1 * p.slump;
+    let limit = 0.52 - 0.15 * p.triangle; const d = Math.hypot(cx, cy);
+    limit += (0.9 - limit) * p.orbit;
+    if (d > limit) { cx *= limit / d; cy *= limit / d; }
+    const fx = Math.sqrt(1 - 0.45 * cx * cx), fy = Math.sqrt(1 - 0.45 * cy * cy);
+    const straight = 0.06;
+    let lean = (Math.abs(cx) - straight) / (0.67 * 0.6 - straight); lean = lean < 0 ? 0 : lean > 1 ? 1 : lean;
+    const sep = (p.eyes === 1 ? 0.5 : 0.44) * fx * (1 + (scale - 1) * 0.5);
+    const deg = Math.PI / 180, out = [];
+    for (let e = 0; e < 2; e++) {
+      const side = e === 0 ? -1 : 1, lid = e === 0 ? p.lid_l : p.lid_r;
+      const L = (a, b2) => a + (b2 - a) * lid;
+      const rise = p.eyes === 0 ? 0.04 * side * lean : 0;
+      const ex = cx + side * sep / 2, ey = cy + rise, ffx = fx * scale, ffy = fy * scale;
+      if (p.eyes === 0) out.push(capsule(ex, ey, L(0.14, 0.24) * ffx, L(0.38, 0.06) * ffy, L(27, -6) * lean * deg));
+      else if (p.eyes === 3) out.push(capsule(ex, ey, L(0.13, 0.22) * ffx, L(0.3, 0.06) * ffy, L(55, 10) * deg * -side));
+      else if (p.eyes === 1) out.push(capsule(ex, ey, L(0.3, 0.34) * ffx, L(0.44, 0.05) * ffy, 10 * lean * deg));
+      else {
+        const w = 0.3 * ffx, h = L(0.16, 0.03) * ffy;
+        const x0 = ex - w / 2, y0 = ey - h / 2, qx = ex, qy = ey + h * 1.5, x1 = ex + w / 2, y1 = ey - h / 2;
+        const s = { x: [], y: [], width: 0.11 * Math.min(ffx, ffy) };
+        for (let i = 0; i < 7; i++) {
+          const u = i / 6, v = 1 - u;
+          s.x.push(v * v * x0 + 2 * v * u * qx + u * u * x1); s.y.push(v * v * y0 + 2 * v * u * qy + u * u * y1);
+        }
+        out.push(s);
+      }
+    }
+    return out;
+  };
+  this._shp = { ring, eyeStrokes };
+  return this._shp;
+}
+
+_stepAt(t) {
+  const MOODS = { idle: 0, sleepy: 1, working: 2, waiting: 3, error: 4, done: 5 };
+  const RGB = ['#888888', '#888888', '#2EE85E', '#FFC14D', '#FF3A3A', '#4FA9FF'];
+  const CX = 233, CY = 233, R = 233 * 0.84, HOP_SCALE = 0.45, EYE_SCALE = 1.15, BASE = 5;
+  const shp = this._shapes();
+  if (!this._sim) {
+    const seed = (typeof window !== 'undefined' && window.__botSeed != null) ? window.__botSeed : Math.floor(Math.random() * 1e9);
+    this._sim = this._makeSim(seed);
+    this._vw = { shape: -1, mood: -1, shown: BASE, dy: 0, ready: new Array(11).fill(Infinity), paths: {} };
+    const q = 0.75, sx = [], sy = [];
+    for (let k = 0; k < 11; k++) {
+      const u = (k - BASE) / 5;
+      sx.push(u < 0 ? 1 - 0.10 * q * u : 1 - 0.07 * q * u);
+      sy.push(u < 0 ? 1 + 0.14 * q * u : 1 + 0.10 * q * u);
+    }
+    this._vw.sx = sx; this._vw.sy = sy;
+    this._vw.order = [4, 6, 3, 7, 2, 8, 1, 9, 0, 10];
+  }
+  const sim = this._sim, vw = this._vw;
+  const want = MOODS[this.props.mood] ?? 2;
+  if (want !== this._mood) {
+    if (want === sim.IDLE && sim.b.mood === sim.SLEEPY) sim.enter(sim.IDLE, t);
+    else sim.setMood(want, t);
+    this._mood = want;
+  }
+  const p = sim.pose(t);
+  const toScreen = (pp, x, y) => [CX + R * (pp.offset_x + pp.scale_x * x), CY - R * (pp.offset_y * HOP_SCALE - (1 - pp.scale_y) + pp.scale_y * y)];
+
+  const shape = p.triangle >= 0.5 ? 1 : 0;
+  if (shape !== vw.shape || p.mood !== vw.mood) {
+    vw.shape = shape; vw.mood = p.mood; vw.paths = {};
+    vw.ready = new Array(11).fill(Infinity); vw.ready[BASE] = t;
+    vw.order.forEach((v, k) => { vw.ready[v] = t + 0.13 * (k + 1); });
+  }
+  const ratio = p.scale_y / p.scale_x;
+  let v = BASE;
+  if (Math.abs(ratio - 1) >= 0.015) {
+    let bd = Math.abs(ratio - 1);
+    for (let k = 0; k < 11; k++) {
+      if (k !== BASE && vw.ready[k] > t) continue;
+      const d = Math.abs(ratio - vw.sy[k] / vw.sx[k]);
+      if (d < bd) { bd = d; v = k; }
+    }
+  }
+  const lround = (x) => (x < 0 ? -Math.floor(-x + 0.5) : Math.floor(x + 0.5));
+  vw.shown = v;
+  vw.dy = lround(-R * p.offset_y * HOP_SCALE) & ~1;
+  if (!vw.paths[v]) {
+    const [xs, ys] = shp.ring(shape);
+    const pp = { offset_x: 0, offset_y: 0, scale_x: vw.sx[v], scale_y: vw.sy[v] };
+    vw.paths[v] = xs.map((x, i) => { const [a, c] = toScreen(pp, x, ys[i]); return (i ? 'L' : 'M') + a.toFixed(2) + ' ' + c.toFixed(2); }).join(' ') + ' Z';
+  }
+
+  const st = shp.eyeStrokes(p, EYE_SCALE);
+  const k = R * (p.scale_x + p.scale_y) / 2;
+  const eyePath = (s) => s.x.map((x, i) => { const [a, c] = toScreen(p, x, s.y[i]); return (i ? 'L' : 'M') + a.toFixed(2) + ' ' + c.toFixed(2); }).join(' ');
+
+  const glintOn = vw.mood === sim.WORKING && vw.shape === 0 && vw.shown === BASE;
+  const idx = Math.floor(t * 15) % 45, head = idx * 8 - 90;
+  const pt = (deg) => [CX + R * Math.cos(deg * Math.PI / 180), CY + R * Math.sin(deg * Math.PI / 180)];
+  const [hx, hy] = pt(head), [tx, ty] = pt(head - 40);
+
+  const label = vw.mood === sim.WORKING || vw.mood === sim.WAITING || vw.mood === sim.ERROR;
+  if (!this._letters) {
+    const w = [21.69, 17.82, 21.96, 23.73, 24.78, 20.10], LR = 176;
+    const phi = [];
+    for (let i = 0; i + 1 < w.length; i++) phi.push(2 * Math.asin((w[i] + w[i + 1]) / 2 / (2 * LR)));
+    let th = -phi.reduce((a, c) => a + c, 0) / 2;
+    this._letters = w.map((_, i) => {
+      if (i) th += phi[i - 1];
+      const x = CX + LR * Math.sin(th), y = CY + LR * Math.cos(th);
+      return 'translate(' + x.toFixed(2) + 'px, ' + y.toFixed(2) + 'px) rotate(' + (-th * 180 / Math.PI).toFixed(2) + 'deg)';
+    });
+  }
+  const badgeOn = p.badge > 0.01;
+  const [bx, by] = toScreen({ offset_x: 0, offset_y: 0, scale_x: 1, scale_y: 1 }, Math.cos(Math.PI / 4) * 0.98, Math.sin(Math.PI / 4) * 0.98);
+
+  this._v = {
+    dy: vw.dy,
+    ringD: vw.paths[v], ringColor: RGB[vw.mood], ringOpacity: vw.mood <= 1 ? 0.55 : 1,
+    glintDisplay: glintOn ? 'inline' : 'none',
+    glintD: 'M ' + tx.toFixed(2) + ' ' + ty.toFixed(2) + ' A ' + R.toFixed(2) + ' ' + R.toFixed(2) + ' 0 0 1 ' + hx.toFixed(2) + ' ' + hy.toFixed(2),
+    gtx: tx.toFixed(2), gty: ty.toFixed(2), ghx: hx.toFixed(2), ghy: hy.toFixed(2),
+    eyeL: eyePath(st[0]), eyeR: eyePath(st[1]),
+    eyeLw: (st[0].width * k).toFixed(2), eyeRw: (st[1].width * k).toFixed(2),
+    badgeDisplay: badgeOn ? 'inline' : 'none',
+    badgeX: bx.toFixed(1), badgeY: (by + vw.dy).toFixed(1),
+    gapR: badgeOn ? Math.round(0.3 * p.badge * R) : 0, dotR: badgeOn ? Math.round(0.22 * p.badge * R) : 0,
+    badgeColor: RGB[vw.mood],
+    labelDisplay: label ? 'inline' : 'none', labelColor: RGB[vw.mood],
+    l0: this._letters[0], l1: this._letters[1], l2: this._letters[2], l3: this._letters[3], l4: this._letters[4], l5: this._letters[5],
+  };
+  return this._v;
+}
+
+renderVals() {
+  if (!this._v) this._stepAt(0);
+  return this._v;
+}
+}
+
+(function () {
+  const root = document.getElementById('face');
+  const q = new URLSearchParams(location.search);
+  if (q.get('embed') === '1') document.body.classList.add('embed');
+  const coerce = (d, v) => d.editor === 'boolean' ? (v === true || v === 'true' || v === '1') : d.editor === 'range' ? Number(v) : v;
+  const props = {};
+  for (const [k, d] of Object.entries(SCHEMA)) {
+    if (k[0] === '$') continue;
+    props[k] = q.has(k) ? coerce(d, q.get(k)) : d.default;
+  }
+  const comp = typeof Component === 'function' ? new Component(Object.assign({}, props)) : null;
+  let last = null, pending = false;
+  const render = () => {
+    pending = false;
+    const vals = Object.assign({}, props, comp && comp.renderVals ? (comp.renderVals() || {}) : {});
+    const out = TEMPLATE.replace(/\{\{(\w+)\}\}/g, (m, k) => (vals[k] == null ? '' : String(vals[k])));
+    if (out !== last) { root.innerHTML = out; last = out; }
+  };
+  __schedule = () => { if (!pending) { pending = true; Promise.resolve().then(render); } };
+  render();
+  if (comp && comp.componentDidMount) comp.componentDidMount();
+  window.addEventListener('pagehide', () => { if (comp && comp.componentWillUnmount) comp.componentWillUnmount(); });
+  const box = document.getElementById('controls');
+  const set = (k, v) => {
+    props[k] = v;
+    if (comp) comp.props = Object.assign({}, props);
+    const u = new URL(location.href); u.searchParams.set(k, String(v)); history.replaceState(null, '', u);
+    render();
+  };
+  for (const [k, d] of Object.entries(SCHEMA)) {
+    if (k[0] === '$') continue;
+    const label = document.createElement('label');
+    label.textContent = k + ' ';
+    let input;
+    if (d.editor === 'enum') {
+      input = document.createElement('select');
+      for (const o of d.options) { const op = document.createElement('option'); op.value = o; op.textContent = o; input.appendChild(op); }
+      input.value = props[k];
+      input.onchange = () => set(k, input.value);
+    } else if (d.editor === 'boolean') {
+      input = document.createElement('input'); input.type = 'checkbox'; input.checked = !!props[k];
+      input.onchange = () => set(k, input.checked);
+    } else if (d.editor === 'range') {
+      input = document.createElement('input'); input.type = 'range';
+      input.min = d.min; input.max = d.max; input.step = d.step || 1; input.value = props[k];
+      const out = document.createElement('output'); out.textContent = props[k] + (d.unit || '');
+      input.oninput = () => { out.textContent = input.value + (d.unit || ''); set(k, Number(input.value)); };
+      label.appendChild(input); label.appendChild(out); box.appendChild(label); continue;
+    } else continue;
+    label.appendChild(input); box.appendChild(label);
+  }
+  if (!box.children.length) box.textContent = 'No props on this face.';
+})();
+
+</script>
+</body>
+</html>
