@@ -617,14 +617,17 @@ Principle: Ember stays the only authority. Offline the knob shows what it last k
 
 Unresolved indirect calls: equal to main for every task except `pomo` and `weather` 52 → 53 (`tcp_connect` in lwIP, not touched here: decode depends on the link layout, see the stack section). Press queue items grow from 4 to 12 B (4 deep). No new task, timer or NVS key. At run time two LVGL labels (bot glyph, weather age; LVGL objects use the internal heap through `LV_USE_CLIB_MALLOC`).
 
-**On-device runtime numbers: TO MEASURE (placeholder, not measured yet).** Against 0.9.39 (or the 0.9.32 baseline of the spec), with the server stopped and restarted only within the live-device rules (a stub server needs the user's approval, then restore and a live checkin):
+**On-device runtime numbers (2026-10-09, knob-61fc8c, app-flash of the secret-free `build-release` image, Ember container stopped for about 4 min then restarted).** From the live checkin; 0.9.39 is the local build of the page-table change.
 
 | | 0.9.39 | 0.9.40 |
 |---|---|---|
-| Internal free / largest block at boot | TBD | TBD |
-| Internal free / largest block after 10 min | TBD | TBD |
-| PSRAM free | TBD | TBD |
-| Stack free `ember` / `lvgl` (`stack free B:` line) | TBD | TBD |
-| fps per page (bot, Pomodoro, weather, now playing), online / offline | TBD | TBD |
-| OTA health gate (`health pass`) | TBD | TBD |
-| Recovery: first view after the server is back | TBD | TBD |
+| Internal free at boot | 102,575 B | 102,115 B |
+| Internal minimum since boot | 65,284 B | 64,448 B (unchanged through the outage) |
+| Internal free / largest block after about 20 min, incl. the outage | not recorded | 101,967 / 31,744 B |
+| Stack free `lvgl` | 5,576 B | 5,572 B |
+| Stack free `ember` at boot / after the outage | not recorded | 4,128 / 3,712 B |
+| OTA image after boot (health gate) | `valid` | `valid` |
+| Offline pages (after about 60 s) | n/a | bot: idle face + link glyph; Pomodoro: `--:--` `OFFLINE`, a push shows `OFFLINE: NOT SENT`; weather: last observation + `3 min ago`; now playing: `Ember offline` |
+| Recovery | n/a | Pomodoro page back to `PUSH TO START` within seconds of the restart; server Pomodoro still `idle`, so the offline press was not replayed |
+
+PSRAM free and fps per page are not in the checkin and were not measured.
