@@ -307,6 +307,29 @@ static void test_storm_flashes(void)
     CHECK(flashes >= 12 && flashes <= 45, "storm: %d flashes in 2 min", flashes);
 }
 
+static void test_age_text(void)
+{
+    static const struct {
+        double age_s;
+        const char *want;
+    } C[] = {
+        {-5, "just now"}, {0, "just now"}, {59.9, "just now"}, {60, "1 min ago"}, {119, "1 min ago"},
+        {3599, "59 min ago"}, {3600, "1 h ago"}, {7200, "2 h ago"}, {7199, "1 h ago"}, {86399, "23 h ago"},
+        {86400, "1 d ago"}, {3 * 86400 + 5, "3 d ago"}, {1e12, "999 d ago"},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        char buf[16];
+        int n = wx_age_text(C[i].age_s, buf, sizeof buf);
+        CHECK(strcmp(buf, C[i].want) == 0 && n == (int)strlen(buf), "%.1f s -> '%s', want '%s'", C[i].age_s, buf,
+              C[i].want);
+    }
+    char nan_buf[16];
+    wx_age_text(NAN, nan_buf, sizeof nan_buf);
+    CHECK(strcmp(nan_buf, "just now") == 0, "NaN -> just now");
+    char tiny[4];
+    CHECK(wx_age_text(7200, tiny, sizeof tiny) == 7 && strcmp(tiny, "2 h") == 0, "truncates, returns the full length");
+}
+
 int main(void)
 {
     test_mapping_table();
@@ -316,6 +339,7 @@ int main(void)
     test_particles_stay_inside();
     test_counts_and_pacing();
     test_storm_flashes();
+    test_age_text();
     if (failures) {
         printf("weather: %d failure(s)\n", failures);
         return 1;

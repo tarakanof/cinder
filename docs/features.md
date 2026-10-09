@@ -32,7 +32,7 @@ Internal RAM budget (the hard constraint): Wi-Fi must start **before** the displ
 ## Pages: bot, Pomodoro, weather (step 4, PR #4, verified on hardware 2026-10-03)
 
 `main.c` owns a page index; push and turn (button held while turning) changes page, and that press does nothing else. Push vs long push is decided on **release** (a hold followed by a turn is a page change, so long push must not fire at 1.5 s). Inputs are counted as atomics in the esp_timer input callbacks and applied in the LVGL `frame_cb`, which knows the page. The callbacks keep the atomics; what a turn or a release means (dropped by the reset gesture, page step, detent; push, long push, nothing) is `cinder_cfg/press_route.c`, host-tested in `test_legacy.c`. Hidden pages don't draw; the bot keeps its timers off-page and redraws its full pose on return.
-- Pomodoro (`components/pomo`, `pomo_client`, `pomo_view`): poll `/v1/pomodoro/state` 1 s running / 2 s idle, actions POST with bearer from a core-1 queue (action chosen from the freshest state, like Ember's `pomoMiddlePress`). Bezel arc = one 472×466 PSRAM canvas, per-second dirty rect ≤24×24 px. Offline only after 3 failed polls (each online/offline flip is a full redraw). Token: NVS (`dev_tok`, see issue #6 section); dev builds still compile the seed in.
+- Pomodoro (`components/pomo`, `pomo_client`, `pomo_view`): poll `/v1/pomodoro/state` 1 s running / 2 s idle, actions POST with bearer from a core-1 queue (action chosen from the freshest state, like Ember's `pomoMiddlePress`). Bezel arc = one 472×466 PSRAM canvas, per-second dirty rect ≤24×24 px. Offline only after 3 failed polls (each online/offline flip is a full redraw); since 0.9.40 that is the shared link state, and offline the page keeps counting (Offline fallback, below). Token: NVS (`dev_tok`, see issue #6 section); dev builds still compile the seed in.
 - Weather (`components/weather`, `weather_client`, `weather_view`): poll `/v1/weather/state` every 10 min; 200×140 sky canvas, A8 sprite masks (~80 KB PSRAM), 4-12 fps by condition; day/night from Ember's sun times, no device clock.
 - Free internal RAM with all pages: ~47 KB (largest 31 KB). Bot page: avg ~10 ms, max ~55 ms (the max is a hop frame, same as before).
 - Panel dirty areas are rounded to 2 px: view code keeps offsets and heights even. Pomodoro ring: stroke centre r 222, 12 px wide, outer edge 228.5 just inside the glass; a colour change redraws every touching tile (~10-20 ms), a second tick redraws <= ~24x24 px at the arc end. Weather client: new connection per poll (10 min interval outlasts Ember's 120 s keep-alive); "hourly" arrays are emptied before cJSON parsing (~150 small allocations from tight internal RAM; `wx_legacy_drop_hourly`, which tracks bracket depth and skips strings, so a nested array or a `]` inside a string no longer cuts the body at the first `]`); response ~3.5 KB, 16 KB buffer in PSRAM.
@@ -579,3 +579,45 @@ Pages are one descriptor table, `PAGES[]` in `components/pages/pages.c` (const, 
 - Add a page: Ember first (its `config_default.json` default page list and the view block, then the fixture sync, `docs/workflow.md`), because `test_pages.c` requires Ember's default list to equal the table. Then one table row and `PAGES_N` in `pages.c`/`pages.h`, its hook declarations in `page_ops.h`, the hooks in `main.c`, recording stubs in `test/host/page_stubs.c`, and its hooks in `tools/stack_walk.json` (`show` under `pages_show`, `pages_hide_all`, `pages_resume`, `pages_settings`, `pages_step`; `input` under `pages_dispatch`; `frame` under `pages_frame`).
 
 **Cost** (`idf.py size`, origin/main 0.9.38 at 6c6e7d9 → this branch): DIRAM 102,663 → 102,655 B (`.data` 23,432 → 23,432, `.bss` 16,008 → 16,000), IRAM unchanged, image 1,547,440 → 1,547,664 B (+224). `stack_walk.py` `lvgl`: 8896 → 8592 B (margin 1600 → 1904): `page_tick` is `noinline`, so its 576 B frame (input, frame context, weather sample, chase reference pose) is no longer under `frame_cb`'s deepest path (`screen_snap_frame`; `frame_cb`'s frame is 160 B, was 464). Without the split `frame_cb` grew to 656 B and the margin fell to 1408, under the 1.5 KB rule. With the hook entries in `stack_walk.json` every task's unresolved indirect-call count equals origin/main's. These are estimates; boot time, task stacks (`diag.stack_free`) and heap on the knob are not measured yet (on-device check in the PR).
+
+## Offline fallback (#26, 0.9.40)
+
+Principle: Ember stays the only authority. Offline the knob shows what it last knew, labelled, and never advances shared state, decides or replays a press. Firmware only; server and protocol unchanged.
+
+**Link state** (`components/link_state`, pure C, host-tested in `test_link.c`): `ONLINE` (the last request succeeded), `DEGRADED` (1-2 failures in a row; pages show no change), `OFFLINE` (3 or more, the threshold the Pomodoro page and the ember task's `down` rule used before, `LINK_OFFLINE_AFTER_FAILS`). `offline_since_ms` (monotonic) is the first failure of the streak that went offline; the knob boots `OFFLINE` since boot (nothing heard yet). One instance, fed only by the ember task (`link_note` in `ember_client.c`): every view or legacy `/state` answer that is not a long-poll abort and not a 429 counts (200 and a view 304 are ok, any other status or a network error is a failure), and every loop pass without Wi-Fi is a failure. The level is mirrored in an atomic; pages read `ember_client_offline()` (OFFLINE with an Ember URL; false when Ember is not set up, so a Wi-Fi-only knob shows no offline marks). Transitions are logged (`link: online -> degraded (1 failures)`, `link: online after N s offline`). The Pomodoro client's own failure counter and `publish_link` are gone: `pomo_client_get` fills `online` from the shared state, so the legacy pomo task and the view path agree. `ember_client_link()` (`EMBER_LINK_UNREACHABLE`, now playing's "Ember offline", diagnostics) is unchanged. Worst-case detection is still ~50 s under long-poll (View long-poll section).
+
+**Per page**:
+- Bot: offline sets the neutral `BOT_IDLE` mood (dim grey outline, no host label; it turns sleepy after `sleepy_after_s` like any idle) and shows a small grey link glyph (`LV_SYMBOL_WIFI`, Montserrat 24, `0x5A5A5A`, 140 px below the centre, clear of the "Can't join" label). The last mood is no longer shown as live. A demo mood (long push) still wins for its hold time.
+- Pomodoro: `pomo_estimate` + `pomo_est_label` (`components/pomo`, host-tested). Running: remaining is the last view's `ends_at` aligned to Ember's clock (`pomo_clock_sync_end`, the `X-Ember-Now` offset) minus now, clamped at 0: the same local clock as online, so the count does not jump at the disconnect. Phase line `OFFLINE` (note grey). At 0 the time shows `00:00` (dim) and the phase line `WAITING FOR EMBER`; the phase never advances on the knob, nothing is recorded (the knob has no chime). Paused: stays paused, `PAUSED OFFLINE`. Parked or idle: `OFFLINE`; no timer: `--:--` and `OFFLINE`. The built-in Montserrat has no `·`, so the spec's `00:00 · waiting for Ember` is the time line plus the phase line.
+- Presses (start, pause/resume, stop) while offline are dropped at once in `pomo_client_action` (LVGL task) with the brief note `OFFLINE: NOT SENT` (4 s, `POMO_ACTION_OFFLINE`), and `pomo_client_run_action` drops any queued press while the link is offline (a press queued while degraded, a long-poll pending press), so nothing pressed offline reaches Ember after the reconnect.
+- Weather: keeps the last observation; offline it adds a grey age label under the temperature (`wx_age_text`, host-tested: `just now` under 1 min, `N min ago`, `N h ago`, `N d ago`, capped at 999 d). The age is `wx_obs_t.age_s`, the time since Ember last confirmed the observation (every view answer, 304 included, refreshes it). The stale rule (`stale` or older than 1800 s) still stops the animation.
+- Now playing: unchanged ("Ember offline").
+- Navigation, brightness and local animation: unaffected.
+
+**Reconnect**: the first good answer sets `ONLINE`; the view replaces every estimate (`pomo_clock_sync_end` rebases on a new phase or `ends_at`, the bot takes Ember's mood, the age label hides). No reconciliation, no NVS writes. A reboot without the server starts every page empty in `OFFLINE`, as before but with the labels.
+
+**Tests**: `test_link.c` (boot offline, 0/1/2/3 failures, the start of the offline streak, recovery from degraded and offline, a new streak); `test_pomo.c` `test_offline_estimate` (no timer, running across the disconnect equal to online every 0.25 s and within 1 s of `ends_at - (now + offset)`, reaching 0 and clamping without a phase advance, a reconnect that brings a short break with a new `ends_at`, paused, paused at 0, parked, idle); `test_weather.c` `test_age_text` (boundaries, negative, NaN, truncation).
+
+**Cost** (`idf.py size`, origin/main 0.9.39 at 67fc9a9 → this branch, same machine and IDF 5.5.5):
+
+| | main | 0.9.40 | Δ |
+|---|---|---|---|
+| Image | 1,547,547 B | 1,549,203 B | +1,656 |
+| DIRAM (static) | 102,655 B (`.data` 23,432, `.bss` 16,000) | 102,671 B (23,448, 16,000) | +16 (`.data`: the `s_link_level` initializer) |
+| IRAM | 16,384 | 16,384 | 0 |
+| PSRAM `.bss` | 49,092 B | 49,132 B | +40 (`link_state_t`, the age text) |
+| `stack_walk.py` | `pomo` 4,368, `lvgl` 8,592, `ember` 5,056 | `pomo` 4,384, `lvgl` 8,592, `ember` 5,056 | `pomo` +16 (margin 1,248); others unchanged |
+
+Unresolved indirect calls: `ember` 243 → 244 (`__ssvfscanf_r`), `lvgl` 140 → 141 (`np_text_fold`), both in functions this change does not touch (decode depends on the link layout, see the stack section). No new task, timer or NVS key. At run time two LVGL labels (bot glyph, weather age; LVGL objects use the internal heap through `LV_USE_CLIB_MALLOC`).
+
+**On-device runtime numbers: TO MEASURE (placeholder, not measured yet).** Against 0.9.39 (or the 0.9.32 baseline of the spec), with the server stopped and restarted only within the live-device rules (a stub server needs the user's approval, then restore and a live checkin):
+
+| | 0.9.39 | 0.9.40 |
+|---|---|---|
+| Internal free / largest block at boot | TBD | TBD |
+| Internal free / largest block after 10 min | TBD | TBD |
+| PSRAM free | TBD | TBD |
+| Stack free `ember` / `lvgl` (`stack free B:` line) | TBD | TBD |
+| fps per page (bot, Pomodoro, weather, now playing), online / offline | TBD | TBD |
+| OTA health gate (`health pass`) | TBD | TBD |
+| Recovery: first view after the server is back | TBD | TBD |

@@ -117,6 +117,73 @@ static void test_clock(void)
     CHECK(pomo_clock_at(&c, 600.0).remaining_sec == 0 && pomo_clock_at(&c, 600.0).phase == POMO_PHASE_IDLE, "idle");
 }
 
+static void test_offline_estimate(void)
+{
+    pomo_clock_t c;
+    pomo_clock_init(&c);
+    pomo_est_t e = pomo_estimate(&c, true, 10);
+    CHECK(!e.has_state && e.offline && !e.waiting, "no timer offline: no state");
+    CHECK(strcmp(pomo_est_label(&e), "OFFLINE") == 0, "no timer offline: label");
+    e = pomo_estimate(&c, false, 10);
+    CHECK(!e.has_state && pomo_est_label(&e) == NULL, "no timer online: no label");
+
+    const double offset = 500, t0 = 400;
+    const long long ends_at = 1000;
+    pomo_state_t run = st(POMO_PHASE_FOCUS, 1, 0, 101, 1500);
+    pomo_clock_sync_end(&c, &run, ends_at, offset, t0);
+    e = pomo_estimate(&c, false, t0);
+    CHECK(e.has_state && !e.offline && e.state.remaining_sec == 101 && pomo_est_label(&e) == NULL, "online at the view");
+
+    for (double now = t0; now <= t0 + 100; now += 0.25) {
+        pomo_est_t on = pomo_estimate(&c, false, now), off = pomo_estimate(&c, true, now);
+        int want = (int)ceil(pomo_secs_left(ends_at, offset, now));
+        if (want < 0) want = 0;
+        CHECK(off.state.remaining_sec == on.state.remaining_sec, "%.2f: offline counts like online (no jump)", now);
+        CHECK(abs(off.state.remaining_sec - want) <= 1, "%.2f: %d s, ends_at - (now + offset) = %d s", now,
+              off.state.remaining_sec, want);
+    }
+    e = pomo_estimate(&c, true, t0 + 50);
+    CHECK(e.offline && !e.waiting && e.state.phase == POMO_PHASE_FOCUS && e.state.remaining_sec == 51,
+          "running across the disconnect: 51 s left");
+    CHECK(strcmp(pomo_est_label(&e), "OFFLINE") == 0, "running offline: label");
+
+    e = pomo_estimate(&c, true, t0 + 101);
+    CHECK(e.state.remaining_sec == 0 && e.waiting, "reaches 0 offline: waiting");
+    e = pomo_estimate(&c, true, t0 + 3600);
+    CHECK(e.state.remaining_sec == 0 && e.waiting, "clamped at 0");
+    CHECK(e.state.phase == POMO_PHASE_FOCUS && e.state.running && !e.state.paused, "no phase advance offline");
+    CHECK(strcmp(pomo_est_label(&e), "WAITING FOR EMBER") == 0, "waiting label");
+    CHECK(!pomo_estimate(&c, false, t0 + 3600).waiting, "online at 0 is not waiting (Ember's next view decides)");
+
+    pomo_state_t brk = st(POMO_PHASE_SHORT_BREAK, 1, 0, 300, 300);
+    pomo_clock_sync_end(&c, &brk, 4800, offset, t0 + 3600);
+    e = pomo_estimate(&c, false, t0 + 3600);
+    CHECK(!e.offline && !e.waiting && e.state.phase == POMO_PHASE_SHORT_BREAK && e.state.planned_sec == 300,
+          "reconnect with another phase: the view replaces the estimate");
+    CHECK(e.state.remaining_sec == 301 && pomo_est_label(&e) == NULL, "reconnect: new ends_at, no label (%d)",
+          e.state.remaining_sec);
+
+    pomo_state_t paused = st(POMO_PHASE_FOCUS, 1, 1, 600, 1500);
+    pomo_clock_sync(&c, &paused, 5000);
+    e = pomo_estimate(&c, true, 9000);
+    CHECK(e.state.remaining_sec == 600 && e.state.paused && !e.waiting, "paused stays paused offline");
+    CHECK(strcmp(pomo_est_label(&e), "PAUSED OFFLINE") == 0, "paused offline: label");
+    pomo_state_t at0 = st(POMO_PHASE_FOCUS, 1, 1, 0, 1500);
+    pomo_clock_sync(&c, &at0, 9000);
+    CHECK(!pomo_estimate(&c, true, 9100).waiting, "paused at 0 is not waiting");
+
+    pomo_state_t parked = st(POMO_PHASE_SHORT_BREAK, 0, 0, 300, 300);
+    pomo_clock_sync(&c, &parked, 9500);
+    e = pomo_estimate(&c, true, 9900);
+    CHECK(e.state.remaining_sec == 300 && !e.waiting && strcmp(pomo_est_label(&e), "OFFLINE") == 0, "parked offline");
+
+    pomo_state_t idle = st(POMO_PHASE_IDLE, 0, 0, 0, 0);
+    pomo_clock_sync(&c, &idle, 10000);
+    e = pomo_estimate(&c, true, 10100);
+    CHECK(e.has_state && pomo_mode(&e.state) == POMO_MODE_IDLE && !e.waiting && strcmp(pomo_est_label(&e), "OFFLINE") == 0,
+          "idle offline: no timer, offline label");
+}
+
 #define BW 472
 #define BH 466
 static const pomo_ring_t RING = {.cx = 236, .cy = 233, .r = 224, .hw = 6};
@@ -243,6 +310,7 @@ int main(void)
     test_actions();
     test_fraction_and_format();
     test_clock();
+    test_offline_estimate();
     test_ring_geometry();
     test_ring_dirty();
     printf(failures ? "%d FAILED\n" : "all pomo tests passed\n", failures);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -57,6 +58,9 @@ wx_look_t wx_look_from(const char *provider, const char *condition, const char *
 wx_look_t wx_look_from_obs(const wx_obs_t *obs);
 
 bool wx_look_equal(const wx_look_t *a, const wx_look_t *b);
+
+/* Seconds since the observation was last confirmed by Ember -> "2 h ago". */
+int wx_age_text(double age_s, char *buf, size_t n);
 const char *wx_face_name(wx_face_t f);
 
 #ifdef __cplusplus

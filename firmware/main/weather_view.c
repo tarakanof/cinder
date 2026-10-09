@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "bot_raster.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "weather_scene.h"
 
@@ -18,8 +19,11 @@
 #define TEMP_RGB 0x8C8C8C
 #define TEMP_STILL_RGB 0x5A5A5A
 #define SHIFT_PERIOD_S 120.0
+#define AGE_RGB 0x5A5A5A
+#define AGE_GAP 4
 
-static lv_obj_t *s_root, *s_sky, *s_temp;
+static lv_obj_t *s_root, *s_sky, *s_temp, *s_age;
+static EXT_RAM_BSS_ATTR char s_age_txt[16];
 static uint8_t *s_buf;
 static uint8_t *s_mask[WX_SPR_COUNT];
 static wx_scene_t s_scene;
@@ -147,6 +151,16 @@ lv_obj_t *weather_view_create(lv_obj_t *parent)
     lv_obj_set_pos(s_temp, 0, SKY_H);
     lv_label_set_text(s_temp, "--\xC2\xB0");
 
+    s_age = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_age, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_age, lv_color_hex(AGE_RGB), 0);
+    lv_obj_set_style_text_align(s_age, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_age, SKY_W);
+    lv_obj_align(s_age, LV_ALIGN_TOP_MID, 0, PAGE_Y + ROOT_H + AGE_GAP);
+    lv_obj_remove_flag(s_age, LV_OBJ_FLAG_CLICKABLE);
+    lv_label_set_text_static(s_age, s_age_txt);
+    lv_obj_add_flag(s_age, LV_OBJ_FLAG_HIDDEN);
+
     weather_view_set_mode(WEATHER_VIEW_PAGE);
     return s_root;
 }
@@ -178,6 +192,7 @@ void weather_view_show(bool on)
         wx_scene_invalidate(&s_scene);
     } else {
         lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_age, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -215,12 +230,30 @@ static void shift_update(double dt)
     lv_obj_set_style_translate_y(s_root, DY[s_shift_i], 0);
 }
 
-void weather_view_update(const wx_obs_t *obs, double dt)
+static void age_update(const wx_obs_t *obs, bool offline)
+{
+    bool show = offline && !s_overlay && obs && obs->valid;
+    if (show) {
+        char txt[sizeof s_age_txt];
+        wx_age_text(obs->age_s, txt, sizeof txt);
+        if (strcmp(txt, s_age_txt) != 0) {
+            strlcpy(s_age_txt, txt, sizeof s_age_txt);
+            lv_label_set_text_static(s_age, s_age_txt);
+        }
+    }
+    if (show == lv_obj_has_flag(s_age, LV_OBJ_FLAG_HIDDEN)) {
+        if (show) lv_obj_remove_flag(s_age, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_age, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void weather_view_update(const wx_obs_t *obs, bool offline, double dt)
 {
     if (!s_root || !s_visible) return;
     wx_look_t look = wx_look_from_obs(obs);
     wx_scene_set_look(&s_scene, &look);
     if (s_temp_on) temp_update(obs, look.still);
+    age_update(obs, offline);
     shift_update(dt);
     if (wx_scene_tick(&s_scene, dt)) render();
 }

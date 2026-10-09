@@ -6,11 +6,13 @@
 #include "http_conn.h"
 #include "pomo.h"
 
+#define POMO_ACTION_OFFLINE (-2)
+
 typedef struct {
     pomo_clock_t clock;
-    bool online;
+    bool online;          /* filled by pomo_client_get: Ember not OFFLINE */
     bool disabled;
-    int action_error;     /* last action: 0 ok/none, HTTP status, or -1 network error */
+    int action_error;     /* last action: 0 ok/none, HTTP status, -1 network error, POMO_ACTION_OFFLINE dropped */
     double action_at;     /* pomo_client_now() clock */
 } pomo_snapshot_t;
 
@@ -27,7 +29,6 @@ void pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, l
 void pomo_client_note_clock(long long server_now, double sent, double received);
 /* server = local + offset, seconds, pomo_client_now() clock. False before the first X-Ember-Now. Ember task only. */
 bool pomo_client_srv_offset(double *offset);
-void pomo_client_feed_failed(void);
 
 void pomo_client_log_state(void);
 int pomo_client_view_poll_ms(int idle_ms);

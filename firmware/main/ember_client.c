@@ -36,6 +36,7 @@
 #include "freertos/task.h"
 #include "improv.h"
 #include "knob_view.h"
+#include "link_state.h"
 #include "nowplaying_client.h"
 #include "nvs.h"
 #include "ota_client.h"
@@ -216,7 +217,6 @@ static void wifi_start(const cfg_t *cfg)
 }
 
 #define MAX_SESSIONS 32
-#define OFFLINE_AFTER_FAILS 3
 
 static int parse_state(const char *body, ember_host_info_t *host)
 {
@@ -429,6 +429,21 @@ static _Atomic int64_t s_last_checkin_us = -1;
 #define s_sched (P->sched)
 
 static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
+
+static EXT_RAM_BSS_ATTR link_state_t s_ls;
+static atomic_int s_link_level = LINK_OFFLINE;
+
+static void link_note(bool ok)
+{
+    int64_t t = now_ms();
+    link_level_t was = s_ls.level;
+    int64_t off_ms = link_state_offline_ms(&s_ls, t);
+    if (!link_state_note(&s_ls, ok, t)) return;
+    atomic_store(&s_link_level, s_ls.level);
+    const char *now = link_level_name(s_ls.level);
+    if (was == LINK_OFFLINE) ESP_LOGI(TAG, "link: %s after %lld s offline", now, (long long)(off_ms / 1000));
+    else ESP_LOGI(TAG, "link: %s -> %s (%d failures)", link_level_name(was), now, s_ls.fails);
+}
 
 static atomic_int s_ovr_stats_s, s_ovr_live_s;
 
@@ -820,7 +835,6 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         return status;
     case VIEW_ANS_FAILED:
     default:
-        if (status == -1) pomo_client_feed_failed();
         return status;
     }
 }
@@ -952,7 +966,7 @@ static void poll_task(void *arg)
                 }
             }
             bool ok = status == 200 || (viewed && status == 304);
-            bool down = (status != -1 && status != 429) || fs_fails(&P->conn.streak) >= OFFLINE_AFTER_FAILS;
+            bool down = (status != -1 && status != 429) || fs_fails(&P->conn.streak) >= LINK_OFFLINE_AFTER_FAILS;
             if (aborted) {
             } else if (ok) {
                 atomic_store(&s_link, EMBER_LINK_OK);
@@ -960,6 +974,7 @@ static void poll_task(void *arg)
                 atomic_store(&s_link, EMBER_LINK_UNREACHABLE);
             }
             if (!aborted && !ok && down) mood = -1;
+            if (!aborted && status != 429) link_note(ok);
             int shown = ok ? 200 : status;
             if (!aborted && shown != -1 && shown != last_status) {
                 if (shown != 200) ESP_LOGW(TAG, "GET %s -> HTTP %d", viewed ? P->view_url : url, status);
@@ -968,7 +983,7 @@ static void poll_task(void *arg)
         } else {
             atomic_store(&s_link, EMBER_LINK_CONNECTING);
             mood = -1;
-            if (!P->vp.legacy) pomo_client_feed_failed();
+            link_note(false);
         }
         if (online && !P->vp.legacy && P->have_view) np_client_service(s_conn, P->base);
         if (fresh) {
@@ -1012,6 +1027,7 @@ static void poll_task(void *arg)
 
 void ember_client_start(void)
 {
+    link_state_init(&s_ls, now_ms());
     cfg_t *cfg = heap_caps_calloc(1, sizeof *cfg, MALLOC_CAP_SPIRAM);
     assert(cfg);
     config_store_get(cfg);
@@ -1051,6 +1067,13 @@ void ember_client_forget_wifi(void)
 }
 
 bool ember_client_online(void) { return atomic_load(&s_online); }
+
+link_level_t ember_client_link_level(void) { return (link_level_t)atomic_load(&s_link_level); }
+
+bool ember_client_offline(void)
+{
+    return atomic_load(&s_link) != EMBER_LINK_OFF && atomic_load(&s_link_level) == LINK_OFFLINE;
+}
 
 ember_link_t ember_client_link(void)
 {

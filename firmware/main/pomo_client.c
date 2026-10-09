@@ -44,16 +44,21 @@ static void publish_state(const pomo_state_t *s, double now)
 {
     taskENTER_CRITICAL(&s_lock);
     pomo_clock_sync(&s_snap.clock, s, now);
-    s_snap.online = true;
     s_snap.disabled = false;
     taskEXIT_CRITICAL(&s_lock);
 }
 
-static void publish_link(bool online, bool disabled)
+static void publish_disabled(void)
 {
     taskENTER_CRITICAL(&s_lock);
-    s_snap.online = online;
-    s_snap.disabled = disabled;
+    s_snap.disabled = true;
+    taskEXIT_CRITICAL(&s_lock);
+}
+
+static void publish_forget(void)
+{
+    taskENTER_CRITICAL(&s_lock);
+    pomo_clock_init(&s_snap.clock);
     taskEXIT_CRITICAL(&s_lock);
 }
 
@@ -68,14 +73,6 @@ static void publish_action(int err)
 static const char *const PHASE_NAMES[] = {"idle", "focus", "short_break", "long_break", "unknown"};
 static const char *const MODE_NAMES[] = {"idle", "running", "paused", "parked"};
 
-#define OFFLINE_AFTER_FAILS 3
-static int s_fails;
-
-static void poll_failed(void)
-{
-    if (++s_fails >= OFFLINE_AFTER_FAILS) publish_link(false, false);
-}
-
 static bool poll_once(http_conn_t *conn, char *buf, int cap)
 {
     char url[CFG_URL_MAX + 32];
@@ -84,7 +81,6 @@ static bool poll_once(http_conn_t *conn, char *buf, int cap)
     int status = http_do(conn, url, false, NULL, buf, cap);
     pomo_state_t s;
     if (status == 200 && pomo_legacy_parse(buf, &s)) {
-        s_fails = 0;
         publish_state(&s, pomo_client_now());
         return true;
     }
@@ -93,17 +89,17 @@ static bool poll_once(http_conn_t *conn, char *buf, int cap)
         if (status != 200) ESP_LOGW(TAG, "GET state -> HTTP %d", status);
         last_status = status;
     }
-    if (status == 404) {
-        s_fails = 0;
-        publish_link(true, true);
-    } else {
-        poll_failed();
-    }
+    if (status == 404) publish_disabled();
     return false;
 }
 
 void pomo_client_run_action(pomo_input_t in, http_conn_t *conn, char *buf, int cap)
 {
+    if (ember_client_offline()) {
+        ESP_LOGW(TAG, "push dropped: Ember offline");
+        publish_action(POMO_ACTION_OFFLINE);
+        return;
+    }
     pomo_snapshot_t snap;
     bool have = pomo_client_get(&snap);
     if (!have && poll_once(conn, buf, cap)) have = pomo_client_get(&snap);
@@ -191,8 +187,6 @@ static void client_task(void *arg)
             else publish_action(-1);
         } else if (ember_client_online()) {
             poll_once(s_conn, buf, RESP_MAX);
-        } else {
-            poll_failed();
         }
         pomo_client_log_state();
         diag_note_stack("pomo", (int)uxTaskGetStackHighWaterMark(NULL));
@@ -229,7 +223,7 @@ void pomo_client_legacy(bool on)
                                                         MALLOC_CAP_SPIRAM) == pdPASS;
     uint32_t retry_ms = lt_created(&s_lt, ok, now_ms);
     if (ok) return;
-    publish_link(false, false);
+    publish_forget();
     ESP_LOGE(TAG, "no memory for the Pomodoro poll task; retry in %u s", (unsigned)(retry_ms / 1000));
 }
 
@@ -245,22 +239,18 @@ bool pomo_client_next_action(uint32_t wait_ms, pomo_input_t *in)
 void pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, long long server_now, double sent,
                       double received)
 {
-    s_fails = 0;
     if (server_now > 0) pomo_srv_clock_note(&s_srv, server_now, sent, received);
     if (!s) {
-        publish_link(true, true);
+        publish_disabled();
         return;
     }
     double now = pomo_client_now();
     taskENTER_CRITICAL(&s_lock);
     if (counting && s_srv.valid) pomo_clock_sync_end(&s_snap.clock, s, ends_at, pomo_srv_clock_offset(&s_srv), now);
     else if (!counting) pomo_clock_sync(&s_snap.clock, s, now);
-    s_snap.online = s_snap.clock.valid;
     s_snap.disabled = false;
     taskEXIT_CRITICAL(&s_lock);
 }
-
-void pomo_client_feed_failed(void) { poll_failed(); }
 
 bool pomo_client_srv_offset(double *offset)
 {
@@ -284,6 +274,10 @@ int pomo_client_view_poll_ms(int idle_ms)
 
 void pomo_client_action(pomo_input_t in)
 {
+    if (ember_client_offline()) {
+        publish_action(POMO_ACTION_OFFLINE);
+        return;
+    }
     if (s_queue && xQueueSend(s_queue, &in, 0) == pdTRUE) ember_client_wake();
 }
 
@@ -292,6 +286,7 @@ bool pomo_client_get(pomo_snapshot_t *out)
     taskENTER_CRITICAL(&s_lock);
     *out = s_snap;
     taskEXIT_CRITICAL(&s_lock);
+    out->online = !ember_client_offline();
     return out->clock.valid && out->online && !out->disabled;
 }
 
@@ -303,11 +298,11 @@ const char *pomo_client_note(const pomo_snapshot_t *snap, double now)
         case 404: return "POMODORO OFF";
         case 429: return "SLOW DOWN";
         case -1: return "NO CONNECTION";
+        case POMO_ACTION_OFFLINE: return "OFFLINE: NOT SENT";
         default: return "EMBER ERROR";
         }
     }
     if (ember_client_link() == EMBER_LINK_UNAUTHORIZED || !config_store_has_device()) return "NOT PAIRED";
     if (snap->disabled) return "POMODORO OFF";
-    if (!snap->online) return "OFFLINE";
     return NULL;
 }

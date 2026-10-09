@@ -1,6 +1,7 @@
 #include "weather_face.h"
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -136,4 +137,13 @@ wx_look_t wx_look_from_obs(const wx_obs_t *o)
     l.severe = o->severe;
     l.still = !o->enabled || o->stale || o->age_s > WX_MAX_AGE_S;
     return l;
+}
+
+int wx_age_text(double age_s, char *buf, size_t n)
+{
+    if (!(age_s >= 60)) return snprintf(buf, n, "just now");
+    if (age_s < 3600) return snprintf(buf, n, "%d min ago", (int)(age_s / 60));
+    if (age_s < 86400) return snprintf(buf, n, "%d h ago", (int)(age_s / 3600));
+    double d = age_s / 86400;
+    return snprintf(buf, n, "%d d ago", d < 999 ? (int)d : 999);
 }

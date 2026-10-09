@@ -21,8 +21,8 @@ void weather_view_set_temp_visible(bool on);
 void weather_view_show(bool on);
 bool weather_view_visible(void);
 
-/* dt in seconds; obs may be NULL (no data yet). */
-void weather_view_update(const wx_obs_t *obs, double dt);
+/* dt in seconds; obs may be NULL (no data yet). offline: Ember is OFFLINE, show the observation's age. */
+void weather_view_update(const wx_obs_t *obs, bool offline, double dt);
 
 wx_look_t weather_view_look(void);
 bool weather_view_flash(void);
