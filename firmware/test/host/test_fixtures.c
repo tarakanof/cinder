@@ -10,6 +10,7 @@
 #include "knob_settings.h"
 #include "knob_view.h"
 #include "ota_policy.h"
+#include "pages.h"
 #include "pomo.h"
 #include "pomo_legacy.h"
 
@@ -26,8 +27,6 @@ static const char *const COVERED[] = {
     "config_custom.json",      "pomodoro_action.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
-
-static const char *const PAGE_IDS[] = {"bot", "pomodoro", "weather", "nowplaying"};
 
 static char *load(const char *name)
 {
@@ -235,9 +234,10 @@ static void test_config_default(void)
     CHECK(ks.fast_link, "fast link");
 
     knob_settings_defaults(&d);
-    int a[4], b[4], ha, hb;
-    int na = knob_settings_page_order(&ks, PAGE_IDS, 4, a, &ha);
-    int nb = knob_settings_page_order(&d, PAGE_IDS, 4, b, &hb);
+    const char *ids[PAGES_N];
+    int nk = pages_ids(ids, PAGES_N), a[PAGES_N], b[PAGES_N], ha, hb;
+    int na = knob_settings_page_order(&ks, ids, nk, a, &ha);
+    int nb = knob_settings_page_order(&d, ids, nk, b, &hb);
     CHECK(na == nb && ha == hb && memcmp(a, b, sizeof(int) * (size_t)na) == 0, "server default pages == firmware default");
     d.n_pages = ks.n_pages;
     memcpy(d.pages, ks.pages, sizeof d.pages);
@@ -260,8 +260,9 @@ static void test_config_custom(void)
     CHECK(ks.sleepy_after_s == 600 && ks.demo_hold_s == 30 && !ks.source_label && !ks.working_ring, "bot");
     CHECK(ks.diagnostics == KS_DIAG_BASIC && ks.stats_interval_s == 120 && ks.live_interval_s == 2, "diagnostics");
     CHECK(!ks.fast_link, "fast link off");
-    int order[4], home;
-    int n = knob_settings_page_order(&ks, PAGE_IDS, 4, order, &home);
+    const char *ids[PAGES_N];
+    int order[PAGES_N], home;
+    int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
     CHECK(n == 3 && order[0] == 1 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
 }
 

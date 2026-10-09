@@ -440,6 +440,46 @@
   "pr_write": [
    "panel_wr",
    "panel_now_ms"
+  ],
+  "pages_show": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
+  ],
+  "pages_hide_all": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
+  ],
+  "pages_dispatch": [
+   "page_bot_input",
+   "page_pomo_input",
+   "page_np_input"
+  ],
+  "pages_frame": [
+   "page_bot_frame",
+   "page_pomo_frame",
+   "page_np_frame"
+  ],
+  "pages_resume": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
+  ],
+  "pages_settings": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
+  ],
+  "pages_step": [
+   "page_bot_show",
+   "page_pomo_show",
+   "page_weather_show",
+   "page_np_show"
   ]
  },
  "tasks": {
