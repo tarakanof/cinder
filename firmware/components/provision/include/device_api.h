@@ -12,9 +12,10 @@ extern "C" {
 
 #define DEV_TOKEN_MAX 64
 #define DEV_CHECKIN_BODY_MAX 2048
-#define DEV_CAPS_ID_MAX 32
+#define DEV_CAPS_PAGE_MAX 16
+#define DEV_CAPS_FEATURE_MAX 32
 
-/* Checkin "caps". An id that is empty, longer than DEV_CAPS_ID_MAX or not JSON-safe is left out; a feature must also match [a-z][a-z0-9_]*. A limit of 0 is left out. */
+/* Checkin "caps", Ember's patterns: a page id not matching ^[a-z][a-z0-9_-]{0,15}$ or a feature not matching ^[a-z][a-z0-9_]{0,31}$ is left out (Ember drops the whole caps for one bad id). A limit of 0 is left out. */
 typedef struct {
     int view_min, view_max;
     const char *const *pages;

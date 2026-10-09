@@ -36,6 +36,12 @@ static void test_firmware_caps(void)
     const char *ids[PAGES_N];
     knob_caps(&caps, ids);
     CHECK(caps.n_pages == PAGES_N, "every page: %d", caps.n_pages);
+    for (int i = 0; i < PAGES_N; i++) {
+        const char *id = PAGES[i].id;
+        bool ok = id[0] >= 'a' && id[0] <= 'z' && strlen(id) <= DEV_CAPS_PAGE_MAX;
+        for (const char *p = id; *p; p++) ok &= (*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == '-';
+        CHECK(ok, "page id %s matches Ember's ^[a-z][a-z0-9_-]{0,15}$", id);
+    }
     for (int i = 0; i < PAGES_N; i++) CHECK(caps.pages[i] == PAGES[i].id, "page %d from the table", i);
     CHECK(caps.view_min == KNOB_VIEW_V_MIN && caps.view_max == KNOB_VIEW_V_MAX, "view range");
     CHECK(caps.view_bytes == KNOB_VIEW_BUF - 1 && caps.view_bytes == 16383, "view_bytes %u", (unsigned)caps.view_bytes);
@@ -73,17 +79,21 @@ static void test_firmware_caps(void)
 
 static void test_caps_filtering(void)
 {
-    const char *pages[] = {"bot", "", NULL, "a\"b", "future-page", "0123456789012345678901234567890123"};
-    const char *features[] = {"view_wait", "Bad", "9lives", "has-dash", "ok_2", "", "a\\b"};
-    dev_caps_t caps = {.view_min = 1, .view_max = 2, .pages = pages, .n_pages = 6, .features = features, .n_features = 7};
+    const char *pages[] = {"bot", "", NULL, "a\"b", "future-page", "Bot", "1bot", "-bot", "abcdefghijklmnop", "abcdefghijklmnopq",
+                           "page_2", "pa ge"};
+    const char *features[] = {"view_wait", "Bad", "9lives", "has-dash", "ok_2", "", "a\\b", NULL,
+                              "abcdefghijklmnopqrstuvwxyz012345", "abcdefghijklmnopqrstuvwxyz0123456"};
+    dev_caps_t caps = {.view_min = 1, .view_max = 2, .pages = pages, .n_pages = 12, .features = features, .n_features = 10};
     dev_checkin_t c = {.caps = &caps, .fw = "x"};
     char out[DEV_CHECKIN_BODY_MAX];
     cJSON *j = body_json(&c, NULL, out, sizeof out);
     const cJSON *cj = cJSON_GetObjectItemCaseSensitive(j, "caps");
-    const char *const want_pages[] = {"bot", "future-page"};
-    const char *const want_features[] = {"view_wait", "ok_2"};
-    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "pages"), want_pages, 2), "bad page ids left out: %s", out);
-    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), want_features, 2), "bad tokens left out: %s", out);
+    const char *const want_pages[] = {"bot", "future-page", "abcdefghijklmnop", "page_2"};
+    const char *const want_features[] = {"view_wait", "ok_2", "abcdefghijklmnopqrstuvwxyz012345"};
+    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "pages"), want_pages, 4),
+          "page ids outside ^[a-z][a-z0-9_-]{0,15}$ left out: %s", out);
+    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), want_features, 3),
+          "tokens outside ^[a-z][a-z0-9_]{0,31}$ left out: %s", out);
     CHECK(!cJSON_GetObjectItemCaseSensitive(cj, "limits"), "no limits when both 0");
     CHECK(cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(cj, "view"), 1)->valueint == 2, "view max");
     cJSON_Delete(j);

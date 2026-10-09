@@ -32,23 +32,21 @@ static bool put(char *out, size_t cap, size_t *len, const char *fmt, ...)
     return true;
 }
 
-static bool feature_valid(const char *s)
+static bool cap_id_valid(const char *s, size_t max, bool dash)
 {
-    if (s[0] < 'a' || s[0] > 'z') return false;
+    if (!s || s[0] < 'a' || s[0] > 'z' || strlen(s) > max) return false;
     for (; *s; s++)
-        if (!((*s >= 'a' && *s <= 'z') || (*s >= '0' && *s <= '9') || *s == '_')) return false;
+        if (!((*s >= 'a' && *s <= 'z') || (*s >= '0' && *s <= '9') || *s == '_' || (dash && *s == '-'))) return false;
     return true;
 }
 
-static void put_ids(const char *const *ids, int n, bool feature, char *out, size_t cap, size_t *len)
+static void put_ids(const char *const *ids, int n, bool page, char *out, size_t cap, size_t *len)
 {
     put(out, cap, len, "[");
     const char *sep = "";
     for (int i = 0; ids && i < n; i++) {
-        const char *s = ids[i];
-        size_t l = s ? strlen(s) : 0;
-        if (l == 0 || l > DEV_CAPS_ID_MAX || !json_safe(s) || (feature && !feature_valid(s))) continue;
-        put(out, cap, len, "%s\"%s\"", sep, s);
+        if (!cap_id_valid(ids[i], page ? DEV_CAPS_PAGE_MAX : DEV_CAPS_FEATURE_MAX, page)) continue;
+        put(out, cap, len, "%s\"%s\"", sep, ids[i]);
         sep = ",";
     }
     put(out, cap, len, "]");
@@ -57,7 +55,7 @@ static void put_ids(const char *const *ids, int n, bool feature, char *out, size
 static void put_caps(const dev_caps_t *c, char *out, size_t cap, size_t *len)
 {
     put(out, cap, len, "\"caps\":{\"features\":");
-    put_ids(c->features, c->n_features, true, out, cap, len);
+    put_ids(c->features, c->n_features, false, out, cap, len);
     if (c->view_bytes || c->config_bytes) {
         put(out, cap, len, ",\"limits\":{");
         if (c->config_bytes) put(out, cap, len, "\"config_bytes\":%" PRIu32 "%s", c->config_bytes, c->view_bytes ? "," : "");
@@ -65,7 +63,7 @@ static void put_caps(const dev_caps_t *c, char *out, size_t cap, size_t *len)
         put(out, cap, len, "}");
     }
     put(out, cap, len, ",\"pages\":");
-    put_ids(c->pages, c->n_pages, false, out, cap, len);
+    put_ids(c->pages, c->n_pages, true, out, cap, len);
     put(out, cap, len, ",\"view\":[%d,%d]},", c->view_min, c->view_max);
 }
 
