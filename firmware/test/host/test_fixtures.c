@@ -42,7 +42,7 @@ static char *load(const char *name)
     fseek(f, 0, SEEK_END);
     long n = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char *buf = malloc((size_t)n + 1);
+    char *buf = n >= 0 ? malloc((size_t)n + 1) : NULL;
     size_t got = buf ? fread(buf, 1, (size_t)n, f) : 0;
     fclose(f);
     if (!buf || got != (size_t)n) {
@@ -283,7 +283,17 @@ static const cJSON *at(const cJSON *o, const char *k) { return cJSON_GetObjectIt
 static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k)) ? at(o, k)->valuedouble : 0; }
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
 
-static void key_diff(const cJSON *want, const cJSON *got, const char *path)
+static const char *const NOT_YET_SENT[] = {NULL};
+static int not_yet_sent_used[sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]];
+
+static int not_yet_sent(const char *path)
+{
+    for (int i = 0; NOT_YET_SENT[i]; i++)
+        if (strcmp(NOT_YET_SENT[i], path) == 0) return i;
+    return -1;
+}
+
+static void body_diff(const char *name, const cJSON *want, const cJSON *got, const char *path)
 {
     const cJSON *e;
     char p[256];
@@ -291,26 +301,40 @@ static void key_diff(const cJSON *want, const cJSON *got, const char *path)
     {
         snprintf(p, sizeof p, "%s.%s", path, e->string);
         const cJSON *g = at(got, e->string);
-        if (!g) printf("  firmware does not send %s\n", p);
-        else if (cJSON_IsObject(e)) key_diff(e, g, p);
-        else if (!cJSON_Compare(e, g, true)) printf("  %s differs\n", p);
+        int n = not_yet_sent(p);
+        if (n >= 0) {
+            CHECK(!g, "%s: firmware sends %s, drop it from NOT_YET_SENT", name, p);
+            not_yet_sent_used[n]++;
+        } else if (!g) {
+            CHECK(false, "%s: firmware does not send %s (list it in NOT_YET_SENT until it does)", name, p);
+        } else if (cJSON_IsObject(e) && cJSON_IsObject(g)) {
+            body_diff(name, e, g, p);
+        } else {
+            CHECK(cJSON_Compare(e, g, true), "%s: %s differs", name, p);
+        }
     }
     cJSON_ArrayForEach(e, got)
     {
-        if (!at(want, e->string)) printf("  firmware sends %s.%s, not in the fixture\n", path, e->string);
+        snprintf(p, sizeof p, "%s.%s", path, e->string);
+        CHECK(at(want, e->string) != NULL, "%s: firmware sends %s, not in the fixture", name, p);
     }
 }
 
 static void same_body(const char *name, const char *body)
 {
     char *j = load(name);
-    cJSON *want = cJSON_Parse(j), *got = cJSON_Parse(body);
+    cJSON *want = j ? cJSON_Parse(j) : NULL, *got = cJSON_Parse(body);
     free(j);
-    bool ok = want && got && cJSON_Compare(want, got, true);
-    CHECK(ok, "%s: firmware checkin body differs: %s", name, body);
-    if (!ok && want && got) key_diff(want, got, "");
+    CHECK(cJSON_IsObject(want) && cJSON_IsObject(got), "%s: fixture and firmware body parse: %s", name, body);
+    if (cJSON_IsObject(want) && cJSON_IsObject(got)) body_diff(name, want, got, "");
     cJSON_Delete(want);
     cJSON_Delete(got);
+}
+
+static void test_not_yet_sent_used(void)
+{
+    for (int i = 0; NOT_YET_SENT[i]; i++)
+        CHECK(not_yet_sent_used[i] > 0, "NOT_YET_SENT %s is in no checkin_req fixture, drop it", NOT_YET_SENT[i]);
 }
 
 static void test_checkin_req_minimal(void)
@@ -424,6 +448,7 @@ int main(int argc, char **argv)
     test_pomodoro_action();
     test_checkin_req_minimal();
     test_checkin_req_full();
+    test_not_yet_sent_used();
     if (failures) {
         printf("fixtures: %d failure(s)\n", failures);
         return 1;
