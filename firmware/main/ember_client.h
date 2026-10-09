@@ -20,8 +20,8 @@ bool ember_client_mood(bot_mood_t *out);
 
 bool ember_client_online(void);
 
-/* Any task. Ember's reachability: ONLINE, DEGRADED (1-2 failed requests), OFFLINE (3+, and at boot). */
-link_level_t ember_client_link_level(void);
+/* Any task. link_state word of Ember's link (level and OFFLINE generation), for stamping presses. */
+uint32_t ember_client_link_word(void);
 /* Any task. OFFLINE with an Ember URL configured; false when Ember is not set up. */
 bool ember_client_offline(void);
 

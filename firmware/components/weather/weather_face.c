@@ -147,3 +147,9 @@ int wx_age_text(double age_s, char *buf, size_t n)
     double d = age_s / 86400;
     return snprintf(buf, n, "%d d ago", d < 999 ? (int)d : 999);
 }
+
+int wx_age_label(const wx_obs_t *o, char *buf, size_t n)
+{
+    if (o->stale) return snprintf(buf, n, "stale");
+    return wx_age_text(o->age_s, buf, n);
+}

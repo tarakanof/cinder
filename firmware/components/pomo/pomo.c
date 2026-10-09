@@ -153,3 +153,10 @@ const char *pomo_est_label(const pomo_est_t *e)
     if (e->has_state && pomo_mode(&e->state) == POMO_MODE_PAUSED) return "PAUSED OFFLINE";
     return "OFFLINE";
 }
+
+bool pomo_offline(uint32_t link, uint32_t src) { return link_word_offline(link) || link_word_offline(src); }
+
+bool pomo_press_ok(const pomo_press_t *p, uint32_t link, uint32_t src)
+{
+    return link_press_ok(p->link, link) && link_press_ok(p->src, src);
+}

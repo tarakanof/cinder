@@ -159,7 +159,7 @@ void pomo_view_update(const pomo_est_t *e, double now)
         strlcpy(ph, offline, sizeof ph);
         ph_col = COL_NOTE;
     } else if (!s) {
-        strlcpy(ph, "OFFLINE", sizeof ph);
+        strlcpy(ph, "CONNECTING", sizeof ph);
         ph_col = COL_NOTE;
     } else if (mode == POMO_MODE_IDLE) {
         strlcpy(ph, "PUSH TO START", sizeof ph);

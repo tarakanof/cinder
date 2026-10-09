@@ -551,7 +551,7 @@ void page_pomo_frame(const page_frame_t *f)
 {
     pomo_snapshot_t snap;
     pomo_client_get(&snap);
-    pomo_est_t e = pomo_estimate(&snap.clock, f->offline, f->t);
+    pomo_est_t e = pomo_estimate(&snap.clock, !snap.online, f->t);
     if (snap.disabled) e.has_state = false;
     pomo_view_set_note(pomo_client_note(&snap, f->t));
     pomo_view_update(&e, f->t);
@@ -565,7 +565,7 @@ void page_np_input(const page_input_t *in, double t)
     for (int n = in->longs; n > 0; n--) np_view_long_push(t);
 }
 
-void page_np_frame(const page_frame_t *f) { np_view_update(f->t, ember_client_link() == EMBER_LINK_UNREACHABLE); }
+void page_np_frame(const page_frame_t *f) { np_view_update(f->t, f->offline); }
 
 static void reset_task(void *arg)
 {

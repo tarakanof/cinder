@@ -184,6 +184,47 @@ static void test_offline_estimate(void)
           "idle offline: no timer, offline label");
 }
 
+static void test_source_stale(void)
+{
+    link_state_t link, src;
+    link_state_init(&link, 0);
+    link_state_init(&src, 0);
+    CHECK(!pomo_offline(link_state_word(&link), link_state_word(&src)), "boot: not offline");
+    link_state_note(&link, LINK_OK, 1);
+    link_state_note(&src, LINK_OK, 1);
+
+    pomo_clock_t c;
+    pomo_clock_init(&c);
+    pomo_state_t run = st(POMO_PHASE_FOCUS, 1, 0, 101, 1500);
+    pomo_clock_sync_end(&c, &run, 1000, 500, 400);
+    pomo_press_t before = {POMO_INPUT_PUSH, link_state_word(&link), link_state_word(&src)};
+
+    link_state_note(&link, LINK_OK, 2);
+    link_state_note(&src, LINK_FAIL, 2);
+    link_state_note(&src, LINK_FAIL, 3);
+    CHECK(!pomo_offline(link_state_word(&link), link_state_word(&src)), "2 Pomodoro failures: not offline yet");
+    link_state_note(&src, LINK_FAIL, 4);
+    CHECK(link.level == LINK_ONLINE, "Ember itself answers");
+    bool off = pomo_offline(link_state_word(&link), link_state_word(&src));
+    CHECK(off, "3 Pomodoro failures: the page is offline while the link is online");
+    pomo_est_t e = pomo_estimate(&c, off, 450);
+    CHECK(e.offline && e.state.remaining_sec == 51 && strcmp(pomo_est_label(&e), "OFFLINE") == 0,
+          "stale source: offline estimate and label");
+    e = pomo_estimate(&c, off, 600);
+    CHECK(e.waiting && strcmp(pomo_est_label(&e), "WAITING FOR EMBER") == 0, "stale source at 0: waiting, no phase advance");
+    CHECK(!pomo_press_ok(&before, link_state_word(&link), link_state_word(&src)), "a press from before is dropped");
+
+    link_state_note(&src, LINK_OK, 5);
+    CHECK(!pomo_offline(link_state_word(&link), link_state_word(&src)), "fresh Pomodoro data: online again");
+    CHECK(!pomo_press_ok(&before, link_state_word(&link), link_state_word(&src)), "and it is not sent after recovery");
+    pomo_press_t after = {POMO_INPUT_PUSH, link_state_word(&link), link_state_word(&src)};
+    CHECK(pomo_press_ok(&after, link_state_word(&link), link_state_word(&src)), "a new press is sent");
+
+    for (int i = 0; i < 3; i++) link_state_note(&link, LINK_FAIL, 10 + i);
+    CHECK(pomo_offline(link_state_word(&link), link_state_word(&src)), "Ember offline: the page is offline");
+    CHECK(!pomo_press_ok(&after, link_state_word(&link), link_state_word(&src)), "a queued press is dropped");
+}
+
 #define BW 472
 #define BH 466
 static const pomo_ring_t RING = {.cx = 236, .cy = 233, .r = 224, .hw = 6};
@@ -311,6 +352,7 @@ int main(void)
     test_fraction_and_format();
     test_clock();
     test_offline_estimate();
+    test_source_stale();
     test_ring_geometry();
     test_ring_dirty();
     printf(failures ? "%d FAILED\n" : "all pomo tests passed\n", failures);

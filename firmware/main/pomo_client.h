@@ -10,7 +10,7 @@
 
 typedef struct {
     pomo_clock_t clock;
-    bool online;          /* filled by pomo_client_get: Ember not OFFLINE */
+    bool online;          /* filled by pomo_client_get: neither Ember nor the Pomodoro data is OFFLINE */
     bool disabled;
     int action_error;     /* last action: 0 ok/none, HTTP status, -1 network error, POMO_ACTION_OFFLINE dropped */
     double action_at;     /* pomo_client_now() clock */
@@ -29,14 +29,18 @@ void pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, l
 void pomo_client_note_clock(long long server_now, double sent, double received);
 /* server = local + offset, seconds, pomo_client_now() clock. False before the first X-Ember-Now. Ember task only. */
 bool pomo_client_srv_offset(double *offset);
+/* Ember task, view mode: a view attempt applied the Pomodoro block (ok) or did not. */
+void pomo_client_source(bool ok);
+/* Any task: drop every queued press with the offline note. */
+void pomo_client_drop_presses(void);
 
 void pomo_client_log_state(void);
 int pomo_client_view_poll_ms(int idle_ms);
 
 /* Ember task, view mode. */
-bool pomo_client_next_action(uint32_t wait_ms, pomo_input_t *in);
+bool pomo_client_next_action(uint32_t wait_ms, pomo_press_t *in);
 /* conn: the ember task's (view) or the pomo task's (legacy). buf/cap: scratch for the answer. */
-void pomo_client_run_action(pomo_input_t in, http_conn_t *conn, char *buf, int cap);
+void pomo_client_run_action(pomo_press_t press, http_conn_t *conn, char *buf, int cap);
 
 /* Any task; never blocks. */
 void pomo_client_action(pomo_input_t in);

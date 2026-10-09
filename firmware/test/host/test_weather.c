@@ -326,6 +326,17 @@ static void test_age_text(void)
     char nan_buf[16];
     wx_age_text(NAN, nan_buf, sizeof nan_buf);
     CHECK(strcmp(nan_buf, "just now") == 0, "NaN -> just now");
+    wx_obs_t o = {.valid = true, .age_s = 7200};
+    char lb[16];
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "2 h ago") == 0, "label: age of a fresh observation");
+    o.stale = true;
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "stale") == 0, "label: a stale observation stays stale, never 'just now'");
+    o.age_s = 10;
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "stale") == 0, "label: stale at the start of an outage");
+    CHECK(wx_look_from_obs(&o).still, "a stale observation still stops the animation");
     char tiny[4];
     CHECK(wx_age_text(7200, tiny, sizeof tiny) == 7 && strcmp(tiny, "2 h") == 0, "truncates, returns the full length");
 }
