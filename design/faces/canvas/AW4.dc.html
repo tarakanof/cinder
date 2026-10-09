@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wind, strong wind</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxarrive{0%{transform:rotate(-243deg);animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{transform:rotate(0deg)}}
+@keyframes wxcount{0%{transform:translateY(0px);animation-timing-function:step-end}0.324%{transform:translateY(-84px);animation-timing-function:step-end}0.657%{transform:translateY(-168px);animation-timing-function:step-end}1.001%{transform:translateY(-252px);animation-timing-function:step-end}1.357%{transform:translateY(-336px);animation-timing-function:step-end}1.726%{transform:translateY(-420px);animation-timing-function:step-end}2.109%{transform:translateY(-504px);animation-timing-function:step-end}2.507%{transform:translateY(-588px);animation-timing-function:step-end}2.922%{transform:translateY(-672px);animation-timing-function:step-end}3.355%{transform:translateY(-756px);animation-timing-function:step-end}3.81%{transform:translateY(-840px);animation-timing-function:step-end}4.289%{transform:translateY(-924px);animation-timing-function:step-end}4.795%{transform:translateY(-1008px);animation-timing-function:step-end}5.333%{transform:translateY(-1092px);animation-timing-function:step-end}5.909%{transform:translateY(-1176px);animation-timing-function:step-end}6.528%{transform:translateY(-1260px);animation-timing-function:step-end}7.202%{transform:translateY(-1344px);animation-timing-function:step-end}7.943%{transform:translateY(-1428px);animation-timing-function:step-end}8.772%{transform:translateY(-1512px);animation-timing-function:step-end}9.72%{transform:translateY(-1596px);animation-timing-function:step-end}10.843%{transform:translateY(-1680px);animation-timing-function:step-end}12.253%{transform:translateY(-1764px);animation-timing-function:step-end}14.264%{transform:translateY(-1848px);animation-timing-function:step-end}22%,100%{transform:translateY(-1932px);animation-timing-function:step-end}}
+@keyframes wxsockfill{0%{fill:#9AA4B0;animation-timing-function:step-end}0.324%{fill:#9AA4B0;animation-timing-function:step-end}0.657%{fill:#9AA4B0;animation-timing-function:step-end}1.001%{fill:#4FD6CC;animation-timing-function:step-end}1.357%{fill:#4FD6CC;animation-timing-function:step-end}1.726%{fill:#4FD6CC;animation-timing-function:step-end}2.109%{fill:#8ACF7A;animation-timing-function:step-end}2.507%{fill:#8ACF7A;animation-timing-function:step-end}2.922%{fill:#8ACF7A;animation-timing-function:step-end}3.355%{fill:#8ACF7A;animation-timing-function:step-end}3.81%{fill:#C9D25A;animation-timing-function:step-end}4.289%{fill:#C9D25A;animation-timing-function:step-end}4.795%{fill:#C9D25A;animation-timing-function:step-end}5.333%{fill:#C9D25A;animation-timing-function:step-end}5.909%{fill:#C9D25A;animation-timing-function:step-end}6.528%{fill:#E8D44A;animation-timing-function:step-end}7.202%{fill:#E8D44A;animation-timing-function:step-end}7.943%{fill:#E8D44A;animation-timing-function:step-end}8.772%{fill:#E8D44A;animation-timing-function:step-end}9.72%{fill:#E8D44A;animation-timing-function:step-end}10.843%{fill:#F08A3A;animation-timing-function:step-end}12.253%{fill:#F08A3A;animation-timing-function:step-end}14.264%{fill:#F08A3A;animation-timing-function:step-end}22%,100%{fill:#F08A3A;animation-timing-function:step-end}}
+@keyframes wxsockdark{0%{fill:#555A61;animation-timing-function:step-end}0.324%{fill:#555A61;animation-timing-function:step-end}0.657%{fill:#555A61;animation-timing-function:step-end}1.001%{fill:#2B7670;animation-timing-function:step-end}1.357%{fill:#2B7670;animation-timing-function:step-end}1.726%{fill:#2B7670;animation-timing-function:step-end}2.109%{fill:#4C7243;animation-timing-function:step-end}2.507%{fill:#4C7243;animation-timing-function:step-end}2.922%{fill:#4C7243;animation-timing-function:step-end}3.355%{fill:#4C7243;animation-timing-function:step-end}3.81%{fill:#6F7432;animation-timing-function:step-end}4.289%{fill:#6F7432;animation-timing-function:step-end}4.795%{fill:#6F7432;animation-timing-function:step-end}5.333%{fill:#6F7432;animation-timing-function:step-end}5.909%{fill:#6F7432;animation-timing-function:step-end}6.528%{fill:#807529;animation-timing-function:step-end}7.202%{fill:#807529;animation-timing-function:step-end}7.943%{fill:#807529;animation-timing-function:step-end}8.772%{fill:#807529;animation-timing-function:step-end}9.72%{fill:#807529;animation-timing-function:step-end}10.843%{fill:#844C20;animation-timing-function:step-end}12.253%{fill:#844C20;animation-timing-function:step-end}14.264%{fill:#844C20;animation-timing-function:step-end}22%,100%{fill:#844C20;animation-timing-function:step-end}}
+@keyframes wxleaf0{0%{transform:translate(0px,0px) rotate(0deg);opacity:0}12%{opacity:1}50%{transform:translate(70px,-10px) rotate(160deg)}88%{opacity:1}100%{transform:translate(140px,6px) rotate(330deg);opacity:0}}
+@keyframes wxleaf1{0%{transform:translate(0px,0px) rotate(0deg);opacity:0}12%{opacity:1}50%{transform:translate(70px,-10px) rotate(160deg)}88%{opacity:1}100%{transform:translate(140px,6px) rotate(330deg);opacity:0}}
+@keyframes wxposeA{0%{opacity:1;animation-timing-function:step-end}25%,100%{opacity:0}}
+@keyframes wxposeB{0%{opacity:0;animation-timing-function:step-end}25%{opacity:1;animation-timing-function:step-end}50%{opacity:0;animation-timing-function:step-end}75%,100%{opacity:1}}
+@keyframes wxposeC{0%{opacity:0;animation-timing-function:step-end}50%{opacity:1;animation-timing-function:step-end}75%,100%{opacity:0}}
+@keyframes wxstreak{0%{transform:translateX(-24px);opacity:0}50%{transform:translateX(16px);opacity:0.75}100%{transform:translateX(56px);opacity:0}}
+@keyframes wxsockin{0%{transform:rotate(75deg) scale(0.8,0.5);animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{transform:rotate(0deg) scale(1,1)}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Wind speed gauge from calm to 50 kilometres per hour and more, coloured by Beaufort band, the marker sweeping up to the current 45, a strong breeze, as the face appears" style="position: absolute; left: 0; top: 0">
+<circle cx="76.02" cy="389.98" r="6" style="fill: #9AA4B0"></circle>
+<circle cx="389.98" cy="389.98" r="6" style="fill: #F08A3A"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(135 233 233)" style="fill: none; stroke: #9AA4B0; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(157.5 233 233)" style="fill: none; stroke: #4FD6CC; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(180 233 233)" style="fill: none; stroke: #4FD6CC; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(202.5 233 233)" style="fill: none; stroke: #8ACF7A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(225 233 233)" style="fill: none; stroke: #8ACF7A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(247.5 233 233)" style="fill: none; stroke: #C9D25A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(270 233 233)" style="fill: none; stroke: #C9D25A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(292.5 233 233)" style="fill: none; stroke: #E8D44A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(315 233 233)" style="fill: none; stroke: #E8D44A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(337.5 233 233)" style="fill: none; stroke: #F08A3A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(0 233 233)" style="fill: none; stroke: #F08A3A; stroke-width: 12; stroke-dasharray: 88.2 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(22.5 233 233)" style="fill: none; stroke: #F08A3A; stroke-width: 12; stroke-dasharray: 87.18 1394.87"></circle>
+<g style="transform-origin: 233px 233px; animation: wxarrive 6s linear infinite">
+<circle cx="444.13" cy="301.6" r="17" style="fill: #000000"></circle>
+<circle cx="444.13" cy="301.6" r="10" style="fill: #000000; stroke: #F4F4F2; stroke-width: 5"></circle>
+</g>
+</svg>
+<div style="position: absolute; left: 96px; top: 361px; font-size: 36px; line-height: 42px; color: #9AA4B0">0</div>
+<div style="position: absolute; right: 96px; top: 361px; font-size: 36px; line-height: 42px; color: #FF5050">50+</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="A striped windsock standing straight out from its pole, fluttering fast in a strong breeze; device-optimized: 1 redraw area (the sock, its wind streaks and leaves in one box), three pre-drawn sock poses switched every 133 ms" style="position: absolute; left: 0; top: 0">
+<line x1="209.2" y1="75" x2="245.2" y2="75" style="stroke: #9AA4B0; stroke-width: 4; stroke-linecap: round; opacity: 0; animation: wxstreak 0.8s steps(6) 0s infinite"></line>
+<line x1="231.2" y1="135" x2="263.2" y2="135" style="stroke: #9AA4B0; stroke-width: 4; stroke-linecap: round; opacity: 0; animation: wxstreak 0.8s steps(6) -0.2s infinite"></line>
+<line x1="205.2" y1="155" x2="235.2" y2="155" style="stroke: #9AA4B0; stroke-width: 4; stroke-linecap: round; opacity: 0; animation: wxstreak 0.8s steps(6) -0.4s infinite"></line>
+<line x1="243.2" y1="173" x2="271.2" y2="173" style="stroke: #9AA4B0; stroke-width: 4; stroke-linecap: round; opacity: 0; animation: wxstreak 0.8s steps(6) -0.6s infinite"></line>
+<rect x="165.7" y="75" width="7" height="124" rx="3.5" style="fill: #9AA4B0"></rect><circle cx="169.2" cy="75" r="5.5" style="fill: #9AA4B0"></circle><rect x="169.2" y="98" width="22" height="6" rx="3" style="fill: #9AA4B0"></rect><rect x="145.2" y="198" width="48" height="7" rx="3.5" style="fill: #9AA4B0"></rect>
+<g style="transform-origin: 191.2px 101px; transform: rotate(0deg); animation: wxsockin 6s linear infinite">
+<g style="transform-origin: 191.2px 101px; transform: rotate(-3deg) scale(0.97, 1.02); opacity: 0; animation: wxposeA 0.533s linear infinite">
+<polygon points="191.2,78.2 215.9,80.86 215.9,121.14 191.2,123.8" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+<polygon points="215.9,80.86 240.6,83.52 240.6,118.48 215.9,121.14" style="fill: #844C20; animation: wxsockdark 6s infinite"></polygon>
+<polygon points="240.6,83.52 265.3,86.18 265.3,115.82 240.6,118.48" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+<polygon points="265.3,86.18 290,88.84 290,113.16 265.3,115.82" style="fill: #844C20; animation: wxsockdark 6s infinite"></polygon>
+<polygon points="290,88.84 314.7,91.5 314.7,110.5 290,113.16" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+</g><g style="transform-origin: 191.2px 101px; transform: none; opacity: 1; animation: wxposeB 0.533s linear infinite">
+<polygon points="191.2,78.2 215.9,80.86 215.9,121.14 191.2,123.8" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+<polygon points="215.9,80.86 240.6,83.52 240.6,118.48 215.9,121.14" style="fill: #844C20; animation: wxsockdark 6s infinite"></polygon>
+<polygon points="240.6,83.52 265.3,86.18 265.3,115.82 240.6,118.48" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+<polygon points="265.3,86.18 290,88.84 290,113.16 265.3,115.82" style="fill: #844C20; animation: wxsockdark 6s infinite"></polygon>
+<polygon points="290,88.84 314.7,91.5 314.7,110.5 290,113.16" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+</g><g style="transform-origin: 191.2px 101px; transform: rotate(3deg) scale(1.03, 0.96); opacity: 0; animation: wxposeC 0.533s linear infinite">
+<polygon points="191.2,78.2 215.9,80.86 215.9,121.14 191.2,123.8" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+<polygon points="215.9,80.86 240.6,83.52 240.6,118.48 215.9,121.14" style="fill: #844C20; animation: wxsockdark 6s infinite"></polygon>
+<polygon points="240.6,83.52 265.3,86.18 265.3,115.82 240.6,118.48" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+<polygon points="265.3,86.18 290,88.84 290,113.16 265.3,115.82" style="fill: #844C20; animation: wxsockdark 6s infinite"></polygon>
+<polygon points="290,88.84 314.7,91.5 314.7,110.5 290,113.16" style="fill: #F08A3A; animation: wxsockfill 6s infinite"></polygon>
+</g>
+</g>
+<g style="transform-box: fill-box; transform-origin: center; opacity: 0; animation: wxleaf0 1.2s steps(9) 0s infinite"><path d="M 0 0 C 4 -5, 12 -5, 16 0 C 12 5, 4 5, 0 0 Z" transform="translate(185.2 91)" style="fill: #8ACF7A"></path></g><g style="transform-box: fill-box; transform-origin: center; opacity: 0; animation: wxleaf1 1.6s steps(12) -0.7s infinite"><path d="M 0 0 C 4 -5, 12 -5, 16 0 C 12 5, 4 5, 0 0 Z" transform="translate(185.2 165)" style="fill: #8ACF7A"></path></g>
+</svg>
+<div style="position: absolute; left: 0; top: 212px; width: 466px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+<div style="display: flex; align-items: baseline; gap: 6px">
+<div style="position: relative; font-size: 96px; line-height: 84px; letter-spacing: -2px; color: #F08A3A"><span style="color: transparent">45</span><div aria-hidden="true" style="position: absolute; right: 0; top: 0; width: max-content; height: 84px; overflow: hidden; font-size: 96px; line-height: 84px; letter-spacing: -2px">
+<div style="animation: wxcount 6s infinite">
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #9AA4B0">0</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #9AA4B0">2</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #9AA4B0">4</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #4FD6CC">6</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #4FD6CC">8</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #4FD6CC">10</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #8ACF7A">12</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #8ACF7A">14</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #8ACF7A">16</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #8ACF7A">18</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #C9D25A">20</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #C9D25A">22</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #C9D25A">23</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #C9D25A">25</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #C9D25A">27</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #E8D44A">29</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #E8D44A">31</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #E8D44A">33</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #E8D44A">35</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #E8D44A">37</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #F08A3A">39</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #F08A3A">41</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #F08A3A">43</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #F08A3A">45</div>
+</div>
+</div>
+</div>
+<div style="font-size: 30px; line-height: 36px; color: #9A9A9A">km/h</div>
+</div>
+<div style="font-size: 30px; line-height: 36px; color: #BDBDBD; white-space: nowrap"><span style="color: #F08A3A">Strong breeze</span> · W</div>
+</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Weather face 3 of 6" style="position: absolute; left: 0; top: 0; pointer-events: none">
+<circle cx="193.28" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="209.07" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="225.01" cy="438.84" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="240.99" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="256.93" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="272.72" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+</svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

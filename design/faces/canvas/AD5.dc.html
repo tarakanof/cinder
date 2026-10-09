@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rain forecast · moderate</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxslide{0%{transform:rotate(0deg);animation-timing-function:cubic-bezier(0.45,0,0.25,1)}16%,100%{transform:rotate(48deg)}}
+@keyframes wxdropfade{0%{opacity:0}3%{opacity:1}16%{opacity:1}20%,100%{opacity:0}}
+@keyframes wxglow{0%,16%{opacity:0.6}22%,100%{opacity:1}}
+@keyframes wxlabelin{0%,16%{opacity:0}22%,100%{opacity:1}}
+@keyframes wxcome{0%{transform:translateX(90px);opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}10%{opacity:1}22%,100%{transform:translateX(0px);opacity:1}}
+@keyframes wxbreathe{0%,100%{transform:translateX(-4px)}50%{transform:translateX(4px)}}
+@keyframes wxraingate{0%,16%{opacity:0}19%,100%{opacity:1}}
+@keyframes wxgloom{0%,100%{opacity:1}50%{opacity:0.7}}
+@keyframes wxcount{0%{transform:translateY(0px);animation-timing-function:step-end}2.781%{transform:translateY(-84px);animation-timing-function:step-end}6.746%{transform:translateY(-168px);animation-timing-function:step-end}22%,100%{transform:translateY(-252px);animation-timing-function:step-end}}
+@keyframes wxcloudL{0%{transform:translateX(-170px);animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{transform:translateX(0px)}}
+@keyframes wxcloudR{0%{transform:translateX(170px);animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{transform:translateX(0px)}}
+@keyframes wxsheetAD5L{0%{transform:translateY(0px)}100%{transform:translateY(80px)}}
+@keyframes wxsheetAD5R{0%{transform:translateY(0px)}100%{transform:translateY(80px)}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Clock dial of the next 12 hours, dry now at 14:30 with a ring marking the time; a drop slides from now to the rain, moderate rain from 16:00 to 17:30" style="position: absolute; left: 0; top: 0">
+<circle cx="233" cy="233" r="222" transform="rotate(-88.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(-58.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(-28.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(1.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(31.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(61.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(91.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(121.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(151.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(181.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(211.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(241.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<path d="M 422.29 348.99 A 222 222 0 0 1 348.99 422.29" style="fill: none; stroke: #5C9CE0; stroke-width: 12; opacity: 1; animation: wxglow 6s linear infinite"></path>
+<path d="M 338.93 428.1 A 222 222 0 0 1 290.46 447.44" style="fill: none; stroke: #5C9CE0; stroke-width: 12; opacity: 1; animation: wxglow 6s linear infinite"></path>
+<circle cx="447.44" cy="175.54" r="17" style="fill: #000000"></circle>
+<circle cx="447.44" cy="175.54" r="10" style="fill: #000000; stroke: #F4F4F2; stroke-width: 5"></circle>
+<g style="transform-origin: 233px 233px; animation: wxslide 6s linear infinite">
+<g style="opacity: 0; animation: wxdropfade 6s linear infinite">
+<path d="M -15 0 C -9 -1.5, -6.5 -7, 0 -7 A 7 7 0 0 1 0 7 C -6.5 7, -9 1.5, -15 0 Z" transform="translate(447.44 175.54) rotate(75)" style="fill: #5C9CE0; stroke: #000000; stroke-width: 2; stroke-linejoin: round"></path>
+</g>
+</g>
+<text x="404.47" y="332.0" text-anchor="end" dominant-baseline="central" style="font-size: 22px; fill: #5C9CE0; opacity: 1; animation: wxlabelin 6s linear infinite">16</text>
+</svg>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Dark light grey rain clouds sliding in from both sides of the face, rain falling from under them once the drop reaches the rain on the dial, stopping short of the countdown; device-optimized: 2 redraw areas at 15 fps (each side: its cloud with its rain sheet in one box)" style="position: absolute; left: 0; top: 0">
+<defs><radialGradient id="wxsidefade" gradientUnits="userSpaceOnUse" cx="233" cy="233" r="195"><stop offset="0.92" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#000000"></stop></radialGradient><mask id="wxsidemask" maskUnits="userSpaceOnUse" x="0" y="0" width="466" height="466"><circle cx="233" cy="233" r="195" style="fill: url(#wxsidefade)"></circle></mask></defs>
+<g mask="url(#wxsidemask)">
+<g style="animation: wxcloudL 6s linear infinite"><g style="animation: wxbreathe 8s steps(60) 0s infinite">
+<g style="animation: wxraingate 6s linear infinite"><defs><clipPath id="sheetclipAD5L"><rect x="54" y="182" width="118" height="26"></rect></clipPath><linearGradient id="sheetfadeAD5L" gradientUnits="userSpaceOnUse" x1="0" y1="182" x2="0" y2="208"><stop offset="0" stop-color="#000000"></stop><stop offset="0.08" stop-color="#FFFFFF"></stop><stop offset="0.92" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#000000"></stop></linearGradient><mask id="sheetmaskAD5L" maskUnits="userSpaceOnUse" x="54" y="182" width="118" height="26"><rect x="54" y="182" width="118" height="26" style="fill: url(#sheetfadeAD5L)"></rect></mask></defs><g clip-path="url(#sheetclipAD5L)" mask="url(#sheetmaskAD5L)"><g style="animation: wxsheetAD5L 1.6s steps(24, end) -0.333s infinite"><g transform="translate(0 102)"><line x1="72" y1="4" x2="69" y2="14" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="118" y1="17" x2="115" y2="27" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 1"></line><line x1="150" y1="29" x2="147" y2="39" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line><line x1="94" y1="35" x2="90" y2="45" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="132" y1="9" x2="129" y2="19" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.75"></line><line x1="60" y1="22" x2="57" y2="32" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.8"></line><g transform="translate(0 40)"><line x1="84" y1="8" x2="81" y2="18" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.8"></line><line x1="136" y1="21" x2="133" y2="31" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.95"></line><line x1="66" y1="27" x2="63" y2="37" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.65"></line><line x1="160" y1="36" x2="156" y2="46" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="104" y1="14" x2="101" y2="24" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="146" y1="2" x2="143" y2="12" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line></g></g><g transform="translate(0 182)"><line x1="72" y1="4" x2="69" y2="14" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="118" y1="17" x2="115" y2="27" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 1"></line><line x1="150" y1="29" x2="147" y2="39" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line><line x1="94" y1="35" x2="90" y2="45" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="132" y1="9" x2="129" y2="19" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.75"></line><line x1="60" y1="22" x2="57" y2="32" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.8"></line><g transform="translate(0 40)"><line x1="84" y1="8" x2="81" y2="18" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.8"></line><line x1="136" y1="21" x2="133" y2="31" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.95"></line><line x1="66" y1="27" x2="63" y2="37" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.65"></line><line x1="160" y1="36" x2="156" y2="46" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="104" y1="14" x2="101" y2="24" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="146" y1="2" x2="143" y2="12" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line></g></g></g></g></g>
+<path d="M 40.59 180 A 29.7 29.7 0 0 1 80.64 136.84 A 35.1 35.1 0 0 1 149.9 145.09 A 21.6 21.6 0 0 1 174.99 180 Z" style="fill: #8E96A0; stroke: #A8B0BA; stroke-width: 4.5; stroke-linejoin: round"></path>
+</g></g>
+<g style="animation: wxcloudR 6s linear infinite"><g style="animation: wxbreathe 9s steps(68) -4s infinite">
+<g style="animation: wxraingate 6s linear infinite"><defs><clipPath id="sheetclipAD5R"><rect x="298" y="174" width="108" height="34"></rect></clipPath><linearGradient id="sheetfadeAD5R" gradientUnits="userSpaceOnUse" x1="0" y1="174" x2="0" y2="208"><stop offset="0" stop-color="#000000"></stop><stop offset="0.08" stop-color="#FFFFFF"></stop><stop offset="0.92" stop-color="#FFFFFF"></stop><stop offset="1" stop-color="#000000"></stop></linearGradient><mask id="sheetmaskAD5R" maskUnits="userSpaceOnUse" x="298" y="174" width="108" height="34"><rect x="298" y="174" width="108" height="34" style="fill: url(#sheetfadeAD5R)"></rect></mask></defs><g clip-path="url(#sheetclipAD5R)" mask="url(#sheetmaskAD5R)"><g style="animation: wxsheetAD5R 1.867s steps(28, end) -0.733s infinite"><g transform="translate(0 94)"><line x1="312" y1="7" x2="309" y2="17" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="356" y1="20" x2="353" y2="30" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.75"></line><line x1="392" y1="32" x2="388" y2="42" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 1"></line><line x1="334" y1="36" x2="331" y2="46" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.6"></line><line x1="376" y1="2" x2="373" y2="12" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="306" y1="24" x2="303" y2="34" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.75"></line><g transform="translate(0 40)"><line x1="326" y1="3" x2="323" y2="13" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="372" y1="15" x2="369" y2="25" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 1"></line><line x1="398" y1="27" x2="395" y2="37" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line><line x1="344" y1="31" x2="340" y2="41" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="388" y1="10" x2="385" y2="20" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.8"></line><line x1="316" y1="37" x2="313" y2="47" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line></g></g><g transform="translate(0 174)"><line x1="312" y1="7" x2="309" y2="17" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="356" y1="20" x2="353" y2="30" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.75"></line><line x1="392" y1="32" x2="388" y2="42" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 1"></line><line x1="334" y1="36" x2="331" y2="46" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.6"></line><line x1="376" y1="2" x2="373" y2="12" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="306" y1="24" x2="303" y2="34" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.75"></line><g transform="translate(0 40)"><line x1="326" y1="3" x2="323" y2="13" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.85"></line><line x1="372" y1="15" x2="369" y2="25" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 1"></line><line x1="398" y1="27" x2="395" y2="37" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line><line x1="344" y1="31" x2="340" y2="41" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.9"></line><line x1="388" y1="10" x2="385" y2="20" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.8"></line><line x1="316" y1="37" x2="313" y2="47" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round; stroke-opacity: 0.7"></line></g></g></g></g></g>
+<path d="M 291.01 172 A 21.6 21.6 0 0 1 316.1 137.09 A 35.1 35.1 0 0 1 385.36 128.84 A 29.7 29.7 0 0 1 425.41 172 Z" style="fill: #8E96A0; stroke: #A8B0BA; stroke-width: 4.5; stroke-linejoin: round"></path>
+</g></g>
+</g>
+</svg>
+<div style="position: absolute; left: 0; top: 212px; width: 466px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+<div style="display: flex; align-items: baseline; gap: 6px">
+<div style="position: relative; font-size: 96px; line-height: 84px; letter-spacing: -2px; color: #5C9CE0"><span style="color: transparent">1½</span><div aria-hidden="true" style="position: absolute; right: 0; top: 0; width: max-content; height: 84px; overflow: hidden; font-size: 96px; line-height: 84px; letter-spacing: -2px">
+<div style="animation: wxcount 6s infinite">
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0">0</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0">½</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0">1</div>
+<div style="height: 84px; font-size: 96px; line-height: 84px; letter-spacing: -2px; text-align: right; white-space: nowrap; color: #5C9CE0">1½</div>
+</div>
+</div>
+</div>
+<div style="font-size: 30px; line-height: 36px; color: #9A9A9A">h</div>
+</div>
+<div style="font-size: 30px; line-height: 36px; color: #BDBDBD; white-space: nowrap"><span style="color: #5C9CE0">rain</span> at 16:00</div>
+</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Rain view 2 of 2, weather face 2 of 6" style="position: absolute; left: 0; top: 0; pointer-events: none">
+<circle cx="33" cy="225" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="33" cy="241" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="193.28" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="209.07" cy="437.6" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="225.01" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="240.99" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="256.93" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="272.72" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+</svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

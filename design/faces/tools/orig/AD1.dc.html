@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rain forecast, cloud coming</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxcome{0%{transform:translateX(84px);opacity:0}15%{opacity:1}65%{transform:translateX(0px);opacity:1}88%{transform:translateX(0px);opacity:1}100%{transform:translateX(0px);opacity:0}}
+@keyframes wxdrops{0%,64%{opacity:0;transform:translateY(-6px)}72%{opacity:1}88%{opacity:1;transform:translateY(8px)}100%{opacity:0;transform:translateY(10px)}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Clock dial of the next 12 hours, dry now at half past 2 with a ring marking the time, light rain at the 5 and 6 o'clock positions" style="position: absolute; left: 0; top: 0">
+<circle cx="233" cy="233" r="222" transform="rotate(-88.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(-58.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(-28.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(1.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(31.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(61.5 233 233)" style="fill: none; stroke: #5C9CE0; stroke-width: 12; stroke-dasharray: 104.62 1394.87; opacity: 0.6"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(91.5 233 233)" style="fill: none; stroke: #5C9CE0; stroke-width: 12; stroke-dasharray: 104.62 1394.87; opacity: 0.6"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(121.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(151.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(181.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(211.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="233" cy="233" r="222" transform="rotate(241.5 233 233)" style="fill: none; stroke: #262626; stroke-width: 12; stroke-dasharray: 104.62 1394.87"></circle>
+<circle cx="447.44" cy="175.54" r="17" style="fill: #000000"></circle>
+<circle cx="447.44" cy="175.54" r="10" style="fill: #000000; stroke: #F4F4F2; stroke-width: 5"></circle>
+</svg>
+<div style="position: absolute; left: 0; top: 76px; width: 466px; text-align: center; font-size: 24px; line-height: 30px; color: #BDBDBD">Rain</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="A rain cloud drifting in from the right, starting to drop rain as it arrives" style="position: absolute; left: 0; top: 0">
+<g style="animation: wxcome 5s ease-out infinite">
+<path d="M 30 62 A 20 20 0 1 1 35.1 22.7 A 24 24 0 0 1 81.9 27.9 A 18 18 0 1 1 90 62 Z" transform="translate(174 112)" style="fill: #000000; stroke: #9AA4B0; stroke-width: 4.5; stroke-linejoin: round"></path>
+<g style="animation: wxdrops 5s linear infinite">
+<line x1="212" y1="184" x2="208" y2="196" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round"></line>
+<line x1="236" y1="186" x2="232" y2="198" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round"></line>
+<line x1="260" y1="184" x2="256" y2="196" style="stroke: #5C9CE0; stroke-width: 4; stroke-linecap: round"></line>
+</g>
+</g>
+</svg>
+<div style="position: absolute; left: 0; top: 212px; width: 466px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+<div style="font-size: 96px; line-height: 84px; letter-spacing: -2px; color: #5C9CE0">17:00</div>
+<div style="font-size: 30px; line-height: 36px; color: #BDBDBD">light rain, 2 h</div>
+</div>
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="Rain view 2 of 2, weather face 2 of 6" style="position: absolute; left: 0; top: 0; pointer-events: none">
+<circle cx="33" cy="225" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="33" cy="241" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="193.28" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="209.07" cy="437.6" r="4" style="fill: #FFFFFF"></circle>
+<circle cx="225.01" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="240.99" cy="438.84" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="256.93" cy="437.6" r="4" style="fill: #4A4A4A"></circle>
+<circle cx="272.72" cy="435.13" r="4" style="fill: #4A4A4A"></circle>
+</svg>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

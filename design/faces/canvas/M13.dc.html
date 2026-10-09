@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bot, listening</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes wxbeat{0%,100%{transform:translateY(0px) scaleY(1)}25%{transform:translateY(4px) scaleY(0.82)}55%{transform:translateY(-5px) scaleY(1.06)}}
+@keyframes wxheadbob{0%,100%{transform:translateY(0px)}25%{transform:translateY(2px)}55%{transform:translateY(-2px)}}
+@keyframes wxphones{0%{transform:translateY(-60px);opacity:0;animation-timing-function:cubic-bezier(0.2,0.8,0.2,1)}22%,100%{transform:translateY(0px);opacity:1}}
+@keyframes wxnote{0%{transform:translate(0px,0px) rotate(0deg);opacity:0}15%{opacity:1}100%{transform:translate(var(--dx),-70px) rotate(12deg);opacity:0}}
+</style>
+</helmet>
+<div style="width: 466px; height: 466px; position: relative; overflow: hidden; border-radius: 50%; background: #000000; color: #F4F4F2; font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500">
+<svg viewBox="0 0 466 466" width="466" height="466" role="img" aria-label="The bot wearing headphones, eyes bobbing to the beat, music notes floating up; listening to Glass Harbor" style="position: absolute; left: 0; top: 0;">
+<circle cx="233" cy="233" r="196" style="fill: none; stroke: {{mood}}; stroke-width: 4.5"></circle><path id="mbot-label-arc" d="M 57 233 A 176 176 0 0 0 409 233" style="fill: none; stroke: none"></path><text style="font-family: Montserrat, 'Avenir Next', 'Segoe UI', sans-serif; font-weight: 500; font-size: 30px; letter-spacing: 1px; fill: #F4F4F2; text-anchor: middle"><textPath href="#mbot-label-arc" startOffset="50%">GLASS HARBOR</textPath></text><g style="animation: wxphones 6s linear infinite"><g style="animation: wxheadbob 0.6s ease-in-out infinite"><path d="M 112 236 A 121 121 0 0 1 354 236" style="fill: none; stroke: #F2A07E; stroke-width: 12; stroke-linecap: round"></path><rect x="96" y="214" width="36" height="72" rx="16" style="fill: #F2A07E"></rect><rect x="104" y="226" width="8" height="48" rx="4" style="fill: #000000; opacity: 0.25"></rect><rect x="334" y="214" width="36" height="72" rx="16" style="fill: #F2A07E"></rect><rect x="354" y="226" width="8" height="48" rx="4" style="fill: #000000; opacity: 0.25"></rect></g></g><g style="--dx: -16px; opacity: 0; animation: wxnote 2.4s ease-out 0s infinite"><g transform="translate(104 200)"><ellipse cx="0" cy="0" rx="6.5" ry="5" transform="rotate(-20)" style="fill: #F2A07E"></ellipse><line x1="5.5" y1="-2" x2="5.5" y2="-22" style="stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></line><path d="M 5.5 -22 Q 14 -18 12 -9" style="fill: none; stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></path></g></g><g style="--dx: 18px; opacity: 0; animation: wxnote 2.4s ease-out -0.8s infinite"><g transform="translate(360 196)"><ellipse cx="0" cy="0" rx="6.5" ry="5" transform="rotate(-20)" style="fill: #F2A07E"></ellipse><line x1="5.5" y1="-2" x2="5.5" y2="-22" style="stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></line><path d="M 5.5 -22 Q 14 -18 12 -9" style="fill: none; stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></path></g></g><g style="--dx: -8px; opacity: 0; animation: wxnote 2.4s ease-out -1.6s infinite"><g transform="translate(118 190)"><ellipse cx="0" cy="0" rx="6.5" ry="5" transform="rotate(-20)" style="fill: #F2A07E"></ellipse><line x1="5.5" y1="-2" x2="5.5" y2="-22" style="stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></line><path d="M 5.5 -22 Q 14 -18 12 -9" style="fill: none; stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></path></g></g><g style="--dx: 10px; opacity: 0; animation: wxnote 2.4s ease-out -2.0s infinite"><g transform="translate(348 186)"><ellipse cx="0" cy="0" rx="6.5" ry="5" transform="rotate(-20)" style="fill: #F2A07E"></ellipse><line x1="5.5" y1="-2" x2="5.5" y2="-22" style="stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></line><path d="M 5.5 -22 Q 14 -18 12 -9" style="fill: none; stroke: #F2A07E; stroke-width: 3; stroke-linecap: round"></path></g></g>
+</svg>
+<div style="position: absolute; left: 152px; top: 236px; width: 68px; height: 36px; border-radius: 18px; background: #F4F4F2; transform-origin: 50% 100%; animation: wxbeat 0.6s ease-in-out infinite"></div>
+<div style="position: absolute; left: 246px; top: 236px; width: 68px; height: 36px; border-radius: 18px; background: #F4F4F2; transform-origin: 50% 100%; animation: wxbeat 0.6s ease-in-out infinite"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mood":{"editor":"enum","options":["idle","working","waiting","done","error"],"default":"working"},"$preview":{"width":466,"height":466}}'>
+class Component extends DCLogic {
+renderVals() {
+const colors = { idle: '#888888', working: '#2EE85E', waiting: '#FFC14D', done: '#4FA9FF', error: '#FF3A3A' };
+return { mood: colors[this.props.mood] || '#2EE85E' };
+}
+}
+</script>
+</body>
+</html>
