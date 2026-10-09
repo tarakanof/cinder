@@ -42,7 +42,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 ```sh
 . ~/.espressif/tools/activate_idf_v5.5.5.sh
 cd firmware
-test/host/run.sh          # host tests: pure C (bot, view, provision, ota, Ember fixtures, title font, ...), tools/secret_scan.py and tools/stack_walk.py
+test/host/run.sh          # host tests: pure C (bot, view, provision, ota, Ember fixtures, title and face fonts, ...), tools/secret_scan.py and tools/stack_walk.py
 idf.py build
 python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 ```
@@ -176,6 +176,7 @@ The port tools open it with raw termios and leave DTR/RTS alone; their effects a
 | `measure_view_latency.py` | Mood latency and idle traffic against Ember |
 | `gen_tool_marks.py` | Regenerate `components/bot/tool_marks.c` (venv; no port) |
 | `gen_title_font.py [TTF]` | Regenerate `main/font_title_bold.c`, the OTA face's bold title glyphs (Pillow; no port) |
+| `gen_face_fonts.py [TTF]` | Regenerate `main/font_face_36.c` and `main/font_digits_96.c`, the weather/music face subsets (Pillow; no port) |
 | `sync-ember-fixtures.sh <ref>` | Replace `test/host/fixtures/ember/` with Ember's device-protocol fixtures at a tag or commit (`gh`; no port) |
 
 To put the bot in working mood without real work, post a demo session to Ember

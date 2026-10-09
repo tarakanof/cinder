@@ -48,6 +48,9 @@ if [ -d "$LV" ]; then
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_36.c" "$D/test_title_font.c" \
         -o "${OUT}_title_font"
+    cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$D/../../main" "$LV/src/font/lv_font.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_36.c" "$D/test_face_fonts.c" \
+        -o "${OUT}_face_fonts"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -65,8 +68,9 @@ fi
 "${OUT}_np"
 if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_title_font"
+    "${OUT}_face_fonts"
 else
-    echo "run.sh: SKIPPED title font test: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
