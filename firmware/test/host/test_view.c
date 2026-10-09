@@ -51,7 +51,7 @@ static void test_parse(void)
 
     knob_view_epoch_key(&v, key, sizeof key);
     CHECK(strcmp(key, "7/3") == 0, "epoch key moves with either");
-    CHECK(knob_view_parse("{\"mood\":{\"waiting\":0,\"errors\":0,\"running\":3,\"done\":0,\"source\":\"\","
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":0,\"errors\":0,\"running\":3,\"done\":0,\"source\":\"\","
                           "\"lead\":\"M4\",\"hosts\":2,\"lead_color\":\"#B48CFF\",\"tool\":\"claude\"}}",
                           &v),
           "lead parses");
@@ -59,7 +59,7 @@ static void test_parse(void)
               strcmp(v.tool, "claude") == 0,
           "lead %s hosts %d colour %s tool %s", v.lead, v.hosts, v.lead_color, v.tool);
 
-    CHECK(knob_view_parse("{\"mood\":{},\"pomo\":{\"phase\":\"short_break\",\"running\":true,\"paused\":true,"
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"pomo\":{\"phase\":\"short_break\",\"running\":true,\"paused\":true,"
                           "\"remaining_sec\":120,\"planned_sec\":300,\"round\":2}}",
                           &v),
           "paused parses");
@@ -67,7 +67,7 @@ static void test_parse(void)
           "remaining_sec when not counting");
     CHECK(knob_view_mood(&v) == BOT_IDLE && !v.has_brightness, "idle; no brightness");
 
-    CHECK(knob_view_parse("{\"mood\":{},\"weather\":{\"provider\":\"met-no\",\"cond\":\"clear\","
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"weather\":{\"provider\":\"met-no\",\"cond\":\"clear\","
                           "\"code\":\"clearsky_night\",\"temp_c\":3,\"night\":false,\"sunrise\":null,\"sunset\":null}}",
                           &v),
           "no-location weather parses");
@@ -85,15 +85,25 @@ static void test_parse(void)
     CHECK(l.face == WX_CLEAR_DAY && !l.still, "Ember's day, clear");
 
     CHECK(v.diag_live_until == 0, "no live mode");
-    CHECK(knob_view_parse("{\"mood\":{},\"brightness\":{\"level\":5,\"night\":false},\"diag_live_until\":1782044400}", &v) &&
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"brightness\":{\"level\":5,\"night\":false},\"diag_live_until\":1782044400}", &v) &&
               v.diag_live_until == 1782044400LL,
           "diag_live_until");
     CHECK(!knob_view_parse("", &v), "empty body (a 304) does not parse");
     CHECK(!knob_view_parse(NULL, &v), "NULL");
     CHECK(!knob_view_parse("[]", &v), "array");
-    CHECK(!knob_view_parse("{\"v\":1}", &v), "no mood");
-    CHECK(!knob_view_parse("{\"mood\":{\"waiting\":1", &v) && v.waiting == 0, "cut short: zeroed");
-    CHECK(knob_view_parse("{\"mood\":{\"waiting\":0,\"errors\":0,\"running\":0,\"done\":0},\"brightness\":{\"level\":300}}",
+    CHECK(knob_view_parse("{\"v\":1}", &v) && !v.has_mood && knob_view_mood(&v) == BOT_IDLE && v.lead[0] == 0 &&
+              !v.has_pomo && !v.has_weather && !v.has_np && !v.has_brightness,
+          "no mood, pomo or weather key: a view, every block off");
+    CHECK(knob_view_parse(FULL, &v) && v.has_mood, "mood present");
+    CHECK(!knob_view_parse("{\"mood\":{}}", &v), "no v");
+    CHECK(!knob_view_parse("{\"v\":\"1\",\"mood\":{}}", &v), "v not a number");
+    CHECK(knob_view_read("{\"v\":1.5,\"mood\":{}}", &v, NULL) == KNOB_VIEW_BAD, "v 1.5: bad, not too new");
+    CHECK(knob_view_read("{\"v\":0.5,\"mood\":{}}", &v, NULL) == KNOB_VIEW_BAD, "v 0.5: bad, not too old");
+    CHECK(knob_view_read("{\"v\":99.5}", &v, NULL) == KNOB_VIEW_BAD, "v 99.5: bad");
+    CHECK(knob_view_read("{\"mood\":{}}", &v, NULL) == KNOB_VIEW_BAD, "no v: bad");
+    CHECK(knob_view_read("{\"v\":\"1\"}", &v, NULL) == KNOB_VIEW_BAD, "string v: bad");
+    CHECK(!knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":1", &v) && v.waiting == 0, "cut short: zeroed");
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":0,\"errors\":0,\"running\":0,\"done\":0},\"brightness\":{\"level\":300}}",
                           &v) &&
               !v.has_brightness,
           "level out of range ignored");
@@ -101,14 +111,101 @@ static void test_parse(void)
           "priority");
 }
 
+static void test_major(void)
+{
+    knob_view_t v;
+    CHECK(knob_view_parse(FULL, &v) && v.waiting == 1, "last good view");
+    knob_view_t keep = v;
+    int major = 0;
+    CHECK(knob_view_read("{\"v\":99,\"mood\":{\"waiting\":0,\"running\":4},\"pomo\":null}", &v, &major) ==
+              KNOB_VIEW_TOO_NEW && major == 99,
+          "v 99: too new");
+    CHECK(memcmp(&v, &keep, sizeof v) == 0, "too new: last view kept");
+    CHECK(knob_view_read("{\"v\":2}", &v, NULL) == KNOB_VIEW_TOO_NEW, "v 2: too new");
+    CHECK(knob_view_read("{\"v\":0,\"mood\":{}}", &v, &major) == KNOB_VIEW_TOO_OLD && major == 0, "v 0: too old");
+    CHECK(knob_view_read("{\"v\":-3}", &v, &major) == KNOB_VIEW_TOO_OLD && major == -3, "v -3: too old");
+    CHECK(memcmp(&v, &keep, sizeof v) == 0, "too old: last view kept");
+    CHECK(knob_view_read("{\"v\":1e300}", &v, &major) == KNOB_VIEW_TOO_NEW && major == 1000000000, "huge v clamped");
+    CHECK(!knob_view_parse("{\"v\":99,\"mood\":{}}", &v), "parse: false for an unsupported major");
+    CHECK(memcmp(&v, &keep, sizeof v) == 0, "parse: last view kept");
+    CHECK(knob_view_read("{\"v\":1,\"mood\":{\"running\":2}}", &v, &major) == KNOB_VIEW_OK && major == 1 &&
+              knob_view_mood(&v) == BOT_WORKING,
+          "supported again");
+    CHECK(knob_view_read("[1]", &v, NULL) == KNOB_VIEW_BAD && v.v == 0, "bad: zeroed");
+    CHECK(KNOB_VIEW_V_MIN == 1 && KNOB_VIEW_V_MAX == 1, "parses view major 1 only");
+}
+
+#define V1_WAITING "{\"v\":1,\"mood\":{\"waiting\":1,\"lead\":\"M4\"},\"pomo\":null}"
+#define V1_WORKING "{\"v\":1,\"mood\":{\"running\":1}}"
+#define V2 "{\"v\":2,\"mood\":{\"errors\":5}}"
+
+static knob_step_t step(knob_view_state_t *s, int status, const char *body) { return knob_view_step(s, status, body); }
+
+static void test_step(void)
+{
+    knob_view_state_t s = {0};
+    knob_view_state_reset(&s);
+    CHECK(!knob_view_conditional(&s), "fresh: no If-None-Match");
+
+    knob_step_t r = step(&s, 200, V1_WAITING);
+    CHECK(r.act == KNOB_STEP_APPLY && r.mood == BOT_WAITING && r.etag_set && !r.etag_clear, "v1: apply");
+    CHECK(s.have_view && !s.unsupported && s.compat == KNOB_COMPAT_OK && knob_view_conditional(&s), "v1: state");
+    r = step(&s, 304, "");
+    CHECK(r.act == KNOB_STEP_APPLY && r.mood == BOT_WAITING && !r.etag_set && !r.etag_clear, "304: apply the cached view");
+
+    r = step(&s, 200, V2);
+    CHECK(r.act == KNOB_STEP_RESTORE && r.mood == BOT_WAITING && r.etag_set && !r.etag_clear,
+          "v2: last view's mood, ETag kept");
+    CHECK(s.unsupported && s.have_view && s.compat == KNOB_COMPAT_UPDATE_KNOB && s.major == 2, "v2: update the knob");
+    CHECK(strcmp(s.view.lead, "M4") == 0 && s.view.waiting == 1 && s.view.errors == 0, "v2: last view kept");
+
+    r = step(&s, -1, NULL);
+    CHECK(r.act == KNOB_STEP_NONE && r.mood == -1 && !r.etag_set && !r.etag_clear, "disconnect: nothing");
+    CHECK(s.unsupported && s.compat == KNOB_COMPAT_UPDATE_KNOB && knob_view_conditional(&s), "disconnect: state kept");
+    r = step(&s, 304, "");
+    CHECK(r.act == KNOB_STEP_RESTORE && r.mood == BOT_WAITING && !r.etag_clear,
+          "v1, v2, disconnect, 304: the kept view's mood comes back");
+    r = step(&s, 503, "");
+    CHECK(r.act == KNOB_STEP_NONE && s.unsupported, "5xx: nothing");
+
+    r = step(&s, 200, V1_WORKING);
+    CHECK(r.act == KNOB_STEP_APPLY && r.mood == BOT_WORKING && r.etag_set, "v1 again: apply");
+    CHECK(!s.unsupported && s.compat == KNOB_COMPAT_OK, "v1 again: supported");
+
+    knob_view_state_reset(&s);
+    r = step(&s, 200, "{\"v\":0}");
+    CHECK(r.act == KNOB_STEP_NONE && r.mood == -1 && r.etag_set, "first view too old: nothing to show, ETag kept");
+    CHECK(s.unsupported && !s.have_view && s.compat == KNOB_COMPAT_UPDATE_EMBER, "first view too old: update Ember");
+    CHECK(knob_view_conditional(&s), "unsupported without a view still sends If-None-Match");
+    r = step(&s, 304, "");
+    CHECK(r.act == KNOB_STEP_NONE && !r.etag_clear, "304 after an unsupported first view: no refetch");
+
+    r = step(&s, 200, "{\"v\":1.5}");
+    CHECK(r.act == KNOB_STEP_UNPARSED && r.etag_clear && !s.unsupported && !s.have_view, "bad after unsupported");
+    CHECK(s.compat == KNOB_COMPAT_UPDATE_EMBER, "bad keeps the label until a good view");
+    r = step(&s, 304, "");
+    CHECK(r.act == KNOB_STEP_REFETCH && r.etag_clear, "304 without a view: refetch");
+
+    r = step(&s, 200, "{\"v\":99}");
+    CHECK(s.compat == KNOB_COMPAT_UPDATE_KNOB, "too new");
+    knob_view_state_reset(&s);
+    CHECK(!s.unsupported && !s.have_view && s.compat == KNOB_COMPAT_OK && !knob_view_conditional(&s),
+          "reset (token change, legacy) clears it");
+
+    r = step(&s, 200, "{\"v\":1}");
+    CHECK(r.act == KNOB_STEP_APPLY && r.mood == -1, "no mood block: mood unknown, not idle");
+    r = step(&s, 200, V2);
+    CHECK(r.act == KNOB_STEP_RESTORE && r.mood == -1, "restore without a mood block: unknown");
+}
+
 static void test_quiet(void)
 {
     knob_view_t v;
     CHECK(knob_view_parse(FULL, &v) && !v.quiet, "absent quiet: not quiet");
-    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":true}", &v) && v.quiet, "quiet true");
-    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":false}", &v) && !v.quiet, "quiet false");
-    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":1}", &v) && !v.quiet, "quiet not a bool: not quiet");
-    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":true}", &v) && knob_view_parse("{\"mood\":{}}", &v) && !v.quiet,
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"quiet\":true}", &v) && v.quiet, "quiet true");
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"quiet\":false}", &v) && !v.quiet, "quiet false");
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"quiet\":1}", &v) && !v.quiet, "quiet not a bool: not quiet");
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"quiet\":true}", &v) && knob_view_parse("{\"v\":1,\"mood\":{}}", &v) && !v.quiet,
           "next view without quiet: off again");
     CHECK(knob_quiet_next(true, KNOB_QUIET_LEGACY, false), "legacy fallback keeps quiet");
     CHECK(!knob_quiet_next(false, KNOB_QUIET_LEGACY, true), "legacy fallback: no new quiet");
@@ -295,6 +392,8 @@ static void test_etag(void)
 int main(void)
 {
     test_parse();
+    test_major();
+    test_step();
     test_quiet();
     test_srv_clock();
     test_clock_end();

@@ -183,7 +183,7 @@ static void test_view(void)
     CHECK(knob_view_parse(json, &v), "view with block parses");
     CHECK(v.has_np && v.np.state == NP_PLAYING && v.np.position_ms == 61000, "block in the view");
     CHECK(knob_view_parse("{\"v\":1,\"mood\":{}}", &v) && !v.has_np, "no block without the page");
-    CHECK(knob_view_parse("{\"mood\":{},\"nowplaying\":{\"state\":\"none\"}}", &v) && v.has_np &&
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"nowplaying\":{\"state\":\"none\"}}", &v) && v.has_np &&
               v.np.state == NP_NONE,
           "none block");
 }

@@ -11,8 +11,22 @@ extern "C" {
 #endif
 
 #define DEV_TOKEN_MAX 64
+#define DEV_CHECKIN_BODY_MAX 2048
+#define DEV_CAPS_PAGE_MAX 16
+#define DEV_CAPS_FEATURE_MAX 32
+
+/* Checkin "caps", Ember's patterns: a page id not matching ^[a-z][a-z0-9_-]{0,15}$ or a feature not matching ^[a-z][a-z0-9_]{0,31}$ is left out (Ember drops the whole caps for one bad id). A limit of 0 is left out. */
+typedef struct {
+    int view_min, view_max;
+    const char *const *pages;
+    int n_pages;
+    const char *const *features;
+    int n_features;
+    uint32_t view_bytes, config_bytes;
+} dev_caps_t;
 
 typedef struct {
+    const dev_caps_t *caps;
     const char *fw;
     const char *fw_build;
     const ota_report_t *ota;

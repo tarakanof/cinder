@@ -35,6 +35,10 @@ typedef enum {
     EMBER_LINK_UNAUTHORIZED,
 } ember_link_t;
 ember_link_t ember_client_link(void);
+
+typedef enum { EMBER_VIEW_OK, EMBER_VIEW_UPDATE_EMBER, EMBER_VIEW_UPDATE_KNOB } ember_view_compat_t;
+/* Any task. The last view's major was below (update Ember) or above (update the knob) the range this firmware parses. */
+ember_view_compat_t ember_client_view_compat(void);
 void ember_client_report_unauthorized(void);
 /* Seconds since the last successful checkin; -1 none. */
 long ember_client_last_checkin_s(void);

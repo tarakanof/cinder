@@ -573,7 +573,7 @@ Pages are one descriptor table, `PAGES[]` in `components/pages/pages.c` (const, 
 - Hooks: `page_ops.h` declares them; `main.c` defines them on the LVGL task (`page_bot_*`, `page_pomo_*`, `page_weather_show`, `page_np_*`). Weather has no `input` or `frame`: its update runs every frame on every page, as before. `page_bot_show(true)` forces a bot redraw (`s_drawn = false`, which `show_page` did for every page before; only the bot reads it).
 - Input routing (`pages_route`): a page without `input` drops all input; without `PAGE_TOUCH_RAW` taps count as pushes; without `PAGE_TURN` detents are dropped (Pomodoro ignored them before too); now playing (`PAGE_TOUCH_RAW | PAGE_TURN`) gets taps as touches and wakes. `PAGE_GLINT` (bot) runs the working glint and chase. The bot simulation (mood, chase, pose) still runs every frame; only the bot draw is the bot page's `frame`.
 - One order change: Pomodoro's and now playing's per-frame update now runs after the bot pose step instead of before it; the two share no state.
-- `pages_ids()` lists the compiled ids in table order, for `caps.pages` (#27; not sent yet).
+- `pages_ids()` lists the compiled ids in table order; it is the checkin's `caps.pages` (#27, capabilities section).
 - `view_block`: the knob view key each page reads (`mood`, `pomo`, `weather`, `nowplaying`).
 - Tests (`test_pages.c`, recording stubs in `page_stubs.c`): the table against `knob_settings` defaults and Ember's `view_full.json` and `config_default.json`; what each page's `input` receives for nonzero turns, pushes, long pushes, taps and wakes; dispatch and frame following `page`, not `pos`; show and hide order on a switch, pause and resume; step with a reordered list; settings reorder, disabled shown page, unknown home. Each check was run against a deliberate mutant of `pages.c` (no routing, `pos` for `page`, no hide, fallback to slot 0, keeping a disabled page, Pomodoro detents, now-playing taps as pushes, capped pushes, step and resume by slot, frame by slot) and fails on it.
 - Add a page: Ember first (its `config_default.json` default page list and the view block, then the fixture sync, `docs/workflow.md`), because `test_pages.c` requires Ember's default list to equal the table. Then one table row and `PAGES_N` in `pages.c`/`pages.h`, its hook declarations in `page_ops.h`, the hooks in `main.c`, recording stubs in `test/host/page_stubs.c`, and its hooks in `tools/stack_walk.json` (`show` under `pages_show`, `pages_hide_all`, `pages_resume`, `pages_settings`, `pages_step`; `input` under `pages_dispatch`; `frame` under `pages_frame`).
@@ -653,3 +653,51 @@ Display only: the knob has no speaker. Ember owns the window (`quiet_hours`, one
 | `stack_walk.py` | `ember` 5,088, `lvgl` 8,592 | `ember` 5,088, `lvgl` 8,592 | 0 for every task (margins `ember` 1,824, `lvgl` 1,904) |
 
 Unresolved indirect calls move by one in `ember` (243 → 242), `pomo` and `weather` (53 → 52) and `main` (380 → 381): objdump decode noise from the shifted layout, as in the offline fallback section. No new task, timer, NVS key or LVGL object. Not measured on the knob yet: the on-device check (quiet on and off, with `calm` on and off, `dim_level` against `floor`, a legacy fallback during quiet keeps the knob dim and calm) is in the PR.
+
+## Capabilities and the view major (#27, Ember#341, 0.9.42)
+
+The knob says what it can do in every checkin, and the view parser only reads view majors it knows. Contract: Ember `docs/DEVICE-PROTOCOL.md`, "Capabilities"; spec `Specs/ember/2026-10-09-device-protocol-capabilities-design.md` in the vault. Fixtures pinned to Ember main 4a8c20c, after the #363 merge (`checkin_req_caps.json`, `checkin_reply_caps.json`, `view_caps_limited.json`; bytes unchanged from the PR head 638985e).
+
+- **Caps** (`components/caps`, `knob_caps()`; serialised by `dev_checkin_body` in `device_api.c`, first key, keys sorted like the rest of the body):
+
+  ```json
+  "caps": {"features": ["view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals"],
+           "limits": {"config_bytes": 1024, "view_bytes": 16383},
+           "pages": ["bot", "pomodoro", "weather", "nowplaying"], "view": [1, 1]}
+  ```
+
+  `pages` comes from the page table (`pages_ids()`), `view` from `KNOB_VIEW_V_MIN`/`KNOB_VIEW_V_MAX` (`knob_view.h`), `view_bytes` from `KNOB_VIEW_BUF - 1` (the view buffer, `RESP_MAX` in `ember_client.c`, less its NUL), `config_bytes` from `CFG_SETTINGS_MAX` (the settings store rejects anything longer). Features, each checked against the code: `view_wait` (`?wait=` after `X-Ember-View-Wait`, `view_wait.c`), `np_control` (`POST /v1/nowplaying/control`, `nowplaying_client.c`), `ota_rollback` (Ember's offers, `esp_ota_mark_app_invalid_rollback_and_reboot`; the build refuses an sdkconfig without app rollback), `coredump` (upload on `coredump_wanted`, erase on `coredump_ack`), `stats_intervals` (`stats_interval_s`, `live_interval_s` from the config). The serialiser applies Ember's patterns and leaves out a page id not matching `^[a-z][a-z0-9_-]{0,15}$`, a feature not matching `^[a-z][a-z0-9_]{0,31}$` (Ember drops the whole caps for one bad id, so one bad id must not reach it) and a limit of 0. `test_caps.c` checks every page table id against the page pattern. The caps are built once at the ember task start into its PSRAM context.
+- **Old server**: `caps_ack` is never read. A server without #341 ignores `caps` (lenient decode) and its reply parses exactly as before (`test_fixtures.c`: `checkin_reply_caps.json` and `checkin_reply_current.json` give the same result).
+- **Blocks may be absent**: a caps server leaves out the blocks of pages that are not in `caps.pages` or are off in the knob's `pages`. The view parser no longer needs `mood` (it used to reject a view without it); `knob_view_t.has_mood` is false and the step's mood is -1 (unknown), so the ember task keeps its last mood and host label instead of forcing idle; the bot page is off whenever Ember leaves `mood` out. A missing `pomo` or `weather` is read like `null`, as before. A view is now any object with a numeric `v`; Ember has sent `v` since the view route was added (`devices_view.go`, 1ee45e2), so a view without `v` is "not a knob view", as a view without `mood` was.
+- **View major** (`knob_view_read`, host-tested): a `v` that is not a whole number is `KNOB_VIEW_BAD` (checked before the range, so 1.5 or 0.5 is a bad view, not an update state); a whole `v` below `KNOB_VIEW_V_MIN` is `KNOB_VIEW_TOO_OLD`, above `KNOB_VIEW_V_MAX` is `KNOB_VIEW_TOO_NEW`; in both cases nothing else in the body is read and the last good view stays.
+- **Per-answer step** (`knob_view_step` in `components/knob_view/view_step.c`, pure, host-tested in `test_view.c` `test_step`): the ember task hands it each view answer and acts on the result. State `knob_view_state_t` {last good view, `have_view`, `unsupported`, `compat`, `major`}; `knob_view_conditional` (send `If-None-Match`) is `have_view || unsupported`.
+
+  | Answer | Action | ETag | State |
+  |---|---|---|---|
+  | 200, supported | `APPLY`: feed the pages, mood from the view | set | `have_view`, compat OK |
+  | 200, too old/new | `RESTORE` (mood and host label from the kept view, nothing fed) or `NONE` without a view | set, so the long-poll waits on it | `unsupported`, compat update Ember/knob |
+  | 200, bad | `UNPARSED` (500 to the link and fallback logic) | cleared | no view, not unsupported; the label stays until a good view |
+  | 304, supported | `APPLY` of the cached view | kept | |
+  | 304, unsupported | `RESTORE` or `NONE` | kept | |
+  | 304, no view | `REFETCH` | cleared | |
+  | error, disconnect | `NONE` | kept | |
+
+  `RESTORE` exists for the case Codex found in review: v1 applied, then v2, then a Wi-Fi drop sets the mood to -1; the next 304 brings back the kept view's mood and host label (before the fix the bot stayed idle until a supported view). The stale view is never fed again (no Pomodoro, weather or brightness refresh). The link counts every 200/304 as good (no offline marks, no legacy fallback). The Pomodoro source stays unconfirmed, so after three polls it shows its offline estimate and drops presses, as for any stale Pomodoro data. `knob_view_state_reset` (legacy fallback, token change) clears it. Known trade-off (Opus review, kept per the spec): the bot, weather and now playing keep the last view's state while the label shows; the state only happens when a server ignores `caps.view`.
+- **Update state** (`ember_client_view_compat()`, read by `join_frame` in `main.c`): the existing amber bottom label that shows "Not paired" (Montserrat 24, `0xF5A623`, 40 px above the bottom, on the top layer so it shows on every page) reads **"Update knob"** when the server's view is newer than the firmware parses and **"Update Ember"** when it is older. Priority below "Can't join" and "Not paired". No new LVGL object. One log line per change (`view: major 99 outside 1-1, keeping the last view: update the knob`).
+- **Checkin buffer**: `P->body` 1536 → `DEV_CHECKIN_BODY_MAX` 2048 B (PSRAM, inside the ember task context). A body over the buffer is logged once and counted as a failed checkin (`dev_sched_done`, backoff) instead of returning silently and retrying every loop pass. The worst-case body (12 tasks with 16-char names, a crash, full OTA report, 8-CPU stats, 32-char `fw`, every number at its maximum) is 1,732 B with caps; without the bump the caps would have pushed it past 1,536 and `dev_checkin_body` would have returned 0, which skips the checkin. `test_caps.c` keeps 256 B of headroom.
+- **Tests**: `test_caps.c` (the firmware's caps from the page table, every table id against Ember's page pattern, limits from `KNOB_VIEW_BUF` and `CFG_SETTINGS_MAX`, key order, no caps = the old body, filtering of ids and tokens against Ember's patterns (case, first char, length 16/32, dash only in pages), single limits, the worst-case body); `test_view.c` `test_major` (v 99, 2, 0 and -3 keep the last view byte for byte, a huge v; 1.5, 0.5, 99.5, a string or no v return `KNOB_VIEW_BAD`; supported again), `test_step` (the table above: v1 → v2 → disconnect → 304 restores the mood, an unsupported first view long-polls instead of refetching, bad after unsupported, reset; mutants without `|| unsupported`, without `RESTORE` or with the range check first each make tests fail) and the view without `mood`; `test_fixtures.c` (`checkin_req_caps.json` against a checkin built with `knob_caps()`, `checkin_reply_caps.json` equal to the old server's reply, `view_caps_limited.json` without `pomo` and `nowplaying`, `view_full.json` without `mood`, `pomo` or `weather`, a synthetic `v:99` from `view_minimal.json` keeping `view_full.json`, then `v:1` applied); the pre-caps fixtures still pass unchanged.
+
+**Cost** (`idf.py size`, origin/main 0.9.41 at c82fc39 → this branch, same machine and IDF 5.5.5):
+
+| | main | 0.9.42 | Δ |
+|---|---|---|---|
+| Image | 1,551,211 B | 1,553,083 B | +1,872 |
+| Flash `.text` / `.rodata` | 1,053,336 / 394,532 B | 1,054,808 / 394,932 B | +1,472 / +400 |
+| DIRAM (static) | 102,679 B (`.data` 23,448, `.bss` 16,008) | 102,679 B (23,448, 16,008) | 0 |
+| IRAM | 16,384 | 16,384 | 0 |
+| PSRAM `.bss` | 49,172 B | 49,172 B | 0 |
+| PSRAM heap (ember context) | | | about +560 (body +512, caps and page id pointers about 50) |
+| `stack_walk.py` | `ember` 5,088, `lvgl` 8,592 | `ember` 5,152, `lvgl` 8,592 | `ember` +64 (margin 1,760) |
+
+Unresolved indirect calls: `lvgl` 141 → 140, the rest equal (decode noise). No new task, timer, NVS key or LVGL object; nothing new in internal RAM. Not on the knob yet: the on-device check (caps stored and `caps_ack` from Ember #363, `effective_caps.source` `reported`, internal heap and `ember` stack free in the checkin, the "Update knob" label, which needs a server answering `v:99` and so the user's approval to point the knob at one) is in the PR.
+
