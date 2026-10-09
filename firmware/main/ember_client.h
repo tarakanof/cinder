@@ -18,6 +18,8 @@ void ember_client_forget_wifi(void);
 
 bool ember_client_mood(bot_mood_t *out);
 
+bool ember_client_quiet(void);
+
 bool ember_client_online(void);
 
 /* Any task. link_state word of Ember's link (level and OFFLINE generation), for stamping presses. */

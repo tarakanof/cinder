@@ -4,6 +4,7 @@
 
 #include "cJSON.h"
 #include "device_api.h"
+#include "cfg.h"
 #include "knob_settings.h"
 
 static int failures;
@@ -24,6 +25,39 @@ static void test_settings_defaults(void)
     CHECK(!knob_settings_parse("{", &p), "bad json");
     CHECK(!knob_settings_parse(NULL, &p), "null");
     CHECK(knob_settings_parse("{}", &p) && memcmp(&d, &p, sizeof d) == 0, "empty object -> defaults");
+}
+
+static void test_settings_quiet(void)
+{
+    knob_settings_t k;
+    knob_settings_defaults(&k);
+    CHECK(k.quiet_calm && k.quiet_dim == KS_QUIET_DIM_DEFAULT && KS_QUIET_DIM_DEFAULT == 20, "defaults calm, 20");
+    CHECK(knob_settings_parse("{}", &k) && k.quiet_calm && k.quiet_dim == 20, "missing quiet: defaults");
+    knob_settings_parse("{\"quiet\":{\"calm\":false,\"dim_level\":5}}", &k);
+    CHECK(!k.quiet_calm && k.quiet_dim == 5, "custom quiet");
+    knob_settings_parse("{\"quiet\":{\"dim_level\":80}}", &k);
+    CHECK(k.quiet_calm && k.quiet_dim == 80, "calm missing: default on");
+    knob_settings_parse("{\"quiet\":{\"calm\":false}}", &k);
+    CHECK(!k.quiet_calm && k.quiet_dim == 20, "dim_level missing: 20");
+    knob_settings_parse("{\"quiet\":{\"calm\":0,\"dim_level\":0}}", &k);
+    CHECK(k.quiet_calm && k.quiet_dim == 1, "calm not a bool ignored, dim_level 0 -> 1");
+    knob_settings_parse("{\"quiet\":{\"dim_level\":999}}", &k);
+    CHECK(k.quiet_dim == 255, "dim_level 999 -> 255");
+    knob_settings_parse("{\"quiet\":{\"dim_level\":\"x\"}}", &k);
+    CHECK(k.quiet_dim == 20, "dim_level not a number: default");
+    knob_settings_parse("{\"quiet\":true}", &k);
+    CHECK(k.quiet_calm && k.quiet_dim == 20, "quiet not an object: defaults");
+
+    dev_checkin_result_t r;
+    dev_checkin_parse("{\"config_version\":3,\"config\":{\"quiet\":{\"calm\":false,\"dim_level\":7}}}", &r);
+    knob_settings_t a, b;
+    CHECK(r.ok && r.config && strlen(r.config) <= CFG_SETTINGS_MAX, "stored config fits");
+    knob_settings_parse(r.config, &a);
+    char *copy = r.config ? strdup(r.config) : NULL;
+    dev_checkin_result_free(&r);
+    knob_settings_parse(copy, &b);
+    free(copy);
+    CHECK(!a.quiet_calm && a.quiet_dim == 7 && memcmp(&a, &b, sizeof a) == 0, "quiet round-trips through the stored text");
 }
 
 static void test_settings_values(void)
@@ -508,6 +542,7 @@ int main(void)
     test_link();
     test_settings_defaults();
     test_settings_values();
+    test_settings_quiet();
     test_pages();
     test_checkin_body();
     test_checkin_diag();

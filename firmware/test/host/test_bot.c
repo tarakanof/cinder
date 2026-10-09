@@ -614,6 +614,62 @@ static void test_pose_same(void)
     CHECK(!bot_pose_same(&base, &p, R), "eye shape change: redraw");
 }
 
+static int count_hops(bot_t *b, double t0, double seconds, bool *popped)
+{
+    int n = 0;
+    bool was = false;
+    *popped = false;
+    for (double t = t0; t < t0 + seconds; t += 1.0 / 60) {
+        bot_pose(b, t);
+        if (b->hopping && !was) n++;
+        was = b->hopping;
+        *popped |= b->popping;
+    }
+    return n;
+}
+
+static void test_calm(void)
+{
+    CHECK(!bot_calm(false, true) && !bot_calm(true, false) && bot_calm(true, true), "calm = quiet and the setting");
+    CHECK(bot_anim_allowed(BOT_ANIM_WAIT_HOP, false) && bot_anim_allowed(BOT_ANIM_MOOD_POP, false) &&
+              bot_anim_allowed(BOT_ANIM_GLINT_CHASE, false) && bot_anim_allowed(BOT_ANIM_USER_INPUT, false),
+          "not calm: all allowed");
+    CHECK(!bot_anim_allowed(BOT_ANIM_WAIT_HOP, true) && !bot_anim_allowed(BOT_ANIM_MOOD_POP, true) &&
+              !bot_anim_allowed(BOT_ANIM_GLINT_CHASE, true) && bot_anim_allowed(BOT_ANIM_USER_INPUT, true),
+          "calm: only user input");
+    CHECK(bot_chase_on(true, false, false) && !bot_chase_on(true, true, false) && bot_chase_on(true, true, true) &&
+              !bot_chase_on(false, false, true),
+          "calm blocks a new chase, lets a running one finish, no glint no chase");
+
+    bot_t b;
+    bool popped;
+    bot_init(&b, 7, 0);
+    bot_set_mood(&b, BOT_WAITING, 1);
+    CHECK(count_hops(&b, 1, 20, &popped) >= 2 && popped, "waiting hops and pops");
+
+    bot_init(&b, 7, 0);
+    bot_set_calm(&b, true, 0.5);
+    bot_set_mood(&b, BOT_WAITING, 1);
+    CHECK(count_hops(&b, 1, 20, &popped) == 0 && !popped, "calm waiting: no hop, no pop");
+    bot_set_mood(&b, BOT_ERROR, 21);
+    CHECK(count_hops(&b, 21, 5, &popped) == 0 && !popped, "calm error: no pop");
+    bot_set_mood(&b, BOT_WAITING, 26);
+    bot_push(&b, 27);
+    CHECK(count_hops(&b, 27, 0.5, &popped) == 1, "calm: a push still hops");
+    bot_set_calm(&b, false, 30);
+    CHECK(count_hops(&b, 30, 20, &popped) >= 2, "quiet off while waiting: hops resume");
+    bot_set_calm(&b, true, 50);
+    CHECK(count_hops(&b, 52, 20, &popped) == 0, "quiet on while waiting: hops stop");
+    bot_set_calm(&b, false, 72);
+    bot_set_mood(&b, BOT_DONE, 73);
+    CHECK(count_hops(&b, 73, 1, &popped) == 0 && popped, "quiet off: mood change pops again");
+
+    bot_init(&b, 7, 0);
+    bot_set_calm(&b, true, 0.5);
+    CHECK(bot_set_mood_user(&b, BOT_DONE, 1) && b.popping, "calm: a demo mood (user input) still pops");
+    CHECK(!bot_set_mood_user(&b, BOT_DONE, 2), "same mood: nothing");
+}
+
 int main(void)
 {
     bot_shape_init();
@@ -622,6 +678,7 @@ int main(void)
     test_label_wipe();
     test_track_smooth();
     test_pose_same();
+    test_calm();
     test_glint_chase();
     test_ring_glint();
     test_arc_text();

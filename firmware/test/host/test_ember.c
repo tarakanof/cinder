@@ -169,6 +169,43 @@ static void test_dim(void)
     CHECK(dim_fade_tick(&f, &v) && v == 138, "retarget continues from there: %d", v);
 }
 
+static void test_quiet_dim(void)
+{
+    CHECK(dim_quiet_level(153, 10, false, 20) == 153, "not quiet: level");
+    CHECK(dim_quiet_level(5, 10, false, 20) == 10, "not quiet: floor raises");
+    CHECK(dim_quiet_level(153, 10, true, 20) == 20, "quiet caps at dim_level");
+    CHECK(dim_quiet_level(15, 10, true, 20) == 15, "quiet: darker level kept");
+    CHECK(dim_quiet_level(5, 10, true, 20) == 10, "quiet: floor still raises below dim_level");
+    CHECK(dim_quiet_level(153, 30, true, 20) == 20, "quiet: floor does not raise above dim_level");
+    CHECK(dim_quiet_level(153, 10, true, 1) == 1, "quiet: dim_level 1");
+    CHECK(dim_quiet_level(20, 10, true, 20) == 20, "night level 20 at default dim_level: unchanged");
+    CHECK(dim_quiet_level(20, 10, true, 5) == 5, "night level 20, dim_level 5: darker");
+    CHECK(dim_quiet_level(8, 10, true, 20) == 10, "night level 8 under floor 10: floor, under dim_level");
+    CHECK(dim_quiet_level(300, 10, false, 20) == 255 && dim_quiet_level(300, 10, true, 255) == 255, "clamped to 255");
+    CHECK(dim_quiet_floor(10, false, 5) == 10 && dim_quiet_floor(10, true, 20) == 10 && dim_quiet_floor(30, true, 20) == 20,
+          "fade floor");
+
+    dim_fade_t f;
+    uint8_t v = 0;
+    int floor = 30, dim = 5;
+    dim_fade_init(&f, 153);
+    dim_fade_set_floor(&f, dim_quiet_floor(floor, false, dim));
+    dim_fade_set_target(&f, dim_quiet_level(153, floor, false, dim));
+    CHECK(!dim_fade_tick(&f, &v), "not quiet: settled at 153");
+    dim_fade_set_floor(&f, dim_quiet_floor(floor, true, dim));
+    dim_fade_set_target(&f, dim_quiet_level(153, floor, true, dim));
+    while (dim_fade_tick(&f, &v)) {}
+    CHECK(f.cur == 5, "quiet on: fades to dim_level below the floor: %d", f.cur);
+    dim_fade_set_floor(&f, dim_quiet_floor(floor, false, dim));
+    dim_fade_set_target(&f, dim_quiet_level(153, floor, false, dim));
+    while (dim_fade_tick(&f, &v)) {}
+    CHECK(f.cur == 153, "quiet off: back to 153: %d", f.cur);
+    dim_fade_set_floor(&f, dim_quiet_floor(floor, false, dim));
+    dim_fade_set_target(&f, dim_quiet_level(2, floor, false, dim));
+    while (dim_fade_tick(&f, &v)) {}
+    CHECK(f.cur == 30, "after quiet the floor holds again: %d", f.cur);
+}
+
 static void test_lead(void)
 {
     char out[EMBER_HOST_MAX + 1];
@@ -213,6 +250,7 @@ int main(void)
     test_pick();
     test_label();
     test_dim();
+    test_quiet_dim();
     if (failures) {
         printf("ember: %d failure(s)\n", failures);
         return 1;

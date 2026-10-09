@@ -109,6 +109,7 @@ bool knob_view_parse(const char *json, knob_view_t *out)
             out->level = (int)lv->valuedouble;
             out->bright_night = cJSON_IsTrue(item(b, "night"));
         }
+        out->quiet = cJSON_IsTrue(item(root, "quiet"));
         out->has_np = np_parse(item(root, "nowplaying"), &out->np);
         long long lu;
         if (num_ll(root, "diag_live_until", &lu) && lu > 0) out->diag_live_until = lu;
@@ -122,3 +123,5 @@ void knob_view_epoch_key(const knob_view_t *v, char *out, size_t cap)
 {
     snprintf(out, cap, "%llu/%lu", v->epoch, v->config_version);
 }
+
+bool knob_quiet_next(bool cur, knob_quiet_src_t src, bool view_quiet) { return src == KNOB_QUIET_VIEW ? view_quiet : cur; }

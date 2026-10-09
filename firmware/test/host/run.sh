@@ -30,7 +30,7 @@ cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$D/test_link.c" -o "${OUT}_link"
 cc $CFLAGS -I"$G/include" "$G/touch_swipe.c" "$D/test_swipe.c" -lm -o "${OUT}_swipe"
 cc $CFLAGS -I"$G/include" -I"$V/include" -I"$J" "$G/cfg.c" "$V/improv.c" "$V/cinder_line.c" "$J/cJSON.c" \
     "$D/test_provision.c" -lm -o "${OUT}_provision"
-cc $CFLAGS -I"$V/include" -I"$O/include" -I"$J" "$V/knob_settings.c" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" \
+cc $CFLAGS -I"$V/include" -I"$O/include" -I"$G/include" -I"$J" "$V/knob_settings.c" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" \
     "$J/cJSON.c" "$D/test_device.c" -lm -o "${OUT}_device"
 cc $CFLAGS -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$J/cJSON.c" \
     "$D/test_coredump.c" -lm -o "${OUT}_coredump"

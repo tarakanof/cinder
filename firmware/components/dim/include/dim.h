@@ -30,6 +30,11 @@ bool dim_fade_tick(dim_fade_t *f, uint8_t *out);
 
 bool dim_level_valid(bool present, double level);
 
+/* Quiet caps the level at dim_level, below the floor too (docs/features.md, quiet hours). */
+int dim_quiet_level(int level, int floor, bool quiet, int dim_level);
+
+int dim_quiet_floor(int floor, bool quiet, int dim_level);
+
 #ifdef __cplusplus
 }
 #endif

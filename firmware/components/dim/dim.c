@@ -41,3 +41,14 @@ bool dim_level_valid(bool present, double level)
 {
     return present && level >= 0 && level <= 255;
 }
+
+static int clamp_level(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+int dim_quiet_level(int level, int floor, bool quiet, int dim_level)
+{
+    int v = clamp_level(level < floor ? floor : level);
+    if (quiet && v > dim_level) v = clamp_level(dim_level);
+    return v;
+}
+
+int dim_quiet_floor(int floor, bool quiet, int dim_level) { return quiet && dim_level < floor ? dim_level : floor; }
