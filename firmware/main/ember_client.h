@@ -7,6 +7,7 @@
 #include "bot_behavior.h"
 #include "device_api.h"
 #include "ember_host.h"
+#include "link_state.h"
 
 /* Call before the display init (internal RAM); not provisioned: scan-only radio. */
 void ember_client_start(void);
@@ -18,6 +19,11 @@ void ember_client_forget_wifi(void);
 bool ember_client_mood(bot_mood_t *out);
 
 bool ember_client_online(void);
+
+/* Any task. link_state word of Ember's link (level and OFFLINE generation), for stamping presses. */
+uint32_t ember_client_link_word(void);
+/* Any task. OFFLINE with an Ember URL configured; false when Ember is not set up. */
+bool ember_client_offline(void);
 
 typedef enum {
     EMBER_LINK_OFF,

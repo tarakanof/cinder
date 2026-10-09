@@ -2,6 +2,9 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
+
+#include "link_state.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,6 +76,28 @@ void pomo_clock_init(pomo_clock_t *c);
 void pomo_clock_sync(pomo_clock_t *c, const pomo_state_t *polled, double now);
 pomo_state_t pomo_clock_at(const pomo_clock_t *c, double now);
 void pomo_clock_sync_end(pomo_clock_t *c, const pomo_state_t *polled, long long ends_at, double offset, double now);
+
+typedef struct {
+    bool has_state;
+    pomo_state_t state;
+    bool offline;
+    bool waiting;
+} pomo_est_t;
+
+/* Last state from Ember (a running phase aligned to its ends_at) at now. Offline: never advances the phase. */
+pomo_est_t pomo_estimate(const pomo_clock_t *c, bool offline, double now);
+/* Phase-line text while offline; NULL online. */
+const char *pomo_est_label(const pomo_est_t *e);
+
+/* link: Ember's link_state word; src: the Pomodoro source's (the view's pomo block or the legacy endpoint). */
+typedef struct {
+    pomo_input_t in;
+    uint32_t link, src;
+} pomo_press_t;
+
+bool pomo_offline(uint32_t link, uint32_t src);
+/* A press stamped at press time may be sent now. */
+bool pomo_press_ok(const pomo_press_t *p, uint32_t link, uint32_t src);
 
 #ifdef __cplusplus
 }

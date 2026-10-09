@@ -36,6 +36,7 @@
 #include "freertos/task.h"
 #include "improv.h"
 #include "knob_view.h"
+#include "link_state.h"
 #include "nowplaying_client.h"
 #include "nvs.h"
 #include "ota_client.h"
@@ -216,7 +217,6 @@ static void wifi_start(const cfg_t *cfg)
 }
 
 #define MAX_SESSIONS 32
-#define OFFLINE_AFTER_FAILS 3
 
 static int parse_state(const char *body, ember_host_info_t *host)
 {
@@ -266,7 +266,9 @@ typedef struct {
     bool view_failing;
     uint32_t token_gen;
     bool has_pending;
-    pomo_input_t pending;
+    pomo_press_t pending;
+    bool unparsed;
+    bool applied;
     char base[CFG_URL_MAX + 1];
     char view_url[CFG_URL_MAX + 32];
     char wait_url[CFG_URL_MAX + 48];
@@ -384,7 +386,7 @@ static void wait_and_fade(int ms, char *buf)
             if (atomic_load(&s_online) && np_client_cmds_pending()) np_client_run_controls(s_conn, P->base);
             if (wait > pdMS_TO_TICKS(50)) wait = pdMS_TO_TICKS(50);
         }
-        pomo_input_t in;
+        pomo_press_t in;
         if (pomo_client_next_action(pdTICKS_TO_MS(wait), &in)) {
             pomo_client_run_action(in, s_conn, buf, RESP_MAX);
             pomo_client_log_state();
@@ -429,6 +431,28 @@ static _Atomic int64_t s_last_checkin_us = -1;
 #define s_sched (P->sched)
 
 static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
+
+static char *s_buf;
+static EXT_RAM_BSS_ATTR link_state_t s_ls;
+static atomic_uint s_link_word;
+
+static void link_note(bool wifi, bool aborted, int status, bool parsed)
+{
+    int64_t t = now_ms();
+    link_level_t was = s_ls.level;
+    int64_t off_ms = link_state_offline_ms(&s_ls, t);
+    if (!link_state_note(&s_ls, link_counts(was, wifi, aborted, status, parsed), t)) return;
+    atomic_store(&s_link_word, link_state_word(&s_ls));
+    const char *now = link_level_name(s_ls.level);
+    if (was == LINK_OFFLINE) ESP_LOGI(TAG, "link: %s after %lld s offline", now, (long long)(off_ms / 1000));
+    else ESP_LOGI(TAG, "link: %s -> %s (%d failures)", link_level_name(was), now, s_ls.fails);
+    if (s_ls.level != LINK_OFFLINE) return;
+    pomo_client_drop_presses();
+    if (P->has_pending) {
+        P->has_pending = false;
+        pomo_client_run_action(P->pending, s_conn, s_buf, RESP_MAX);
+    }
+}
 
 static atomic_int s_ovr_stats_s, s_ovr_live_s;
 
@@ -713,6 +737,7 @@ static int apply_view(ember_host_info_t *host, long long srv_now, double sent, d
     knob_view_epoch_key(v, key, sizeof key);
     dev_sched_epoch(&s_sched, key, now_ms());
     live_mode(v->diag_live_until, P->hdrs.now);
+    P->applied = true;
     pomo_client_feed(v->has_pomo ? &v->pomo : NULL, v->pomo_counting, v->ends_at, srv_now, sent, received);
     weather_client_feed(v->has_weather ? &v->weather : NULL);
     np_client_feed(v->has_np ? &v->np : NULL);
@@ -751,7 +776,8 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
 {
     resp_hdrs_t *h = &P->hdrs;
     h->etag[0] = h->now[0] = h->wait[0] = 0;
-    pomo_input_t in;
+    P->unparsed = P->applied = false;
+    pomo_press_t in;
     if (pomo_client_next_action(0, &in)) {
         pomo_client_run_action(in, s_conn, buf, RESP_MAX);
         pomo_client_log_state();
@@ -804,6 +830,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
             static bool logged;
             if (!logged) ESP_LOGW(TAG, "view: answer is not a knob view");
             logged = true;
+            P->unparsed = true;
             P->have_view = false;
             view_etag_clear(&P->etag);
             return 500;
@@ -820,12 +847,10 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         return status;
     case VIEW_ANS_FAILED:
     default:
-        if (status == -1) pomo_client_feed_failed();
         return status;
     }
 }
 
-static char *s_buf;
 
 static bool ota_fresh_view(void)
 {
@@ -922,6 +947,7 @@ static void poll_task(void *arg)
             int status = -1;
             bool viewed = false;
             bool aborted = false;
+            bool parsed = true;
             if (view_policy_try_view(&P->vp, now_ms())) {
                 int vmood;
                 status = view_poll(buf, &vmood, &host);
@@ -948,11 +974,12 @@ static void poll_task(void *arg)
                     ota_client_note_view_ok();
                     mood = parse_state(buf, &host);
                     fresh = mood >= 0;
+                    parsed = fresh;
                     dev_sched_epoch(&s_sched, P->hdrs.epoch, now_ms());
                 }
             }
             bool ok = status == 200 || (viewed && status == 304);
-            bool down = (status != -1 && status != 429) || fs_fails(&P->conn.streak) >= OFFLINE_AFTER_FAILS;
+            bool down = (status != -1 && status != 429) || fs_fails(&P->conn.streak) >= LINK_OFFLINE_AFTER_FAILS;
             if (aborted) {
             } else if (ok) {
                 atomic_store(&s_link, EMBER_LINK_OK);
@@ -960,6 +987,9 @@ static void poll_task(void *arg)
                 atomic_store(&s_link, EMBER_LINK_UNREACHABLE);
             }
             if (!aborted && !ok && down) mood = -1;
+            if (viewed && P->unparsed) link_note(true, false, 200, false);
+            else link_note(true, aborted, status, parsed);
+            if (viewed && !aborted && status != 429) pomo_client_source(P->applied);
             int shown = ok ? 200 : status;
             if (!aborted && shown != -1 && shown != last_status) {
                 if (shown != 200) ESP_LOGW(TAG, "GET %s -> HTTP %d", viewed ? P->view_url : url, status);
@@ -968,7 +998,7 @@ static void poll_task(void *arg)
         } else {
             atomic_store(&s_link, EMBER_LINK_CONNECTING);
             mood = -1;
-            if (!P->vp.legacy) pomo_client_feed_failed();
+            link_note(false, false, -1, false);
         }
         if (online && !P->vp.legacy && P->have_view) np_client_service(s_conn, P->base);
         if (fresh) {
@@ -1012,6 +1042,7 @@ static void poll_task(void *arg)
 
 void ember_client_start(void)
 {
+    link_state_init(&s_ls, now_ms());
     cfg_t *cfg = heap_caps_calloc(1, sizeof *cfg, MALLOC_CAP_SPIRAM);
     assert(cfg);
     config_store_get(cfg);
@@ -1051,6 +1082,13 @@ void ember_client_forget_wifi(void)
 }
 
 bool ember_client_online(void) { return atomic_load(&s_online); }
+
+uint32_t ember_client_link_word(void) { return atomic_load(&s_link_word); }
+
+bool ember_client_offline(void)
+{
+    return atomic_load(&s_link) != EMBER_LINK_OFF && link_word_offline(atomic_load(&s_link_word));
+}
 
 ember_link_t ember_client_link(void)
 {

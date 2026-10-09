@@ -123,6 +123,11 @@ static int s_glint_dy;
 static int s_glint_defer;
 static void glint_draw_cb(lv_event_t *e);
 
+#define OFFLINE_RGB 0x5A5A5A
+#define OFFLINE_DY 140
+static lv_obj_t *s_offline;
+static bool s_offline_on;
+
 static uint32_t mood_rgb(bot_mood_t m)
 {
     switch (m) {
@@ -241,6 +246,13 @@ void bot_view_create(lv_obj_t *parent)
     assert(s_label_buf && s_icon_buf);
     s_label = canvas_create(parent);
     lv_obj_add_flag(s_label, LV_OBJ_FLAG_HIDDEN);
+    s_offline = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_offline, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_offline, lv_color_hex(OFFLINE_RGB), 0);
+    lv_label_set_text_static(s_offline, LV_SYMBOL_WIFI);
+    lv_obj_align(s_offline, LV_ALIGN_CENTER, 0, OFFLINE_DY);
+    lv_obj_remove_flag(s_offline, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
     if (xTaskCreatePinnedToCoreWithCaps(rim_task, "rim", 2560, NULL, 2, &s_rim_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)
         esp_system_abort("bot_view: rim task not created");
     s_eye_go = xSemaphoreCreateBinary();
@@ -440,6 +452,14 @@ void bot_view_set_host(const ember_host_info_t *host)
     s_host = *host;
     s_label_dirty = true;
     host_sync();
+}
+
+void bot_view_set_offline(bool on)
+{
+    if (on == s_offline_on || !s_offline) return;
+    s_offline_on = on;
+    if (on) lv_obj_remove_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
 }
 
 void bot_view_set_options(bool source_label, bool working_ring)

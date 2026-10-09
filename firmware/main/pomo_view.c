@@ -128,8 +128,9 @@ static const char *phase_name(pomo_phase_t p)
     }
 }
 
-void pomo_view_update(const pomo_state_t *s, double now)
+void pomo_view_update(const pomo_est_t *e, double now)
 {
+    const pomo_state_t *s = e->has_state ? &e->state : NULL;
     pomo_mode_t mode = s ? pomo_mode(s) : POMO_MODE_IDLE;
     uint32_t base = !s ? COL_OTHER
                        : s->phase == POMO_PHASE_FOCUS ? COL_FOCUS
@@ -145,16 +146,20 @@ void pomo_view_update(const pomo_state_t *s, double now)
     if (active) pomo_format_mmss(s->remaining_sec, txt, sizeof txt);
     else strlcpy(txt, "--:--", sizeof txt);
     label_text(s_time, s_time_txt, sizeof s_time_txt, txt);
-    bool dim = !active || (mode == POMO_MODE_PAUSED && ((long)floor(now)) % 2);
+    bool dim = !active || e->waiting || (mode == POMO_MODE_PAUSED && ((long)floor(now)) % 2);
     label_color(s_time, &s_time_col, dim ? COL_TEXT_DIM : COL_TEXT);
 
     char ph[24];
     uint32_t ph_col = arc;
+    const char *offline = pomo_est_label(e);
     if (s_note) {
         strlcpy(ph, s_note, sizeof ph);
         ph_col = COL_NOTE;
+    } else if (offline) {
+        strlcpy(ph, offline, sizeof ph);
+        ph_col = COL_NOTE;
     } else if (!s) {
-        strlcpy(ph, "OFFLINE", sizeof ph);
+        strlcpy(ph, "CONNECTING", sizeof ph);
         ph_col = COL_NOTE;
     } else if (mode == POMO_MODE_IDLE) {
         strlcpy(ph, "PUSH TO START", sizeof ph);

@@ -535,6 +535,7 @@ static void page_go(int steps, double t)
 
 struct page_frame {
     double t;
+    bool offline;
     bot_pose_t pose;
     gc_out_t chase;
 };
@@ -549,10 +550,11 @@ void page_pomo_input(const page_input_t *in, double t)
 void page_pomo_frame(const page_frame_t *f)
 {
     pomo_snapshot_t snap;
-    bool ok = pomo_client_get(&snap);
-    pomo_state_t ps = pomo_clock_at(&snap.clock, f->t);
+    pomo_client_get(&snap);
+    pomo_est_t e = pomo_estimate(&snap.clock, !snap.online, f->t);
+    if (snap.disabled) e.has_state = false;
     pomo_view_set_note(pomo_client_note(&snap, f->t));
-    pomo_view_update(ok ? &ps : NULL, f->t);
+    pomo_view_update(&e, f->t);
 }
 
 void page_np_input(const page_input_t *in, double t)
@@ -563,7 +565,7 @@ void page_np_input(const page_input_t *in, double t)
     for (int n = in->longs; n > 0; n--) np_view_long_push(t);
 }
 
-void page_np_frame(const page_frame_t *f) { np_view_update(f->t, ember_client_link() == EMBER_LINK_UNREACHABLE); }
+void page_np_frame(const page_frame_t *f) { np_view_update(f->t, f->offline); }
 
 static void reset_task(void *arg)
 {
@@ -716,6 +718,7 @@ void page_bot_frame(const page_frame_t *f)
     ember_host_info_t host;
     ember_client_host(&host);
     bot_view_set_host(&host);
+    bot_view_set_offline(f->offline);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps)) pose = false;
     bot_view_chase(chase->chasing, chase->chasing && chase->label_opa > 0);
@@ -741,13 +744,15 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     in.longs = atomic_exchange(&s_long_pushes, 0);
     in.wakes = atomic_exchange(&s_np_wakes, 0);
 
+    bool offline = ember_client_offline();
     wx_obs_t wx;
     bool have_wx = weather_client_get(&wx);
-    weather_view_update(have_wx ? &wx : NULL, dt);
+    weather_view_update(have_wx ? &wx : NULL, offline, dt);
 
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
-    if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
+    if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
+    else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
 
     float gdeg;
     bool glint = (pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg);
@@ -757,7 +762,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
         s_half_hold_deg = 0;
         s_half_snapped = false;
     }
-    page_frame_t f = {.t = t};
+    page_frame_t f = {.t = t, .offline = offline};
     gc_out_t *chase = &f.chase;
     gc_tick(&s_chase, t, glint, 3.0, chase);
     atomic_store(&s_chase_status, !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);

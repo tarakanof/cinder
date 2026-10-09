@@ -135,3 +135,28 @@ void pomo_clock_sync_end(pomo_clock_t *c, const pomo_state_t *polled, long long 
         c->t_base = now - (c->rem_base - left);
     }
 }
+
+pomo_est_t pomo_estimate(const pomo_clock_t *c, bool offline, double now)
+{
+    pomo_est_t e = {.offline = offline};
+    if (!c->valid) return e;
+    e.has_state = true;
+    e.state = pomo_clock_at(c, now);
+    e.waiting = offline && ticking(&e.state) && e.state.remaining_sec <= 0;
+    return e;
+}
+
+const char *pomo_est_label(const pomo_est_t *e)
+{
+    if (!e->offline) return NULL;
+    if (e->waiting) return "WAITING FOR EMBER";
+    if (e->has_state && pomo_mode(&e->state) == POMO_MODE_PAUSED) return "PAUSED OFFLINE";
+    return "OFFLINE";
+}
+
+bool pomo_offline(uint32_t link, uint32_t src) { return link_word_offline(link) || link_word_offline(src); }
+
+bool pomo_press_ok(const pomo_press_t *p, uint32_t link, uint32_t src)
+{
+    return link_press_ok(p->link, link) && link_press_ok(p->src, src);
+}
