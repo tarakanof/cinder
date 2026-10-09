@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 typedef enum { BOT_IDLE, BOT_SLEEPY, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE } bot_mood_t;
+/* HOP: waiting's attention hops. POP: the mood-change pop. CHASE: the glint chase. PUSH: the hop a push asks for. */
+typedef enum { BOT_ANIM_HOP, BOT_ANIM_POP, BOT_ANIM_CHASE, BOT_ANIM_PUSH } bot_anim_t;
 typedef enum { BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_HAPPY, BOT_EYES_ANGRY } bot_eyes_t;
 
 /* Distances in body radii; times are monotonic seconds. */
@@ -52,6 +54,7 @@ typedef struct {
     bool popping, hopping;
     double pop_start, hop_start, next_hop_at;
     double sleep_after_s;
+    bool calm;
 
     bool tracking;
     double trk_x, trk_y, trk_gx, trk_gy, trk_vx, trk_vy, trk_t;
@@ -65,6 +68,9 @@ void bot_init(bot_t *b, uint64_t seed, double now);
 bool bot_set_mood(bot_t *b, bot_mood_t m, double t);
 bot_pose_t bot_pose(bot_t *b, double t);
 void bot_set_sleep_after(bot_t *b, double s);
+bool bot_calm(bool quiet, bool calm_setting);
+bool bot_anim_allowed(bot_anim_t a, bool calm);
+void bot_set_calm(bot_t *b, bool calm, double t);
 void bot_look(bot_t *b, double x, double y, double t);
 void bot_track(bot_t *b, double x, double y, double t);
 void bot_track_end(bot_t *b, double t);

@@ -101,6 +101,17 @@ static void test_parse(void)
           "priority");
 }
 
+static void test_quiet(void)
+{
+    knob_view_t v;
+    CHECK(knob_view_parse(FULL, &v) && !v.quiet, "absent quiet: not quiet");
+    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":true}", &v) && v.quiet, "quiet true");
+    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":false}", &v) && !v.quiet, "quiet false");
+    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":1}", &v) && !v.quiet, "quiet not a bool: not quiet");
+    CHECK(knob_view_parse("{\"mood\":{},\"quiet\":true}", &v) && knob_view_parse("{\"mood\":{}}", &v) && !v.quiet,
+          "next view without quiet: off again");
+}
+
 static void test_srv_clock(void)
 {
     pomo_srv_clock_t c;
@@ -280,6 +291,7 @@ static void test_etag(void)
 int main(void)
 {
     test_parse();
+    test_quiet();
     test_srv_clock();
     test_clock_end();
     test_drift();

@@ -39,6 +39,8 @@ typedef struct {
     int level;
     bool bright_night;
 
+    bool quiet;
+
     bool has_np;
     np_info_t np;
 

@@ -35,7 +35,11 @@ typedef struct {
     uint8_t diagnostics;
     int stats_interval_s;
     int live_interval_s;
+    bool quiet_calm;
+    uint8_t quiet_dim;
 } knob_settings_t;
+
+#define KS_QUIET_DIM_DEFAULT 20
 
 #define KS_STATS_INTERVAL_S_DEFAULT 60
 #define KS_LIVE_INTERVAL_S_DEFAULT 5

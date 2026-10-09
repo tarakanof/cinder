@@ -749,13 +749,15 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bool have_wx = weather_client_get(&wx);
     weather_view_update(have_wx ? &wx : NULL, offline, dt);
 
+    bool calm = bot_calm(ember_client_quiet(), s_ks_lv->quiet_calm);
+    bot_set_calm(&s_bot, calm, t);
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
     if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
 
     float gdeg;
-    bool glint = (pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg);
+    bool glint = (pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg) && bot_anim_allowed(BOT_ANIM_CHASE, calm);
     int req = atomic_exchange(&s_chase_req, -1);
     if (req >= 0 && glint && gc_start_now(&s_chase, req & 15, req >> 4)) {
         gc_half_reset(&s_half);

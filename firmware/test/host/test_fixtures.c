@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "cfg.h"
 #include "coredump_up.h"
 #include "device_api.h"
 #include "knob_settings.h"
@@ -24,7 +25,7 @@ static const char *const COVERED[] = {
     "view_single_host_paused.json", "checkin_req_full.json", "checkin_req_minimal.json",
     "checkin_reply_current.json", "checkin_reply_config.json", "checkin_reply_coredump.json",
     "checkin_reply_ota.json",  "checkin_reply_rotation.json", "config_default.json",
-    "config_custom.json",      "pomodoro_action.json",
+    "config_custom.json",      "pomodoro_action.json",        "view_quiet.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -159,6 +160,18 @@ static void test_view_single_host_paused(void)
     CHECK(!v.weather.has_night && v.weather.rise_min == -1 && v.weather.set_min == -1, "null sun times: night unknown");
 }
 
+static void test_view_quiet(void)
+{
+    knob_view_t v;
+    if (!view("view_quiet.json", &v)) return;
+    CHECK(v.quiet, "quiet on");
+    CHECK(knob_view_mood(&v) == BOT_IDLE && !v.has_pomo && !v.has_weather && !v.has_np, "idle, pomo and weather off");
+    CHECK(v.has_brightness && v.level == 255 && !v.bright_night, "brightness");
+    const char *others[] = {"view_full.json", "view_minimal.json", "view_nowplaying_none.json", "view_single_host_paused.json"};
+    for (size_t i = 0; i < sizeof others / sizeof others[0]; i++)
+        if (view(others[i], &v)) CHECK(!v.quiet, "%s: quiet absent = off", others[i]);
+}
+
 static bool reply(const char *name, dev_checkin_result_t *r)
 {
     char *j = load(name);
@@ -183,6 +196,8 @@ static void test_checkin_replies(void)
         knob_settings_t ks;
         CHECK(knob_settings_parse(r.config, &ks), "config parses");
         CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 4 && !ks.pages[3].on, "diagnostics full, nowplaying off");
+        CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
+        CHECK(strlen(r.config) <= CFG_SETTINGS_MAX, "config fits the store");
     }
     dev_checkin_result_free(&r);
 
@@ -214,6 +229,8 @@ static bool config(const char *name, uint32_t *ver, knob_settings_t *ks)
 {
     dev_checkin_result_t r;
     bool ok = reply(name, &r) && r.config && knob_settings_parse(r.config, ks);
+    CHECK(!r.config || strlen(r.config) <= CFG_SETTINGS_MAX, "%s: %zu B config over the %d B store", name,
+          r.config ? strlen(r.config) : 0, CFG_SETTINGS_MAX);
     *ver = r.config_version;
     dev_checkin_result_free(&r);
     CHECK(ok, "%s: settings parse", name);
@@ -232,6 +249,7 @@ static void test_config_default(void)
     CHECK(ks.sleepy_after_s == 300 && ks.demo_hold_s == 20 && ks.source_label && ks.working_ring, "bot");
     CHECK(ks.diagnostics == KS_DIAG_OFF && ks.stats_interval_s == 60 && ks.live_interval_s == 5, "diagnostics");
     CHECK(ks.fast_link, "fast link");
+    CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
 
     knob_settings_defaults(&d);
     const char *ids[PAGES_N];
@@ -260,6 +278,7 @@ static void test_config_custom(void)
     CHECK(ks.sleepy_after_s == 600 && ks.demo_hold_s == 30 && !ks.source_label && !ks.working_ring, "bot");
     CHECK(ks.diagnostics == KS_DIAG_BASIC && ks.stats_interval_s == 120 && ks.live_interval_s == 2, "diagnostics");
     CHECK(!ks.fast_link, "fast link off");
+    CHECK(!ks.quiet_calm && ks.quiet_dim == 5, "quiet calm off, dim 5");
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
     int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
@@ -443,6 +462,7 @@ int main(int argc, char **argv)
     test_view_minimal();
     test_view_nowplaying_none();
     test_view_single_host_paused();
+    test_view_quiet();
     test_checkin_replies();
     test_config_default();
     test_config_custom();

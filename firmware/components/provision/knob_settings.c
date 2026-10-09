@@ -28,6 +28,8 @@ void knob_settings_defaults(knob_settings_t *ks)
     ks->swipe_pages = true;
     ks->stats_interval_s = KS_STATS_INTERVAL_S_DEFAULT;
     ks->live_interval_s = KS_LIVE_INTERVAL_S_DEFAULT;
+    ks->quiet_calm = true;
+    ks->quiet_dim = KS_QUIET_DIM_DEFAULT;
 }
 
 static void num(const cJSON *obj, const char *key, int lo, int hi, int *dst)
@@ -118,6 +120,14 @@ bool knob_settings_parse(const char *json, knob_settings_t *ks)
     if (cJSON_IsObject(disp)) {
         const cJSON *fl = cJSON_GetObjectItemCaseSensitive(disp, "fast_link");
         if (cJSON_IsBool(fl)) ks->fast_link = cJSON_IsTrue(fl);
+    }
+    const cJSON *q = cJSON_GetObjectItemCaseSensitive(root, "quiet");
+    if (cJSON_IsObject(q)) {
+        const cJSON *calm = cJSON_GetObjectItemCaseSensitive(q, "calm");
+        if (cJSON_IsBool(calm)) ks->quiet_calm = cJSON_IsTrue(calm);
+        int dim = ks->quiet_dim;
+        num(q, "dim_level", 1, 255, &dim);
+        ks->quiet_dim = (uint8_t)dim;
     }
     cJSON_Delete(root);
     return true;

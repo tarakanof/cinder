@@ -109,6 +109,7 @@ bool knob_view_parse(const char *json, knob_view_t *out)
             out->level = (int)lv->valuedouble;
             out->bright_night = cJSON_IsTrue(item(b, "night"));
         }
+        out->quiet = cJSON_IsTrue(item(root, "quiet"));
         out->has_np = np_parse(item(root, "nowplaying"), &out->np);
         long long lu;
         if (num_ll(root, "diag_live_until", &lu) && lu > 0) out->diag_live_until = lu;

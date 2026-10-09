@@ -289,12 +289,34 @@ static atomic_int s_dim_start = -1;
 static dim_fade_t s_fade;
 static bool s_fade_on;
 static int s_bright_target = -1;
+static int s_bright_want = -1;
+static atomic_bool s_quiet;
+
+static int fade_floor(void) { return dim_quiet_floor(s_ks.floor, atomic_load(&s_quiet), s_ks.quiet_dim); }
 
 static void set_brightness_target(int level)
 {
     if (level != s_bright_target) ESP_LOGI(TAG, "brightness -> %d", level);
     s_bright_target = level;
     if (s_fade_on) dim_fade_set_target(&s_fade, level);
+}
+
+static void bright_apply(void)
+{
+    if (s_fade_on) dim_fade_set_floor(&s_fade, fade_floor());
+    if (s_bright_want < 0) return;
+    set_brightness_target(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet), s_ks.quiet_dim));
+}
+
+static void bright_want(int level)
+{
+    s_bright_want = level;
+    bright_apply();
+}
+
+static void set_quiet(bool quiet)
+{
+    if (atomic_exchange(&s_quiet, quiet) != quiet) ESP_LOGI(TAG, "quiet hours %s", quiet ? "on" : "off");
 }
 
 static void brightness_poll(char *buf, const char *url)
@@ -312,14 +334,14 @@ static void brightness_poll(char *buf, const char *url)
         if (status != 200) ESP_LOGW(TAG, "brightness: HTTP %d, keeping the current level", status);
         last_status = status;
     }
-    if (level >= 0) set_brightness_target(level < s_ks.floor ? s_ks.floor : level);
+    if (level >= 0) bright_want(level);
 }
 
 static void fade_start(void)
 {
     if (!s_fade_on && atomic_load(&s_dim_start) >= 0) {
         dim_fade_init(&s_fade, atomic_load(&s_dim_start));
-        dim_fade_set_floor(&s_fade, s_ks.floor);
+        dim_fade_set_floor(&s_fade, fade_floor());
         s_fade_on = true;
         if (s_bright_target >= 0) dim_fade_set_target(&s_fade, s_bright_target);
     }
@@ -398,8 +420,7 @@ static void wait_and_fade(int ms, char *buf)
 static void view_brightness(void)
 {
     if (!s_ks.follow_ember || P->vp.legacy || !P->have_view || !P->view.has_brightness) return;
-    int level = P->view.level;
-    set_brightness_target(level < s_ks.floor ? s_ks.floor : level);
+    bright_want(P->view.level);
 }
 
 static void settings_changed(int64_t *next_bright_us)
@@ -407,11 +428,10 @@ static void settings_changed(int64_t *next_bright_us)
     bool followed = s_ks.follow_ember;
     config_store_settings(&s_ks);
     diag_set_level((ks_diag_t)s_ks.diagnostics);
-    if (s_fade_on) dim_fade_set_floor(&s_fade, s_ks.floor);
-    if (!s_ks.follow_ember) set_brightness_target(s_ks.level);
+    if (!s_ks.follow_ember) bright_want(s_ks.level);
     else if (!P->vp.legacy) view_brightness();
     else if (!followed) *next_bright_us = 0;
-    else if (s_bright_target >= 0) set_brightness_target(s_bright_target < s_ks.floor ? s_ks.floor : s_bright_target);
+    bright_apply();
 }
 
 static void poll_settings(int64_t *next_bright_us)
@@ -719,6 +739,8 @@ static void apply_mode(void)
     if (legacy) {
         view_etag_clear(&P->etag);
         P->have_view = false;
+        set_quiet(false);
+        bright_apply();
     }
     dev_sched_epoch_reset(&s_sched);
     pomo_client_legacy(legacy);
@@ -741,7 +763,9 @@ static int apply_view(ember_host_info_t *host, long long srv_now, double sent, d
     pomo_client_feed(v->has_pomo ? &v->pomo : NULL, v->pomo_counting, v->ends_at, srv_now, sent, received);
     weather_client_feed(v->has_weather ? &v->weather : NULL);
     np_client_feed(v->has_np ? &v->np : NULL);
+    set_quiet(v->quiet);
     view_brightness();
+    bright_apply();
     return knob_view_mood(v);
 }
 
@@ -1155,6 +1179,8 @@ unsigned ember_client_beacon_timeouts(void) { return atomic_load(&s_beacon_timeo
 bool ember_client_wifi_started(void) { return atomic_load(&s_wifi_started); }
 
 int ember_client_join_failures(void) { return atomic_load(&s_join_failures); }
+
+bool ember_client_quiet(void) { return atomic_load(&s_quiet); }
 
 bool ember_client_mood(bot_mood_t *out)
 {

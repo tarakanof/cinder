@@ -217,14 +217,26 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     bool badged = m == BOT_WAITING || m == BOT_DONE;
     b->badge = tween(tween_value(&b->badge, t), badged ? 1 : 0, t + 0.1, 0.35,
                      badged ? EASE_OUT_BACK : EASE_IN_OUT);
-    b->popping = m != BOT_SLEEPY;
+    b->popping = m != BOT_SLEEPY && bot_anim_allowed(BOT_ANIM_POP, b->calm);
     b->pop_start = t;
     b->read_x = -0.6;
     start_saccade(b, t, true);
-    b->next_hop_at = m == BOT_WAITING ? t + 0.6 : INFINITY;
+    b->next_hop_at = m == BOT_WAITING && bot_anim_allowed(BOT_ANIM_HOP, b->calm) ? t + 0.6 : INFINITY;
 }
 
 void bot_set_sleep_after(bot_t *b, double s) { b->sleep_after_s = s < 0 ? 0 : s; }
+
+bool bot_calm(bool quiet, bool calm_setting) { return quiet && calm_setting; }
+
+bool bot_anim_allowed(bot_anim_t a, bool calm) { return !calm || a == BOT_ANIM_PUSH; }
+
+void bot_set_calm(bot_t *b, bool calm, double t)
+{
+    if (calm == b->calm) return;
+    b->calm = calm;
+    if (calm) b->next_hop_at = INFINITY;
+    else if (b->mood == BOT_WAITING) b->next_hop_at = t + 0.6;
+}
 
 void bot_init(bot_t *b, uint64_t seed, double now)
 {
