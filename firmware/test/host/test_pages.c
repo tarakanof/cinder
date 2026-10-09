@@ -173,6 +173,9 @@ static void test_dispatch(void)
     CHECK(strcmp(page_log, "pomo.frame ") == 0, "weather has no frame hook: %s", page_log);
 }
 
+#define CHECK_NAV(nav) \
+    CHECK((nav).page == (nav).order[(nav).pos], "page %d is order[pos %d] = %d", (nav).page, (nav).pos, (nav).order[(nav).pos])
+
 static void test_switch(void)
 {
     pages_nav_t nav = nav_at(index_of("bot"));
@@ -186,6 +189,7 @@ static void test_switch(void)
     nav = (pages_nav_t){.order = {index_of("nowplaying"), index_of("bot")}, .n = 2, .pos = 1, .page = 0};
     page_log_reset();
     pages_resume(&nav);
+    CHECK_NAV(nav);
     CHECK(strcmp(page_log, "bot+ pomo- weather- np- ") == 0 && nav.page == index_of("bot"),
           "resume shows order[pos]: %s", page_log);
 
@@ -194,31 +198,39 @@ static void test_switch(void)
     nav = (pages_nav_t){.n = 1};
     page_log_reset();
     pages_settings(&nav, &ks, true);
+    CHECK_NAV(nav);
     CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "bot+ pomo- weather- np- ") == 0,
           "first settings show home: %s", page_log);
     page_log_reset();
     CHECK(pages_step(&nav, 1) && nav.pos == 1 && nav.page == index_of("pomodoro") &&
               strcmp(page_log, "bot- pomo+ weather- np- ") == 0,
           "step forward: %s", page_log);
+    CHECK_NAV(nav);
     CHECK(pages_step(&nav, -2) && nav.pos == 2 && nav.page == index_of("weather"), "step back wraps");
+    CHECK_NAV(nav);
     page_log_reset();
     CHECK(!pages_step(&nav, 3) && nav.pos == 2 && page_log[0] == 0, "full lap: no change, no show");
+    CHECK_NAV(nav);
 
     knob_settings_parse("{\"pages\":[{\"id\":\"weather\",\"on\":true},{\"id\":\"bot\",\"on\":true},"
                         "{\"id\":\"pomodoro\",\"on\":true}],\"home\":\"pomodoro\"}",
                         &ks);
     page_log_reset();
     pages_settings(&nav, &ks, false);
+    CHECK_NAV(nav);
     CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("weather") && page_log[0] == 0,
           "reorder keeps the shown page in its new slot, no show: pos %d %s", nav.pos, page_log);
     CHECK(pages_step(&nav, 1) && nav.pos == 1 && nav.page == index_of("bot"), "step shows order[pos]: %d", nav.page);
+    CHECK_NAV(nav);
     CHECK(pages_step(&nav, -1) && nav.pos == 0 && nav.page == index_of("weather"), "step back: %d", nav.page);
+    CHECK_NAV(nav);
 
     knob_settings_parse("{\"pages\":[{\"id\":\"weather\",\"on\":false},{\"id\":\"bot\",\"on\":true},"
                         "{\"id\":\"pomodoro\",\"on\":true}],\"home\":\"pomodoro\"}",
                         &ks);
     page_log_reset();
     pages_settings(&nav, &ks, false);
+    CHECK_NAV(nav);
     CHECK(nav.n == 2 && nav.pos == 1 && nav.page == index_of("pomodoro") &&
               strcmp(page_log, "bot- pomo+ weather- np- ") == 0,
           "shown page disabled: fall back to home: pos %d %s", nav.pos, page_log);
@@ -228,11 +240,13 @@ static void test_switch(void)
                         &ks);
     page_log_reset();
     pages_settings(&nav, &ks, false);
+    CHECK_NAV(nav);
     CHECK(nav.n == 1 && nav.pos == 0 && nav.page == index_of("nowplaying") &&
               strcmp(page_log, "bot- pomo- weather- np+ ") == 0,
           "unknown home: first shown page: %s", page_log);
     page_log_reset();
     CHECK(!pages_step(&nav, 1) && page_log[0] == 0, "one page: no step");
+    CHECK_NAV(nav);
 }
 
 static void test_ops(void)
