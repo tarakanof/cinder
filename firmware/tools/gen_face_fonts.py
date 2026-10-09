@@ -16,9 +16,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FW = os.path.dirname(HERE)
 DEFAULT_TTF = os.path.join(FW, "managed_components/lvgl__lvgl/scripts/built_in_font/Montserrat-Medium.ttf")
 
-# name, size, glyphs, line_height, base_line, underline position, underline thickness.
-# 36 px: line box of the built-in lv_font_montserrat_36 (the host test compares), so a label keeps its layout
-# if it ever switches to the full font. 96 px: the same box scaled by 96/36.
 FONTS = [
     ("font_face_36", 36, " %+-.0123456789:h°−", 40, 7, -3, 2),
     ("font_digits_96", 96, " %+-0123456789:°½−", 107, 19, -8, 5),

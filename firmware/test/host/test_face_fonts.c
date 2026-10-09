@@ -26,8 +26,6 @@ void *lv_utils_bsearch(const void *key, const void *base, size_t n, size_t size,
 
 static uint8_t px[128 * 128];
 
-/* The glyphs the faces draw in each font (docs/face-design.md "Fonts"); U+00B0 degree, U+00BD one half,
- * U+2212 minus. */
 static const uint32_t FACE_36[] = {' ', '%', '+', '-', '.', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
                                    ':', 'h', 0xb0, 0x2212};
 static const uint32_t DIGITS_96[] = {' ', '%', '+', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':',
@@ -112,12 +110,10 @@ static void test_line_box_matches_builtin_montserrat_36(void)
 
 static void test_widest_labels_fit(void)
 {
-    /* End labels sit 96 px in from the face edge and must stay clear of the centre column. */
     const uint32_t sunrise[] = {'0', '7', ':', '3', '0'}, cold[] = {0x2212, '1', '5', 0xb0}, pct[] = {'1', '0', '0', '%'};
     CHECK(width(&font_face_36, sunrise, 5) <= 110, "\"07:30\" is %d px", (int)width(&font_face_36, sunrise, 5));
     CHECK(width(&font_face_36, cold, 4) <= 110, "\"-15°\" is %d px", (int)width(&font_face_36, cold, 4));
     CHECK(width(&font_face_36, pct, 4) <= 110, "\"100%%\" is %d px", (int)width(&font_face_36, pct, 4));
-    /* Big values stay inside the 300 px middle band. */
     const uint32_t t[] = {0x2212, '1', '5', 0xb0}, aqi[] = {'1', '0', '0'}, clock[] = {'1', '2', ':', '3', '4'},
                    half[] = {'2', 0xbd};
     CHECK(width(&font_digits_96, t, 4) <= 300, "\"-15°\" is %d px", (int)width(&font_digits_96, t, 4));

@@ -71,6 +71,8 @@ Compiled: Montserrat 14/18/24/30/48 (LVGL built-in) plus two generated subsets (
 
 - `font_face_36`: gauge end labels, glyphs ` %+-.0-9:h°−`; line box of the built-in `lv_font_montserrat_36` (40 / base 7). Bitmaps 3,379 B.
 - `font_digits_96`: big values, glyphs ` %+-0-9:°½−`; line box 107 / base 19 (built-in 36 scaled). Bitmaps 24,923 B.
+- `FONTS` entries are name, size, glyphs, line height, base line, underline position, underline thickness. The 36 px box matches the built-in font so a label keeps its layout if it switches to the full font.
+- The host test checks the glyph sets (U+00B0 degree, U+00BD one half, U+2212 minus), the line boxes against the built-in 36, that end labels 96 px in from the face edge stay clear of the centre column, and that big values stay inside the 300 px middle band.
 - Neither is in `main/CMakeLists.txt` yet (only the host test compiles them); add them to `SRCS` with the first face that uses them. Add a glyph: edit `FONTS` in the script, rerun, run the host tests.
 - Curved labels (title, host) keep using the arc_text path into a cached canvas.
 
