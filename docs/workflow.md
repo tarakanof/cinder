@@ -12,9 +12,26 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   `git worktree add ~/Github/cinder-wt/<slug> -b <type>/<issue>-<slug> origin/main`.
 - A feature that needs server support gets a paired Ember issue; the PRs link
   each other. Ember stays backward compatible: the knob decodes non-strictly and
-  the server ignores unknown checkin fields, so either side can ship first.
-- Every firmware PR bumps `PROJECT_VER` in `firmware/CMakeLists.txt` (patch
-  for fixes and small features). The version shows in the checkin.
+  the server ignores unknown checkin fields, so either side can be deployed first.
+  In the repos the order is fixed: the protocol change merges in Ember first (below).
+- **A protocol change starts in Ember.** The view, checkin, config and action shapes
+  are Ember's (`docs/DEVICE-PROTOCOL.md` there, goldens in `cmd/ember/testdata/devices/`).
+  Change them in an Ember PR first; once it is merged, run
+  `firmware/tools/sync-ember-fixtures.sh <v* tag or commit SHA>` here and commit the result
+  on its own (`test(fixtures): sync Ember fixtures to <ref>`), so the diff is the contract
+  change under review. The script replaces `firmware/test/host/fixtures/ember/` and records
+  the resolved commit in its `SOURCE`; it needs `gh`, not an Ember checkout. Never edit
+  the fixtures by hand. `test_fixtures.c` parses each one with the firmware's own parsers
+  and rebuilds `checkin_req_*` with `dev_checkin_body`; a new fixture file needs a test.
+- **New checkin request fields.** The rebuilt body must match the fixture, except for
+  paths listed in `NOT_YET_SENT[]` in `test_fixtures.c` (`".caps"`, `".diag.foo"`): the
+  sync commit that brings a field the firmware does not send yet adds its path there, and
+  the firmware PR that starts sending it removes the entry. A listed path the firmware
+  sends, or that no fixture has, fails, and so does a key the firmware sends that the
+  fixture lacks, so the firmware never sends a field before Ember's goldens have it.
+- Every PR that changes the firmware image bumps `PROJECT_VER` in
+  `firmware/CMakeLists.txt` (patch for fixes and small features); test-, tool- and
+  docs-only PRs don't. The version shows in the checkin.
 - PR evidence: host test output, a screen snapshot for UI, measured numbers
   (frame time, CPU per core, heap, latency) before and after.
 - Record the feature's design, measurements and user decisions in
@@ -25,7 +42,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 ```sh
 . ~/.espressif/tools/activate_idf_v5.5.5.sh
 cd firmware
-test/host/run.sh          # host tests: pure C (bot, view, provision, ota, title font, ...), tools/secret_scan.py and tools/stack_walk.py
+test/host/run.sh          # host tests: pure C (bot, view, provision, ota, Ember fixtures, title font, ...), tools/secret_scan.py and tools/stack_walk.py
 idf.py build
 python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 ```
@@ -159,6 +176,7 @@ The port tools open it with raw termios and leave DTR/RTS alone; their effects a
 | `measure_view_latency.py` | Mood latency and idle traffic against Ember |
 | `gen_tool_marks.py` | Regenerate `components/bot/tool_marks.c` (venv; no port) |
 | `gen_title_font.py [TTF]` | Regenerate `main/font_title_bold.c`, the OTA face's bold title glyphs (Pillow; no port) |
+| `sync-ember-fixtures.sh <ref>` | Replace `test/host/fixtures/ember/` with Ember's device-protocol fixtures at a tag or commit (`gh`; no port) |
 
 To put the bot in working mood without real work, post a demo session to Ember
 and re-post every 10 s (Ember `docs/WORKFLOW.md` step 7).

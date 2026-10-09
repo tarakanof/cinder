@@ -75,3 +75,7 @@ cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$W/include" -I"$NP/in
     "$K/knob_view.c" "$K/ember_legacy.c" "$P/pomo.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
     "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
 "${OUT}_legacy"
+cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+    -I"$J" "$K/knob_view.c" "$P/pomo.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$NP/np.c" "$V/device_api.c" \
+    "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
+"${OUT}_fixtures" "$D/fixtures/ember"
