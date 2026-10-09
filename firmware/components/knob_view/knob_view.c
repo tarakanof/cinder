@@ -84,10 +84,12 @@ static knob_view_res_t view_major(const cJSON *root, int *major)
     const cJSON *v = cJSON_IsObject(root) ? item(root, "v") : NULL;
     if (!cJSON_IsNumber(v)) return KNOB_VIEW_BAD;
     double d = v->valuedouble;
-    if (major) *major = d < -1e9 ? -1000000000 : d > 1e9 ? 1000000000 : (int)d;
-    if (d < KNOB_VIEW_V_MIN) return KNOB_VIEW_TOO_OLD;
-    if (d > KNOB_VIEW_V_MAX) return KNOB_VIEW_TOO_NEW;
-    return d == (double)(int)d ? KNOB_VIEW_OK : KNOB_VIEW_BAD;
+    int m = d < -1e9 ? -1000000000 : d > 1e9 ? 1000000000 : (int)d;
+    if (d >= -1e9 && d <= 1e9 && d != (double)m) return KNOB_VIEW_BAD;
+    if (major) *major = m;
+    if (m < KNOB_VIEW_V_MIN) return KNOB_VIEW_TOO_OLD;
+    if (m > KNOB_VIEW_V_MAX) return KNOB_VIEW_TOO_NEW;
+    return KNOB_VIEW_OK;
 }
 
 static void parse_mood(const cJSON *mood, knob_view_t *out)

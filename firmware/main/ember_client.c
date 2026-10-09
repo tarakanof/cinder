@@ -260,8 +260,7 @@ typedef struct {
     view_policy_t vp;
     dev_stats_t stats;
     view_etag_t etag;
-    knob_view_t view;
-    bool have_view;
+    knob_view_state_t vs;
     int wait_cap;
     int rearm_ms;
     bool waited;
@@ -271,7 +270,6 @@ typedef struct {
     pomo_press_t pending;
     bool unparsed;
     bool applied;
-    bool unsupported;
     dev_caps_t caps;
     const char *cap_ids[PAGES_N];
     char base[CFG_URL_MAX + 1];
@@ -424,8 +422,8 @@ static void wait_and_fade(int ms, char *buf)
 
 static void view_brightness(void)
 {
-    if (!s_ks.follow_ember || P->vp.legacy || !P->have_view || !P->view.has_brightness) return;
-    bright_want(P->view.level);
+    if (!s_ks.follow_ember || P->vp.legacy || !P->vs.have_view || !P->vs.view.has_brightness) return;
+    bright_want(P->vs.view.level);
 }
 
 static void settings_changed(int64_t *next_bright_us)
@@ -739,14 +737,22 @@ static void checkin(char *buf)
     dev_checkin_result_free(&r);
 }
 
-static void view_compat(ember_view_compat_t c, int major)
+static void view_compat_publish(void)
 {
-    if (c == EMBER_VIEW_OK) P->unsupported = false;
-    if (atomic_exchange(&s_view_compat, c) == (int)c) return;
-    if (c == EMBER_VIEW_OK) ESP_LOGI(TAG, "view: major supported again");
+    _Static_assert((int)EMBER_VIEW_UPDATE_EMBER == (int)KNOB_COMPAT_UPDATE_EMBER, "same order");
+    _Static_assert((int)EMBER_VIEW_UPDATE_KNOB == (int)KNOB_COMPAT_UPDATE_KNOB, "same order");
+    int c = (int)P->vs.compat;
+    if (atomic_exchange(&s_view_compat, c) == c) return;
+    if (c == EMBER_VIEW_OK) ESP_LOGI(TAG, "view: major supported");
     else
-        ESP_LOGW(TAG, "view: major %d outside %d-%d, keeping the last view: update %s", major, KNOB_VIEW_V_MIN,
+        ESP_LOGW(TAG, "view: major %d outside %d-%d, keeping the last view: update %s", P->vs.major, KNOB_VIEW_V_MIN,
                  KNOB_VIEW_V_MAX, c == EMBER_VIEW_UPDATE_KNOB ? "the knob" : "Ember");
+}
+
+static void view_reset(void)
+{
+    knob_view_state_reset(&P->vs);
+    view_compat_publish();
 }
 
 static void apply_mode(void)
@@ -754,8 +760,7 @@ static void apply_mode(void)
     bool legacy = P->vp.legacy;
     if (legacy) {
         view_etag_clear(&P->etag);
-        P->have_view = false;
-        view_compat(EMBER_VIEW_OK, 0);
+        view_reset();
     }
     dev_sched_epoch_reset(&s_sched);
     pomo_client_legacy(legacy);
@@ -764,12 +769,18 @@ static void apply_mode(void)
     else ESP_LOGI(TAG, "reading Ember's knob view");
 }
 
-static int apply_view(ember_host_info_t *host, long long srv_now, double sent, double received)
+static void view_host(ember_host_info_t *host)
 {
-    const knob_view_t *v = &P->view;
+    const knob_view_t *v = &P->vs.view;
     ember_host_lead_label(v->source, v->lead, v->hosts, host->text, sizeof host->text);
     host->color = ember_host_color(v->lead_color);
     host->tool = (uint8_t)ember_host_tool(v->tool);
+}
+
+static void apply_view(ember_host_info_t *host, long long srv_now, double sent, double received)
+{
+    const knob_view_t *v = &P->vs.view;
+    view_host(host);
     char key[48];
     knob_view_epoch_key(v, key, sizeof key);
     dev_sched_epoch(&s_sched, key, now_ms());
@@ -781,7 +792,6 @@ static int apply_view(ember_host_info_t *host, long long srv_now, double sent, d
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     view_brightness();
     bright_apply();
-    return knob_view_mood(v);
 }
 
 static bool longpoll_idle(void *ctx, int *next_slice_ms)
@@ -821,7 +831,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         pomo_client_run_action(in, s_conn, buf, RESP_MAX);
         pomo_client_log_state();
     }
-    const char *etag = P->have_view || P->unsupported ? view_etag_get(&P->etag) : NULL;
+    const char *etag = knob_view_conditional(&P->vs) ? view_etag_get(&P->etag) : NULL;
     int wait = s_plain_poll ? 0 : view_wait_s(P->wait_cap, etag != NULL, s_sched.next_ms - now_ms(), P->view_failing);
     const char *url = P->view_url;
     if (wait > 0) {
@@ -863,40 +873,26 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     }
     long long srv_now = 0;
     if (view_wait_clock_sample(wait, elapsed)) view_parse_now(h->now, &srv_now);
-    switch (view_answer(status, P->have_view || P->unsupported)) {
-    case VIEW_ANS_NEW: {
-        int major = 0;
-        knob_view_res_t res = knob_view_read(buf, &P->view, &major);
-        if (res == KNOB_VIEW_TOO_OLD || res == KNOB_VIEW_TOO_NEW) {
-            view_compat(res == KNOB_VIEW_TOO_NEW ? EMBER_VIEW_UPDATE_KNOB : EMBER_VIEW_UPDATE_EMBER, major);
-            P->unsupported = true;
-            view_etag_set(&P->etag, h->etag);
-            return status;
-        }
-        if (res != KNOB_VIEW_OK) {
-            static bool logged;
-            if (!logged) ESP_LOGW(TAG, "view: answer is not a knob view");
-            logged = true;
-            P->unparsed = true;
-            P->have_view = false;
-            P->unsupported = false;
-            view_etag_clear(&P->etag);
-            return 500;
-        }
-        P->have_view = true;
-        view_compat(EMBER_VIEW_OK, major);
-        view_etag_set(&P->etag, h->etag);
-        *mood = apply_view(host, srv_now, sent, received);
+    knob_step_t st = knob_view_step(&P->vs, status, buf);
+    view_compat_publish();
+    if (st.etag_clear) view_etag_clear(&P->etag);
+    if (st.etag_set) view_etag_set(&P->etag, h->etag);
+    switch (st.act) {
+    case KNOB_STEP_APPLY:
+        apply_view(host, srv_now, sent, received);
+        *mood = st.mood;
         return status;
+    case KNOB_STEP_RESTORE:
+        view_host(host);
+        *mood = st.mood;
+        return status;
+    case KNOB_STEP_UNPARSED: {
+        static bool logged;
+        if (!logged) ESP_LOGW(TAG, "view: answer is not a knob view");
+        logged = true;
+        P->unparsed = true;
+        return 500;
     }
-    case VIEW_ANS_SAME:
-        if (P->unsupported) return status;
-        *mood = apply_view(host, srv_now, sent, received);
-        return status;
-    case VIEW_ANS_REFETCH:
-        view_etag_clear(&P->etag);
-        return status;
-    case VIEW_ANS_FAILED:
     default:
         return status;
     }
@@ -989,8 +985,7 @@ static void poll_task(void *arg)
             bool was_legacy = P->vp.legacy;
             view_policy_device_changed(&P->vp, config_store_has_device(), now_ms());
             view_etag_clear(&P->etag);
-            P->have_view = false;
-            view_compat(EMBER_VIEW_OK, 0);
+            view_reset();
             if (P->vp.legacy != was_legacy) apply_mode();
         }
         bool online = atomic_load(&s_online);
@@ -1053,7 +1048,7 @@ static void poll_task(void *arg)
             mood = -1;
             link_note(false, false, -1, false);
         }
-        if (online && !P->vp.legacy && P->have_view) np_client_service(s_conn, P->base);
+        if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (fresh) {
             taskENTER_CRITICAL(&s_host_mux);
             s_host = host;
