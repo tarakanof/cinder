@@ -739,8 +739,7 @@ static void apply_mode(void)
     if (legacy) {
         view_etag_clear(&P->etag);
         P->have_view = false;
-        set_quiet(false);
-        bright_apply();
+        set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_LEGACY, false));
     }
     dev_sched_epoch_reset(&s_sched);
     pomo_client_legacy(legacy);
@@ -763,7 +762,7 @@ static int apply_view(ember_host_info_t *host, long long srv_now, double sent, d
     pomo_client_feed(v->has_pomo ? &v->pomo : NULL, v->pomo_counting, v->ends_at, srv_now, sent, received);
     weather_client_feed(v->has_weather ? &v->weather : NULL);
     np_client_feed(v->has_np ? &v->np : NULL);
-    set_quiet(v->quiet);
+    set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     view_brightness();
     bright_apply();
     return knob_view_mood(v);

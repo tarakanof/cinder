@@ -52,6 +52,10 @@ bool knob_view_parse(const char *json, knob_view_t *out);
 bot_mood_t knob_view_mood_from(int waiting, int errors, int running, int done);
 bot_mood_t knob_view_mood(const knob_view_t *v);
 
+typedef enum { KNOB_QUIET_VIEW, KNOB_QUIET_LEGACY } knob_quiet_src_t;
+
+bool knob_quiet_next(bool cur, knob_quiet_src_t src, bool view_quiet);
+
 void knob_view_epoch_key(const knob_view_t *v, char *out, size_t cap);
 
 #ifdef __cplusplus

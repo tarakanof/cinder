@@ -110,6 +110,10 @@ static void test_quiet(void)
     CHECK(knob_view_parse("{\"mood\":{},\"quiet\":1}", &v) && !v.quiet, "quiet not a bool: not quiet");
     CHECK(knob_view_parse("{\"mood\":{},\"quiet\":true}", &v) && knob_view_parse("{\"mood\":{}}", &v) && !v.quiet,
           "next view without quiet: off again");
+    CHECK(knob_quiet_next(true, KNOB_QUIET_LEGACY, false), "legacy fallback keeps quiet");
+    CHECK(!knob_quiet_next(false, KNOB_QUIET_LEGACY, true), "legacy fallback: no new quiet");
+    CHECK(!knob_quiet_next(true, KNOB_QUIET_VIEW, false), "a view without quiet clears it");
+    CHECK(knob_quiet_next(false, KNOB_QUIET_VIEW, true), "a view with quiet sets it");
 }
 
 static void test_srv_clock(void)

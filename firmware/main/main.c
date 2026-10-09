@@ -705,7 +705,7 @@ void page_bot_input(const page_input_t *in, double t)
     for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);
     for (int n = in->longs; n > 0; n--) {
         s_demo_index = (s_demo_index + 1) % (int)(sizeof DEMO_MOODS / sizeof DEMO_MOODS[0]);
-        bot_set_mood(&s_bot, DEMO_MOODS[s_demo_index], t);
+        bot_set_mood_user(&s_bot, DEMO_MOODS[s_demo_index], t);
         s_demo_until = t + s_demo_hold_s;
     }
 }
@@ -757,9 +757,9 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
 
     float gdeg;
-    bool glint = (pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg) && bot_anim_allowed(BOT_ANIM_CHASE, calm);
+    bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
     int req = atomic_exchange(&s_chase_req, -1);
-    if (req >= 0 && glint && gc_start_now(&s_chase, req & 15, req >> 4)) {
+    if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
         gc_half_reset(&s_half);
         s_half_hold_deg = 0;
         s_half_snapped = false;

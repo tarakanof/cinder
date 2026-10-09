@@ -123,3 +123,5 @@ void knob_view_epoch_key(const knob_view_t *v, char *out, size_t cap)
 {
     snprintf(out, cap, "%llu/%lu", v->epoch, v->config_version);
 }
+
+bool knob_quiet_next(bool cur, knob_quiet_src_t src, bool view_quiet) { return src == KNOB_QUIET_VIEW ? view_quiet : cur; }

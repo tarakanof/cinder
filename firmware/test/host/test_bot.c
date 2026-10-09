@@ -631,12 +631,15 @@ static int count_hops(bot_t *b, double t0, double seconds, bool *popped)
 static void test_calm(void)
 {
     CHECK(!bot_calm(false, true) && !bot_calm(true, false) && bot_calm(true, true), "calm = quiet and the setting");
-    CHECK(bot_anim_allowed(BOT_ANIM_HOP, false) && bot_anim_allowed(BOT_ANIM_POP, false) &&
-              bot_anim_allowed(BOT_ANIM_CHASE, false) && bot_anim_allowed(BOT_ANIM_PUSH, false),
+    CHECK(bot_anim_allowed(BOT_ANIM_WAIT_HOP, false) && bot_anim_allowed(BOT_ANIM_MOOD_POP, false) &&
+              bot_anim_allowed(BOT_ANIM_GLINT_CHASE, false) && bot_anim_allowed(BOT_ANIM_USER_INPUT, false),
           "not calm: all allowed");
-    CHECK(!bot_anim_allowed(BOT_ANIM_HOP, true) && !bot_anim_allowed(BOT_ANIM_POP, true) &&
-              !bot_anim_allowed(BOT_ANIM_CHASE, true) && bot_anim_allowed(BOT_ANIM_PUSH, true),
-          "calm: only the push hop");
+    CHECK(!bot_anim_allowed(BOT_ANIM_WAIT_HOP, true) && !bot_anim_allowed(BOT_ANIM_MOOD_POP, true) &&
+              !bot_anim_allowed(BOT_ANIM_GLINT_CHASE, true) && bot_anim_allowed(BOT_ANIM_USER_INPUT, true),
+          "calm: only user input");
+    CHECK(bot_chase_on(true, false, false) && !bot_chase_on(true, true, false) && bot_chase_on(true, true, true) &&
+              !bot_chase_on(false, false, true),
+          "calm blocks a new chase, lets a running one finish, no glint no chase");
 
     bot_t b;
     bool popped;
@@ -660,6 +663,11 @@ static void test_calm(void)
     bot_set_calm(&b, false, 72);
     bot_set_mood(&b, BOT_DONE, 73);
     CHECK(count_hops(&b, 73, 1, &popped) == 0 && popped, "quiet off: mood change pops again");
+
+    bot_init(&b, 7, 0);
+    bot_set_calm(&b, true, 0.5);
+    CHECK(bot_set_mood_user(&b, BOT_DONE, 1) && b.popping, "calm: a demo mood (user input) still pops");
+    CHECK(!bot_set_mood_user(&b, BOT_DONE, 2), "same mood: nothing");
 }
 
 int main(void)
