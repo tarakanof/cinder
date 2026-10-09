@@ -8,6 +8,7 @@
 #include "cfg.h"
 #include "coredump_up.h"
 #include "device_api.h"
+#include "knob_caps.h"
 #include "knob_settings.h"
 #include "knob_view.h"
 #include "ota_policy.h"
@@ -26,6 +27,7 @@ static const char *const COVERED[] = {
     "checkin_reply_current.json", "checkin_reply_config.json", "checkin_reply_coredump.json",
     "checkin_reply_ota.json",  "checkin_reply_rotation.json", "config_default.json",
     "config_custom.json",      "pomodoro_action.json",        "view_quiet.json",
+    "checkin_req_caps.json",   "checkin_reply_caps.json",     "view_caps_limited.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -172,6 +174,63 @@ static void test_view_quiet(void)
         if (view(others[i], &v)) CHECK(!v.quiet, "%s: quiet absent = off", others[i]);
 }
 
+static void test_view_caps_limited(void)
+{
+    char *j = load("view_caps_limited.json");
+    cJSON *f = j ? cJSON_Parse(j) : NULL;
+    CHECK(f && !cJSON_GetObjectItemCaseSensitive(f, "pomo") && !cJSON_GetObjectItemCaseSensitive(f, "nowplaying"), "fixture leaves pomo and nowplaying out");
+    cJSON_Delete(f);
+    free(j);
+    knob_view_t v;
+    if (!view("view_caps_limited.json", &v)) return;
+    CHECK(v.v == 1 && v.has_mood && knob_view_mood(&v) == BOT_WAITING && strcmp(v.lead, "STUDIO") == 0, "mood");
+    CHECK(!v.has_pomo && !v.pomo_counting, "absent pomo = null");
+    CHECK(v.has_weather && strcmp(v.weather.condition, "rain") == 0, "weather");
+    CHECK(!v.has_np && v.has_brightness && v.diag_live_until == 1782043500LL, "no nowplaying, brightness, live");
+}
+
+static char *edited_view(const char *name, const char *drop, int v)
+{
+    char *j = load(name);
+    cJSON *f = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    if (!f) return NULL;
+    if (drop) cJSON_DeleteItemFromObjectCaseSensitive(f, drop);
+    if (v) cJSON_ReplaceItemInObjectCaseSensitive(f, "v", cJSON_CreateNumber(v));
+    char *out = cJSON_PrintUnformatted(f);
+    cJSON_Delete(f);
+    return out;
+}
+
+static void test_view_without_blocks(void)
+{
+    const char *drop[] = {"mood", "pomo", "weather"};
+    for (size_t i = 0; i < sizeof drop / sizeof drop[0]; i++) {
+        char *j = edited_view("view_full.json", drop[i], 0);
+        knob_view_t v;
+        CHECK(j && knob_view_parse(j, &v), "view_full without %s parses", drop[i]);
+        CHECK(v.has_mood == (i != 0) && v.has_pomo == (i != 1) && v.has_weather == (i != 2) && v.has_np,
+              "view_full without %s: only that block off", drop[i]);
+        if (i == 0) CHECK(knob_view_mood(&v) == BOT_IDLE && v.lead[0] == 0, "no mood: idle, no host");
+        free(j);
+    }
+}
+
+static void test_view_major_99(void)
+{
+    knob_view_t v;
+    if (!view("view_full.json", &v)) return;
+    knob_view_t keep = v;
+    char *j = edited_view("view_minimal.json", NULL, 99);
+    int major = 0;
+    CHECK(j && knob_view_read(j, &v, &major) == KNOB_VIEW_TOO_NEW && major == 99, "v 99: too new");
+    CHECK(memcmp(&v, &keep, sizeof v) == 0, "v 99: view_full kept");
+    free(j);
+    j = edited_view("view_minimal.json", NULL, 1);
+    CHECK(j && knob_view_read(j, &v, NULL) == KNOB_VIEW_OK && knob_view_mood(&v) == BOT_IDLE, "v 1 again: applied");
+    free(j);
+}
+
 static bool reply(const char *name, dev_checkin_result_t *r)
 {
     char *j = load(name);
@@ -216,6 +275,16 @@ static void test_checkin_replies(void)
               "offer strings %s %s", r.ota.version, r.ota.build);
     }
     dev_checkin_result_free(&r);
+
+    dev_checkin_result_t old;
+    if (reply("checkin_reply_caps.json", &r) && reply("checkin_reply_current.json", &old)) {
+        CHECK(r.config_version == 1 && !r.config && !r.has_new_token && !r.has_ota && r.diag_live_until == 0 &&
+                  !r.has_coredump_wanted && !r.has_coredump_ack,
+              "caps_ack: config_version only");
+        CHECK(memcmp(&r, &old, sizeof r) == 0, "caps_ack ignored: same result as an old server's reply");
+    }
+    dev_checkin_result_free(&r);
+    dev_checkin_result_free(&old);
 
     if (reply("checkin_reply_rotation.json", &r)) {
         CHECK(r.config_version == 1 && r.has_new_token, "rotation: new_token");
@@ -374,6 +443,26 @@ static void test_checkin_req_minimal(void)
     cJSON_Delete(f);
 }
 
+static void test_checkin_req_caps(void)
+{
+    char *j = load("checkin_req_caps.json");
+    cJSON *f = cJSON_Parse(j);
+    free(j);
+    CHECK(f != NULL, "checkin_req_caps parses");
+    if (!f) return;
+    dev_caps_t caps;
+    const char *ids[PAGES_N];
+    knob_caps(&caps, ids);
+    dev_checkin_t c = {.caps = &caps, .fw = str(f, "fw"), .ip = str(f, "ip"), .rssi = (int)num(f, "rssi"),
+                       .heap_internal_free = (uint32_t)num(f, "heap_internal_free"),
+                       .heap_internal_largest = (uint32_t)num(f, "heap_internal_largest"),
+                       .uptime_s = (int64_t)num(f, "uptime_s"), .config_version = (uint32_t)num(f, "config_version")};
+    char out[DEV_CHECKIN_BODY_MAX];
+    CHECK(dev_checkin_body(&c, NULL, out, sizeof out) > 0, "caps body fits");
+    same_body("checkin_req_caps.json", out);
+    cJSON_Delete(f);
+}
+
 static void test_checkin_req_full(void)
 {
     char *j = load("checkin_req_full.json");
@@ -463,12 +552,16 @@ int main(int argc, char **argv)
     test_view_nowplaying_none();
     test_view_single_host_paused();
     test_view_quiet();
+    test_view_caps_limited();
+    test_view_without_blocks();
+    test_view_major_99();
     test_checkin_replies();
     test_config_default();
     test_config_custom();
     test_pomodoro_action();
     test_checkin_req_minimal();
     test_checkin_req_full();
+    test_checkin_req_caps();
     test_not_yet_sent_used();
     if (failures) {
         printf("fixtures: %d failure(s)\n", failures);

@@ -631,6 +631,8 @@ static void join_frame(void)
                : !ember_client_online() && ember_client_join_failures() >= 3          ? 1
                : ember_client_link() == EMBER_LINK_UNAUTHORIZED                      ? 2
                : config_store_has_ember_url() && !config_store_has_device()         ? 2
+               : ember_client_view_compat() == EMBER_VIEW_UPDATE_KNOB                ? 3
+               : ember_client_view_compat() == EMBER_VIEW_UPDATE_EMBER               ? 4
                                                                                       : 0;
     if (show == s_join_shown) return;
     s_join_shown = show;
@@ -641,6 +643,8 @@ static void join_frame(void)
         lv_label_set_text(s_join_label, text);
     } else if (show == 2) {
         lv_label_set_text(s_join_label, "Not paired");
+    } else if (show >= 3) {
+        lv_label_set_text(s_join_label, show == 3 ? "Update knob" : "Update Ember");
     }
     if (show) lv_obj_remove_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);

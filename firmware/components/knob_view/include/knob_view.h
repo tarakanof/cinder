@@ -13,12 +13,16 @@ extern "C" {
 #endif
 
 #define KNOB_VIEW_SOURCE_MAX 64
+#define KNOB_VIEW_V_MIN 1
+#define KNOB_VIEW_V_MAX 1
+#define KNOB_VIEW_BUF (16 * 1024) /* view response buffer, NUL included */
 
 typedef struct {
     int v;
     unsigned long long epoch;
     unsigned long config_version;
 
+    bool has_mood;
     int waiting, errors, running, done;
     char source[KNOB_VIEW_SOURCE_MAX + 1];
     char lead[KNOB_VIEW_SOURCE_MAX + 1];
@@ -47,6 +51,11 @@ typedef struct {
     long long diag_live_until;   /* server Unix s; 0 = absent */
 } knob_view_t;
 
+typedef enum { KNOB_VIEW_OK, KNOB_VIEW_BAD, KNOB_VIEW_TOO_OLD, KNOB_VIEW_TOO_NEW } knob_view_res_t;
+
+/* BAD (not an object, or v not a whole number) zeroes *out. TOO_OLD/TOO_NEW: v below/above [KNOB_VIEW_V_MIN, KNOB_VIEW_V_MAX]; *out is untouched and no other key is read. major gets v when it is a number; may be NULL. */
+knob_view_res_t knob_view_read(const char *json, knob_view_t *out, int *major);
+/* knob_view_read(json, out, NULL) == KNOB_VIEW_OK. */
 bool knob_view_parse(const char *json, knob_view_t *out);
 
 bot_mood_t knob_view_mood_from(int waiting, int errors, int running, int done);

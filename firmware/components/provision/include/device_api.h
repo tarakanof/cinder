@@ -11,8 +11,21 @@ extern "C" {
 #endif
 
 #define DEV_TOKEN_MAX 64
+#define DEV_CHECKIN_BODY_MAX 2048
+#define DEV_CAPS_ID_MAX 32
+
+/* Checkin "caps". An id that is empty, longer than DEV_CAPS_ID_MAX or not JSON-safe is left out; a feature must also match [a-z][a-z0-9_]*. A limit of 0 is left out. */
+typedef struct {
+    int view_min, view_max;
+    const char *const *pages;
+    int n_pages;
+    const char *const *features;
+    int n_features;
+    uint32_t view_bytes, config_bytes;
+} dev_caps_t;
 
 typedef struct {
+    const dev_caps_t *caps;
     const char *fw;
     const char *fw_build;
     const ota_report_t *ota;
