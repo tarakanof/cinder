@@ -77,10 +77,10 @@ cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$W/include" -I"$NP/in
     "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
 "${OUT}_legacy"
 cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
-    -I"$PG/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$NP/np.c" \
-    "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" "$D/page_stubs.c" \
-    "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
+    -I"$PG/include" -I"$G/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$P/pomo_legacy.c" "$W/weather_face.c" \
+    "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    "$G/touch_swipe.c" "$D/page_stubs.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
-cc $CFLAGS -I"$PG/include" -I"$V/include" -I"$J" "$PG/pages.c" "$D/page_stubs.c" "$V/knob_settings.c" "$J/cJSON.c" \
-    "$D/test_pages.c" -lm -o "${OUT}_pages"
+cc $CFLAGS -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
+    "$V/knob_settings.c" "$J/cJSON.c" "$D/test_pages.c" -lm -o "${OUT}_pages"
 "${OUT}_pages" "$D/fixtures/ember"

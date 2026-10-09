@@ -1,23 +1,44 @@
-#include "page_ops.h"
 #include "page_stubs.h"
 
-const char *page_stub_last;
-int page_stub_on;
+#include <stdio.h>
+#include <string.h>
 
-#define STUB_SHOW(name) \
-    void name(bool on) { page_stub_last = #name; page_stub_on = on; }
-#define STUB_INPUT(name) \
-    void name(const page_input_t *in, double t) { (void)in; (void)t; page_stub_last = #name; }
-#define STUB_FRAME(name) \
-    void name(const page_frame_t *f) { (void)f; page_stub_last = #name; }
+#include "page_ops.h"
 
-STUB_SHOW(page_bot_show)
-STUB_INPUT(page_bot_input)
-STUB_FRAME(page_bot_frame)
-STUB_SHOW(page_pomo_show)
-STUB_INPUT(page_pomo_input)
-STUB_FRAME(page_pomo_frame)
-STUB_SHOW(page_weather_show)
-STUB_SHOW(page_np_show)
-STUB_INPUT(page_np_input)
-STUB_FRAME(page_np_frame)
+char page_log[512];
+page_input_t page_stub_in;
+int page_stub_inputs;
+
+void page_log_reset(void)
+{
+    page_log[0] = 0;
+    memset(&page_stub_in, 0, sizeof page_stub_in);
+    page_stub_inputs = 0;
+}
+
+static void note(const char *what)
+{
+    size_t n = strlen(page_log);
+    snprintf(page_log + n, sizeof page_log - n, "%s ", what);
+}
+
+#define STUB_PAGE(name, label)                                                           \
+    void page_##name##_show(bool on) { note(on ? label "+" : label "-"); }               \
+    void page_##name##_input(const page_input_t *in, double t)                           \
+    {                                                                                    \
+        (void)t;                                                                         \
+        page_stub_in = *in;                                                              \
+        page_stub_inputs++;                                                              \
+        note(label ".in");                                                               \
+    }                                                                                    \
+    void page_##name##_frame(const page_frame_t *f)                                      \
+    {                                                                                    \
+        (void)f;                                                                         \
+        note(label ".frame");                                                            \
+    }
+
+STUB_PAGE(bot, "bot")
+STUB_PAGE(pomo, "pomo")
+STUB_PAGE(np, "np")
+
+void page_weather_show(bool on) { note(on ? "weather+" : "weather-"); }

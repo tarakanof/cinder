@@ -74,9 +74,7 @@ static int s_reset_progress_shown = -1;
 static bool s_setup;
 static lv_obj_t *s_join_label;
 static int s_join_shown;
-static int s_page;
-static int s_order[PAGES_N];
-static int s_norder = 1, s_pos;
+static pages_nav_t s_nav = {.n = 1};
 static uint32_t s_settings_gen;
 static knob_settings_t *s_ks_lv;
 static lv_obj_t *s_bot_page;
@@ -428,11 +426,11 @@ static void wipe_start(int dir, double t)
 static void dots_show(double until)
 {
     if (!s_dots) {
-        int h = s_norder * DOT_PITCH - (DOT_PITCH - DOT_PX);
+        int h = s_nav.n * DOT_PITCH - (DOT_PITCH - DOT_PX);
         s_dots = plain_obj(lv_layer_top());
         lv_obj_set_size(s_dots, DOT_PX, h);
         lv_obj_set_pos(s_dots, DOTS_X, (TS_CY - h / 2) & ~1);
-        for (int i = 0; i < s_norder; i++) {
+        for (int i = 0; i < s_nav.n; i++) {
             lv_obj_t *d = plain_obj(s_dots);
             lv_obj_set_size(d, DOT_PX, DOT_PX);
             lv_obj_set_pos(d, 0, i * DOT_PITCH);
@@ -441,7 +439,7 @@ static void dots_show(double until)
         }
     }
     for (int i = 0; i < (int)lv_obj_get_child_count(s_dots); i++)
-        lv_obj_set_style_bg_color(lv_obj_get_child(s_dots, i), lv_color_hex(i == s_pos ? 0xFFFFFF : 0x4A4A4A), 0);
+        lv_obj_set_style_bg_color(lv_obj_get_child(s_dots, i), lv_color_hex(i == s_nav.pos ? 0xFFFFFF : 0x4A4A4A), 0);
     s_dots_until = until;
 }
 
@@ -450,7 +448,7 @@ static void dots_refresh(void)
     if (!s_dots) return;
     lv_obj_delete(s_dots);
     s_dots = NULL;
-    if (s_norder > 1) dots_show(s_dots_until);
+    if (s_nav.n > 1) dots_show(s_dots_until);
 }
 
 static void page_fx_frame(double t)
@@ -476,24 +474,18 @@ void page_bot_show(bool on)
     if (!s_bot_page) return;
     if (on) lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
+    if (on) s_drawn = false;
 }
 
 void page_pomo_show(bool on) { pomo_view_show(on); }
 void page_weather_show(bool on) { weather_view_show(on); }
 void page_np_show(bool on) { np_view_show(on); }
 
-static void show_page(int p)
-{
-    for (int i = 0; i < PAGES_N; i++) PAGES[i].show(i == p);
-    s_page = p;
-    s_drawn = false;
-}
-
 static bool s_ota_paused;
 
 static void pages_pause(void)
 {
-    for (int i = 0; i < PAGES_N; i++) PAGES[i].show(false);
+    pages_hide_all();
     if (s_wipe) s_wipe_dir = 0;
     if (s_dots) {
         lv_obj_delete(s_dots);
@@ -529,17 +521,14 @@ static bool ota_frame(void)
     }
     if (s_ota_paused) {
         s_ota_paused = false;
-        show_page(s_order[s_pos]);
+        pages_resume(&s_nav);
     }
     return false;
 }
 
 static void page_go(int steps, double t)
 {
-    int pos = ts_page_step(s_pos, s_norder, steps);
-    if (pos == s_pos) return;
-    s_pos = pos;
-    show_page(s_order[pos]);
+    if (!pages_step(&s_nav, steps)) return;
     wipe_start(steps > 0 ? 1 : -1, t);
     dots_show(t + TS_DOTS_S);
 }
@@ -626,20 +615,7 @@ static void settings_frame(double t)
     bool first = s_settings_gen == 0;
     s_settings_gen = gen;
     config_store_settings(s_ks_lv);
-    const char *ids[PAGES_N];
-    int idx[PAGES_N], home;
-    s_norder = knob_settings_page_order(s_ks_lv, ids, pages_ids(ids, PAGES_N), idx, &home);
-    int pos = -1;
-    for (int i = 0; i < s_norder; i++) {
-        s_order[i] = idx[i];
-        if (s_order[i] == s_page) pos = i;
-    }
-    if (first || pos < 0) {
-        s_pos = home;
-        show_page(s_order[home]);
-    } else {
-        s_pos = pos;
-    }
+    pages_settings(&s_nav, s_ks_lv, first);
     dots_refresh();
     bot_set_sleep_after(&s_bot, s_ks_lv->sleepy_after_s);
     s_demo_hold_s = s_ks_lv->demo_hold_s;
@@ -757,20 +733,19 @@ void page_bot_frame(const page_frame_t *f)
 
 static __attribute__((noinline)) void page_tick(double t, double dt)
 {
-    const page_desc_t *pg = &PAGES[s_page];
+    const page_desc_t *pg = pages_current(&s_nav);
     page_input_t in;
     in.detents = atomic_exchange(&s_detents, 0);
     in.pushes = atomic_exchange(&s_pushes, 0);
     in.touches = atomic_exchange(&s_touches, 0);
     in.longs = atomic_exchange(&s_long_pushes, 0);
     in.wakes = atomic_exchange(&s_np_wakes, 0);
-    in = pages_route(pg, in);
 
     wx_obs_t wx;
     bool have_wx = weather_client_get(&wx);
     weather_view_update(have_wx ? &wx : NULL, dt);
 
-    if (pg->input) pg->input(&in, t);
+    pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
     if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
 
@@ -815,7 +790,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     f.pose = bot_pose(&s_bot, t);
     f.pose.orbit = chase->chasing ? chase->orbit : 0;
     s_cur_mood = f.pose.mood;
-    if (pg->frame) pg->frame(&f);
+    pages_frame(&s_nav, &f);
 }
 
 static atomic_uint s_loop_ticks;
@@ -920,7 +895,7 @@ static void stats_task(void *arg)
         http_conn_get_stats(&ns);
         ESP_LOGI(TAG, "pose redraws %.1f/s | screen refreshes %d, avg %.1f ms, max %.1f ms | mood %s | page %d",
                  frames / (t - s_fps_since), n, n ? total / 1000.0 / n : 0.0, mx / 1000.0, MOOD_NAMES[s_cur_mood],
-                 (int)s_page);
+                 s_nav.page);
         ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
                  s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
@@ -1016,7 +991,7 @@ void app_main(void)
         pomo_view_create(scr);
         weather_view_create(scr);
         np_view_create(scr);
-        show_page(0);
+        pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSED, NULL);
         lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSING, NULL);
