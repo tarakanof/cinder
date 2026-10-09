@@ -656,7 +656,7 @@ Unresolved indirect calls move by one in `ember` (243 → 242), `pomo` and `weat
 
 ## Capabilities and the view major (#27, Ember#341, 0.9.42)
 
-The knob says what it can do in every checkin, and the view parser only reads view majors it knows. Contract: Ember `docs/DEVICE-PROTOCOL.md`, "Capabilities"; spec `Specs/ember/2026-10-09-device-protocol-capabilities-design.md` in the vault. Fixtures pinned to Ember PR #363 head 638985e (`checkin_req_caps.json`, `checkin_reply_caps.json`, `view_caps_limited.json`).
+The knob says what it can do in every checkin, and the view parser only reads view majors it knows. Contract: Ember `docs/DEVICE-PROTOCOL.md`, "Capabilities"; spec `Specs/ember/2026-10-09-device-protocol-capabilities-design.md` in the vault. Fixtures pinned to Ember main 4a8c20c, after the #363 merge (`checkin_req_caps.json`, `checkin_reply_caps.json`, `view_caps_limited.json`; bytes unchanged from the PR head 638985e).
 
 - **Caps** (`components/caps`, `knob_caps()`; serialised by `dev_checkin_body` in `device_api.c`, first key, keys sorted like the rest of the body):
 
