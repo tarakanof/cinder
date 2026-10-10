@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-/* Driver frame 472x466; the glass shows frame/GRAM columns 6..471 and rows 0..465 (docs/board.md). */
+/* Driver frame 472x466; the glass shows GRAM columns 6..471 and rows 0..465 (docs/board.md). */
 #define KR_FRAME_W 472
 #define KR_FRAME_H 466
 #define KR_VIS_X0 6
@@ -28,11 +28,11 @@ bool kr_valid(int deg);
 /* A supported rotation as is; anything else 0. */
 int kr_effective(int deg);
 kr_panel_t kr_panel(int deg);
-/* Mirror window in columns/rows (even); kr_panel uses KR_MIRROR_W/H. */
+/* Mirror window in columns/rows (even); kr_panel uses KR_MIRROR_W/H. At 180 the frame mirrors in place: x, y to GRAM 471-x, 465-y. */
 kr_panel_t kr_panel_in(int deg, int mirror_w, int mirror_h);
 /* Dirty area to CO5300 windows: even start, odd end, inside [min_x/min_y, frame end]. */
 void kr_round(const kr_panel_t *p, int *x1, int *y1, int *x2, int *y2);
-/* Raw touch point (frame coordinates at 0 degrees) to frame coordinates at deg, clamped to the frame. */
+/* Raw touch point (GRAM = frame coordinates at 0 degrees) to frame coordinates at deg, clamped to the frame. */
 void kr_touch(int deg, int *x, int *y);
 
 #define KR_UNKNOWN (-1)

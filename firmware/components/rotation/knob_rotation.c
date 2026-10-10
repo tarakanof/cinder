@@ -20,8 +20,8 @@ kr_panel_t kr_panel_in(int deg, int mirror_w, int mirror_h)
     kr_panel_t p = {
         .mirror_x = true,
         .mirror_y = true,
-        .gap_x = mirror_w - 1 - (KR_VIS_X0 + VIS_X1),
-        .gap_y = mirror_h - 1 - VIS_Y1,
+        .gap_x = mirror_w - KR_FRAME_W,
+        .gap_y = mirror_h - KR_FRAME_H,
     };
     p.min_x = p.gap_x < 0 ? -p.gap_x : 0;
     p.min_y = p.gap_y < 0 ? -p.gap_y : 0;
@@ -49,7 +49,7 @@ static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v;
 void kr_touch(int deg, int *x, int *y)
 {
     if (kr_effective(deg) == 180) {
-        *x = KR_VIS_X0 + VIS_X1 - *x;
+        *x = VIS_X1 - *x;
         *y = VIS_Y1 - *y;
     }
     *x = clampi(*x, 0, KR_FRAME_W - 1);

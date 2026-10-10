@@ -30,7 +30,7 @@ static void test_panel(void)
     p = kr_panel(90);
     CHECK(!p.mirror_x && !p.mirror_y && p.gap_x == 0 && p.gap_y == 0, "90 unsupported: as 0");
     p = kr_panel(180);
-    CHECK(p.mirror_x && p.mirror_y && p.gap_x == 2 && p.gap_y == 0, "180: mirror, gap 2/0: %d/%d", p.gap_x, p.gap_y);
+    CHECK(p.mirror_x && p.mirror_y && p.gap_x == 8 && p.gap_y == 0, "180: mirror, gap 8/0: %d/%d", p.gap_x, p.gap_y);
     CHECK(p.gap_x % 2 == 0 && p.gap_y % 2 == 0, "even gaps keep the 2 px windows");
 }
 
@@ -72,6 +72,10 @@ static void coverage(int deg, int w, int h)
     for (int g = KR_VIS_X0; g <= VIS_X1; g++) miss += hit_x[g] != 1;
     for (int g = 0; g <= VIS_Y1; g++) miss += hit_y[g] != 1;
     CHECK(miss == 0, "%d in %dx%d: every visible column and row written once (no green line): %d missed", deg, w, h, miss);
+    int moved = 0;
+    for (int x = 0; deg == 180 && x < KR_FRAME_W; x++) moved += gram_x_in(deg, x, w) != KR_FRAME_W - 1 - x;
+    for (int y = 0; deg == 180 && y < KR_FRAME_H; y++) moved += gram_y_in(deg, y, h) != KR_FRAME_H - 1 - y;
+    CHECK(moved == 0, "%d in %dx%d: the frame mirrors in place whatever the window: %d moved", deg, w, h, moved);
 }
 
 static void test_coverage(void)
@@ -92,14 +96,15 @@ static void test_coverage(void)
 
 static void test_round(void)
 {
-    kr_panel_t p0 = kr_panel(0), p180 = kr_panel(180), narrow = kr_panel_in(180, 472, 466);
+    kr_panel_t p0 = kr_panel(0), p180 = kr_panel(180), frame = kr_panel_in(180, 472, 466), narrow = kr_panel_in(180, 466, 466);
     int x1 = -3, y1 = 7, x2 = 500, y2 = 470;
     kr_round(&p0, &x1, &y1, &x2, &y2);
     CHECK(x1 == 0 && y1 == 6 && x2 == 471 && y2 == 465, "0: even start, odd end, inside the frame: %d,%d-%d,%d", x1, y1, x2, y2);
     x1 = 3, y1 = 3, x2 = 10, y2 = 10;
     kr_round(&p180, &x1, &y1, &x2, &y2);
     CHECK(x1 == 2 && y1 == 2 && x2 == 11 && y2 == 11, "180 in 480: same windows as 0");
-    CHECK(narrow.gap_x == -6 && narrow.min_x == 6 && narrow.gap_y == 0 && narrow.min_y == 0, "472x466 window: gap -6, start 6");
+    CHECK(frame.gap_x == 0 && frame.min_x == 0 && frame.gap_y == 0 && frame.min_y == 0, "472x466 window: gap 0, start 0");
+    CHECK(narrow.gap_x == -6 && narrow.min_x == 6 && narrow.gap_y == 0 && narrow.min_y == 0, "466x466 window: gap -6, start 6");
     x1 = 0, y1 = 0, x2 = 9, y2 = 9;
     kr_round(&narrow, &x1, &y1, &x2, &y2);
     CHECK(x1 == 6 && x2 == 9, "negative gap: window starts at 6: %d-%d", x1, x2);
@@ -108,11 +113,27 @@ static void test_round(void)
     CHECK(x1 == 6 && x2 == 7, "area left of the start becomes one valid 2 px window: %d-%d", x1, x2);
 }
 
-static void test_image_rotated(void)
+static void test_image_in_place(void)
 {
-    for (int x = KR_VIS_X0; x <= VIS_X1; x++)
-        CHECK(gram_x(180, x) == KR_VIS_X0 + VIS_X1 - x, "180: column %d lands mirrored about the glass centre", x);
-    for (int y = 0; y <= VIS_Y1; y++) CHECK(gram_y(180, y) == VIS_Y1 - y, "180: row %d mirrored", y);
+    for (int x = 0; x < KR_FRAME_W; x++)
+        CHECK(gram_x(0, x) + gram_x(180, x) == KR_FRAME_W - 1,
+              "180: column %d mirrored about the frame centre, not the glass centre (%d at 0, %d at 180)", x, gram_x(0, x),
+              gram_x(180, x));
+    for (int y = 0; y < KR_FRAME_H; y++)
+        CHECK(gram_y(0, y) + gram_y(180, y) == KR_FRAME_H - 1, "180: row %d mirrored about the frame centre", y);
+    int cx = KR_FRAME_W / 2 - 1, cy = KR_FRAME_H / 2 - 1;
+    CHECK(gram_x(180, cx) == gram_x(0, cx + 1) && gram_x(180, cx + 1) == gram_x(0, cx),
+          "180: the frame's centre columns %d-%d stay on GRAM %d-%d (no horizontal jump): %d-%d", cx, cx + 1,
+          gram_x(0, cx), gram_x(0, cx + 1), gram_x(180, cx + 1), gram_x(180, cx));
+    CHECK(gram_y(180, cy) == gram_y(0, cy + 1) && gram_y(180, cy + 1) == gram_y(0, cy),
+          "180: the frame's centre rows stay on their GRAM rows");
+    int r = 150, lo0 = GRAM, hi0 = -1, lo180 = GRAM, hi180 = -1;
+    for (int x = cx - r; x <= cx + 1 + r; x++) {
+        int a = gram_x(0, x), b = gram_x(180, x);
+        lo0 = a < lo0 ? a : lo0, hi0 = a > hi0 ? a : hi0;
+        lo180 = b < lo180 ? b : lo180, hi180 = b > hi180 ? b : hi180;
+    }
+    CHECK(lo0 == lo180 && hi0 == hi180, "a centred ring covers GRAM %d..%d at 0 and %d..%d at 180", lo0, hi0, lo180, hi180);
 }
 
 
@@ -151,9 +172,10 @@ static int glass_errors(int deg, int x1, int y1, int x2, int y2, int *unwritten)
 {
     int wrong = 0;
     *unwritten = 0;
-    for (int v = y1; v <= y2; v++)
-        for (int u = x1 < KR_VIS_X0 ? KR_VIS_X0 : x1; u <= x2; u++) {
-            int gx = deg == 180 ? KR_VIS_X0 + VIS_X1 - u : u, gy = deg == 180 ? VIS_Y1 - v : v;
+    for (int gy = 0; gy <= VIS_Y1; gy++)
+        for (int gx = KR_VIS_X0; gx <= VIS_X1; gx++) {
+            int u = deg == 180 ? VIS_X1 - gx : gx, v = deg == 180 ? VIS_Y1 - gy : gy;
+            if (u < x1 || u > x2 || v < y1 || v > y2) continue;
             if (!s_gram[gy][gx]) (*unwritten)++;
             else if (s_gram[gy][gx] != frame_id(u, v)) wrong++;
         }
@@ -170,8 +192,8 @@ static void test_panel_frame(int deg)
           deg, STRIP_ROWS, PANEL_ROWS, s_off_panel);
     CHECK(unwritten == 0, "%d: a full refresh writes every visible pixel: %d left stale", deg, unwritten);
     CHECK(wrong == 0, "%d: every visible pixel shows its own frame pixel (centred, upright): %d wrong", deg, wrong);
-    int gx = deg == 180 ? KR_VIS_X0 + VIS_X1 - 236 : 236, gy = deg == 180 ? VIS_Y1 - 233 : 233;
-    CHECK(s_gram[gy][gx] == frame_id(236, 233), "%d: the frame centre lands on the glass centre", deg);
+    CHECK(s_gram[233][236] == frame_id(deg == 180 ? 235 : 236, deg == 180 ? 232 : 233),
+          "%d: the frame centre stays on the same GRAM pixels", deg);
 
     memset(s_gram, 0, sizeof s_gram);
     s_off_panel = 0;
@@ -199,12 +221,24 @@ static void test_touch(void)
                   "180: finger on GRAM %d,%d hits the pixel drawn there (%d,%d)", tx, ty, px, py);
         }
     }
+    int miss = 0;
+    for (int fx = 0; fx < KR_FRAME_W; fx++)
+        for (int fy = 0; fy < KR_FRAME_H; fy++) {
+            int gx = gram_x(180, fx), gy = gram_y(180, fy);
+            if (gx < KR_VIS_X0 || gx > VIS_X1 || gy > VIS_Y1) continue;
+            kr_touch(180, &gx, &gy);
+            miss += gx != fx || gy != fy;
+        }
+    CHECK(miss == 0, "180: a touch on every visible frame pixel maps back to it: %d missed", miss);
     x = 236, y = 233;
     kr_touch(180, &x, &y);
-    CHECK(x == 241 && y == 232, "180: centre %d,%d", x, y);
+    CHECK(x == 235 && y == 232, "180: centre %d,%d", x, y);
     x = 0, y = 0;
     kr_touch(180, &x, &y);
-    CHECK(x == KR_FRAME_W - 1 && y == KR_FRAME_H - 1, "180: corner clamps into the frame: %d,%d", x, y);
+    CHECK(x == KR_FRAME_W - 1 && y == KR_FRAME_H - 1, "180: corner %d,%d", x, y);
+    x = -5, y = 600;
+    kr_touch(180, &x, &y);
+    CHECK(x == KR_FRAME_W - 1 && y == 0, "180: out of range clamps into the frame: %d,%d", x, y);
     x = 600, y = -5;
     kr_touch(0, &x, &y);
     CHECK(x == KR_FRAME_W - 1 && y == 0, "0: out of range clamps: %d,%d", x, y);
@@ -301,7 +335,7 @@ int main(void)
     test_panel();
     test_coverage();
     test_round();
-    test_image_rotated();
+    test_image_in_place();
     test_panel_frame(0);
     test_panel_frame(180);
     test_touch();
