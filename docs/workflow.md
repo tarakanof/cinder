@@ -177,7 +177,7 @@ The port tools open it with raw termios and leave DTR/RTS alone; their effects a
 | `gen_tool_marks.py` | Regenerate `components/bot/tool_marks.c` (venv; no port) |
 | `gen_title_font.py [TTF]` | Regenerate `main/font_title_bold.c`, the OTA face's bold title glyphs (Pillow; no port) |
 | `gen_face_fonts.py [TTF]` | Regenerate `main/font_face_36.c` and `main/font_digits_96.c`, the weather/music face subsets (Pillow; no port) |
-| `sync-ember-fixtures.sh <v* tag or commit SHA>` | Replace `test/host/fixtures/ember/` with Ember's device-protocol fixtures at an existing `v*` tag or a 7-40 hex commit SHA (`gh`; no port) |
+| `sync-ember-fixtures.sh <v* tag or commit SHA>` | Replace `test/host/fixtures/ember/` with Ember's device-protocol fixtures at an existing `v*` tag or a 7-40 lowercase hex commit SHA (`gh`; no port) |
 
 To put the bot in working mood without real work, post a demo session to Ember
 and re-post every 10 s (Ember `docs/WORKFLOW.md` step 7).
