@@ -90,10 +90,10 @@ static bool write_all(http_conn_t *c, const char *p, int n)
 }
 
 static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, int len, char *buf, int cap,
-                   http_fail_t *why, bool *cut)
+                   http_fail_t *why, bool *cut, bool *dropped)
 {
     buf[0] = 0;
-    *cut = false;
+    *cut = *dropped = false;
     esp_err_t err = esp_http_client_open(c->h, len);
     if (err != ESP_OK) {
         *why = HTTP_FAIL_OPEN;
@@ -185,9 +185,17 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
     }
     if (total > cap - 1) {
         buf[0] = 0;
+        *dropped = true;
         if (o->truncated) *o->truncated = true;
     }
     return status;
+}
+
+static uint32_t path_hash(const char *p)
+{
+    uint32_t h = 2166136261u;
+    for (; *p && *p != '?'; p++) h = (h ^ (uint8_t)*p) * 16777619u;
+    return h | 1u;
 }
 
 static void log_streak(http_conn_t *c, fs_log_t what, const char *path, http_fail_t fail)
@@ -378,13 +386,13 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     if (o->idem_key) esp_http_client_set_header(c->h, "Idempotency-Key", o->idem_key);
 
     http_fail_t why = HTTP_FAIL_OPEN;
-    bool reused = c->warm, cut = false;
-    int status = attempt(c, o, post_body, len, buf, cap, &why, &cut);
+    bool reused = c->warm, cut = false, dropped = false;
+    int status = attempt(c, o, post_body, len, buf, cap, &why, &cut, &dropped);
     if (status < 0 && status != HTTP_CONN_ABORTED) {
         drop_socket(c);
         if (http_should_retry_wait(reused, idempotent, o->read_budget_ms > 0, why)) {
             atomic_fetch_add(&s_retries, 1);
-            status = attempt(c, o, post_body, len, buf, cap, &why, &cut);
+            status = attempt(c, o, post_body, len, buf, cap, &why, &cut, &dropped);
             if (status < 0 && status != HTTP_CONN_ABORTED) drop_socket(c);
         }
     }
@@ -421,11 +429,15 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     const char *path = strstr(url, "://");
     path = path ? strchr(path + 3, '/') : NULL;
     log_streak(c, fs_note(&c->streak, status > 0, esp_timer_get_time() / 1000), path ? path : url, why);
-    if (status > 0 && cut != c->cut_logged) {
-        if (cut)
+    if (status > 0) {
+        uint32_t h = path_hash(path ? path : url);
+        if (cut && c->cut_path != h) {
             ESP_LOGW(TAG, "%s: %s body past %ld B, socket dropped; quiet until it fits", c->name, path ? path : url,
                      2L * cap + 4096);
-        c->cut_logged = cut;
+            c->cut_path = h;
+        } else if (!dropped && c->cut_path == h) {
+            c->cut_path = 0;
+        }
     }
     return status;
 }

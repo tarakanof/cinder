@@ -447,6 +447,18 @@ dev_checkin_outcome_t dev_checkin_answer(int status, bool truncated)
     return status == 200 && !truncated ? DEV_CHECKIN_OK : DEV_CHECKIN_FAILED;
 }
 
+bool dev_checkin_log(int status, bool truncated, int *last, char *out, size_t n, bool *warn)
+{
+    int key = status == 200 && truncated ? -2 : status;
+    if (status == -1 || key == *last) return false;
+    *last = key;
+    *warn = key != 200;
+    if (key == 200) snprintf(out, n, "checkin ok");
+    else if (key == -2) snprintf(out, n, "checkin -> HTTP 200, reply too large: not applied");
+    else snprintf(out, n, "checkin -> HTTP %d%s", status, status == 401 ? ": not paired (token rejected)" : "");
+    return true;
+}
+
 void dev_sched_done(dev_sched_t *s, dev_checkin_outcome_t o, int64_t now_ms)
 {
     s->last_ms = now_ms;

@@ -25,7 +25,7 @@ typedef struct {
     http_header_cb on_header;
     void *hdr_ctx;
     fail_streak_t streak;
-    bool cut_logged;
+    uint32_t cut_path;
     /* Owner task, at the start of every request. */
     void (*on_request)(void);
 } http_conn_t;
@@ -42,7 +42,7 @@ typedef struct {
 
 void http_conn_init(http_conn_t *c, const char *name);
 
-/* Body NUL-terminated; one over cap - 1 is dropped (buf empty). Returns the HTTP status or -1 on a network error. */
+/* Body NUL-terminated; a body longer than cap - 1 is dropped (buf empty, .truncated set). Returns the HTTP status, or -1 on a network error with buf undefined. */
 int http_conn_req(http_conn_t *c, const char *url, const char *post_body, bool idempotent, char *buf, int cap,
                   http_header_cb on_header, void *hdr_ctx);
 

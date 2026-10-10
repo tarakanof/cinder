@@ -690,10 +690,11 @@ static void checkin(char *buf)
     if (status > 0 && !P->vp.legacy && view_parse_now(P->hdrs.now, &srv_now))
         pomo_client_note_clock(srv_now, sent, received);
     static int last_status;
-    if (status != -1 && status != last_status) {
-        if (status == 200) ESP_LOGI(TAG, "checkin ok");
-        else ESP_LOGW(TAG, "checkin -> HTTP %d%s", status, status == 401 ? ": not paired (token rejected)" : "");
-        last_status = status;
+    char line[64];
+    bool warn;
+    if (dev_checkin_log(status, truncated, &last_status, line, sizeof line, &warn)) {
+        if (warn) ESP_LOGW(TAG, "%s", line);
+        else ESP_LOGI(TAG, "%s", line);
     }
     ota_ctx_t octx;
     ota_ctx(&octx);
@@ -707,7 +708,7 @@ static void checkin(char *buf)
     }
     if (answer != DEV_CHECKIN_OK) {
         dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
-        ota_client_checkin_done(truncated ? -1 : status, NULL, &octx);
+        ota_client_checkin_done(status, NULL, &octx);
         return;
     }
     atomic_store(&s_unauthorized, false);

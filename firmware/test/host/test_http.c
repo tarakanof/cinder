@@ -340,6 +340,20 @@ static void test_cut_logged_once(http_conn_t *c)
     }
     CHECK(F.warns == warns + 1, "six cuts in a row: one warning, got %d", F.warns - warns);
     server(200, small, slen);
+    const http_req_opts_t o = {.post_body = "{}", .idempotent = true};
+    http_conn_req_opts(c, "http://ember.test/v1/devices/self/checkin", &o, s_buf, KNOB_VIEW_BUF);
+    server(200, body, len);
+    poll_state(c, LINK_ONLINE);
+    CHECK(F.warns == warns + 1, "a whole answer on another route does not re-arm, got %d", F.warns - warns);
+    int dlen;
+    char *drained = state_body(KNOB_VIEW_BUF + 4096, &dlen);
+    server(200, drained, dlen);
+    poll_state(c, LINK_ONLINE);
+    server(200, body, len);
+    poll_state(c, LINK_ONLINE);
+    CHECK(F.warns == warns + 1, "a drained but truncated /state does not re-arm, got %d", F.warns - warns);
+    free(drained);
+    server(200, small, slen);
     poll_state(c, LINK_ONLINE);
     server(200, body, len);
     poll_state(c, LINK_ONLINE);
@@ -480,6 +494,32 @@ static void test_state_answer(void)
     CHECK(dev_checkin_answer(200, false) == DEV_CHECKIN_OK, "checkin 200");
     CHECK(dev_checkin_answer(200, true) == DEV_CHECKIN_FAILED, "checkin truncated 200");
     CHECK(dev_checkin_answer(401, false) == DEV_CHECKIN_UNAUTHORIZED, "checkin 401");
+    int last = 0;
+    char line[64];
+    bool warn = false;
+    const struct {
+        int status;
+        bool truncated;
+        bool logs;
+        bool warn;
+        const char *line;
+    } seq[] = {
+        {200, false, true, false, "checkin ok"},
+        {200, false, false, false, NULL},
+        {200, true, true, true, "checkin -> HTTP 200, reply too large: not applied"},
+        {200, true, false, false, NULL},
+        {-1, false, false, false, NULL},
+        {200, false, true, false, "checkin ok"},
+        {401, false, true, true, "checkin -> HTTP 401: not paired (token rejected)"},
+        {503, true, true, true, "checkin -> HTTP 503"},
+    };
+    for (size_t i = 0; i < sizeof seq / sizeof seq[0]; i++) {
+        line[0] = 0;
+        bool logs = dev_checkin_log(seq[i].status, seq[i].truncated, &last, line, sizeof line, &warn);
+        CHECK(logs == seq[i].logs && (!logs || (warn == seq[i].warn && strcmp(line, seq[i].line) == 0)),
+              "checkin log %zu (%d, truncated %d): %d, warn %d, \"%s\"", i, seq[i].status, seq[i].truncated, logs, warn,
+              line);
+    }
     CHECK(dev_checkin_answer(500, true) == DEV_CHECKIN_FAILED && dev_checkin_answer(-1, false) == DEV_CHECKIN_FAILED,
           "checkin 5xx and no answer");
 }
