@@ -117,6 +117,7 @@ static bool poll_once(http_conn_t *conn, char *buf, int cap)
     pomo_state_t s;
     bool parsed = status == 200 && pomo_legacy_parse(buf, &s);
     if (parsed) publish_state(&s, pomo_client_now());
+    else if (status == 404) publish_disabled();
     src_note(pomo_poll_counts(status, parsed));
     if (parsed) return true;
     static int last_status = 200;
@@ -124,7 +125,6 @@ static bool poll_once(http_conn_t *conn, char *buf, int cap)
         if (status != 200) ESP_LOGW(TAG, "GET state -> HTTP %d", status);
         last_status = status;
     }
-    if (status == 404) publish_disabled();
     return false;
 }
 
