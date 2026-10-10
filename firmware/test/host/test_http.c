@@ -503,6 +503,7 @@ static void test_state_answer(void)
         {200, false, DEV_CHECKIN_OK, 200},
         {200, true, DEV_CHECKIN_FAILED, -1},
         {401, false, DEV_CHECKIN_UNAUTHORIZED, 401},
+        {401, true, DEV_CHECKIN_UNAUTHORIZED, -1},
         {503, false, DEV_CHECKIN_FAILED, 503},
         {503, true, DEV_CHECKIN_FAILED, -1},
         {-1, false, DEV_CHECKIN_FAILED, -1},
@@ -539,7 +540,11 @@ static void test_state_answer(void)
         {-1, false, false, false, NULL},
         {200, false, true, false, "checkin ok"},
         {401, false, true, true, "checkin -> HTTP 401: not paired (token rejected)"},
+        {401, false, false, false, NULL},
+        {401, true, false, false, NULL},
         {503, true, true, true, "checkin -> HTTP 503"},
+        {401, true, true, true, "checkin -> HTTP 401: not paired (token rejected)"},
+        {401, false, false, false, NULL},
     };
     for (size_t i = 0; i < sizeof seq / sizeof seq[0]; i++) {
         dev_checkin_settle(seq[i].status, seq[i].truncated, &last, &st);
