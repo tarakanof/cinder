@@ -76,7 +76,7 @@ static void parse_pages(const cJSON *arr, knob_settings_t *ks)
 
 static int parse_rotation(const cJSON *root)
 {
-    const cJSON *v = cJSON_GetObjectItemCaseSensitive(root, "rotation");
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "display"), "rotation");
     return cJSON_IsNumber(v) && v->valuedouble == (double)v->valueint ? kr_effective(v->valueint) : 0;
 }
 

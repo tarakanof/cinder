@@ -107,19 +107,22 @@ static void test_settings_rotation(void)
     knob_settings_defaults(&k);
     CHECK(k.rotation == 0, "default 0");
     CHECK(knob_settings_parse("{}", &k) && k.rotation == 0, "missing: 0");
-    knob_settings_parse("{\"rotation\":180}", &k);
+    knob_settings_parse("{\"display\":{\"rotation\":180}}", &k);
     CHECK(k.rotation == 180, "180");
-    knob_settings_parse("{\"rotation\":0}", &k);
+    knob_settings_parse("{\"display\":{\"rotation\":0}}", &k);
     CHECK(k.rotation == 0, "0");
-    const char *const fallback[] = {"{\"rotation\":90}", "{\"rotation\":270}", "{\"rotation\":45}", "{\"rotation\":-180}",
-                                    "{\"rotation\":360}", "{\"rotation\":180.5}", "{\"rotation\":\"180\"}",
-                                    "{\"rotation\":true}", "{\"rotation\":null}", "{\"rotation\":[180]}", "{\"rotation\":1e300}"};
+    const char *const fallback[] = {
+        "{\"display\":{\"rotation\":90}}",    "{\"display\":{\"rotation\":270}}",   "{\"display\":{\"rotation\":45}}",
+        "{\"display\":{\"rotation\":-180}}",  "{\"display\":{\"rotation\":360}}",   "{\"display\":{\"rotation\":180.5}}",
+        "{\"display\":{\"rotation\":\"180\"}}", "{\"display\":{\"rotation\":true}}",  "{\"display\":{\"rotation\":null}}",
+        "{\"display\":{\"rotation\":[180]}}", "{\"display\":{\"rotation\":1e300}}", "{\"rotation\":180}",
+        "{\"display\":180}",                  "{\"display\":{\"fast_link\":false}}"};
     for (size_t i = 0; i < sizeof fallback / sizeof fallback[0]; i++) {
-        knob_settings_parse("{\"rotation\":180}", &k);
+        knob_settings_parse("{\"display\":{\"rotation\":180}}", &k);
         CHECK(knob_settings_parse(fallback[i], &k) && k.rotation == 0, "%s falls back to 0: %d", fallback[i], k.rotation);
     }
     dev_checkin_result_t r;
-    dev_checkin_parse("{\"config_version\":4,\"config\":{\"rotation\":180}}", &r);
+    dev_checkin_parse("{\"config_version\":4,\"config\":{\"display\":{\"rotation\":180}}}", &r);
     knob_settings_t a, b;
     CHECK(r.ok && r.config, "checkin carries the config");
     knob_settings_parse(r.config, &a);

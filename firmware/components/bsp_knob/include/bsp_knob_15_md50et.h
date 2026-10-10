@@ -38,10 +38,9 @@ void bsp_knob_15_md50et_qspi_fallback_reboot(void);
 void bsp_knob_15_md50et_set_qspi_fast(bool on);
 bool bsp_knob_15_md50et_qspi_fallback_active(void);
 void bsp_knob_15_md50et_unlock(void);
-/* cinder (#45): 0 or 180 (others become 0). Before bsp_knob_15_md50et_init() it sets the boot orientation; after it,
-   LVGL task with the lock held only (MADCTL write between frames), and the whole screen is redrawn. */
-esp_err_t bsp_knob_15_md50et_set_rotation(int deg);
-int bsp_knob_15_md50et_rotation(void);
+/* cinder (#45): set_rotation stores the wish (any task before init, else LVGL task); rotation_frame applies it, LVGL task + lock. */
+void bsp_knob_15_md50et_set_rotation(int deg);
+void bsp_knob_15_md50et_rotation_frame(void);
 
 void bsp_knob_15_md50et_backlight_on(void);
 void bsp_knob_15_md50et_backlight_off(void);

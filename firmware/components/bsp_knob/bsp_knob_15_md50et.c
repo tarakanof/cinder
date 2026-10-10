@@ -45,7 +45,8 @@ static bool s_tp_down;
 static lv_point_t s_tp_point;
 static int64_t s_tp_report_us;
 static atomic_uint s_tp_ok;
-static atomic_int s_rotation;
+static kr_state_t s_rot = {.backoff_ms = KR_RETRY_MIN_MS};
+static kr_panel_t s_geom;
 
 static void tp_isr(esp_lcd_touch_handle_t tp)
 {
@@ -65,7 +66,7 @@ static void tp_read(lv_indev_t *indev, lv_indev_data_t *data)
         s_tp_down = ok && n > 0;
         if (s_tp_down) {
             int x = pt[0].x, y = pt[0].y;
-            kr_touch(atomic_load(&s_rotation), &x, &y);
+            kr_touch(s_rot.touch, &x, &y);
             s_tp_point.x = x;
             s_tp_point.y = y;
             s_tp_report_us = esp_timer_get_time();
@@ -136,11 +137,25 @@ void bsp_knob_15_md50et_qspi_fallback_reboot(void)
     esp_restart();
 }
 
-static esp_err_t panel_orient(int deg)
+static int panel_orient(void *ctx, int deg)
 {
+    (void)ctx;
     kr_panel_t p = kr_panel(deg);
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, p.gap_x, p.gap_y), TAG, "gap");
-    return esp_lcd_panel_mirror(s_panel, p.mirror_x, p.mirror_y);
+    if (esp_lcd_panel_set_gap(s_panel, p.gap_x, p.gap_y) != ESP_OK) return -1;
+    s_geom = p;
+    return esp_lcd_panel_mirror(s_panel, p.mirror_x, p.mirror_y) == ESP_OK ? 0 : -1;
+}
+
+static bool rotation_step(void)
+{
+    int want = s_rot.want, was = s_rot.shown;
+    int64_t now = esp_timer_get_time() / 1000;
+    kr_result_t r = kr_step(&s_rot, now, panel_orient, NULL);
+    int wait = (int)(s_rot.retry_ms - now);
+    if (r == KR_ROLLED_BACK) ESP_LOGW(TAG, "rotation %d failed, kept %d; retry in %d ms", want, was, wait);
+    if (r == KR_LOST) ESP_LOGE(TAG, "rotation %d failed, rollback to %d failed: orientation unknown; retry in %d ms", want, was, wait);
+    if (r == KR_APPLIED) ESP_LOGI(TAG, "rotation %d", want);
+    return r == KR_APPLIED;
 }
 
 static esp_err_t lcd_init(void)
@@ -184,7 +199,7 @@ static esp_err_t lcd_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_co5300(s_panel_io, &panel_config, &s_panel), TAG, "co5300");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "reset");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "init");
-    ESP_RETURN_ON_ERROR(panel_orient(atomic_load(&s_rotation)), TAG, "orient");
+    rotation_step();
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "disp on");
     return ESP_OK;
 }
@@ -277,22 +292,12 @@ static void area_rounder_cb(lv_area_t *area, void *user_data)
 {
     (void)user_data;
     /* CO5300 needs even window coordinates inside the panel, else a green line shows at the right edge (docs/llm.md) */
-    area->x1 = (area->x1 >> 1) << 1;
-    area->y1 = (area->y1 >> 1) << 1;
-    area->x2 = ((area->x2 >> 1) << 1) + 1;
-    area->y2 = ((area->y2 >> 1) << 1) + 1;
-    if (area->x1 < 0) {
-        area->x1 = 0;
-    }
-    if (area->y1 < 0) {
-        area->y1 = 0;
-    }
-    if (area->x2 >= BSP_KNOB_15_MD50ET_H_RES) {
-        area->x2 = BSP_KNOB_15_MD50ET_H_RES - 1;
-    }
-    if (area->y2 >= BSP_KNOB_15_MD50ET_V_RES) {
-        area->y2 = BSP_KNOB_15_MD50ET_V_RES - 1;
-    }
+    int x1 = area->x1, y1 = area->y1, x2 = area->x2, y2 = area->y2;
+    kr_round(&s_geom, &x1, &y1, &x2, &y2);
+    area->x1 = x1;
+    area->y1 = y1;
+    area->x2 = x2;
+    area->y2 = y2;
 }
 
 static esp_err_t lvgl_adapter_bringup(void)
@@ -386,27 +391,11 @@ esp_err_t bsp_knob_15_md50et_set_brightness(uint8_t percent)
 }
 
 
-int bsp_knob_15_md50et_rotation(void) { return atomic_load(&s_rotation); }
+void bsp_knob_15_md50et_set_rotation(int deg) { kr_want(&s_rot, deg); }
 
-esp_err_t bsp_knob_15_md50et_set_rotation(int deg)
+void bsp_knob_15_md50et_rotation_frame(void)
 {
-    deg = kr_effective(deg);
-    if (!s_panel) {
-        atomic_store(&s_rotation, deg);
-        return ESP_OK;
-    }
-    if (deg == atomic_load(&s_rotation)) return ESP_OK;
-    esp_err_t err = panel_orient(deg);
-    if (err != ESP_OK) {
-        panel_orient(atomic_load(&s_rotation));
-        return err;
-    }
-    atomic_store(&s_rotation, deg);
-    if (s_disp) {
-        lv_obj_invalidate(lv_display_get_screen_active(s_disp));
-        lv_obj_invalidate(lv_display_get_layer_top(s_disp));
-    }
-    return ESP_OK;
+    if (s_panel && rotation_step() && s_disp) lv_obj_invalidate(lv_display_get_screen_active(s_disp));
 }
 
 void bsp_knob_15_md50et_register_knob_cb(bsp_knob_15_md50et_knob_cb_t cb)
