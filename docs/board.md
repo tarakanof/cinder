@@ -215,7 +215,7 @@ The module already sits in its own round metal/plastic shell, so what you need i
 
 1. **GPIO17 must be HIGH** before LCD init. It is the panel supply enable. Without it the screen stays black.
 2. The **vendor README touch pin table is wrong** (see §2).
-3. **Width is 472, not 466**, in the driver and LVGL buffer. Do not use `esp_lcd_panel_set_gap()` with the vendor BSP. Getting this wrong leaves a blank column on the left or a green line on the right.
+3. **Width is 472, not 466**, in the driver and LVGL buffer. Do not use `esp_lcd_panel_set_gap()` with the vendor BSP. Getting this wrong leaves a blank column on the left or a green line on the right. Exception: cinder's 180-degree rotation (MX/MY) sets a gap, (2, 14) on the unverified assumption that the mirror spans 480 columns and rows, to keep the visible columns 6..471 and rows 0..465 written (`docs/features.md`, "Display rotation").
 4. Brightness on AMOLED is a panel command (0x51), not PWM. Use `bsp_knob_15_md50et_set_brightness()`. The vendor warns against raw-writing 0x51 over QSPI.
 5. **PSRAM must be OPI/octal.** QSPI PSRAM settings crash or bootloop the board.
 6. Use **LVGL 8.4** with the Arduino/PlatformIO vendor port and **LVGL 9.3** with the LVGL-official IDF port. Do not mix them.
@@ -223,6 +223,7 @@ The module already sits in its own round metal/plastic shell, so what you need i
 8. The flash size claim (16 MB) conflicts with the Z25Q64 on the schematic. Run `python -m esptool flash_id` before choosing a partition table.
 9. No USB socket on the knob itself. Losing or damaging the adapter or FPC means making a 0.5 mm 10-pin breakout.
 10. The vendor spec still notes "Bluetooth and WIFI functions are still under test" (SoC Wi-Fi works fine in community firmware). Burn-in is possible on AMOLED, so use dimming or a screensaver for static UIs.
+11. **No 90/270 in hardware.** CO5300 MADCTL (36h) has only MY and MX; the MV (row/column exchange) bit is "don't care" in the datasheet, so `esp_lcd_panel_swap_xy()` does nothing on this panel.
 
 ---
 

@@ -38,6 +38,9 @@ void bsp_knob_15_md50et_qspi_fallback_reboot(void);
 void bsp_knob_15_md50et_set_qspi_fast(bool on);
 bool bsp_knob_15_md50et_qspi_fallback_active(void);
 void bsp_knob_15_md50et_unlock(void);
+/* cinder (#45): set_rotation stores the wish (any task before init, else LVGL task); rotation_frame applies it, LVGL task + lock. */
+void bsp_knob_15_md50et_set_rotation(int deg);
+void bsp_knob_15_md50et_rotation_frame(void);
 
 void bsp_knob_15_md50et_backlight_on(void);
 void bsp_knob_15_md50et_backlight_off(void);

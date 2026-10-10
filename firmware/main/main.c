@@ -622,6 +622,7 @@ static void settings_frame(double t)
     bot_set_sleep_after(&s_bot, s_ks_lv->sleepy_after_s);
     s_demo_hold_s = s_ks_lv->demo_hold_s;
     bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);
+    bsp_knob_15_md50et_set_rotation(s_ks_lv->rotation);
     if (s_demo_until > t + s_demo_hold_s) s_demo_until = t + s_demo_hold_s;
 }
 
@@ -809,6 +810,7 @@ static atomic_uint s_loop_ticks;
 static void frame_cb(lv_timer_t *timer)
 {
     panel_check_frame();
+    bsp_knob_15_md50et_rotation_frame();
     screen_snap_reap();
     render_freeze(lv_timer_get_user_data(timer));
     if (ota_client_render_frozen()) return;
@@ -977,6 +979,7 @@ void app_main(void)
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     config_store_settings(s_ks_lv);
     bsp_knob_15_md50et_set_qspi_fast(s_ks_lv->fast_link);
+    bsp_knob_15_md50et_set_rotation(s_ks_lv->rotation);
     bsp_knob_15_md50et_handles_t handles = {0};
     ESP_ERROR_CHECK(bsp_knob_15_md50et_init(&handles));
     bsp_knob_15_md50et_register_knob_cb(knob_cb);

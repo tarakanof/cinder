@@ -37,6 +37,7 @@ typedef struct {
     int live_interval_s;
     bool quiet_calm;
     uint8_t quiet_dim;
+    int rotation;
 } knob_settings_t;
 
 #define KS_QUIET_DIM_DEFAULT 20

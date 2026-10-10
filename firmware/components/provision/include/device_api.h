@@ -15,7 +15,7 @@ extern "C" {
 #define DEV_CAPS_PAGE_MAX 16
 #define DEV_CAPS_FEATURE_MAX 32
 
-/* Checkin "caps", Ember's patterns: a page id not matching ^[a-z][a-z0-9_-]{0,15}$ or a feature not matching ^[a-z][a-z0-9_]{0,31}$ is left out (Ember drops the whole caps for one bad id). A limit of 0 is left out. */
+/* Checkin "caps", Ember's patterns: a page id not matching ^[a-z][a-z0-9_-]{0,15}$ or a feature not matching ^[a-z][a-z0-9_]{0,31}$ is left out (Ember drops the whole caps for one bad id). A limit of 0 is left out. Rotations: values other than 0/90/180/270 and repeats are left out; without 0 the key is left out (Ember's rule). */
 typedef struct {
     int view_min, view_max;
     const char *const *pages;
@@ -23,6 +23,8 @@ typedef struct {
     const char *const *features;
     int n_features;
     uint32_t view_bytes, config_bytes;
+    const int *rotations;
+    int n_rotations;
 } dev_caps_t;
 
 typedef struct {
