@@ -80,11 +80,11 @@ static uint32_t src_word(void)
     return w;
 }
 
-static void src_note(bool ok)
+static void src_note(link_outcome_t o)
 {
     taskENTER_CRITICAL(&s_lock);
     link_level_t was = s_src.level;
-    bool changed = link_state_note(&s_src, ok ? LINK_OK : LINK_FAIL, esp_timer_get_time() / 1000);
+    bool changed = link_state_note(&s_src, o, esp_timer_get_time() / 1000);
     s_src_word = link_state_word(&s_src);
     link_level_t now = s_src.level;
     taskEXIT_CRITICAL(&s_lock);
@@ -93,7 +93,7 @@ static void src_note(bool ok)
     if (now == LINK_OFFLINE) pomo_client_drop_presses();
 }
 
-void pomo_client_source(bool ok) { src_note(ok); }
+void pomo_client_source(bool ok) { src_note(ok ? LINK_OK : LINK_FAIL); }
 
 void pomo_client_drop_presses(void)
 {
@@ -115,18 +115,16 @@ static bool poll_once(http_conn_t *conn, char *buf, int cap)
     strlcat(url, "/v1/pomodoro/state", sizeof url);
     int status = http_do(conn, url, false, NULL, buf, cap);
     pomo_state_t s;
-    if (status == 200 && pomo_legacy_parse(buf, &s)) {
-        publish_state(&s, pomo_client_now());
-        src_note(true);
-        return true;
-    }
+    bool parsed = status == 200 && pomo_legacy_parse(buf, &s);
+    if (parsed) publish_state(&s, pomo_client_now());
+    else if (status == 404) publish_disabled();
+    src_note(pomo_poll_counts(status, parsed));
+    if (parsed) return true;
     static int last_status = 200;
     if (status != -1 && status != last_status) {
         if (status != 200) ESP_LOGW(TAG, "GET state -> HTTP %d", status);
         last_status = status;
     }
-    if (status == 404) publish_disabled();
-    if (status != 429) src_note(status == 404);
     return false;
 }
 

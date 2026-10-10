@@ -3,6 +3,8 @@
 
 #include "bot_behavior.h"
 #include "ember_legacy.h"
+#include "knob_view.h"
+#include "link_state.h"
 #include "pomo_legacy.h"
 #include "press_route.h"
 #include "wx_legacy.h"
@@ -165,12 +167,54 @@ static void test_press_route(void)
           "reset gesture press");
 }
 
+static void test_oversized_state(void)
+{
+    static char full[3 * KNOB_VIEW_BUF];
+    static char buf[KNOB_VIEW_BUF];
+    static ember_host_session_t sess[32];
+    ember_host_info_t h = {0};
+    int n = snprintf(full, sizeof full, "{\"render\":{\"running\":1},\"sessions\":[");
+    for (int i = 0; n < KNOB_VIEW_BUF + 512; i++)
+        n += snprintf(full + n, sizeof full - n,
+                      "%s{\"source\":\"host%d\",\"state\":\"running\",\"updated_at\":\"2026-10-03T01:31:24Z\"}",
+                      i ? "," : "", i);
+    n += snprintf(full + n, sizeof full - n, "]}");
+    CHECK(ember_legacy_parse(full, sess, 32, &h) == BOT_WORKING, "the whole /state is valid");
+    CHECK(n > KNOB_VIEW_BUF - 1, "larger than the buffer: %d", n);
+    memcpy(buf, full, sizeof buf - 1);
+    buf[sizeof buf - 1] = 0;
+    bool parsed = ember_legacy_parse(buf, sess, 32, &h) >= 0;
+    CHECK(!parsed, "cut at the buffer, it does not parse");
+    CHECK(link_counts(LINK_ONLINE, true, false, 200, parsed) == LINK_FAIL, "an unparsed 200 alone counts");
+
+    link_state_t ls;
+    link_state_init(&ls, 0);
+    for (int i = 0; i < 6; i++)
+        link_state_note(&ls, link_counts_body(ls.level, true, false, 200, parsed, n, KNOB_VIEW_BUF), 100 + i);
+    CHECK(ls.level == LINK_BOOT, "boot, oversized /state only: %s", link_level_name(ls.level));
+    link_state_note(&ls, LINK_OK, 200);
+    for (int i = 0; i < 6; i++)
+        link_state_note(&ls, link_counts_body(ls.level, true, false, 200, parsed, n, KNOB_VIEW_BUF), 300 + i);
+    CHECK(ls.level == LINK_ONLINE, "online, oversized /state only: %s", link_level_name(ls.level));
+
+    CHECK(link_counts_body(LINK_ONLINE, true, false, 200, false, KNOB_VIEW_BUF - 1, KNOB_VIEW_BUF) == LINK_FAIL,
+          "a body that fit and does not parse counts");
+    CHECK(link_counts_body(LINK_ONLINE, true, false, 200, false, KNOB_VIEW_BUF, KNOB_VIEW_BUF) == LINK_SKIP,
+          "one byte over the buffer is a skip");
+    CHECK(link_counts_body(LINK_ONLINE, true, false, 200, true, n, KNOB_VIEW_BUF) == LINK_OK, "parsed stays ok");
+    CHECK(link_counts_body(LINK_ONLINE, true, false, 500, false, n, KNOB_VIEW_BUF) == LINK_FAIL, "5xx still counts");
+    CHECK(link_counts_body(LINK_ONLINE, true, false, 302, false, n, KNOB_VIEW_BUF) == LINK_FAIL, "3xx still counts");
+    CHECK(link_counts_body(LINK_ONLINE, false, false, 200, false, n, KNOB_VIEW_BUF) == LINK_FAIL, "no Wi-Fi counts");
+    CHECK(link_counts_body(LINK_ONLINE, true, false, 401, false, n, KNOB_VIEW_BUF) == LINK_SKIP, "401 still skipped");
+}
+
 int main(void)
 {
     test_pomo();
     test_drop_hourly();
     test_weather();
     test_ember();
+    test_oversized_state();
     test_press_route();
     if (failures) {
         printf("%d failure(s)\n", failures);

@@ -7,9 +7,16 @@ link_outcome_t link_counts(link_level_t level, bool wifi, bool aborted, int stat
 {
     if (aborted) return LINK_SKIP;
     if (!wifi) return level == LINK_BOOT ? LINK_SKIP : LINK_FAIL;
-    if (status == 200 || status == 304) return parsed ? LINK_OK : LINK_SKIP;
-    if (status == -1 || (status >= 500 && status <= 599)) return LINK_FAIL;
+    if (status == 200 || status == 304) return parsed ? LINK_OK : LINK_FAIL;
+    if (status == -1 || (status >= 300 && status <= 399) || (status >= 500 && status <= 599)) return LINK_FAIL;
     return LINK_SKIP;
+}
+
+link_outcome_t link_counts_body(link_level_t level, bool wifi, bool aborted, int status, bool parsed, int body_len,
+                                int cap)
+{
+    if (wifi && !aborted && status == 200 && !parsed && body_len > cap - 1) return LINK_SKIP;
+    return link_counts(level, wifi, aborted, status, parsed);
 }
 
 void link_state_init(link_state_t *s, int64_t now_ms)

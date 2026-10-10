@@ -18,7 +18,14 @@ static void test_counts(void)
     } C[] = {
         {LINK_ONLINE, 1, 0, 200, 1, LINK_OK, "200 parsed"},
         {LINK_ONLINE, 1, 0, 304, 1, LINK_OK, "304"},
-        {LINK_ONLINE, 1, 0, 200, 0, LINK_SKIP, "200 the knob cannot parse: Ember is there"},
+        {LINK_ONLINE, 1, 0, 200, 0, LINK_FAIL, "200 the knob cannot parse: wrong host or a portal page"},
+        {LINK_ONLINE, 1, 0, 301, 0, LINK_FAIL, "301: proxy or wrong host"},
+        {LINK_ONLINE, 1, 0, 302, 0, LINK_FAIL, "302: captive portal"},
+        {LINK_ONLINE, 1, 0, 307, 0, LINK_FAIL, "307"},
+        {LINK_ONLINE, 1, 0, 399, 0, LINK_FAIL, "399"},
+        {LINK_BOOT, 1, 0, 302, 0, LINK_FAIL, "captive portal at boot"},
+        {LINK_BOOT, 1, 0, 200, 0, LINK_FAIL, "unparsed 200 at boot"},
+        {LINK_BOOT, 1, 0, 401, 0, LINK_SKIP, "401 at boot: not paired, not offline"},
         {LINK_ONLINE, 1, 0, -1, 0, LINK_FAIL, "transport error (connect, DNS, timeout)"},
         {LINK_ONLINE, 1, 0, 500, 0, LINK_FAIL, "500"},
         {LINK_ONLINE, 1, 0, 502, 0, LINK_FAIL, "502"},
@@ -172,6 +179,34 @@ static void test_no_replay(void)
     CHECK(r.sent == 0, "an outage between a press and its send drops it, even when the link is back");
 }
 
+static void test_wrong_host(void)
+{
+    static const struct {
+        int status, parsed;
+        bool offline;
+        const char *what;
+    } C[] = {
+        {302, 0, true, "captive portal"},
+        {301, 0, true, "proxy redirect"},
+        {200, 0, true, "HTML 200 from the wrong host"},
+        {401, 0, false, "401: not paired"},
+        {403, 0, false, "403: not paired"},
+        {404, 0, false, "404: documented, not counted"},
+        {429, 0, false, "429"},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        link_state_t s;
+        link_state_init(&s, 0);
+        for (int n = 0; n < 5; n++) note(&s, link_counts(s.level, true, false, C[i].status, C[i].parsed), 100 + n);
+        CHECK((s.level == LINK_OFFLINE) == C[i].offline, "boot, only %s: %s", C[i].what, link_level_name(s.level));
+        link_state_init(&s, 0);
+        note(&s, LINK_OK, 50);
+        for (int n = 0; n < 5; n++) note(&s, link_counts(s.level, true, false, C[i].status, C[i].parsed), 100 + n);
+        CHECK((s.level == LINK_OFFLINE) == C[i].offline, "online, then only %s: %s", C[i].what,
+              link_level_name(s.level));
+    }
+}
+
 static void test_names(void)
 {
     CHECK(strcmp(link_level_name(LINK_BOOT), "boot") == 0 && strcmp(link_level_name(LINK_ONLINE), "online") == 0 &&
@@ -187,6 +222,7 @@ int main(void)
     test_boot();
     test_transitions();
     test_no_replay();
+    test_wrong_host();
     test_names();
     printf(failures ? "%d FAILED\n" : "all link tests passed\n", failures);
     return failures ? 1 : 0;

@@ -345,6 +345,42 @@ static void test_ring_dirty(void)
     free(b);
 }
 
+static void test_poll_counts(void)
+{
+    static const struct {
+        int status, parsed;
+        link_outcome_t want;
+        const char *what;
+    } C[] = {
+        {200, 1, LINK_OK, "parsed state"},
+        {404, 0, LINK_OK, "404: Pomodoro off is an answer"},
+        {200, 0, LINK_FAIL, "200 the knob cannot parse"},
+        {-1, 0, LINK_FAIL, "transport error"},
+        {500, 0, LINK_FAIL, "500"},
+        {503, 0, LINK_FAIL, "503"},
+        {302, 0, LINK_FAIL, "302: captive portal"},
+        {401, 0, LINK_SKIP, "401: not paired, as link_counts"},
+        {403, 0, LINK_SKIP, "403: not paired, as link_counts"},
+        {400, 0, LINK_SKIP, "400, as link_counts"},
+        {405, 0, LINK_SKIP, "405, as link_counts"},
+        {429, 0, LINK_SKIP, "429: back off"},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++)
+        CHECK(pomo_poll_counts(C[i].status, C[i].parsed) == C[i].want, "poll %s", C[i].what);
+    for (int st = -1; st < 700; st++) {
+        if (st == 404) continue;
+        for (int parsed = 0; parsed < 2; parsed++)
+            CHECK(pomo_poll_counts(st, parsed) == link_counts(LINK_ONLINE, true, false, st, parsed),
+                  "poll %d parsed %d follows link_counts", st, parsed);
+    }
+
+    link_state_t src;
+    link_state_init(&src, 0);
+    link_state_note(&src, LINK_OK, 1);
+    for (int n = 0; n < 5; n++) link_state_note(&src, pomo_poll_counts(401, false), 10 + n);
+    CHECK(src.level == LINK_ONLINE, "a rejected token never makes the Pomodoro data stale");
+}
+
 int main(void)
 {
     test_phase_parse();
@@ -353,6 +389,7 @@ int main(void)
     test_clock();
     test_offline_estimate();
     test_source_stale();
+    test_poll_counts();
     test_ring_geometry();
     test_ring_dirty();
     printf(failures ? "%d FAILED\n" : "all pomo tests passed\n", failures);
