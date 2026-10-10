@@ -459,12 +459,12 @@ static char *s_buf;
 static EXT_RAM_BSS_ATTR link_state_t s_ls;
 static atomic_uint s_link_word;
 
-static void link_note(bool wifi, bool aborted, int status, bool parsed)
+static void link_note(bool wifi, bool aborted, int status, bool parsed, int body_len)
 {
     int64_t t = now_ms();
     link_level_t was = s_ls.level;
     int64_t off_ms = link_state_offline_ms(&s_ls, t);
-    if (!link_state_note(&s_ls, link_counts(was, wifi, aborted, status, parsed), t)) return;
+    if (!link_state_note(&s_ls, link_counts_body(was, wifi, aborted, status, parsed, body_len, RESP_MAX), t)) return;
     atomic_store(&s_link_word, link_state_word(&s_ls));
     const char *now = link_level_name(s_ls.level);
     if (was == LINK_OFFLINE) ESP_LOGI(TAG, "link: %s after %lld s offline", now, (long long)(off_ms / 1000));
@@ -1002,6 +1002,7 @@ static void poll_task(void *arg)
             bool viewed = false;
             bool aborted = false;
             bool parsed = true;
+            int body_len = 0;
             if (view_policy_try_view(&P->vp, now_ms())) {
                 int vmood;
                 status = view_poll(buf, &vmood, &host);
@@ -1023,7 +1024,9 @@ static void poll_task(void *arg)
             }
             if (!viewed) {
                 P->hdrs.epoch[0] = 0;
-                status = http_req(url, NULL, buf, RESP_MAX, &P->hdrs);
+                const http_req_opts_t o = {
+                    .idempotent = true, .on_header = on_header, .hdr_ctx = &P->hdrs, .body_len = &body_len};
+                status = http_conn_req_opts(s_conn, url, &o, buf, RESP_MAX);
                 if (status == 200) {
                     ota_client_note_view_ok();
                     mood = parse_state(buf, &host);
@@ -1041,7 +1044,7 @@ static void poll_task(void *arg)
                 atomic_store(&s_link, EMBER_LINK_UNREACHABLE);
             }
             if (!aborted && !ok && down) mood = -1;
-            if (!(viewed && P->unparsed)) link_note(true, aborted, status, parsed);
+            if (!(viewed && P->unparsed)) link_note(true, aborted, status, parsed, body_len);
             if (viewed && !aborted && status != 429) pomo_client_source(P->applied);
             int shown = ok ? 200 : status;
             if (!aborted && shown != -1 && shown != last_status) {
@@ -1051,7 +1054,7 @@ static void poll_task(void *arg)
         } else {
             atomic_store(&s_link, EMBER_LINK_CONNECTING);
             mood = -1;
-            link_note(false, false, -1, false);
+            link_note(false, false, -1, false, 0);
         }
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (fresh) {

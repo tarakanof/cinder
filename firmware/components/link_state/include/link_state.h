@@ -24,6 +24,9 @@ typedef struct {
 
 /* status: HTTP status, -1 transport error (connect, DNS, timeout, reset). parsed: the body of a 200 was understood. */
 link_outcome_t link_counts(link_level_t level, bool wifi, bool aborted, int status, bool parsed);
+/* As link_counts, but an unparsed 200 whose body_len (bytes sent) did not fit cap (NUL included) is a skip. */
+link_outcome_t link_counts_body(link_level_t level, bool wifi, bool aborted, int status, bool parsed, int body_len,
+                                int cap);
 
 /* Starts in BOOT: not offline until the first answer or LINK_OFFLINE_AFTER_FAILS failures. */
 void link_state_init(link_state_t *s, int64_t now_ms);

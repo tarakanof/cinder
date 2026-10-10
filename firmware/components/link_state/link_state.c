@@ -12,6 +12,13 @@ link_outcome_t link_counts(link_level_t level, bool wifi, bool aborted, int stat
     return LINK_SKIP;
 }
 
+link_outcome_t link_counts_body(link_level_t level, bool wifi, bool aborted, int status, bool parsed, int body_len,
+                                int cap)
+{
+    if (wifi && !aborted && status == 200 && !parsed && body_len > cap - 1) return LINK_SKIP;
+    return link_counts(level, wifi, aborted, status, parsed);
+}
+
 void link_state_init(link_state_t *s, int64_t now_ms)
 {
     memset(s, 0, sizeof *s);
