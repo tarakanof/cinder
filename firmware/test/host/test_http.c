@@ -494,6 +494,15 @@ static void test_state_answer(void)
     CHECK(dev_checkin_answer(200, false) == DEV_CHECKIN_OK, "checkin 200");
     CHECK(dev_checkin_answer(200, true) == DEV_CHECKIN_FAILED, "checkin truncated 200");
     CHECK(dev_checkin_answer(401, false) == DEV_CHECKIN_UNAUTHORIZED, "checkin 401");
+    CHECK(dev_checkin_ota_status(200, true) == -1, "a truncated 200 is no checkin for the OTA gate");
+    CHECK(dev_checkin_ota_status(200, false) == 200 && dev_checkin_ota_status(401, false) == 401 &&
+              dev_checkin_ota_status(503, true) == -1,
+          "OTA gate status");
+    ota_valid_in_t v = {.uptime_ms = 120000, .frame = true, .view_ok = true, .health = OTA_HEALTH_PASS};
+    v.checkin_ok = dev_checkin_ota_status(200, true) == 200;
+    CHECK(!ota_valid_ready(&v), "a pending image is not marked valid on a truncated checkin");
+    v.checkin_ok = dev_checkin_ota_status(200, false) == 200;
+    CHECK(ota_valid_ready(&v), "a whole checkin marks it valid");
     int last = 0;
     char line[64];
     bool warn = false;

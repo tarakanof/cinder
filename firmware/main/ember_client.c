@@ -708,7 +708,7 @@ static void checkin(char *buf)
     }
     if (answer != DEV_CHECKIN_OK) {
         dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
-        ota_client_checkin_done(status, NULL, &octx);
+        ota_client_checkin_done(dev_checkin_ota_status(status, truncated), NULL, &octx);
         return;
     }
     atomic_store(&s_unauthorized, false);

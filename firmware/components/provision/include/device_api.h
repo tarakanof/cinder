@@ -189,7 +189,9 @@ void dev_sched_epoch_reset(dev_sched_t *s);
 typedef enum { DEV_CHECKIN_OK, DEV_CHECKIN_UNAUTHORIZED, DEV_CHECKIN_FAILED } dev_checkin_outcome_t;
 /* Only DEV_CHECKIN_OK applies the reply: a truncated 200 is a failed checkin. */
 dev_checkin_outcome_t dev_checkin_answer(int status, bool truncated);
-/* The checkin log line when the answer differs from *last (updated); false when there is nothing to log. */
+/* The status the OTA gate sees: a truncated reply is no checkin (-1). */
+int dev_checkin_ota_status(int status, bool truncated);
+/* Writes out, *warn and *last only when the answer differs from *last and returns true; -1 never logs. */
 bool dev_checkin_log(int status, bool truncated, int *last, char *out, size_t n, bool *warn);
 void dev_sched_done(dev_sched_t *s, dev_checkin_outcome_t o, int64_t now_ms);
 void dev_sched_intervals(dev_sched_t *s, int period_ms, int live_ms, int64_t now_ms);

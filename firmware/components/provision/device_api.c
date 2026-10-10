@@ -447,6 +447,8 @@ dev_checkin_outcome_t dev_checkin_answer(int status, bool truncated)
     return status == 200 && !truncated ? DEV_CHECKIN_OK : DEV_CHECKIN_FAILED;
 }
 
+int dev_checkin_ota_status(int status, bool truncated) { return truncated ? -1 : status; }
+
 bool dev_checkin_log(int status, bool truncated, int *last, char *out, size_t n, bool *warn)
 {
     int key = status == 200 && truncated ? -2 : status;
