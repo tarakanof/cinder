@@ -11,7 +11,7 @@ extern "C" {
 #define KR_FRAME_W 472
 #define KR_FRAME_H 466
 #define KR_VIS_X0 6
-/* Unverified until checked on the knob: MX/MY mirror over 480 columns and 480 rows (docs/features.md, "Display rotation"). */
+/* MX/MY mirror over 480 columns and 480 rows, checked on the knob 2026-10-10 (docs/features.md, "Display rotation"). */
 #define KR_MIRROR_W 480
 #define KR_MIRROR_H 480
 
