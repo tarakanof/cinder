@@ -25,7 +25,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 | USB D− / D+ | 19 / 20 |
 
 - Vendor README touch table (SDA0/SCL1/RST3) is wrong. The vendor Arduino header polls touch (RST/INT = -1) and names drivers SH8601/CST816S; both work.
-- Driver/LVGL width is **472** (6-column offset), height 466. ESPHome: `offset_width: 6`. Visible GRAM columns 6..471, rows 0..465 of the CO5300's 480x480. Rotation: MADCTL has MX/MY only (no MV), so 0 and 180 only; 180 = MX+MY with gap (2, 14), for the 480x480 mirror window (verified on the knob, 0.9.44) (`features.md`, "Display rotation").
+- Driver/LVGL width is **472** (6-column offset), height 466. ESPHome: `offset_width: 6`. Visible GRAM columns 6..471, rows 0..465 of the CO5300's 480x480. Rotation: MADCTL has MX/MY only (no MV), so 0 and 180 only; 180 = MX+MY with gap (2, 14), for the 480x480 mirror window (checked on the knob, 0.9.44) (`features.md`, "Display rotation").
 - Adapter header J2 pins 2/4/5 conflict across sources (pin 2: spec p.5 GPIO38, spec p.9 drawing GPIO18, silkscreen IO4; pins 4/5: GPIO40/39 vs IO8/NC-IO18). Pins 1,3,6-10 (5V, GND, RX, TX, EN, D+, D−) agree. Treat 2/4/5 as unknown until continuity-tested.
 
 ## Toolchain decisions
