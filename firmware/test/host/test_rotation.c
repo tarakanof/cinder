@@ -139,8 +139,11 @@ static void test_image_in_place(void)
 
 static int s_gram[GRAM][GRAM];
 static int s_off_panel;
+static int s_gen;
 
-static int frame_id(int x, int y) { return 1 + y * KR_FRAME_W + x; }
+#define STALE (-1)
+
+static int frame_id(int x, int y) { return 1 + s_gen * KR_FRAME_W * KR_FRAME_H + y * KR_FRAME_W + x; }
 
 static void panel_write(int deg, int x1, int y1, int x2, int y2)
 {
@@ -176,7 +179,7 @@ static int glass_errors(int deg, int x1, int y1, int x2, int y2, int *unwritten)
         for (int gx = KR_VIS_X0; gx <= VIS_X1; gx++) {
             int u = deg == 180 ? VIS_X1 - gx : gx, v = deg == 180 ? VIS_Y1 - gy : gy;
             if (u < x1 || u > x2 || v < y1 || v > y2) continue;
-            if (!s_gram[gy][gx]) (*unwritten)++;
+            if (!s_gram[gy][gx] || s_gram[gy][gx] == STALE) (*unwritten)++;
             else if (s_gram[gy][gx] != frame_id(u, v)) wrong++;
         }
     return wrong;
@@ -191,9 +194,9 @@ static void test_panel_frame(int deg)
     CHECK(s_off_panel == 0, "%d: a full refresh in %d-row strips stays inside the panel's %d rows: %d pixels past it",
           deg, STRIP_ROWS, PANEL_ROWS, s_off_panel);
     CHECK(unwritten == 0, "%d: a full refresh writes every visible pixel: %d left stale", deg, unwritten);
-    CHECK(wrong == 0, "%d: every visible pixel shows its own frame pixel (centred, upright): %d wrong", deg, wrong);
+    CHECK(wrong == 0, "%d: every visible pixel shows its own frame pixel (upright): %d wrong", deg, wrong);
     CHECK(s_gram[233][236] == frame_id(deg == 180 ? 235 : 236, deg == 180 ? 232 : 233),
-          "%d: the frame centre stays on the same GRAM pixels", deg);
+          "%d: the UI centre (frame 236,233 at 0, 235,232 at 180) stays on GRAM 236,233", deg);
 
     memset(s_gram, 0, sizeof s_gram);
     s_off_panel = 0;
@@ -203,6 +206,28 @@ static void test_panel_frame(int deg)
     CHECK(s_off_panel == 0 && unwritten == 0 && wrong == 0,
           "%d: the bottom strip and a small window near it repaint their own rows: %d past, %d stale, %d wrong",
           deg, s_off_panel, unwritten, wrong);
+}
+
+static void test_windows_in_gram(void)
+{
+    for (int deg = 0; deg <= 180; deg += 180) {
+        kr_panel_t p = kr_panel(deg);
+        int bad = 0;
+        for (int a = -4; a < KR_FRAME_W; a++)
+            for (int b = a < 0 ? 0 : a; b < KR_FRAME_W + 4; b++) {
+                int x1 = a, y1 = 0, x2 = b, y2 = 1;
+                kr_round(&p, &x1, &y1, &x2, &y2);
+                bad += x1 > x2 || x1 + p.gap_x < 0 || x2 + p.gap_x > GRAM - 1;
+            }
+        for (int a = -4; a < KR_FRAME_H; a++)
+            for (int b = a < 0 ? 0 : a; b < KR_FRAME_H + 4; b++) {
+                int x1 = 0, y1 = a, x2 = 1, y2 = b;
+                kr_round(&p, &x1, &y1, &x2, &y2);
+                bad += y1 > y2 || y1 + p.gap_y < 0 || y2 + p.gap_y > PANEL_ROWS - 1;
+            }
+        CHECK(bad == 0, "%d: every rounded window of an area overlapping the frame, plus gap, stays in GRAM columns 0..%d and rows 0..%d: %d bad", deg,
+              GRAM - 1, PANEL_ROWS - 1, bad);
+    }
 }
 
 static void test_touch(void)
@@ -232,7 +257,7 @@ static void test_touch(void)
     CHECK(miss == 0, "180: a touch on every visible frame pixel maps back to it: %d missed", miss);
     x = 236, y = 233;
     kr_touch(180, &x, &y);
-    CHECK(x == 235 && y == 232, "180: centre %d,%d", x, y);
+    CHECK(x == 235 && y == 232, "180: a touch on the UI centre's GRAM pixel 236,233 hits frame %d,%d", x, y);
     x = 0, y = 0;
     kr_touch(180, &x, &y);
     CHECK(x == KR_FRAME_W - 1 && y == KR_FRAME_H - 1, "180: corner %d,%d", x, y);
@@ -329,6 +354,35 @@ static void test_failed_rollback(void)
           "unknown and the wish goes back to 0: 0 is written, not assumed");
 }
 
+static void switch_and_redraw(kr_state_t *s, int64_t now, int deg)
+{
+    fake_t f = {0};
+    kr_want(s, deg);
+    s_gen++;
+    if (kr_step(s, now, fake_orient, &f) == KR_APPLIED) flush_area(s->shown, 0, 0, KR_FRAME_W - 1, KR_FRAME_H - 1);
+    flush_area(s->shown, 200, 100, 271, 131);
+}
+
+static void test_switch_over_stale(void)
+{
+    for (int y = 0; y < GRAM; y++)
+        for (int x = 0; x < GRAM; x++) s_gram[y][x] = STALE;
+    s_gen = 0;
+    kr_state_t s;
+    kr_state_init(&s);
+    s.shown = KR_UNKNOWN;
+    const int seq[] = {0, 180, 0, 180};
+    for (size_t i = 0; i < sizeof seq / sizeof seq[0]; i++) {
+        s_off_panel = 0;
+        switch_and_redraw(&s, (int64_t)i * 1000, seq[i]);
+        int unwritten, wrong = glass_errors(seq[i], 0, 0, VIS_X1, VIS_Y1, &unwritten);
+        CHECK(s.shown == seq[i] && s_off_panel == 0 && unwritten == 0 && wrong == 0,
+              "switch %zu to %d over stale GRAM: every visible pixel shows the current frame: %d stale, %d wrong, %d past the panel",
+              i, seq[i], unwritten, wrong, s_off_panel);
+    }
+    s_gen = 0;
+}
+
 int main(void)
 {
     test_supported();
@@ -338,6 +392,8 @@ int main(void)
     test_image_in_place();
     test_panel_frame(0);
     test_panel_frame(180);
+    test_windows_in_gram();
+    test_switch_over_stale();
     test_touch();
     test_state_basics();
     test_failed_apply_retried();
