@@ -11,9 +11,9 @@ extern "C" {
 #define KR_FRAME_W 472
 #define KR_FRAME_H 466
 #define KR_VIS_X0 6
-/* MX/MY mirror over 480 columns and 480 rows, checked on the knob 2026-10-10 (docs/features.md, "Display rotation"). */
+/* MX mirrors over 480 columns, MY over the panel's 466 rows, not 480 (docs/features.md, "Display rotation"). */
 #define KR_MIRROR_W 480
-#define KR_MIRROR_H 480
+#define KR_MIRROR_H 466
 
 #define KR_N_SUPPORTED 2
 extern const int KR_SUPPORTED[KR_N_SUPPORTED];
