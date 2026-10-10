@@ -156,6 +156,11 @@ const char *pomo_est_label(const pomo_est_t *e)
 
 bool pomo_offline(uint32_t link, uint32_t src) { return link_word_offline(link) || link_word_offline(src); }
 
+link_outcome_t pomo_poll_counts(int status, bool parsed)
+{
+    return status == 404 ? LINK_OK : link_counts(LINK_ONLINE, true, false, status, parsed);
+}
+
 bool pomo_press_ok(const pomo_press_t *p, uint32_t link, uint32_t src)
 {
     return link_press_ok(p->link, link) && link_press_ok(p->src, src);

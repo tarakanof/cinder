@@ -7,8 +7,8 @@ link_outcome_t link_counts(link_level_t level, bool wifi, bool aborted, int stat
 {
     if (aborted) return LINK_SKIP;
     if (!wifi) return level == LINK_BOOT ? LINK_SKIP : LINK_FAIL;
-    if (status == 200 || status == 304) return parsed ? LINK_OK : LINK_SKIP;
-    if (status == -1 || (status >= 500 && status <= 599)) return LINK_FAIL;
+    if (status == 200 || status == 304) return parsed ? LINK_OK : LINK_FAIL;
+    if (status == -1 || (status >= 300 && status <= 399) || (status >= 500 && status <= 599)) return LINK_FAIL;
     return LINK_SKIP;
 }
 

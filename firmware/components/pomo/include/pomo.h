@@ -97,6 +97,8 @@ typedef struct {
 
 bool pomo_offline(uint32_t link, uint32_t src);
 /* A press stamped at press time may be sent now. */
+/* Legacy /v1/pomodoro/state poll: 404 (Pomodoro off) is an answer, the rest follows link_counts. */
+link_outcome_t pomo_poll_counts(int status, bool parsed);
 bool pomo_press_ok(const pomo_press_t *p, uint32_t link, uint32_t src);
 
 #ifdef __cplusplus

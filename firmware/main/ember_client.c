@@ -1041,8 +1041,7 @@ static void poll_task(void *arg)
                 atomic_store(&s_link, EMBER_LINK_UNREACHABLE);
             }
             if (!aborted && !ok && down) mood = -1;
-            if (viewed && P->unparsed) link_note(true, false, 200, false);
-            else link_note(true, aborted, status, parsed);
+            if (!(viewed && P->unparsed)) link_note(true, aborted, status, parsed);
             if (viewed && !aborted && status != 429) pomo_client_source(P->applied);
             int shown = ok ? 200 : status;
             if (!aborted && shown != -1 && shown != last_status) {
