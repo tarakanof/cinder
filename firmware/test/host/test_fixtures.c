@@ -108,6 +108,7 @@ static void test_view_full(void)
           "weather strings");
     CHECK(v.weather.has_temp && fabsf(v.weather.temp_c - 12.5f) < 1e-4f, "temp %.2f", (double)v.weather.temp_c);
     CHECK(v.weather.has_night && !v.weather.night, "sun times: Ember's day/night is used");
+    CHECK(v.weather.observed_at == 1782041400LL, "observed_at %lld", v.weather.observed_at);
     CHECK(v.has_brightness && v.level == 255 && !v.bright_night, "brightness");
     CHECK(v.has_np && v.np.state == NP_PLAYING, "playing");
     CHECK(strcmp(v.np.source, "plex") == 0 && strcmp(v.np.title, "Example Song") == 0 &&
@@ -160,6 +161,10 @@ static void test_view_single_host_paused(void)
     CHECK(v.has_weather && v.weather.stale && strcmp(v.weather.condition, "clear") == 0, "stale weather");
     CHECK(v.weather.has_temp && fabsf(v.weather.temp_c + 3.0f) < 1e-4f, "temp %.2f", (double)v.weather.temp_c);
     CHECK(!v.weather.has_night && v.weather.rise_min == -1 && v.weather.set_min == -1, "null sun times: night unknown");
+    CHECK(v.weather.observed_at == 0, "no observed_at: unknown");
+    char lb[16];
+    wx_age_label(&v.weather, lb, sizeof lb);
+    CHECK(strcmp(lb, "stale") == 0, "no observed_at: the label works as before, got '%s'", lb);
 }
 
 static void test_view_quiet(void)
@@ -186,6 +191,12 @@ static void test_view_caps_limited(void)
     CHECK(v.v == 1 && v.has_mood && knob_view_mood(&v) == BOT_WAITING && strcmp(v.lead, "STUDIO") == 0, "mood");
     CHECK(!v.has_pomo && !v.pomo_counting, "absent pomo = null");
     CHECK(v.has_weather && strcmp(v.weather.condition, "rain") == 0, "weather");
+    CHECK(v.weather.observed_at == 1782041400LL, "observed_at %lld", v.weather.observed_at);
+    v.weather.has_obs_age = wx_obs_age(v.weather.observed_at, 1782043200.0, &v.weather.obs_age_s);
+    v.weather.age_s = 60;
+    char lb[16];
+    wx_age_label(&v.weather, lb, sizeof lb);
+    CHECK(v.weather.has_obs_age && strcmp(lb, "31 min ago") == 0, "observation age label '%s'", lb);
     CHECK(!v.has_np && v.has_brightness && v.diag_live_until == 1782043500LL, "no nowplaying, brightness, live");
 }
 

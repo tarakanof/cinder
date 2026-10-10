@@ -806,7 +806,9 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     live_mode(v->diag_live_until, P->hdrs.now);
     P->applied = true;
     pomo_client_feed(v->has_pomo ? &v->pomo : NULL, v->pomo_counting, v->ends_at, srv_now, sent, received);
-    weather_client_feed(v->has_weather ? &v->weather : NULL);
+    double offset, srv_est = 0;
+    if (pomo_client_srv_offset(&offset)) srv_est = received + offset;
+    weather_client_feed(v->has_weather ? &v->weather : NULL, srv_est);
     np_client_feed(v->has_np ? &v->np : NULL);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     view_brightness();

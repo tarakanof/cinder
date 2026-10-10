@@ -341,6 +341,40 @@ static void test_age_text(void)
     CHECK(wx_age_text(7200, tiny, sizeof tiny) == 7 && strcmp(tiny, "2 h") == 0, "truncates, returns the full length");
 }
 
+static void test_obs_age(void)
+{
+    double a = -1;
+    CHECK(wx_obs_age(1782041400, 1782043200.0, &a) && a == 1800, "server now minus observed_at: %.1f", a);
+    CHECK(wx_obs_age(1782043300, 1782043200.0, &a) && a == 0, "provider clock ahead: clamped at 0, %.1f", a);
+    CHECK(!wx_obs_age(0, 1782043200.0, &a), "no observed_at: unknown");
+    CHECK(!wx_obs_age(-5, 1782043200.0, &a), "negative observed_at: unknown");
+    CHECK(!wx_obs_age(1782041400, 0, &a), "no server time: unknown");
+    CHECK(!wx_obs_age(1782041400, NAN, &a), "NaN server time: unknown");
+
+    char lb[16];
+    wx_obs_t o = {.valid = true, .age_s = 120, .has_obs_age = true, .obs_age_s = 1800};
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "32 min ago") == 0, "label: the observation's age plus the time since it arrived, got '%s'", lb);
+    o.stale = true;
+    o.obs_age_s = 3 * 3600;
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "3 h ago") == 0, "label: a known age wins over 'stale', got '%s'", lb);
+    o.stale = false;
+    o.obs_age_s = 0;
+    o.age_s = 30;
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "just now") == 0, "label: a clamped age, got '%s'", lb);
+    o.age_s = -5;
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "just now") == 0, "label: a negative local age adds nothing, got '%s'", lb);
+    o = (wx_obs_t){.valid = true, .age_s = 7200, .observed_at = 1782041400};
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "2 h ago") == 0, "label: observed_at without a server time falls back to the confirm age");
+    o.stale = true;
+    wx_age_label(&o, lb, sizeof lb);
+    CHECK(strcmp(lb, "stale") == 0, "label: stale without an observation age");
+}
+
 int main(void)
 {
     test_mapping_table();
@@ -351,6 +385,7 @@ int main(void)
     test_counts_and_pacing();
     test_storm_flashes();
     test_age_text();
+    test_obs_age();
     if (failures) {
         printf("weather: %d failure(s)\n", failures);
         return 1;
