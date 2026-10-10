@@ -8,6 +8,9 @@ static int failures;
 
 #define VIS_X1 (KR_FRAME_W - 1)
 #define VIS_Y1 (KR_FRAME_H - 1)
+#define GRAM 480
+#define PANEL_ROWS 466
+#define STRIP_ROWS 60
 
 static void test_supported(void)
 {
@@ -27,7 +30,7 @@ static void test_panel(void)
     p = kr_panel(90);
     CHECK(!p.mirror_x && !p.mirror_y && p.gap_x == 0 && p.gap_y == 0, "90 unsupported: as 0");
     p = kr_panel(180);
-    CHECK(p.mirror_x && p.mirror_y && p.gap_x == 2 && p.gap_y == 14, "180: mirror, gap 2/14: %d/%d", p.gap_x, p.gap_y);
+    CHECK(p.mirror_x && p.mirror_y && p.gap_x == 2 && p.gap_y == 0, "180: mirror, gap 2/0: %d/%d", p.gap_x, p.gap_y);
     CHECK(p.gap_x % 2 == 0 && p.gap_y % 2 == 0, "even gaps keep the 2 px windows");
 }
 
@@ -51,7 +54,7 @@ static void coverage(int deg, int w, int h)
     kr_panel_t p = kr_panel_in(deg, w, h);
     int x1 = 0, y1 = 0, x2 = KR_FRAME_W - 1, y2 = KR_FRAME_H - 1;
     kr_round(&p, &x1, &y1, &x2, &y2);
-    int hit_x[KR_MIRROR_W] = {0}, hit_y[KR_MIRROR_H] = {0}, bad = 0;
+    int hit_x[GRAM] = {0}, hit_y[GRAM] = {0}, bad = 0;
     for (int x = x1; x <= x2; x++) {
         bad += x + p.gap_x < 0;
         int g = gram_x_in(deg, x, w);
@@ -75,8 +78,8 @@ static void test_coverage(void)
 {
     coverage(0, KR_MIRROR_W, KR_MIRROR_H);
     coverage(180, KR_MIRROR_W, KR_MIRROR_H);
-    for (int w = KR_FRAME_W; w <= KR_MIRROR_W; w += 2)
-        for (int h = KR_FRAME_H; h <= KR_MIRROR_H; h += 2) coverage(180, w, h);
+    for (int w = KR_FRAME_W; w <= GRAM; w += 2)
+        for (int h = KR_FRAME_H; h <= GRAM; h += 2) coverage(180, w, h);
     for (int x = 0; x < KR_FRAME_W; x += 2) {
         int a = gram_x(180, x), b = gram_x(180, x + 1);
         CHECK(b % 2 == 0 && a == b + 1, "180: even/odd window %d-%d stays a 2 px pair in GRAM (%d-%d)", x, x + 1, b, a);
@@ -110,6 +113,74 @@ static void test_image_rotated(void)
     for (int x = KR_VIS_X0; x <= VIS_X1; x++)
         CHECK(gram_x(180, x) == KR_VIS_X0 + VIS_X1 - x, "180: column %d lands mirrored about the glass centre", x);
     for (int y = 0; y <= VIS_Y1; y++) CHECK(gram_y(180, y) == VIS_Y1 - y, "180: row %d mirrored", y);
+}
+
+
+static int s_gram[GRAM][GRAM];
+static int s_off_panel;
+
+static int frame_id(int x, int y) { return 1 + y * KR_FRAME_W + x; }
+
+static void panel_write(int deg, int x1, int y1, int x2, int y2)
+{
+    kr_panel_t p = kr_panel(deg);
+    for (int y = y1; y <= y2; y++) {
+        int r = y + p.gap_y;
+        int gy = p.mirror_y ? PANEL_ROWS - 1 - r : r;
+        for (int x = x1; x <= x2; x++) {
+            int c = x + p.gap_x;
+            int gx = p.mirror_x ? GRAM - 1 - c : c;
+            if (r < 0 || r >= PANEL_ROWS || c < 0 || c >= GRAM || gy < 0 || gx < 0) {
+                s_off_panel++;
+                continue;
+            }
+            s_gram[gy][gx] = frame_id(x, y);
+        }
+    }
+}
+
+static void flush_area(int deg, int x1, int y1, int x2, int y2)
+{
+    kr_panel_t p = kr_panel(deg);
+    kr_round(&p, &x1, &y1, &x2, &y2);
+    for (int y = y1; y <= y2; y += STRIP_ROWS)
+        panel_write(deg, x1, y, x2, y + STRIP_ROWS - 1 > y2 ? y2 : y + STRIP_ROWS - 1);
+}
+
+static int glass_errors(int deg, int x1, int y1, int x2, int y2, int *unwritten)
+{
+    int wrong = 0;
+    *unwritten = 0;
+    for (int v = y1; v <= y2; v++)
+        for (int u = x1 < KR_VIS_X0 ? KR_VIS_X0 : x1; u <= x2; u++) {
+            int gx = deg == 180 ? KR_VIS_X0 + VIS_X1 - u : u, gy = deg == 180 ? VIS_Y1 - v : v;
+            if (!s_gram[gy][gx]) (*unwritten)++;
+            else if (s_gram[gy][gx] != frame_id(u, v)) wrong++;
+        }
+    return wrong;
+}
+
+static void test_panel_frame(int deg)
+{
+    memset(s_gram, 0, sizeof s_gram);
+    s_off_panel = 0;
+    flush_area(deg, 0, 0, KR_FRAME_W - 1, KR_FRAME_H - 1);
+    int unwritten, wrong = glass_errors(deg, 0, 0, VIS_X1, VIS_Y1, &unwritten);
+    CHECK(s_off_panel == 0, "%d: a full refresh in %d-row strips stays inside the panel's %d rows: %d pixels past it",
+          deg, STRIP_ROWS, PANEL_ROWS, s_off_panel);
+    CHECK(unwritten == 0, "%d: a full refresh writes every visible pixel: %d left stale", deg, unwritten);
+    CHECK(wrong == 0, "%d: every visible pixel shows its own frame pixel (centred, upright): %d wrong", deg, wrong);
+    int gx = deg == 180 ? KR_VIS_X0 + VIS_X1 - 236 : 236, gy = deg == 180 ? VIS_Y1 - 233 : 233;
+    CHECK(s_gram[gy][gx] == frame_id(236, 233), "%d: the frame centre lands on the glass centre", deg);
+
+    memset(s_gram, 0, sizeof s_gram);
+    s_off_panel = 0;
+    flush_area(deg, 201, 419, 270, 446);
+    flush_area(deg, 0, 420, KR_FRAME_W - 1, KR_FRAME_H - 1);
+    wrong = glass_errors(deg, 0, 420, VIS_X1, VIS_Y1, &unwritten);
+    CHECK(s_off_panel == 0 && unwritten == 0 && wrong == 0,
+          "%d: the bottom strip and a small window near it repaint their own rows: %d past, %d stale, %d wrong",
+          deg, s_off_panel, unwritten, wrong);
 }
 
 static void test_touch(void)
@@ -231,6 +302,8 @@ int main(void)
     test_coverage();
     test_round();
     test_image_rotated();
+    test_panel_frame(0);
+    test_panel_frame(180);
     test_touch();
     test_state_basics();
     test_failed_apply_retried();
