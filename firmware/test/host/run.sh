@@ -20,6 +20,15 @@ J="$IDF/components/json/cJSON"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cinder_test.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 OUT="$OUT_DIR/t"
+ECL="$D/../../main/ember_client.c"
+OTA_CALLS=$(grep -c 'ota_client_checkin_done(' "$ECL" || true)
+OTA_BAD=$(grep 'ota_client_checkin_done(' "$ECL" | grep -vc 'ota_client_checkin_done(step\.ota_status, ' || true)
+if [ "$OTA_CALLS" -eq 0 ] || [ "$OTA_BAD" -ne 0 ]; then
+    echo "run.sh: FAIL every ota_client_checkin_done in ember_client.c must pass step.ota_status ($OTA_CALLS calls, $OTA_BAD others)" >&2
+    grep -n 'ota_client_checkin_done(' "$ECL" >&2 || true
+    exit 1
+fi
+echo "ota call sites: $OTA_CALLS pass step.ota_status"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"

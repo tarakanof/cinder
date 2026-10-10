@@ -642,9 +642,27 @@ static void coredump_upload(char *buf)
 
 static void ota_ctx(ota_ctx_t *c);
 
+static void checkin_send(char *buf, dev_checkin_step_t *step)
+{
+    P->hdrs.now[0] = 0;
+    double sent = pomo_client_now();
+    bool truncated = false;
+    int status = http_req(P->checkin_url, P->body, buf, RESP_MAX, &P->hdrs, &truncated);
+    double received = pomo_client_now();
+    long long srv_now = 0;
+    if (status > 0 && !P->vp.legacy && view_parse_now(P->hdrs.now, &srv_now))
+        pomo_client_note_clock(srv_now, sent, received);
+    static int last_status;
+    dev_checkin_settle(status, truncated, &last_status, step);
+    if (step->log) {
+        if (step->warn) ESP_LOGW(TAG, "%s", step->line);
+        else ESP_LOGI(TAG, "%s", step->line);
+    }
+}
+
 static void checkin(char *buf)
 {
-    char *url = P->checkin_url, *body = P->body;
+    char *body = P->body;
     char ip[16];
     ember_client_ip(ip, sizeof ip);
     int rssi = 0;
@@ -681,34 +699,20 @@ static void checkin(char *buf)
         dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
         return;
     }
-    P->hdrs.now[0] = 0;
-    double sent = pomo_client_now();
-    bool truncated = false;
-    int status = http_req(url, body, buf, RESP_MAX, &P->hdrs, &truncated);
-    double received = pomo_client_now();
-    long long srv_now = 0;
-    if (status > 0 && !P->vp.legacy && view_parse_now(P->hdrs.now, &srv_now))
-        pomo_client_note_clock(srv_now, sent, received);
-    static int last_status;
-    char line[64];
-    bool warn;
-    if (dev_checkin_log(status, truncated, &last_status, line, sizeof line, &warn)) {
-        if (warn) ESP_LOGW(TAG, "%s", line);
-        else ESP_LOGI(TAG, "%s", line);
-    }
+    dev_checkin_step_t step;
+    checkin_send(buf, &step);
     ota_ctx_t octx;
     ota_ctx(&octx);
-    dev_checkin_outcome_t answer = dev_checkin_answer(status, truncated);
-    if (answer == DEV_CHECKIN_UNAUTHORIZED) {
+    if (step.answer == DEV_CHECKIN_UNAUTHORIZED) {
         atomic_store(&s_checked_in, false);
         atomic_store(&s_unauthorized, true);
         dev_sched_done(&s_sched, DEV_CHECKIN_UNAUTHORIZED, now_ms());
-        ota_client_checkin_done(status, NULL, &octx);
+        ota_client_checkin_done(step.ota_status, NULL, &octx);
         return;
     }
-    if (answer != DEV_CHECKIN_OK) {
+    if (step.answer != DEV_CHECKIN_OK) {
         dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
-        ota_client_checkin_done(dev_checkin_ota_status(status, truncated), NULL, &octx);
+        ota_client_checkin_done(step.ota_status, NULL, &octx);
         return;
     }
     atomic_store(&s_unauthorized, false);
@@ -727,7 +731,7 @@ static void checkin(char *buf)
     dev_checkin_parse(buf, &r);
     live_mode(r.diag_live_until, P->hdrs.now);
     coredump_reply(&r);
-    ota_client_checkin_done(status, &r, &octx);
+    ota_client_checkin_done(step.ota_status, &r, &octx);
     if (r.has_new_token) {
         esp_err_t err = config_store_set_token(r.new_token);
         if (err == ESP_OK) {

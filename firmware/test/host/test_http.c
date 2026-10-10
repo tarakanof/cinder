@@ -494,18 +494,38 @@ static void test_state_answer(void)
     CHECK(dev_checkin_answer(200, false) == DEV_CHECKIN_OK, "checkin 200");
     CHECK(dev_checkin_answer(200, true) == DEV_CHECKIN_FAILED, "checkin truncated 200");
     CHECK(dev_checkin_answer(401, false) == DEV_CHECKIN_UNAUTHORIZED, "checkin 401");
-    CHECK(dev_checkin_ota_status(200, true) == -1, "a truncated 200 is no checkin for the OTA gate");
-    CHECK(dev_checkin_ota_status(200, false) == 200 && dev_checkin_ota_status(401, false) == 401 &&
-              dev_checkin_ota_status(503, true) == -1,
-          "OTA gate status");
+    const struct {
+        int status;
+        bool truncated;
+        dev_checkin_outcome_t answer;
+        int ota;
+    } settle[] = {
+        {200, false, DEV_CHECKIN_OK, 200},
+        {200, true, DEV_CHECKIN_FAILED, -1},
+        {401, false, DEV_CHECKIN_UNAUTHORIZED, 401},
+        {401, true, DEV_CHECKIN_UNAUTHORIZED, -1},
+        {503, false, DEV_CHECKIN_FAILED, 503},
+        {503, true, DEV_CHECKIN_FAILED, -1},
+        {-1, false, DEV_CHECKIN_FAILED, -1},
+    };
+    for (size_t i = 0; i < sizeof settle / sizeof settle[0]; i++) {
+        int last = 0;
+        dev_checkin_step_t st;
+        dev_checkin_settle(settle[i].status, settle[i].truncated, &last, &st);
+        CHECK(st.answer == settle[i].answer && st.ota_status == settle[i].ota,
+              "settle %d, truncated %d: answer %d, OTA status %d", settle[i].status, settle[i].truncated, st.answer,
+              st.ota_status);
+    }
     ota_valid_in_t v = {.uptime_ms = 120000, .frame = true, .view_ok = true, .health = OTA_HEALTH_PASS};
-    v.checkin_ok = dev_checkin_ota_status(200, true) == 200;
-    CHECK(!ota_valid_ready(&v), "a pending image is not marked valid on a truncated checkin");
-    v.checkin_ok = dev_checkin_ota_status(200, false) == 200;
-    CHECK(ota_valid_ready(&v), "a whole checkin marks it valid");
     int last = 0;
-    char line[64];
-    bool warn = false;
+    dev_checkin_step_t st;
+    dev_checkin_settle(200, true, &last, &st);
+    v.checkin_ok = st.ota_status == 200;
+    CHECK(!ota_valid_ready(&v), "a pending image is not marked valid on a truncated checkin");
+    dev_checkin_settle(200, false, &last, &st);
+    v.checkin_ok = st.ota_status == 200;
+    CHECK(ota_valid_ready(&v), "a whole checkin marks it valid");
+    last = 0;
     const struct {
         int status;
         bool truncated;
@@ -520,14 +540,17 @@ static void test_state_answer(void)
         {-1, false, false, false, NULL},
         {200, false, true, false, "checkin ok"},
         {401, false, true, true, "checkin -> HTTP 401: not paired (token rejected)"},
+        {401, false, false, false, NULL},
+        {401, true, false, false, NULL},
         {503, true, true, true, "checkin -> HTTP 503"},
+        {401, true, true, true, "checkin -> HTTP 401: not paired (token rejected)"},
+        {401, false, false, false, NULL},
     };
     for (size_t i = 0; i < sizeof seq / sizeof seq[0]; i++) {
-        line[0] = 0;
-        bool logs = dev_checkin_log(seq[i].status, seq[i].truncated, &last, line, sizeof line, &warn);
-        CHECK(logs == seq[i].logs && (!logs || (warn == seq[i].warn && strcmp(line, seq[i].line) == 0)),
-              "checkin log %zu (%d, truncated %d): %d, warn %d, \"%s\"", i, seq[i].status, seq[i].truncated, logs, warn,
-              line);
+        dev_checkin_settle(seq[i].status, seq[i].truncated, &last, &st);
+        CHECK(st.log == seq[i].logs && (!st.log || (st.warn == seq[i].warn && strcmp(st.line, seq[i].line) == 0)),
+              "checkin log %zu (%d, truncated %d): %d, warn %d, \"%s\"", i, seq[i].status, seq[i].truncated, st.log,
+              st.warn, st.line);
     }
     CHECK(dev_checkin_answer(500, true) == DEV_CHECKIN_FAILED && dev_checkin_answer(-1, false) == DEV_CHECKIN_FAILED,
           "checkin 5xx and no answer");
