@@ -181,7 +181,8 @@ static void test_oversized_state(void)
     n += snprintf(full + n, sizeof full - n, "]}");
     CHECK(ember_legacy_parse(full, sess, 32, &h) == BOT_WORKING, "the whole /state is valid");
     CHECK(n > KNOB_VIEW_BUF - 1, "larger than the buffer: %d", n);
-    snprintf(buf, sizeof buf, "%s", full);
+    memcpy(buf, full, sizeof buf - 1);
+    buf[sizeof buf - 1] = 0;
     bool parsed = ember_legacy_parse(buf, sess, 32, &h) >= 0;
     CHECK(!parsed, "cut at the buffer, it does not parse");
     CHECK(link_counts(LINK_ONLINE, true, false, 200, parsed) == LINK_FAIL, "an unparsed 200 alone counts");
