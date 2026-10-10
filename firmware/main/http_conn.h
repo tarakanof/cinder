@@ -1,4 +1,4 @@
-/* One owner task per handle; no close from other tasks. A request ends with the whole body read. */
+/* One owner task per handle; no close from other tasks. A request ends with the whole body read, or past 2 * cap + 4 KiB with the socket dropped. */
 #pragma once
 
 #include <stdbool.h>
@@ -58,7 +58,7 @@ typedef struct {
     bool (*idle)(void *ctx, int *next_slice_ms);
     void *idle_ctx;
     const char *idem_key;
-    /* Length in bytes, counted past cap - 1. */
+    /* Length in bytes, counted past cap - 1; past 2 * cap + 4 KiB only what was read. */
     int *body_len;
     /* PUT of stream_len bytes: read() returns the next chunk at off (> 0) or <= 0 to abort (HTTP_CONN_ABORTED); off restarts at 0 on a retry. */
     int stream_len;

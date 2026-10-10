@@ -90,9 +90,10 @@ static bool write_all(http_conn_t *c, const char *p, int n)
 }
 
 static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, int len, char *buf, int cap,
-                   http_fail_t *why)
+                   http_fail_t *why, bool *cut)
 {
     buf[0] = 0;
+    *cut = false;
     esp_err_t err = esp_http_client_open(c->h, len);
     if (err != ESP_OK) {
         *why = HTTP_FAIL_OPEN;
@@ -171,13 +172,14 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
             atomic_fetch_add(&s_rx_bytes, (unsigned)r);
         }
         if (total > drain_max) {
-            *why = HTTP_FAIL_BODY;
-            return -1;
+            *cut = true;
+            ESP_LOGW(TAG, "%s: body past %ld B, socket dropped", c->name, drain_max);
+            break;
         }
     } while (r > 0);
     buf[n] = 0;
     if (o->body_len) *o->body_len = total;
-    if (!esp_http_client_is_complete_data_received(c->h)) {
+    if (!*cut && !esp_http_client_is_complete_data_received(c->h)) {
         *why = HTTP_FAIL_BODY;
         return -1;
     }
@@ -371,13 +373,13 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     if (o->idem_key) esp_http_client_set_header(c->h, "Idempotency-Key", o->idem_key);
 
     http_fail_t why = HTTP_FAIL_OPEN;
-    bool reused = c->warm;
-    int status = attempt(c, o, post_body, len, buf, cap, &why);
+    bool reused = c->warm, cut = false;
+    int status = attempt(c, o, post_body, len, buf, cap, &why, &cut);
     if (status < 0 && status != HTTP_CONN_ABORTED) {
         drop_socket(c);
         if (http_should_retry_wait(reused, idempotent, o->read_budget_ms > 0, why)) {
             atomic_fetch_add(&s_retries, 1);
-            status = attempt(c, o, post_body, len, buf, cap, &why);
+            status = attempt(c, o, post_body, len, buf, cap, &why, &cut);
             if (status < 0 && status != HTTP_CONN_ABORTED) drop_socket(c);
         }
     }
@@ -394,7 +396,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     }
     if (status > 0) {
         atomic_fetch_add(&s_tx_bytes, tx_estimate(url, o, bearer_len, len));
-        c->warm = esp_http_client_is_persistent_connection(c->h);
+        c->warm = !cut && esp_http_client_is_persistent_connection(c->h);
         if (!c->warm) esp_http_client_close(c->h);
     }
     if (bearer_len) esp_http_client_delete_header(c->h, "Authorization");
