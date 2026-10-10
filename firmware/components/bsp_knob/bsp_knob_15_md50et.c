@@ -45,7 +45,7 @@ static bool s_tp_down;
 static lv_point_t s_tp_point;
 static int64_t s_tp_report_us;
 static atomic_uint s_tp_ok;
-static kr_state_t s_rot = {.backoff_ms = KR_RETRY_MIN_MS};
+static kr_state_t s_rot = KR_STATE_INIT;
 static kr_panel_t s_geom;
 
 static void tp_isr(esp_lcd_touch_handle_t tp)
@@ -395,7 +395,8 @@ void bsp_knob_15_md50et_set_rotation(int deg) { kr_want(&s_rot, deg); }
 
 void bsp_knob_15_md50et_rotation_frame(void)
 {
-    if (s_panel && rotation_step() && s_disp) lv_obj_invalidate(lv_display_get_screen_active(s_disp));
+    if (!s_panel || s_rot.shown == s_rot.want) return;
+    if (rotation_step() && s_disp) lv_obj_invalidate(lv_display_get_screen_active(s_disp));
 }
 
 void bsp_knob_15_md50et_register_knob_cb(bsp_knob_15_md50et_knob_cb_t cb)

@@ -56,7 +56,7 @@ void kr_touch(int deg, int *x, int *y)
     *y = clampi(*y, 0, KR_FRAME_H - 1);
 }
 
-void kr_state_init(kr_state_t *s) { *s = (kr_state_t){.backoff_ms = KR_RETRY_MIN_MS}; }
+void kr_state_init(kr_state_t *s) { *s = (kr_state_t)KR_STATE_INIT; }
 
 void kr_want(kr_state_t *s, int deg)
 {

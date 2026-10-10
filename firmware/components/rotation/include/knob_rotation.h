@@ -56,6 +56,8 @@ typedef struct {
     int backoff_ms;
 } kr_state_t;
 
+#define KR_STATE_INIT {.backoff_ms = KR_RETRY_MIN_MS}
+
 void kr_state_init(kr_state_t *s);
 void kr_want(kr_state_t *s, int deg);
 kr_result_t kr_step(kr_state_t *s, int64_t now_ms, kr_orient_fn orient, void *ctx);
