@@ -101,6 +101,35 @@ static void test_settings_values(void)
     CHECK(k.source_label && k.working_ring, "bot flags: non-booleans keep the default");
 }
 
+static void test_settings_rotation(void)
+{
+    knob_settings_t k;
+    knob_settings_defaults(&k);
+    CHECK(k.rotation == 0, "default 0");
+    CHECK(knob_settings_parse("{}", &k) && k.rotation == 0, "missing: 0");
+    knob_settings_parse("{\"rotation\":180}", &k);
+    CHECK(k.rotation == 180, "180");
+    knob_settings_parse("{\"rotation\":0}", &k);
+    CHECK(k.rotation == 0, "0");
+    const char *const fallback[] = {"{\"rotation\":90}", "{\"rotation\":270}", "{\"rotation\":45}", "{\"rotation\":-180}",
+                                    "{\"rotation\":360}", "{\"rotation\":180.5}", "{\"rotation\":\"180\"}",
+                                    "{\"rotation\":true}", "{\"rotation\":null}", "{\"rotation\":[180]}", "{\"rotation\":1e300}"};
+    for (size_t i = 0; i < sizeof fallback / sizeof fallback[0]; i++) {
+        knob_settings_parse("{\"rotation\":180}", &k);
+        CHECK(knob_settings_parse(fallback[i], &k) && k.rotation == 0, "%s falls back to 0: %d", fallback[i], k.rotation);
+    }
+    dev_checkin_result_t r;
+    dev_checkin_parse("{\"config_version\":4,\"config\":{\"rotation\":180}}", &r);
+    knob_settings_t a, b;
+    CHECK(r.ok && r.config, "checkin carries the config");
+    knob_settings_parse(r.config, &a);
+    char *copy = r.config ? strdup(r.config) : NULL;
+    dev_checkin_result_free(&r);
+    knob_settings_parse(copy, &b);
+    free(copy);
+    CHECK(a.rotation == 180 && memcmp(&a, &b, sizeof a) == 0, "rotation round-trips through the stored text");
+}
+
 static void test_pages(void)
 {
     knob_settings_t k;
@@ -543,6 +572,7 @@ int main(void)
     test_settings_defaults();
     test_settings_values();
     test_settings_quiet();
+    test_settings_rotation();
     test_pages();
     test_checkin_body();
     test_checkin_diag();

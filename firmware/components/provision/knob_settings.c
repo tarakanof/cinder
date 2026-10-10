@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "knob_rotation.h"
 
 static const char *const DEFAULT_PAGES[] = {"bot", "pomodoro", "weather"};
 
@@ -73,6 +74,12 @@ static void parse_pages(const cJSON *arr, knob_settings_t *ks)
     memcpy(ks->pages, tmp.pages, sizeof tmp.pages);
 }
 
+static int parse_rotation(const cJSON *root)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(root, "rotation");
+    return cJSON_IsNumber(v) && v->valuedouble == (double)v->valueint ? kr_effective(v->valueint) : 0;
+}
+
 bool knob_settings_parse(const char *json, knob_settings_t *ks)
 {
     knob_settings_defaults(ks);
@@ -121,6 +128,7 @@ bool knob_settings_parse(const char *json, knob_settings_t *ks)
         const cJSON *fl = cJSON_GetObjectItemCaseSensitive(disp, "fast_link");
         if (cJSON_IsBool(fl)) ks->fast_link = cJSON_IsTrue(fl);
     }
+    ks->rotation = parse_rotation(root);
     const cJSON *q = cJSON_GetObjectItemCaseSensitive(root, "quiet");
     if (cJSON_IsObject(q)) {
         const cJSON *calm = cJSON_GetObjectItemCaseSensitive(q, "calm");

@@ -256,6 +256,7 @@ static void test_checkin_replies(void)
         CHECK(knob_settings_parse(r.config, &ks), "config parses");
         CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 4 && !ks.pages[3].on, "diagnostics full, nowplaying off");
         CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
+        CHECK(ks.rotation == 0, "rotation 0");
         CHECK(strlen(r.config) <= CFG_SETTINGS_MAX, "config fits the store");
     }
     dev_checkin_result_free(&r);
@@ -319,6 +320,7 @@ static void test_config_default(void)
     CHECK(ks.diagnostics == KS_DIAG_OFF && ks.stats_interval_s == 60 && ks.live_interval_s == 5, "diagnostics");
     CHECK(ks.fast_link, "fast link");
     CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
+    CHECK(ks.rotation == 0, "rotation 0");
 
     knob_settings_defaults(&d);
     const char *ids[PAGES_N];
@@ -348,6 +350,7 @@ static void test_config_custom(void)
     CHECK(ks.diagnostics == KS_DIAG_BASIC && ks.stats_interval_s == 120 && ks.live_interval_s == 2, "diagnostics");
     CHECK(!ks.fast_link, "fast link off");
     CHECK(!ks.quiet_calm && ks.quiet_dim == 5, "quiet calm off, dim 5");
+    CHECK(ks.rotation == 180, "rotation 180");
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
     int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);

@@ -10,6 +10,7 @@ idf_component_register(
         lvgl
         knob
         button
+        rotation
         esp_lcd_touch
         # Managed: viewesmart/esp_lcd_touch_cst820
         viewesmart__esp_lcd_touch_cst820

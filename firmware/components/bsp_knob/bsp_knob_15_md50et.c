@@ -20,6 +20,7 @@
 #include "iot_knob.h"
 #include "iot_button.h"
 #include "button_gpio.h"
+#include "knob_rotation.h"
 
 #include "bsp_knob_15_md50et.h"
 
@@ -44,6 +45,7 @@ static bool s_tp_down;
 static lv_point_t s_tp_point;
 static int64_t s_tp_report_us;
 static atomic_uint s_tp_ok;
+static atomic_int s_rotation;
 
 static void tp_isr(esp_lcd_touch_handle_t tp)
 {
@@ -62,8 +64,10 @@ static void tp_read(lv_indev_t *indev, lv_indev_data_t *data)
         if (ok) atomic_fetch_add_explicit(&s_tp_ok, 1, memory_order_relaxed);
         s_tp_down = ok && n > 0;
         if (s_tp_down) {
-            s_tp_point.x = pt[0].x;
-            s_tp_point.y = pt[0].y;
+            int x = pt[0].x, y = pt[0].y;
+            kr_touch(atomic_load(&s_rotation), &x, &y);
+            s_tp_point.x = x;
+            s_tp_point.y = y;
             s_tp_report_us = esp_timer_get_time();
         }
     }
@@ -88,9 +92,6 @@ static const co5300_lcd_init_cmd_t s_lcd_init_cmds[] = {
     {0x11, (uint8_t[]){0x00}, 0, 60},
     {0x29, (uint8_t[]){0x00}, 0, 0},
 };
-
-#define BSP_KNOB_15_MD50ET_MIRROR_X 0
-#define BSP_KNOB_15_MD50ET_MIRROR_Y 0
 
 static void backlight_set(bool on)
 {
@@ -135,6 +136,13 @@ void bsp_knob_15_md50et_qspi_fallback_reboot(void)
     esp_restart();
 }
 
+static esp_err_t panel_orient(int deg)
+{
+    kr_panel_t p = kr_panel(deg);
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, p.gap_x, p.gap_y), TAG, "gap");
+    return esp_lcd_panel_mirror(s_panel, p.mirror_x, p.mirror_y);
+}
+
 static esp_err_t lcd_init(void)
 {
     ESP_LOGI(TAG, "Initialize QSPI bus");
@@ -176,7 +184,7 @@ static esp_err_t lcd_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_co5300(s_panel_io, &panel_config, &s_panel), TAG, "co5300");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "reset");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "init");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, BSP_KNOB_15_MD50ET_MIRROR_X, BSP_KNOB_15_MD50ET_MIRROR_Y), TAG, "mirror");
+    ESP_RETURN_ON_ERROR(panel_orient(atomic_load(&s_rotation)), TAG, "orient");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "disp on");
     return ESP_OK;
 }
@@ -377,6 +385,29 @@ esp_err_t bsp_knob_15_md50et_set_brightness(uint8_t percent)
     return esp_lcd_panel_co5300_set_brightness(s_panel, percent);
 }
 
+
+int bsp_knob_15_md50et_rotation(void) { return atomic_load(&s_rotation); }
+
+esp_err_t bsp_knob_15_md50et_set_rotation(int deg)
+{
+    deg = kr_effective(deg);
+    if (!s_panel) {
+        atomic_store(&s_rotation, deg);
+        return ESP_OK;
+    }
+    if (deg == atomic_load(&s_rotation)) return ESP_OK;
+    esp_err_t err = panel_orient(deg);
+    if (err != ESP_OK) {
+        panel_orient(atomic_load(&s_rotation));
+        return err;
+    }
+    atomic_store(&s_rotation, deg);
+    if (s_disp) {
+        lv_obj_invalidate(lv_display_get_screen_active(s_disp));
+        lv_obj_invalidate(lv_display_get_layer_top(s_disp));
+    }
+    return ESP_OK;
+}
 
 void bsp_knob_15_md50et_register_knob_cb(bsp_knob_15_md50et_knob_cb_t cb)
 {

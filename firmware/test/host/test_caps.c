@@ -5,6 +5,7 @@
 #include "cfg.h"
 #include "device_api.h"
 #include "knob_caps.h"
+#include "knob_rotation.h"
 #include "knob_view.h"
 #include "pages.h"
 
@@ -66,7 +67,12 @@ static void test_firmware_caps(void)
     CHECK(cJSON_GetObjectItemCaseSensitive(lim, "view_bytes")->valueint == 16383 &&
               cJSON_GetObjectItemCaseSensitive(lim, "config_bytes")->valueint == 1024 && cJSON_GetArraySize(lim) == 2,
           "limits");
-    CHECK(cJSON_GetArraySize((cJSON *)cj) == 4, "caps keys: features, limits, pages, view");
+    const cJSON *rot = cJSON_GetObjectItemCaseSensitive(cj, "rotations");
+    CHECK(cJSON_GetArraySize(rot) == 2 && cJSON_GetArrayItem(rot, 0)->valueint == 0 &&
+              cJSON_GetArrayItem(rot, 1)->valueint == 180,
+          "rotations [0,180]: %s", out);
+    CHECK(strstr(out, "],\"rotations\":[0,180],\"view\":[") != NULL, "rotations sorted between pages and view: %s", out);
+    CHECK(cJSON_GetArraySize((cJSON *)cj) == 5, "caps keys: features, limits, pages, rotations, view");
     CHECK(cJSON_GetObjectItemCaseSensitive(j, "config_version")->valueint == 3, "rest of the body follows");
     cJSON_Delete(j);
 
@@ -95,8 +101,30 @@ static void test_caps_filtering(void)
     CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), want_features, 3),
           "tokens outside ^[a-z][a-z0-9_]{0,31}$ left out: %s", out);
     CHECK(!cJSON_GetObjectItemCaseSensitive(cj, "limits"), "no limits when both 0");
+    CHECK(!cJSON_GetObjectItemCaseSensitive(cj, "rotations"), "no rotations, no key");
     CHECK(cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(cj, "view"), 1)->valueint == 2, "view max");
     cJSON_Delete(j);
+
+    const int rots[] = {0, 45, 90, -180, 180, 270, 360};
+    caps.rotations = rots;
+    caps.n_rotations = 7;
+    j = body_json(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"rotations\":[0,90,180,270]") != NULL, "rotations outside 0/90/180/270 left out: %s", out);
+    cJSON_Delete(j);
+    const int dup[] = {180, 0, 180, 0};
+    caps.rotations = dup;
+    caps.n_rotations = 4;
+    j = body_json(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"rotations\":[180,0]") != NULL, "repeats left out: %s", out);
+    cJSON_Delete(j);
+    const int no_zero[] = {180, 270};
+    caps.rotations = no_zero;
+    caps.n_rotations = 2;
+    j = body_json(&c, NULL, out, sizeof out);
+    CHECK(!strstr(out, "rotations"), "no 0: key left out (Ember would drop all caps): %s", out);
+    cJSON_Delete(j);
+    caps.rotations = NULL;
+    caps.n_rotations = 0;
 
     caps.view_bytes = 100;
     j = body_json(&c, NULL, out, sizeof out);

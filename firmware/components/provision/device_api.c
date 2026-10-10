@@ -8,6 +8,7 @@
 
 #include "cJSON.h"
 #include "coredump_up.h"
+#include "knob_rotation.h"
 
 static bool json_safe(const char *s)
 {
@@ -52,6 +53,23 @@ static void put_ids(const char *const *ids, int n, bool page, char *out, size_t 
     put(out, cap, len, "]");
 }
 
+static void put_rotations(const int *r, int n, char *out, size_t cap, size_t *len)
+{
+    bool seen[4] = {false};
+    for (int i = 0; r && i < n; i++)
+        if (kr_valid(r[i])) seen[r[i] / 90] = true;
+    if (!seen[0]) return;
+    put(out, cap, len, ",\"rotations\":[");
+    const char *sep = "";
+    for (int i = 0; i < n; i++) {
+        if (!kr_valid(r[i]) || !seen[r[i] / 90]) continue;
+        seen[r[i] / 90] = false;
+        put(out, cap, len, "%s%d", sep, r[i]);
+        sep = ",";
+    }
+    put(out, cap, len, "]");
+}
+
 static void put_caps(const dev_caps_t *c, char *out, size_t cap, size_t *len)
 {
     put(out, cap, len, "\"caps\":{\"features\":");
@@ -64,6 +82,7 @@ static void put_caps(const dev_caps_t *c, char *out, size_t cap, size_t *len)
     }
     put(out, cap, len, ",\"pages\":");
     put_ids(c->pages, c->n_pages, true, out, cap, len);
+    put_rotations(c->rotations, c->n_rotations, out, cap, len);
     put(out, cap, len, ",\"view\":[%d,%d]},", c->view_min, c->view_max);
 }
 
