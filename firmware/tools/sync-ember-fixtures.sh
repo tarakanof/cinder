@@ -7,7 +7,7 @@ D="$(cd "$(dirname "$0")" && pwd)"
 DEST="$D/../test/host/fixtures/ember"
 
 if [ $# -ne 1 ] || [ -z "$1" ]; then
-    echo "usage: $0 <ember tag or commit>" >&2
+    echo "usage: $0 <ember v* tag or commit SHA>" >&2
     exit 2
 fi
 REF="$1"
@@ -76,6 +76,10 @@ rm -rf "$NEW" "$OLD"
 mkdir -p "$(dirname "$DEST")" "$NEW"
 cp "$TMP"/* "$NEW/"
 if [ -e "$DEST" ]; then mv "$DEST" "$OLD"; fi
-mv "$NEW" "$DEST"
+if ! mv "$NEW" "$DEST"; then
+    if [ -e "$OLD" ] && [ ! -e "$DEST" ]; then mv "$OLD" "$DEST"; fi
+    echo "sync-ember-fixtures: cannot move $NEW to $DEST" >&2
+    exit 1
+fi
 rm -rf "$OLD"
 echo "sync-ember-fixtures: $N fixtures from $REPO@$SHA ($REF) into $DEST"
