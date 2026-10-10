@@ -7,7 +7,7 @@ D="$(cd "$(dirname "$0")" && pwd)"
 DEST="$D/../test/host/fixtures/ember"
 
 if [ $# -ne 1 ] || [ -z "$1" ]; then
-    echo "usage: $0 <ember tag or commit>" >&2
+    echo "usage: $0 <ember v* tag or 7-40 lowercase hex commit SHA>" >&2
     exit 2
 fi
 REF="$1"
@@ -50,7 +50,15 @@ esac
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ember_fixtures.XXXXXX")"
 NEW="$DEST.new.$$"
 OLD="$DEST.old.$$"
-trap 'rm -rf "$TMP" "$NEW"' EXIT
+cleanup() {
+    rm -rf "$TMP" "$NEW"
+    if [ ! -e "$DEST" ] && [ -e "$OLD" ]; then
+        mv "$OLD" "$DEST" || echo "sync-ember-fixtures: previous fixtures kept in $OLD" >&2
+    fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 gh api "repos/$REPO/contents/$SRC?ref=$SHA" --jq '.[] | select(.type == "file") | .name' >"$TMP/names"
 N=0
@@ -76,6 +84,14 @@ rm -rf "$NEW" "$OLD"
 mkdir -p "$(dirname "$DEST")" "$NEW"
 cp "$TMP"/* "$NEW/"
 if [ -e "$DEST" ]; then mv "$DEST" "$OLD"; fi
-mv "$NEW" "$DEST"
+if ! mv "$NEW" "$DEST"; then
+    if [ -e "$OLD" ] && { [ -e "$DEST" ] || ! mv "$OLD" "$DEST"; }; then
+        echo "sync-ember-fixtures: cannot move $NEW to $DEST; previous fixtures kept in $OLD" >&2
+    else
+        echo "sync-ember-fixtures: cannot move $NEW to $DEST" >&2
+    fi
+    OLD=
+    exit 1
+fi
 rm -rf "$OLD"
 echo "sync-ember-fixtures: $N fixtures from $REPO@$SHA ($REF) into $DEST"

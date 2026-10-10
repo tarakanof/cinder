@@ -373,12 +373,13 @@ static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
 
 static const char *const NOT_YET_SENT[] = {NULL};
-static int not_yet_sent_used[sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]];
+#define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
+static int not_yet_sent_used[N_NOT_YET_SENT];
 
 static int not_yet_sent(const char *path)
 {
-    for (int i = 0; NOT_YET_SENT[i]; i++)
-        if (strcmp(NOT_YET_SENT[i], path) == 0) return i;
+    for (int i = 0; i < N_NOT_YET_SENT; i++)
+        if (NOT_YET_SENT[i] && strcmp(NOT_YET_SENT[i], path) == 0) return i;
     return -1;
 }
 
@@ -422,8 +423,8 @@ static void same_body(const char *name, const char *body)
 
 static void test_not_yet_sent_used(void)
 {
-    for (int i = 0; NOT_YET_SENT[i]; i++)
-        CHECK(not_yet_sent_used[i] > 0, "NOT_YET_SENT %s is in no checkin_req fixture, drop it", NOT_YET_SENT[i]);
+    for (int i = 0; i < N_NOT_YET_SENT; i++)
+        if (NOT_YET_SENT[i]) CHECK(not_yet_sent_used[i] > 0, "NOT_YET_SENT %s is in no checkin_req fixture, drop it", NOT_YET_SENT[i]);
 }
 
 static void test_checkin_req_minimal(void)
