@@ -642,9 +642,27 @@ static void coredump_upload(char *buf)
 
 static void ota_ctx(ota_ctx_t *c);
 
+static void checkin_send(char *buf, dev_checkin_step_t *step)
+{
+    P->hdrs.now[0] = 0;
+    double sent = pomo_client_now();
+    bool truncated = false;
+    int status = http_req(P->checkin_url, P->body, buf, RESP_MAX, &P->hdrs, &truncated);
+    double received = pomo_client_now();
+    long long srv_now = 0;
+    if (status > 0 && !P->vp.legacy && view_parse_now(P->hdrs.now, &srv_now))
+        pomo_client_note_clock(srv_now, sent, received);
+    static int last_status;
+    dev_checkin_settle(status, truncated, &last_status, step);
+    if (step->log) {
+        if (step->warn) ESP_LOGW(TAG, "%s", step->line);
+        else ESP_LOGI(TAG, "%s", step->line);
+    }
+}
+
 static void checkin(char *buf)
 {
-    char *url = P->checkin_url, *body = P->body;
+    char *body = P->body;
     char ip[16];
     ember_client_ip(ip, sizeof ip);
     int rssi = 0;
@@ -681,21 +699,8 @@ static void checkin(char *buf)
         dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
         return;
     }
-    P->hdrs.now[0] = 0;
-    double sent = pomo_client_now();
-    bool truncated = false;
-    int status = http_req(url, body, buf, RESP_MAX, &P->hdrs, &truncated);
-    double received = pomo_client_now();
-    long long srv_now = 0;
-    if (status > 0 && !P->vp.legacy && view_parse_now(P->hdrs.now, &srv_now))
-        pomo_client_note_clock(srv_now, sent, received);
-    static int last_status;
     dev_checkin_step_t step;
-    dev_checkin_settle(status, truncated, &last_status, &step);
-    if (step.log) {
-        if (step.warn) ESP_LOGW(TAG, "%s", step.line);
-        else ESP_LOGI(TAG, "%s", step.line);
-    }
+    checkin_send(buf, &step);
     ota_ctx_t octx;
     ota_ctx(&octx);
     if (step.answer == DEV_CHECKIN_UNAUTHORIZED) {
