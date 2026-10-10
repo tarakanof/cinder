@@ -220,10 +220,11 @@ static void wifi_start(const cfg_t *cfg)
 
 #define MAX_SESSIONS 32
 
-static int parse_state(const char *body, ember_host_info_t *host)
+static int parse_state(link_level_t level, int status, bool truncated, const char *body, ember_host_info_t *host,
+                       link_outcome_t *outcome)
 {
     static EXT_RAM_BSS_ATTR ember_host_session_t sess[MAX_SESSIONS];
-    return ember_legacy_parse(body, sess, MAX_SESSIONS, host);
+    return ember_state_answer(level, status, truncated, body, sess, MAX_SESSIONS, host, outcome);
 }
 
 typedef struct {
@@ -244,12 +245,17 @@ static void on_header(const char *key, const char *value, void *ctx)
 
 static http_conn_t *s_conn;
 
-static int http_req(const char *url, const char *body, char *buf, int cap, resp_hdrs_t *hdrs)
+static int http_req(const char *url, const char *body, char *buf, int cap, resp_hdrs_t *hdrs, bool *truncated)
 {
-    return http_conn_req(s_conn, url, body, true, buf, cap, hdrs ? on_header : NULL, hdrs);
+    const http_req_opts_t o = {.post_body = body,
+                               .idempotent = true,
+                               .on_header = hdrs ? on_header : NULL,
+                               .hdr_ctx = hdrs,
+                               .truncated = truncated};
+    return http_conn_req_opts(s_conn, url, &o, buf, cap);
 }
 
-static int http_get(const char *url, char *buf, int cap) { return http_req(url, NULL, buf, cap, NULL); }
+static int http_get(const char *url, char *buf, int cap) { return http_req(url, NULL, buf, cap, NULL, NULL); }
 
 /* Poll-task state stays in PSRAM: more .bss breaks the display draw buffer (docs/features.md, internal RAM). */
 typedef struct {
@@ -459,12 +465,12 @@ static char *s_buf;
 static EXT_RAM_BSS_ATTR link_state_t s_ls;
 static atomic_uint s_link_word;
 
-static void link_note(bool wifi, bool aborted, int status, bool parsed, int body_len)
+static void link_note(link_outcome_t o)
 {
     int64_t t = now_ms();
     link_level_t was = s_ls.level;
     int64_t off_ms = link_state_offline_ms(&s_ls, t);
-    if (!link_state_note(&s_ls, link_counts_body(was, wifi, aborted, status, parsed, body_len, RESP_MAX), t)) return;
+    if (!link_state_note(&s_ls, o, t)) return;
     atomic_store(&s_link_word, link_state_word(&s_ls));
     const char *now = link_level_name(s_ls.level);
     if (was == LINK_OFFLINE) ESP_LOGI(TAG, "link: %s after %lld s offline", now, (long long)(off_ms / 1000));
@@ -677,29 +683,32 @@ static void checkin(char *buf)
     }
     P->hdrs.now[0] = 0;
     double sent = pomo_client_now();
-    int status = http_req(url, body, buf, RESP_MAX, &P->hdrs);
+    bool truncated = false;
+    int status = http_req(url, body, buf, RESP_MAX, &P->hdrs, &truncated);
     double received = pomo_client_now();
     long long srv_now = 0;
     if (status > 0 && !P->vp.legacy && view_parse_now(P->hdrs.now, &srv_now))
         pomo_client_note_clock(srv_now, sent, received);
     static int last_status;
-    if (status != -1 && status != last_status) {
-        if (status == 200) ESP_LOGI(TAG, "checkin ok");
-        else ESP_LOGW(TAG, "checkin -> HTTP %d%s", status, status == 401 ? ": not paired (token rejected)" : "");
-        last_status = status;
+    char line[64];
+    bool warn;
+    if (dev_checkin_log(status, truncated, &last_status, line, sizeof line, &warn)) {
+        if (warn) ESP_LOGW(TAG, "%s", line);
+        else ESP_LOGI(TAG, "%s", line);
     }
     ota_ctx_t octx;
     ota_ctx(&octx);
-    if (status == 401) {
+    dev_checkin_outcome_t answer = dev_checkin_answer(status, truncated);
+    if (answer == DEV_CHECKIN_UNAUTHORIZED) {
         atomic_store(&s_checked_in, false);
         atomic_store(&s_unauthorized, true);
         dev_sched_done(&s_sched, DEV_CHECKIN_UNAUTHORIZED, now_ms());
         ota_client_checkin_done(status, NULL, &octx);
         return;
     }
-    if (status != 200) {
+    if (answer != DEV_CHECKIN_OK) {
         dev_sched_done(&s_sched, DEV_CHECKIN_FAILED, now_ms());
-        ota_client_checkin_done(status, NULL, &octx);
+        ota_client_checkin_done(dev_checkin_ota_status(status, truncated), NULL, &octx);
         return;
     }
     atomic_store(&s_unauthorized, false);
@@ -845,6 +854,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         url = P->wait_url;
         fade_start();
     }
+    bool truncated = false;
     const http_req_opts_t o = {
         .idempotent = true,
         .auth = true,
@@ -854,6 +864,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         .read_budget_ms = wait > 0 ? view_wait_budget_ms(wait) : 0,
         .wake_fd = atomic_load(&s_wake_fd),
         .idle = longpoll_idle,
+        .truncated = &truncated,
     };
     double sent = pomo_client_now();
     int64_t t0 = now_ms();
@@ -867,7 +878,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         P->rearm_ms = 0;
         return status;
     }
-    P->view_failing = !(status == 200 || status == 304);
+    P->view_failing = !(status == 200 || status == 304) || truncated;
     if (!P->view_failing) ota_client_note_view_ok();
     if (status > 0) {
         int cap = view_wait_cap(h->wait);
@@ -1001,8 +1012,7 @@ static void poll_task(void *arg)
             int status = -1;
             bool viewed = false;
             bool aborted = false;
-            bool parsed = true;
-            int body_len = 0;
+            link_outcome_t outcome = LINK_SKIP;
             if (view_policy_try_view(&P->vp, now_ms())) {
                 int vmood;
                 status = view_poll(buf, &vmood, &host);
@@ -1024,16 +1034,19 @@ static void poll_task(void *arg)
             }
             if (!viewed) {
                 P->hdrs.epoch[0] = 0;
+                bool truncated = false;
                 const http_req_opts_t o = {
-                    .idempotent = true, .on_header = on_header, .hdr_ctx = &P->hdrs, .body_len = &body_len};
+                    .idempotent = true, .on_header = on_header, .hdr_ctx = &P->hdrs, .truncated = &truncated};
                 status = http_conn_req_opts(s_conn, url, &o, buf, RESP_MAX);
+                int smood = parse_state(s_ls.level, status, truncated, buf, &host, &outcome);
                 if (status == 200) {
-                    ota_client_note_view_ok();
-                    mood = parse_state(buf, &host);
+                    if (!truncated) ota_client_note_view_ok();
+                    mood = smood;
                     fresh = mood >= 0;
-                    parsed = fresh;
                     dev_sched_epoch(&s_sched, P->hdrs.epoch, now_ms());
                 }
+            } else {
+                outcome = link_counts(s_ls.level, true, aborted, status, true);
             }
             bool ok = status == 200 || (viewed && status == 304);
             bool down = (status != -1 && status != 429) || fs_fails(&P->conn.streak) >= LINK_OFFLINE_AFTER_FAILS;
@@ -1044,7 +1057,7 @@ static void poll_task(void *arg)
                 atomic_store(&s_link, EMBER_LINK_UNREACHABLE);
             }
             if (!aborted && !ok && down) mood = -1;
-            if (!(viewed && P->unparsed)) link_note(true, aborted, status, parsed, body_len);
+            if (!(viewed && P->unparsed)) link_note(outcome);
             if (viewed && !aborted && status != 429) pomo_client_source(P->applied);
             int shown = ok ? 200 : status;
             if (!aborted && shown != -1 && shown != last_status) {
@@ -1054,7 +1067,7 @@ static void poll_task(void *arg)
         } else {
             atomic_store(&s_link, EMBER_LINK_CONNECTING);
             mood = -1;
-            link_note(false, false, -1, false, 0);
+            link_note(link_counts(s_ls.level, false, false, -1, false));
         }
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (fresh) {

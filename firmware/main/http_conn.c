@@ -90,9 +90,10 @@ static bool write_all(http_conn_t *c, const char *p, int n)
 }
 
 static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, int len, char *buf, int cap,
-                   http_fail_t *why)
+                   http_fail_t *why, bool *cut, bool *dropped)
 {
     buf[0] = 0;
+    *cut = *dropped = false;
     esp_err_t err = esp_http_client_open(c->h, len);
     if (err != ESP_OK) {
         *why = HTTP_FAIL_OPEN;
@@ -141,7 +142,8 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
             }
             if (o->wake_fd >= 0 && FD_ISSET(o->wake_fd, &rd)) {
                 uint64_t v;
-                (void)read(o->wake_fd, &v, sizeof v);
+                ssize_t got = read(o->wake_fd, &v, sizeof v);
+                (void)got;
             }
             if (FD_ISSET(sock, &rd)) break;
             if (o->idle && o->idle(o->idle_ctx, &slice)) return HTTP_CONN_ABORTED;
@@ -170,18 +172,30 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
             total += r;
             atomic_fetch_add(&s_rx_bytes, (unsigned)r);
         }
-        if (total > drain_max) {
-            *why = HTTP_FAIL_BODY;
-            return -1;
+        if (total > drain_max && !esp_http_client_is_complete_data_received(c->h)) {
+            *cut = true;
+            break;
         }
     } while (r > 0);
     buf[n] = 0;
     if (o->body_len) *o->body_len = total;
-    if (!esp_http_client_is_complete_data_received(c->h)) {
+    if (!*cut && !esp_http_client_is_complete_data_received(c->h)) {
         *why = HTTP_FAIL_BODY;
         return -1;
     }
+    if (total > cap - 1) {
+        buf[0] = 0;
+        *dropped = true;
+        if (o->truncated) *o->truncated = true;
+    }
     return status;
+}
+
+static uint32_t path_hash(const char *p)
+{
+    uint32_t h = 2166136261u;
+    for (; *p && *p != '?'; p++) h = (h ^ (uint8_t)*p) * 16777619u;
+    return h | 1u;
 }
 
 static void log_streak(http_conn_t *c, fs_log_t what, const char *path, http_fail_t fail)
@@ -352,6 +366,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     bool idempotent = o->idempotent;
     bool has_body = post_body || o->read;
     bool auth = has_body || o->auth;
+    if (o->truncated) *o->truncated = false;
     if (c->on_request) c->on_request();
     atomic_fetch_add(&s_requests, 1);
     int64_t t_start = esp_timer_get_time();
@@ -371,13 +386,13 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     if (o->idem_key) esp_http_client_set_header(c->h, "Idempotency-Key", o->idem_key);
 
     http_fail_t why = HTTP_FAIL_OPEN;
-    bool reused = c->warm;
-    int status = attempt(c, o, post_body, len, buf, cap, &why);
+    bool reused = c->warm, cut = false, dropped = false;
+    int status = attempt(c, o, post_body, len, buf, cap, &why, &cut, &dropped);
     if (status < 0 && status != HTTP_CONN_ABORTED) {
         drop_socket(c);
         if (http_should_retry_wait(reused, idempotent, o->read_budget_ms > 0, why)) {
             atomic_fetch_add(&s_retries, 1);
-            status = attempt(c, o, post_body, len, buf, cap, &why);
+            status = attempt(c, o, post_body, len, buf, cap, &why, &cut, &dropped);
             if (status < 0 && status != HTTP_CONN_ABORTED) drop_socket(c);
         }
     }
@@ -394,7 +409,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     }
     if (status > 0) {
         atomic_fetch_add(&s_tx_bytes, tx_estimate(url, o, bearer_len, len));
-        c->warm = esp_http_client_is_persistent_connection(c->h);
+        c->warm = !cut && esp_http_client_is_persistent_connection(c->h);
         if (!c->warm) esp_http_client_close(c->h);
     }
     if (bearer_len) esp_http_client_delete_header(c->h, "Authorization");
@@ -414,6 +429,16 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     const char *path = strstr(url, "://");
     path = path ? strchr(path + 3, '/') : NULL;
     log_streak(c, fs_note(&c->streak, status > 0, esp_timer_get_time() / 1000), path ? path : url, why);
+    if (status > 0) {
+        uint32_t h = path_hash(path ? path : url);
+        if (cut && c->cut_path != h) {
+            ESP_LOGW(TAG, "%s: %s body past %ld B, socket dropped; quiet until it fits", c->name, path ? path : url,
+                     2L * cap + 4096);
+            c->cut_path = h;
+        } else if (!dropped && c->cut_path == h) {
+            c->cut_path = 0;
+        }
+    }
     return status;
 }
 

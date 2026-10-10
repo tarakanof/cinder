@@ -39,3 +39,15 @@ int ember_legacy_parse(const char *body, ember_host_session_t *sess, int max, em
     cJSON_Delete(root);
     return mood;
 }
+
+int ember_state_answer(link_level_t level, int status, bool truncated, const char *body, ember_host_session_t *sess,
+                       int max, ember_host_info_t *host, link_outcome_t *outcome)
+{
+    if (status == 200 && truncated) {
+        *outcome = LINK_SKIP;
+        return -1;
+    }
+    int mood = status == 200 ? ember_legacy_parse(body, sess, max, host) : -1;
+    *outcome = link_counts(level, true, false, status, status != 200 || mood >= 0);
+    return mood;
+}

@@ -1,4 +1,4 @@
-/* One owner task per handle; no close from other tasks. A request ends with the whole body read. */
+/* One owner task per handle; no close from other tasks. A request ends with the whole body read, or past 2 * cap + 4 KiB with the socket dropped. */
 #pragma once
 
 #include <stdbool.h>
@@ -25,6 +25,7 @@ typedef struct {
     http_header_cb on_header;
     void *hdr_ctx;
     fail_streak_t streak;
+    uint32_t cut_path;
     /* Owner task, at the start of every request. */
     void (*on_request)(void);
 } http_conn_t;
@@ -41,7 +42,7 @@ typedef struct {
 
 void http_conn_init(http_conn_t *c, const char *name);
 
-/* Body NUL-terminated, cut at cap - 1; returns the HTTP status or -1 on a network error. */
+/* Body NUL-terminated; a body longer than cap - 1 is dropped (buf empty, .truncated set). Returns the HTTP status, or -1 on a network error with buf undefined. */
 int http_conn_req(http_conn_t *c, const char *url, const char *post_body, bool idempotent, char *buf, int cap,
                   http_header_cb on_header, void *hdr_ctx);
 
@@ -58,8 +59,10 @@ typedef struct {
     bool (*idle)(void *ctx, int *next_slice_ms);
     void *idle_ctx;
     const char *idem_key;
-    /* Length in bytes, counted past cap - 1. */
+    /* Length in bytes, counted past cap - 1; past 2 * cap + 4 KiB only what was read. */
     int *body_len;
+    /* Set when the body did not fit cap - 1 and was dropped. */
+    bool *truncated;
     /* PUT of stream_len bytes: read() returns the next chunk at off (> 0) or <= 0 to abort (HTTP_CONN_ABORTED); off restarts at 0 on a retry. */
     int stream_len;
     int (*read)(void *ctx, int off, const char **chunk);
