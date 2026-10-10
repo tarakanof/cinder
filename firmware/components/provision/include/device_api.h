@@ -187,6 +187,8 @@ bool dev_sched_due(const dev_sched_t *s, int64_t now_ms);
 void dev_sched_epoch(dev_sched_t *s, const char *epoch, int64_t now_ms);
 void dev_sched_epoch_reset(dev_sched_t *s);
 typedef enum { DEV_CHECKIN_OK, DEV_CHECKIN_UNAUTHORIZED, DEV_CHECKIN_FAILED } dev_checkin_outcome_t;
+/* Only DEV_CHECKIN_OK applies the reply: a truncated 200 is a failed checkin. */
+dev_checkin_outcome_t dev_checkin_answer(int status, bool truncated);
 void dev_sched_done(dev_sched_t *s, dev_checkin_outcome_t o, int64_t now_ms);
 void dev_sched_intervals(dev_sched_t *s, int period_ms, int live_ms, int64_t now_ms);
 void dev_sched_live(dev_sched_t *s, int64_t deadline_ms, int64_t now_ms);

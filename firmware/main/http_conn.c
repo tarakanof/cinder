@@ -142,7 +142,8 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
             }
             if (o->wake_fd >= 0 && FD_ISSET(o->wake_fd, &rd)) {
                 uint64_t v;
-                (void)read(o->wake_fd, &v, sizeof v);
+                ssize_t got = read(o->wake_fd, &v, sizeof v);
+                (void)got;
             }
             if (FD_ISSET(sock, &rd)) break;
             if (o->idle && o->idle(o->idle_ctx, &slice)) return HTTP_CONN_ABORTED;
@@ -171,9 +172,8 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
             total += r;
             atomic_fetch_add(&s_rx_bytes, (unsigned)r);
         }
-        if (total > drain_max) {
+        if (total > drain_max && !esp_http_client_is_complete_data_received(c->h)) {
             *cut = true;
-            ESP_LOGW(TAG, "%s: body past %ld B, socket dropped", c->name, drain_max);
             break;
         }
     } while (r > 0);
@@ -182,6 +182,10 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
     if (!*cut && !esp_http_client_is_complete_data_received(c->h)) {
         *why = HTTP_FAIL_BODY;
         return -1;
+    }
+    if (total > cap - 1) {
+        buf[0] = 0;
+        if (o->truncated) *o->truncated = true;
     }
     return status;
 }
@@ -354,6 +358,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     bool idempotent = o->idempotent;
     bool has_body = post_body || o->read;
     bool auth = has_body || o->auth;
+    if (o->truncated) *o->truncated = false;
     if (c->on_request) c->on_request();
     atomic_fetch_add(&s_requests, 1);
     int64_t t_start = esp_timer_get_time();
@@ -416,6 +421,12 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     const char *path = strstr(url, "://");
     path = path ? strchr(path + 3, '/') : NULL;
     log_streak(c, fs_note(&c->streak, status > 0, esp_timer_get_time() / 1000), path ? path : url, why);
+    if (status > 0 && cut != c->cut_logged) {
+        if (cut)
+            ESP_LOGW(TAG, "%s: %s body past %ld B, socket dropped; quiet until it fits", c->name, path ? path : url,
+                     2L * cap + 4096);
+        c->cut_logged = cut;
+    }
     return status;
 }
 

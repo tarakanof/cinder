@@ -441,6 +441,12 @@ void dev_sched_epoch_reset(dev_sched_t *s)
     s->epoch[0] = 0;
 }
 
+dev_checkin_outcome_t dev_checkin_answer(int status, bool truncated)
+{
+    if (status == 401) return DEV_CHECKIN_UNAUTHORIZED;
+    return status == 200 && !truncated ? DEV_CHECKIN_OK : DEV_CHECKIN_FAILED;
+}
+
 void dev_sched_done(dev_sched_t *s, dev_checkin_outcome_t o, int64_t now_ms)
 {
     s->last_ms = now_ms;
