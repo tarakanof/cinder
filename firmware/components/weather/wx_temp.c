@@ -101,8 +101,12 @@ void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
     t->sub_rgb = 0xBDBDBD;
     wx_rain_from(o, &t->rain);
     wx_rain_keep(&t->rain, shown ? &shown->rain : NULL);
-    t->face = t->rain.on ? WXF_RAIN : wx_cast_soon(o, shown && shown->face == WXF_CAST) ? WXF_CAST : WXF_TEMP;
+    t->face = t->rain.on                                           ? WXF_RAIN
+              : wx_cast_soon(o, shown && shown->face == WXF_CAST)  ? WXF_CAST
+              : wx_wind_strong(o, shown && shown->face == WXF_WIND) ? WXF_WIND
+                                                                   : WXF_TEMP;
     if (t->face == WXF_CAST) wx_cast_from(o, shown ? &shown->cast : NULL, &t->cast);
+    if (t->face == WXF_WIND) wx_wind_from(o, shown ? &shown->wind : NULL, &t->wind);
     if (!o || !o->valid || !o->has_temp || !isfinite(o->temp_c)) return;
     wx_look_t l = wx_look_from_obs(o);
     t->have = true;
@@ -145,6 +149,7 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
     wx_temp_from_shown(o, shown, t);
     if (face < 0 || face >= WXF_N || face == t->face) return;
     memset(&t->cast, 0, sizeof t->cast);
+    memset(&t->wind, 0, sizeof t->wind);
     switch ((wx_face_id_t)face) {
     case WXF_TEMP:
         t->face = WXF_TEMP;
@@ -159,6 +164,11 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
         wx_rain_from(NULL, &t->rain);
         wx_cast_from(o, shown && shown->face == WXF_CAST ? &shown->cast : NULL, &t->cast);
         break;
+    case WXF_WIND:
+        t->face = WXF_WIND;
+        wx_rain_from(NULL, &t->rain);
+        wx_wind_from(o, shown && shown->face == WXF_WIND ? &shown->wind : NULL, &t->wind);
+        break;
     case WXF_N:
         break;
     }
@@ -167,6 +177,7 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
 {
     if (t->face != s->face) return WX_BAKE_FULL;
+    if (t->wind.on || s->wind.on) return wx_wind_same_scene(&t->wind, &s->wind) ? 0 : WX_BAKE_FULL;
     if (t->cast.on || s->cast.on) {
         if (!wx_cast_same_scene(&t->cast, &s->cast)) return WX_BAKE_FULL;
         return wx_cast_same_ring(&t->cast, &s->cast) ? 0 : WX_BAKE_RING;

@@ -125,6 +125,29 @@ extern const float wx_drop_hw[WX_DROP_HW_N];
 /* The forecast drop with its head on the ring at deg into a WX_DROP_BOX square RGB565A8 im; sets and returns its box. */
 wx_box_t wx_paint_drop(wx_img_t *im, float deg);
 
+/* Gauge ring 0..WX_WIND_GAUGE_KMH in the Beaufort band colours; grey: the no-data track. */
+void wx_paint_ring_wind(wx_ring_t *r, bool grey, uint16_t lut[WX_RING_LUT]);
+/* The windsock's pole, arm and base for a level, into the background. */
+void wx_paint_pole(wx_img_t *im, int level);
+
+/* Wind layers, carved out of the still-cloud buffer like the rain layers. Byte offsets, all A8: per pose the sock's
+   silhouette (fill) and its darker stripes over it (dark), both of the sock box; one sprite per streak row
+   (streak_w x WX_STREAK_H); WX_LEAF_ROTS leaf sprites (WX_LEAF_BOX squared) when the level has leaves. area: the one
+   redraw box over the sock, every streak's and leaf's travel. */
+typedef struct {
+    wx_box_t sock, area;
+    int fill[WX_WIND_POSES], dark[WX_WIND_POSES];
+    int nrows, streak[WX_WIND_ROWS], streak_w[WX_WIND_ROWS];
+    int nleaves, leaf[WX_LEAF_ROTS];
+    int total;
+} wx_wind_layout_t;
+
+void wx_wind_layout(int level, wx_wind_layout_t *l);
+/* One pose's quads (wx_wind_quad) into its fill and dark planes of the sock box. */
+void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4]);
+void wx_paint_streak(uint8_t *a8, int level, int r, int w);
+void wx_paint_leaf(uint8_t *a8, int rot);
+
 typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
     uint16_t *lut; /* WX_RING_LUT */

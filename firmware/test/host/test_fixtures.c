@@ -229,6 +229,11 @@ static void test_view_faces(void)
           "forecast while wet: 2 h to the stop, '%s'", c.sub);
     CHECK(c.narc == 2 && c.arc[0].a == 60 && c.arc[0].n == 105 && c.arc[1].a == 345 && c.arc[1].n == 60 && c.arc[1].intensity == 1,
           "forecast arcs from now, then the light snow spell");
+    CHECK(o->has_wind && o->wind_kmh == 21 && o->has_wind_dir && o->wind_dir == 225, "now: wind %d from %d", o->wind_kmh, o->wind_dir);
+    wx_wind_t wd;
+    wx_wind_from(o, NULL, &wd);
+    CHECK(wd.have && wd.kmh == 21 && wd.level == 1 && !strcmp(wd.sub, "#C9D25A Moderate breeze# \xE2\x80\xA2 SW"), "wind: '%s'", wd.sub);
+    CHECK(t.face == WXF_RAIN, "21 km/h while wet: Rain now");
 
     if (!view("view_faces_met.json", &v)) return;
     CHECK(o->has_cloud && o->cloud == 70 && o->has_uv && o->uv == 3, "MET now");
@@ -239,6 +244,9 @@ static void test_view_faces(void)
     CHECK(o->has_now_rain && o->now_rain == 0 && !o->has_pop && o->has_rain && o->rain_until == 0 && o->rain_n == 2 && !t.rain.on,
           "MET dry now, rain later: Temperature face");
     CHECK(t.face == WXF_TEMP, "rain in 2 h is not the auto forecast");
+    CHECK(o->has_wind && o->wind_kmh == 15 && o->has_wind_dir && o->wind_dir == 200, "MET wind without gusts");
+    wx_wind_from(o, NULL, &wd);
+    CHECK(wd.have && wd.level == 1 && !strcmp(wd.sub, "#8ACF7A Gentle breeze# \xE2\x80\xA2 S"), "MET wind: '%s'", wd.sub);
     at = *o;
     at.has_obs_age = true;
     wx_cast_from(&at, NULL, &c);
@@ -339,6 +347,28 @@ static void test_view_rain_keys(void)
         bool ok = faces_parse(root, &v);
         CHECK(ok && !o->has_utc_offset && o->has_now_rain, "utc_offset %.1f: not an integer, unknown", OFFSET[i]);
     }
+    static const struct {
+        double kmh, dir;
+        bool str, has_kmh, has_dir;
+        int want_kmh, want_dir;
+    } WIND[] = {{20.6, 359.4, false, true, true, 21, 359}, {0, 360, false, true, true, 0, 0}, {-1, -1, false, false, false, 0, 0},
+                {1000, 360.6, false, false, false, 0, 0}, {999, 0, false, true, true, 999, 0}, {21, 225, true, false, false, 0, 0}};
+    for (size_t i = 0; i < sizeof WIND / sizeof WIND[0]; i++) {
+        cJSON *root, *w = faces_weather(&root), *now = cJSON_GetObjectItemCaseSensitive(w, "now");
+        cJSON_ReplaceItemInObjectCaseSensitive(now, "wind_kmh", WIND[i].str ? cJSON_CreateString("21") : cJSON_CreateNumber(WIND[i].kmh));
+        cJSON_ReplaceItemInObjectCaseSensitive(now, "wind_dir", WIND[i].str ? cJSON_CreateString("225") : cJSON_CreateNumber(WIND[i].dir));
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->has_wind == WIND[i].has_kmh && o->has_wind_dir == WIND[i].has_dir &&
+                  (!o->has_wind || o->wind_kmh == WIND[i].want_kmh) && (!o->has_wind_dir || o->wind_dir == WIND[i].want_dir),
+              "wind %.1f from %.1f: %d %d, %d %d", WIND[i].kmh, WIND[i].dir, o->has_wind, o->wind_kmh, o->has_wind_dir, o->wind_dir);
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "wind_kmh");
+        cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "wind_dir");
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->has_wind && !o->has_wind_dir, "no wind keys: unknown");
+    }
 
     cJSON *root, *w = faces_weather(&root);
     cJSON *sp = cJSON_CreateArray();
@@ -367,7 +397,8 @@ static void test_view_legacy_weather(void)
     for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
         if (!view(names[i], &v)) continue;
         const wx_obs_t *o = &v.weather;
-        CHECK(!o->has_cloud && !o->has_uv && !o->has_today && !o->has_moon, "%s: no detail without wx_faces", names[i]);
+        CHECK(!o->has_cloud && !o->has_uv && !o->has_today && !o->has_moon && !o->has_wind && !o->has_wind_dir,
+              "%s: no detail without wx_faces", names[i]);
         wx_temp_from(o, &t);
         CHECK(t.have && !t.has_range && t.lo == WX_SCALE_LO && t.hi == WX_SCALE_HI && t.cloud_band == 4 &&
                   t.hero == WX_HERO_NONE && strcmp(t.sub, "Rain") == 0,

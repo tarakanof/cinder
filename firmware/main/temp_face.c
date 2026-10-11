@@ -16,6 +16,7 @@
 #include "wx_job.h"
 #include "wx_paint.h"
 #include "wx_temp.h"
+#include "wx_wind.h"
 
 LV_FONT_DECLARE(font_digits_96);
 LV_FONT_DECLARE(font_face_36);
@@ -46,6 +47,9 @@ static lv_obj_t *s_sheet[WX_SHEETS], *s_strip[WX_SHEETS][2], *s_top[WX_SHEETS], 
 static lv_obj_t *s_drip[WX_DRIPS], *s_splash[WX_SPLASHES], *s_bolt;
 static lv_obj_t *s_cbox[WX_CAST_SIDES], *s_cloud[WX_CAST_SIDES], *s_csheet[WX_CAST_SIDES], *s_cstrip[WX_CAST_SIDES][2];
 static lv_obj_t *s_ctop[WX_CAST_SIDES], *s_cbottom[WX_CAST_SIDES], *s_drop, *s_clabel;
+static lv_obj_t *s_wbox, *s_wsock, *s_wdark, *s_wstreak[WX_WIND_ROWS], *s_wleaf[WX_WIND_LEAVES];
+static EXT_RAM_BSS_ATTR wx_wind_layout_t s_wlay;
+static EXT_RAM_BSS_ATTR bool s_wind;
 static EXT_RAM_BSS_ATTR wx_cast_layout_t s_clay;
 static EXT_RAM_BSS_ATTR bool s_cast, s_unit_on;
 static uint8_t *s_drop_buf;
@@ -77,6 +81,9 @@ typedef struct {
     int cast_dx[WX_CAST_SIDES], cast_opa[WX_CAST_SIDES], cast_off[WX_CAST_SIDES], cast_gate, drop_q, drop_opa, label_opa;
     bool label_clear;
     const char *unit;
+    int wind_pose, sock_opa, streak_dx[WX_WIND_ROWS], streak_opa[WX_WIND_ROWS];
+    int leaf_x[WX_WIND_LEAVES], leaf_y[WX_WIND_LEAVES], leaf_rot[WX_WIND_LEAVES], leaf_opa[WX_WIND_LEAVES];
+    uint32_t sock_rgb;
 } shown_t;
 
 static EXT_RAM_BSS_ATTR shown_t s_shown;
@@ -176,6 +183,23 @@ static void cast_create(void)
     }
 }
 
+static void wind_create(void)
+{
+    s_wbox = box_obj(s_root);
+    for (int r = 0; r < WX_WIND_ROWS; r++) {
+        s_wstreak[r] = a8(s_root, WX_WIND_STREAK_RGB);
+        lv_obj_add_flag(s_wstreak[r], LV_OBJ_FLAG_HIDDEN);
+    }
+    s_wsock = a8(s_root, 0);
+    s_wdark = a8(s_root, 0);
+    lv_obj_add_flag(s_wsock, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_wdark, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < WX_WIND_LEAVES; i++) {
+        s_wleaf[i] = a8(s_root, WX_WIND_LEAF_RGB);
+        lv_obj_add_flag(s_wleaf[i], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void bake_task(void *arg)
 {
     (void)arg;
@@ -209,6 +233,7 @@ void temp_face_create(lv_obj_t *parent)
     s_drift = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     rain_create();
     cast_create();
+    wind_create();
     s_thermo = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     lv_obj_set_pos(s_thermo, WX_THERMO_X, WX_THERMO_Y);
     lv_obj_add_flag(s_hero, LV_OBJ_FLAG_HIDDEN);
@@ -256,6 +281,10 @@ static void detach(void)
         lv_canvas_set_buffer(s_ctop[s], s_none, 2, 2, LV_COLOR_FORMAT_A8);
         lv_canvas_set_buffer(s_cbottom[s], s_none, 2, 2, LV_COLOR_FORMAT_A8);
     }
+    lv_canvas_set_buffer(s_wsock, s_none, 2, 2, LV_COLOR_FORMAT_A8);
+    lv_canvas_set_buffer(s_wdark, s_none, 2, 2, LV_COLOR_FORMAT_A8);
+    for (int r = 0; r < WX_WIND_ROWS; r++) lv_canvas_set_buffer(s_wstreak[r], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+    for (int i = 0; i < WX_WIND_LEAVES; i++) lv_canvas_set_buffer(s_wleaf[i], s_none, 2, 2, LV_COLOR_FORMAT_A8);
 }
 
 static void release(void)
@@ -340,6 +369,14 @@ static void pct_label(lv_obj_t *l, char *buf, size_t n, bool on, int v, uint32_t
     lv_obj_set_style_text_color(l, lv_color_hex(rgb), 0);
 }
 
+static void fixed_label(lv_obj_t *l, const char *txt, bool on, uint32_t rgb)
+{
+    show_obj(l, on);
+    if (!on) return;
+    lv_label_set_text_static(l, txt);
+    lv_obj_set_style_text_color(l, lv_color_hex(rgb), 0);
+}
+
 static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
 {
     int w = b.x1 - b.x0, h = b.y1 - b.y0;
@@ -415,12 +452,45 @@ static void cast_attach(const wx_cast_t *c)
     s_shown.label[0] = s_shown.label_sub[0] = 0;
 }
 
+static void wind_attach(const wx_wind_t *w)
+{
+    uint8_t *m = s_buf.still;
+    wx_wind_layout(w->level, &s_wlay);
+    wx_box_t a = s_wlay.area, b = s_wlay.sock;
+    int sw = b.x1 - b.x0, sh = b.y1 - b.y0;
+    lv_obj_set_pos(s_wbox, a.x0, a.y0);
+    lv_obj_set_size(s_wbox, a.x1 - a.x0, a.y1 - a.y0);
+    show_obj(s_wbox, true);
+    lv_canvas_set_buffer(s_wsock, m + s_wlay.fill[1], sw, sh, LV_COLOR_FORMAT_A8);
+    lv_canvas_set_buffer(s_wdark, m + s_wlay.dark[1], sw, sh, LV_COLOR_FORMAT_A8);
+    lv_obj_set_pos(s_wsock, b.x0, b.y0);
+    lv_obj_set_pos(s_wdark, b.x0, b.y0);
+    show_obj(s_wsock, true);
+    show_obj(s_wdark, true);
+    for (int r = 0; r < WX_WIND_ROWS; r++) {
+        show_obj(s_wstreak[r], false);
+        s_shown.streak_dx[r] = s_shown.streak_opa[r] = INT_MIN;
+        if (r >= s_wlay.nrows) continue;
+        lv_canvas_set_buffer(s_wstreak[r], m + s_wlay.streak[r], s_wlay.streak_w[r], WX_STREAK_H, LV_COLOR_FORMAT_A8);
+        lv_obj_set_y(s_wstreak[r], wx_wind_streak_y(w->level, r));
+    }
+    for (int i = 0; i < WX_WIND_LEAVES; i++) {
+        show_obj(s_wleaf[i], false);
+        s_shown.leaf_x[i] = s_shown.leaf_y[i] = s_shown.leaf_rot[i] = s_shown.leaf_opa[i] = INT_MIN;
+    }
+    s_shown.wind_pose = 1;
+    s_shown.sock_opa = INT_MIN;
+    s_shown.sock_rgb = 0xFFFFFFFF;
+    lv_obj_invalidate(s_wbox);
+}
+
 static void face_kind(const wx_temp_t *t)
 {
     s_rain = t->rain.on;
     s_cast = t->cast.on;
-    s_unit_on = s_rain || s_cast;
-    show_obj(s_thermo, !s_rain && !s_cast);
+    s_wind = t->wind.on;
+    s_unit_on = s_rain || s_cast || s_wind;
+    show_obj(s_thermo, !s_rain && !s_cast && !s_wind);
     show_obj(s_unit, s_rain);
     lv_label_set_text_static(s_unit, "%");
     s_shown.unit = NULL;
@@ -430,12 +500,19 @@ static void face_kind(const wx_temp_t *t)
         show_obj(s_cloud[s], false);
         show_obj(s_csheet[s], false);
     }
+    if (!s_wind) {
+        show_obj(s_wbox, false);
+        show_obj(s_wsock, false);
+        show_obj(s_wdark, false);
+        for (int r = 0; r < WX_WIND_ROWS; r++) show_obj(s_wstreak[r], false);
+        for (int i = 0; i < WX_WIND_LEAVES; i++) show_obj(s_wleaf[i], false);
+    }
     show_obj(s_drop, false);
     show_obj(s_clabel, false);
-    lv_label_set_recolor(s_sub, s_cast);
+    lv_label_set_recolor(s_sub, s_cast || s_wind);
     int unit = lv_font_get_glyph_width(&lv_font_montserrat_30, '%', 0) + UNIT_GAP;
     int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
-    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : s_cast ? 0 : deg / 2, VALUE_Y);
+    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : s_cast || s_wind ? 0 : deg / 2, VALUE_Y);
     s_shown.value[0] = 0;
     s_shown.value_w = -1;
 }
@@ -449,6 +526,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
         face_kind(t);
         if (t->rain.on) rain_attach(&t->rain);
         if (t->cast.on) cast_attach(&t->cast);
+        if (t->wind.on) wind_attach(&t->wind);
     } else if (kind & WX_BAKE_RING) {
         wx_ring_blit(s_buf.ring, s_buf.bg);
     }
@@ -461,6 +539,9 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
     if (t->cast.on) {
         show_obj(s_lo, false);
         show_obj(s_hi, false);
+    } else if (t->wind.on) {
+        fixed_label(s_lo, "0", t->wind.have, wx_wind_rgb(0));
+        fixed_label(s_hi, "50+", t->wind.have, wx_wind_rgb(WX_WIND_GAUGE_KMH));
     } else if (t->rain.on) {
         pct_label(s_lo, s_lo_txt, sizeof s_lo_txt, t->rain.has_pop, 0, LABEL_GREY_RGB);
         pct_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->rain.has_pop, 100, wx_rain_rgb(t->rain.intensity));
@@ -632,6 +713,79 @@ static void set_cast(const wx_cast_t *c, int fo, int sprite_opa)
     if (rain) s_shown.cast_gate = gate;
 }
 
+static void set_wind(const wx_wind_t *w, uint32_t rgb, int fo, int opa)
+{
+    wx_wind_frame_t f;
+    wx_wind_frame(w->level, w->have && fo == 255 ? (int)floor(s_t * WX_WIND_FPS) : -1, &f);
+    bool dirty = false;
+    if (f.pose != s_shown.wind_pose) {
+        wx_box_t b = s_wlay.sock;
+        s_shown.wind_pose = f.pose;
+        lv_canvas_set_buffer(s_wsock, s_buf.still + s_wlay.fill[f.pose], b.x1 - b.x0, b.y1 - b.y0, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_wdark, s_buf.still + s_wlay.dark[f.pose], b.x1 - b.x0, b.y1 - b.y0, LV_COLOR_FORMAT_A8);
+        dirty = true;
+    }
+    if (rgb != s_shown.sock_rgb) {
+        s_shown.sock_rgb = rgb;
+        lv_obj_set_style_image_recolor(s_wsock, lv_color_hex(rgb), 0);
+        lv_obj_set_style_image_recolor(s_wdark, lv_color_hex(wx_wind_dark(rgb)), 0);
+        dirty = true;
+    }
+    if (opa != s_shown.sock_opa) {
+        s_shown.sock_opa = opa;
+        lv_obj_set_style_image_opa(s_wsock, (lv_opa_t)opa, 0);
+        lv_obj_set_style_image_opa(s_wdark, (lv_opa_t)opa, 0);
+        dirty = true;
+    }
+    for (int r = 0; r < s_wlay.nrows; r++) {
+        int o = f.streak_opa[r] * opa / 255;
+        bool on = o > 0;
+        dirty |= on != (s_shown.streak_opa[r] > 0);
+        show_obj(s_wstreak[r], on);
+        if (!on) {
+            s_shown.streak_opa[r] = 0;
+            continue;
+        }
+        if (f.streak_dx[r] != s_shown.streak_dx[r]) {
+            s_shown.streak_dx[r] = f.streak_dx[r];
+            lv_obj_set_x(s_wstreak[r], wx_wind_streak_x(w->level, r) + f.streak_dx[r]);
+            dirty = true;
+        }
+        if (o != s_shown.streak_opa[r]) {
+            s_shown.streak_opa[r] = o;
+            lv_obj_set_style_image_opa(s_wstreak[r], (lv_opa_t)o, 0);
+            dirty = true;
+        }
+    }
+    for (int i = 0; i < s_wlay.nleaves && i < WX_WIND_LEAVES; i++) {
+        int o = f.leaf_opa[i] * opa / 255;
+        bool on = o > 0;
+        dirty |= on != (s_shown.leaf_opa[i] > 0);
+        show_obj(s_wleaf[i], on);
+        if (!on) {
+            s_shown.leaf_opa[i] = 0;
+            continue;
+        }
+        if (f.leaf_rot[i] != s_shown.leaf_rot[i]) {
+            s_shown.leaf_rot[i] = f.leaf_rot[i];
+            lv_canvas_set_buffer(s_wleaf[i], s_buf.still + s_wlay.leaf[f.leaf_rot[i]], WX_LEAF_BOX, WX_LEAF_BOX, LV_COLOR_FORMAT_A8);
+            dirty = true;
+        }
+        if (f.leaf_x[i] != s_shown.leaf_x[i] || f.leaf_y[i] != s_shown.leaf_y[i]) {
+            s_shown.leaf_x[i] = f.leaf_x[i];
+            s_shown.leaf_y[i] = f.leaf_y[i];
+            lv_obj_set_pos(s_wleaf[i], f.leaf_x[i], f.leaf_y[i]);
+            dirty = true;
+        }
+        if (o != s_shown.leaf_opa[i]) {
+            s_shown.leaf_opa[i] = o;
+            lv_obj_set_style_image_opa(s_wleaf[i], (lv_opa_t)o, 0);
+            dirty = true;
+        }
+    }
+    if (dirty) lv_obj_invalidate(s_wbox);
+}
+
 static void set_mercury(float top, uint32_t rgb)
 {
     int q = (int)lroundf(top * 2);
@@ -726,8 +880,24 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
     int sprite_opa = (int)lround(fo * wx_arrive(tf));
     const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;
     const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;
+    const wx_wind_t *w = wx_wind_same_scene(&t->wind, &s_io.key.wind) ? &t->wind : &s_io.key.wind;
     char txt[20];
-    if (s_cast) {
+    if (s_wind) {
+        uint32_t rgb = GREY_RGB;
+        if (w->have) {
+            int v = wx_count_value(w->kmh, wx_count_step(wx_count_n(w->kmh), ta));
+            rgb = wx_wind_rgb(v);
+            set_unit_text("km/h");
+            snprintf(txt, sizeof txt, "%d", v);
+            set_value(txt, rgb);
+            set_unit(WX_WIND_UNIT_RGB);
+        } else {
+            set_unit_text(NULL);
+            set_value("--", GREY_RGB);
+        }
+        set_marker(w->frac * (float)a, w->have);
+        set_wind(w, rgb, fo, sprite_opa);
+    } else if (s_cast) {
         uint32_t rgb;
         const char *unit = wx_cast_value(c, wx_count_step(wx_cast_count_n(c), ta), txt, sizeof txt, &rgb);
         set_unit_text(unit);
@@ -763,8 +933,8 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         set_value("--\xC2\xB0", GREY_RGB);
         set_mercury(WX_MERC_BOTTOM, GREY_RGB);
     }
-    if (!s_rain && !s_cast) set_marker(t->frac * (float)a, t->have);
-    set_sprites(sprite_opa, !s_rain && !s_cast && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
+    if (!s_rain && !s_cast && !s_wind) set_marker(t->frac * (float)a, t->have);
+    set_sprites(sprite_opa, !s_rain && !s_cast && !s_wind && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
     double sf = (s_t - WX_ARRIVE_S) / SUB_FADE_S;
     int sub_opa = (sf <= 0 ? 0 : sf >= 1 ? 255 : 85 * (1 + (int)(sf * 3))) * fo / 255;
     char age[24];
@@ -772,7 +942,8 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         wx_age_label(obs, age, sizeof age);
         set_sub(age, GREY_RGB, sub_opa);
     } else {
-        set_sub(s_cast ? c->sub : s_rain ? r->sub : t->have ? t->sub : "", s_cast || s_rain ? SUB_RGB : t->sub_rgb, sub_opa);
+        set_sub(s_wind ? w->sub : s_cast ? c->sub : s_rain ? r->sub : t->have ? t->sub : "",
+                s_wind || s_cast || s_rain ? SUB_RGB : t->sub_rgb, sub_opa);
     }
 }
 
