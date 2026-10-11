@@ -9,8 +9,11 @@
 /* Starts the bake task; the face images live in PSRAM only while the page shows (allocated by temp_face_show). */
 void temp_face_create(lv_obj_t *parent);
 
-/* Showing allocates the images and replays the arrival; hiding frees them. No PSRAM: black until the next show. */
+/* Showing allocates the images and replays the arrival; hiding frees them. No PSRAM: black, retried every 5 s. */
 void temp_face_show(bool on);
+
+/* OTA face: call with true on every OTA frame (parks a queued bake, frees the hidden face once a running one ends). */
+void temp_face_hold(bool hold);
 
 /* dt in seconds; obs may be NULL (no data yet). offline: Ember is OFFLINE, show the observation's age. */
 void temp_face_update(const wx_obs_t *obs, bool offline, double dt);

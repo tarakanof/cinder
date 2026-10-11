@@ -514,6 +514,7 @@ static bool ota_frame(void)
             pages_pause();
             bot_view_rim_hold(true);
         }
+        temp_face_hold(true);
         taskENTER_CRITICAL(&s_rg_mux);
         rg_init(&s_rg);
         taskEXIT_CRITICAL(&s_rg_mux);
@@ -523,6 +524,7 @@ static bool ota_frame(void)
     if (s_ota_paused) {
         s_ota_paused = false;
         bot_view_rim_hold(false);
+        temp_face_hold(false);
         pages_resume(&s_nav);
     }
     return false;

@@ -1,7 +1,6 @@
 #include "temp_face.h"
 
 #include <math.h>
-#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -11,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "wx_job.h"
 #include "wx_paint.h"
 #include "wx_temp.h"
 
@@ -33,21 +33,18 @@ static const char *TAG = "tempface";
 
 #define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)
 
-enum { JOB_IDLE, JOB_BUSY, JOB_DONE };
-
 static lv_obj_t *s_root, *s_bg, *s_hero, *s_still, *s_drift, *s_thermo, *s_marker, *s_value, *s_lo, *s_hi, *s_sub;
 static EXT_RAM_BSS_ATTR wx_bake_buf_t s_buf;
 static uint8_t *s_thermo_buf, *s_marker_buf;
 static uint8_t s_none[2 * 2 * 3];
 static EXT_RAM_BSS_ATTR wx_img_t s_thermo_img;
-static EXT_RAM_BSS_ATTR wx_temp_t s_key, s_job_in;
-static EXT_RAM_BSS_ATTR wx_bake_out_t s_job_out, s_out;
+static EXT_RAM_BSS_ATTR wx_job_io_t s_io;
+static EXT_RAM_BSS_ATTR wx_bake_out_t s_out;
 static EXT_RAM_BSS_ATTR wx_shift_t s_shift;
-static atomic_int s_job;
+static wx_job_t s_job;
 static TaskHandle_t s_task;
-static bool s_baked, s_visible;
 static EXT_RAM_BSS_ATTR double s_t;
-static EXT_RAM_BSS_ATTR int s_tick, s_job_ms;
+static EXT_RAM_BSS_ATTR int s_tick;
 
 typedef struct {
     char value[20], sub[24];
@@ -79,22 +76,30 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_align_t align
     return l;
 }
 
+static void show_obj(lv_obj_t *o, bool on)
+{
+    if (on == !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
+    if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void bake_task(void *arg)
 {
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (atomic_load(&s_job) != JOB_BUSY) continue;
+        const wx_temp_t *t = wx_job_take(&s_job);
+        if (!t) continue;
         int64_t t0 = esp_timer_get_time();
-        wx_bake(&s_job_in, &s_buf, &s_job_out);
-        s_job_ms = (int)((esp_timer_get_time() - t0) / 1000);
-        atomic_store(&s_job, JOB_DONE);
+        wx_bake(t, &s_buf, &s_io.out);
+        wx_job_done(&s_job, (int)((esp_timer_get_time() - t0) / 1000));
     }
 }
 
 void temp_face_create(lv_obj_t *parent)
 {
     if (s_root) return;
+    wx_job_init(&s_job, &s_io);
     if (xTaskCreatePinnedToCoreWithCaps(bake_task, "wxbake", 4096, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "bake task not created: the weather page stays black");
         return;
@@ -124,12 +129,18 @@ void temp_face_create(lv_obj_t *parent)
     s_marker = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
 }
 
-static void release(void)
+static void detach(void)
 {
+    show_obj(s_root, false);
     lv_canvas_set_buffer(s_bg, s_none, 2, 2, LV_COLOR_FORMAT_RGB565);
     lv_canvas_set_buffer(s_hero, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_still, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_drift, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+}
+
+static void release(void)
+{
+    detach();
     lv_canvas_set_buffer(s_thermo, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_marker, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     DROP(s_buf.bg);
@@ -139,8 +150,7 @@ static void release(void)
     DROP(s_buf.drift);
     DROP(s_thermo_buf);
     DROP(s_marker_buf);
-    s_baked = false;
-    atomic_store(&s_job, JOB_IDLE);
+    wx_job_released(&s_job);
 }
 
 static bool acquire(void)
@@ -153,7 +163,7 @@ static bool acquire(void)
     s_thermo_buf = psram(WX_THERMO_W * WX_THERMO_H * 3);
     s_marker_buf = psram(WX_MARKER * WX_MARKER * 3);
     if (!s_buf.bg || !s_buf.lut || !s_buf.hero || !s_buf.still || !s_buf.drift || !s_thermo_buf || !s_marker_buf) {
-        ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black until the next show",
+        ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black, retrying in 5 s",
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
                  (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
         release();
@@ -164,7 +174,6 @@ static bool acquire(void)
     wx_img_t mk = {.px = (uint16_t *)s_marker_buf, .a = s_marker_buf + WX_MARKER * WX_MARKER * 2, .w = WX_MARKER,
                    .h = WX_MARKER};
     wx_paint_marker(&mk);
-    lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
     lv_canvas_set_buffer(s_thermo, s_thermo_buf, WX_THERMO_W, WX_THERMO_H, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_marker, s_marker_buf, WX_MARKER, WX_MARKER, LV_COLOR_FORMAT_RGB565A8);
     memset(&s_shown, 0xFF, sizeof s_shown);
@@ -176,13 +185,6 @@ static void deg_text(char *buf, size_t n, int v)
 {
     if (v < 0) snprintf(buf, n, "\xE2\x88\x92%d\xC2\xB0", -v);
     else snprintf(buf, n, "%d\xC2\xB0", v);
-}
-
-static void show_obj(lv_obj_t *o, bool on)
-{
-    if (on == !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
-    if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void end_label(lv_obj_t *l, char *buf, size_t n, bool on, int v)
@@ -206,7 +208,9 @@ static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
 
 static void apply(const wx_temp_t *t, const wx_bake_out_t *o)
 {
+    lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
     lv_obj_invalidate(s_bg);
+    s_tick = -1;
     sprite(s_hero, s_buf.hero, o->hero);
     sprite(s_still, s_buf.still, o->still);
     sprite(s_drift, s_buf.drift, o->drift);
@@ -214,7 +218,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o)
     end_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->have && t->has_range, t->hi);
     s_out = *o;
     s_shown.drift = 0x7FFFFFFF;
-    ESP_LOGI(TAG, "baked %d..%d hero %d clouds %d in %d ms", t->lo, t->hi, (int)t->hero, t->cloud_band, s_job_ms);
+    ESP_LOGI(TAG, "baked %d..%d hero %d clouds %d in %d ms", t->lo, t->hi, (int)t->hero, t->cloud_band, s_io.ms);
 }
 
 static void shift_root(void)
@@ -328,43 +332,42 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline)
     }
 }
 
+static void act(int a)
+{
+    if (a & WX_DO_RELEASE) release();
+    if (a & WX_DO_ACQUIRE) {
+        bool ok = acquire();
+        wx_job_acquired(&s_job, ok);
+        if (ok) shift_root();
+    }
+    if (a & WX_DO_DETACH) detach();
+    if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);
+    if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out);
+}
+
 void temp_face_show(bool on)
 {
-    if (!s_root || on == s_visible) return;
-    s_visible = on;
+    if (!s_root || on == s_job.visible) return;
     s_t = 0;
     s_tick = -1;
-    if (!on) {
-        show_obj(s_root, false);
-        if (atomic_load(&s_job) != JOB_BUSY) release();
-        return;
-    }
-    if (!s_buf.bg && acquire()) shift_root();
+    if (!on) show_obj(s_root, false);
+    act(wx_job_show(&s_job, on));
+}
+
+void temp_face_hold(bool hold)
+{
+    if (s_root) act(wx_job_hold(&s_job, hold));
 }
 
 void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
 {
     if (!s_root) return;
-    int job = atomic_load(&s_job);
-    if (!s_visible) {
-        if (s_buf.bg && job != JOB_BUSY) release();
-        return;
-    }
-    if (!s_buf.bg) return;
-    wx_temp_t t;
-    wx_temp_from(obs, &t);
-    if (job == JOB_DONE) {
-        apply(&s_job_in, &s_job_out);
-        s_key = s_job_in;
-        s_baked = true;
-        atomic_store(&s_job, job = JOB_IDLE);
-    }
-    if (job == JOB_IDLE && (!s_baked || !wx_temp_same_bake(&t, &s_key))) {
-        s_job_in = t;
-        atomic_store(&s_job, job = JOB_BUSY);
-        xTaskNotifyGive(s_task);
-    }
-    if (!s_baked || job == JOB_BUSY) return;
+    if (!isfinite(dt) || dt < 0) dt = 0;
+    wx_temp_t t = {0};
+    if (s_job.visible && s_job.bufs) wx_temp_from(obs, &t);
+    int a = wx_job_step(&s_job, &t, dt);
+    act(a);
+    if (!(a & WX_DO_PAINT)) return;
     if (wx_shift_tick(&s_shift, dt)) shift_root();
     s_t += dt;
     int tick = (int)floor(s_t * ARRIVE_FPS);

@@ -79,20 +79,42 @@ echo "cJSON hook wiring: app_main sets PSRAM-first hooks before anything parses"
 TFC="$D/../../main/temp_face.c"
 body "$TFC" temp_face_update | grep -qF 'if (wx_shift_tick(&s_shift, dt)) shift_root();' || WIRING="$WIRING update-steps-the-burn-in-shift"
 body "$TFC" shift_root | grep -qF 'lv_obj_set_style_translate_y(s_root, dy, 0);' || WIRING="$WIRING shift-moves-the-root"
-[ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(&s_job_in, &s_buf, &s_job_out);' ||
+[ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(t, &s_buf, &s_io.out);' ||
     WIRING="$WIRING wx_bake-only-in-bake_task"
 grep -qE 'wx_paint_(clear|ring|rays|stars|thermo|hero|clouds)\(' "$TFC" && WIRING="$WIRING no-bake-pass-on-the-LVGL-task"
-body "$TFC" bake_task | grep -qF 'atomic_store(&s_job, JOB_DONE);' || WIRING="$WIRING bake_task-publishes-DONE"
-body "$TFC" temp_face_show | grep -qF 'if (atomic_load(&s_job) != JOB_BUSY) release();' || WIRING="$WIRING hide-frees"
-body "$TFC" temp_face_update | grep -qF 'if (s_buf.bg && job != JOB_BUSY) release();' || WIRING="$WIRING hidden-frees-after-a-bake"
+body "$TFC" bake_task | grep -qF 'const wx_temp_t *t = wx_job_take(&s_job);' || WIRING="$WIRING bake_task-takes-through-wx_job"
+body "$TFC" bake_task | grep -qF 'if (!t) continue;' || WIRING="$WIRING bake_task-skips-an-empty-take"
+body "$TFC" bake_task | grep -qF 'wx_job_done(&s_job, ' || WIRING="$WIRING bake_task-publishes-through-wx_job"
+grep -qE 'atomic_|JOB_(IDLE|BUSY|DONE)' "$TFC" && WIRING="$WIRING job-state-only-in-wx_job"
+grep -qF 'static wx_job_t s_job;' "$TFC" || WIRING="$WIRING job-state-in-internal-RAM"
+body "$TFC" temp_face_show | grep -qF 'act(wx_job_show(&s_job, on));' || WIRING="$WIRING show-through-wx_job"
+body "$TFC" temp_face_hold | grep -qF 'act(wx_job_hold(&s_job, hold));' || WIRING="$WIRING hold-through-wx_job"
+body "$TFC" temp_face_update | grep -qF 'int a = wx_job_step(&s_job, &t, dt);' || WIRING="$WIRING update-steps-wx_job"
+body "$TFC" temp_face_update | grep -qF 'if (!(a & WX_DO_PAINT)) return;' || WIRING="$WIRING update-paints-only-on-WX_DO_PAINT"
+for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'if (a & WX_DO_DETACH) detach();' \
+    'if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);' 'if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out);'; do
+    body "$TFC" act | grep -qF "$ACT" || WIRING="$WIRING act:$ACT"
+done
+[ "$(grep -c 'xTaskNotifyGive(' "$TFC")" -eq 1 ] || WIRING="$WIRING notify-only-in-act"
+body "$TFC" detach | grep -qF 'show_obj(s_root, false);' || WIRING="$WIRING detach-hides-the-face"
+for CV in s_bg s_hero s_still s_drift; do
+    body "$TFC" detach | grep -qF "lv_canvas_set_buffer($CV, s_none, " || WIRING="$WIRING detach-$CV"
+done
+body "$TFC" release | grep -qF 'detach();' && body "$TFC" release | grep -qF 'wx_job_released(&s_job);' ||
+    WIRING="$WIRING release-detaches-and-tells-wx_job"
+grep -qF 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' "$TFC" && [ "$(grep -c 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' "$TFC")" -eq 1 ] &&
+    body "$TFC" apply | grep -qF 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' || WIRING="$WIRING bg-attached-only-on-apply"
 [ "$(grep -c 'heap_caps_free(' "$TFC")" -eq 1 ] && grep -qF '#define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)' "$TFC" ||
     WIRING="$WIRING free-only-through-DROP"
 [ "$(body "$TFC" acquire | grep -c 'psram(')" -eq "$(body "$TFC" release | grep -c 'DROP(')" ] || WIRING="$WIRING release-drops-every-buffer"
+for ARG in true false; do
+    body "$MAINC" ota_frame | grep -q "temp_face_hold($ARG);" || WIRING="$WIRING ota_frame-temp_face_hold($ARG)"
+done
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL temp face wiring:$WIRING" >&2
     exit 1
 fi
-echo "temp face wiring: burn-in shift on the root, bake on its task, buffers freed on hide"
+echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold"
 BVC="$D/../../main/bot_view.c"
 body "$BVC" rim_task | grep -q 'if (!rim_job_take(&s_rim, .*)) continue;' || WIRING="$WIRING rim_task-skips-a-held-take"
 body "$BVC" rim_task | grep -qF 'if (!rim_job_live(&s_rim, gen)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
@@ -107,6 +129,8 @@ cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/p
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_paint.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
+cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_job.c" \
+    "$D/test_wx_job.c" -lm -o "${OUT}_wx_job"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
@@ -145,6 +169,7 @@ fi
 "${OUT}_pomo"
 "${OUT}_weather"
 "${OUT}_temp"
+"${OUT}_wx_job"
 "${OUT}_ember"
 "${OUT}_cfg"
 "${OUT}_panel"
