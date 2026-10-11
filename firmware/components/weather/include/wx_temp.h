@@ -72,7 +72,8 @@ enum { WX_BAKE_RING = 1, WX_BAKE_HERO = 2, WX_BAKE_SCENE = 4, WX_BAKE_FULL = 7 }
 
 /* obs NULL or without a temperature: have false. */
 void wx_temp_from(const wx_obs_t *obs, wx_temp_t *out);
-/* shown: the face on screen or NULL; a cloud cover within WX_BAND_HYST % of its band keeps that band. */
+/* shown: the face on screen or NULL; a cloud cover within WX_BAND_HYST % of its band keeps that band, a wet face its
+   rain intensity (wx_rain_keep). */
 void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *out);
 /* WX_BAKE_* parts that differ from shown: RING the range, HERO the hero sprite, SCENE background and clouds (or the rain
    layers); 0 none. A change between the faces is FULL. */

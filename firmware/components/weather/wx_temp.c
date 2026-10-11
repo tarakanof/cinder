@@ -100,6 +100,7 @@ void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
     t->hi = WX_SCALE_HI;
     t->sub_rgb = 0xBDBDBD;
     wx_rain_from(o, &t->rain);
+    wx_rain_keep(&t->rain, shown ? &shown->rain : NULL);
     if (!o || !o->valid || !o->has_temp || !isfinite(o->temp_c)) return;
     wx_look_t l = wx_look_from_obs(o);
     t->have = true;

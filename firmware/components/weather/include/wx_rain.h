@@ -40,6 +40,8 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r);
 uint32_t wx_rain_rgb(int intensity);
 /* Same pictures: kind, intensity and has_pop (the ring); pop, until and sub only move the marker and the text. */
 bool wx_rain_same_scene(const wx_rain_t *a, const wx_rain_t *b);
+/* shown: the rain on screen or NULL. While it stays wet with the same kind the shown intensity holds (and its word). */
+void wx_rain_keep(wx_rain_t *r, const wx_rain_t *shown);
 
 /* A drop of a sheet tile: a streak from (x, y) to (x - slant, y + len) in tile A (0..WX_SHEET_H) or B (one tile lower);
    level 1 shows from light rain, 2 from moderate, 3 only in heavy. */

@@ -104,6 +104,13 @@ bool wx_rain_same_scene(const wx_rain_t *a, const wx_rain_t *b)
     return a->on == b->on && (!a->on || (a->kind == b->kind && a->intensity == b->intensity));
 }
 
+void wx_rain_keep(wx_rain_t *r, const wx_rain_t *shown)
+{
+    if (!shown || !r->on || !shown->on || r->kind != shown->kind || r->intensity == shown->intensity) return;
+    r->intensity = shown->intensity;
+    if (!r->has_until) snprintf(r->sub, sizeof r->sub, "%s", word(r->kind, r->intensity));
+}
+
 bool wx_drop_shown(const wx_drop_t *d, const wx_rain_t *r) { return d->level <= r->intensity; }
 
 static const int SPLASH_DROP[WX_SPLASHES] = {0, 1, 6};

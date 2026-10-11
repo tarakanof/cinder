@@ -213,18 +213,39 @@ static void test_bake_kind(void)
     o.now_rain = 2;
     o.rain_spell[0].intensity = 3;
     wx_temp_from(&o, &b);
-    CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "the spell's peak changes: full");
+    CHECK(b.rain.intensity == 3 && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "no face shown: the spell's peak");
+    long long until = o.rain_until;
+    o.rain_until = 0;
+    for (int step = 0; step < 6; step++) {
+        static const int PEAK[6] = {1, 3, 2, 3, 1, 3};
+        o.rain_spell[0].intensity = PEAK[step];
+        o.now_rain = PEAK[step];
+        wx_temp_from_shown(&o, &a, &b);
+        CHECK(b.rain.on && b.rain.intensity == 2 && !strcmp(b.rain.sub, "Rain") && wx_temp_bake_kind(&b, &a) == 0,
+              "wet, peak %d (falling or revised over the edge): the shown intensity holds, no re-bake, '%s'", PEAK[step],
+              b.rain.sub);
+    }
+    o.rain_until = until;
+    wx_temp_from_shown(&o, &a, &b);
+    CHECK(b.rain.intensity == 2 && b.rain.has_until && !strcmp(b.rain.sub, "until 15:00"), "a held intensity keeps the until '%s'",
+          b.rain.sub);
+    wx_temp_t dry;
+    o.now_rain = 0;
+    o.rain_n = 0;
+    wx_temp_from_shown(&o, &a, &dry);
+    CHECK(!dry.rain.on && wx_temp_bake_kind(&dry, &a) == WX_BAKE_FULL && wx_temp_bake_kind(&a, &dry) == WX_BAKE_FULL,
+          "rain stops or starts: full both ways");
+    o.now_rain = 3;
+    o.rain_n = 1;
+    wx_temp_from_shown(&o, &dry, &b);
+    CHECK(b.rain.on && b.rain.intensity == 3 && wx_temp_bake_kind(&b, &dry) == WX_BAKE_FULL, "dry, then wet again: the new peak");
     o.rain_spell[0].intensity = 2;
     snprintf(o.condition, sizeof o.condition, "snow");
     snprintf(o.code, sizeof o.code, "73");
     o.now_rain = 2;
-    wx_temp_from(&o, &b);
-    CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "kind: full");
-    o.now_rain = 0;
-    o.rain_n = 0;
-    wx_temp_from(&o, &b);
-    CHECK(!b.rain.on && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL && wx_temp_bake_kind(&a, &b) == WX_BAKE_FULL,
-          "rain stops or starts: full both ways");
+    wx_temp_from_shown(&o, &b, &dry);
+    CHECK(dry.rain.kind == WX_PRECIP_SNOW && dry.rain.intensity == 2 && wx_temp_bake_kind(&dry, &b) == WX_BAKE_FULL,
+          "kind: full, the new intensity");
 }
 
 static const float CANVAS[3][8][5] = {
