@@ -131,7 +131,7 @@ void wx_paint_ring_wind(wx_ring_t *r, bool grey, uint16_t lut[WX_RING_LUT]);
 void wx_paint_pole(wx_img_t *im, int level);
 
 /* Wind layers, carved out of the still-cloud buffer like the rain layers. Byte offsets, all A8: per pose the sock's
-   silhouette (fill) and its darker stripes over it (dark), both of the sock box; one sprite per streak row
+   light stripes (fill) and its darker stripes over it (dark), both of the sock box; one sprite per streak row
    (streak_w x WX_STREAK_H); WX_LEAF_ROTS leaf sprites (WX_LEAF_BOX squared) when the level has leaves. area: the one
    redraw box over the sock, every streak's and leaf's travel. */
 typedef struct {
@@ -143,7 +143,8 @@ typedef struct {
 } wx_wind_layout_t;
 
 void wx_wind_layout(int level, wx_wind_layout_t *l);
-/* One pose's quads (wx_wind_quad) into its fill and dark planes of the sock box. */
+/* One pose's quads (wx_wind_quad) into its fill and dark planes of the sock box. fill is the light coverage divided by
+   what dark leaves uncovered, so dark drawn over fill composites each sample once (no hard stripe edge). */
 void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4]);
 void wx_paint_streak(uint8_t *a8, int level, int r, int w);
 void wx_paint_leaf(uint8_t *a8, int rot);

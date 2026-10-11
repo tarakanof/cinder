@@ -1174,7 +1174,8 @@ void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[W
                     break;
                 }
             }
-            fill[y * w + x] = (uint8_t)(any * 255 / (SOCK_SS * SOCK_SS));
+            int n = SOCK_SS * SOCK_SS;
+            fill[y * w + x] = (uint8_t)(odd == n ? 0 : (any - odd) * 255 / (n - odd));
             dark[y * w + x] = (uint8_t)(odd * 255 / (SOCK_SS * SOCK_SS));
         }
 }

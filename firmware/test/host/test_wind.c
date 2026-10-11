@@ -256,6 +256,11 @@ static void test_bake_kind(void)
     o = windy(24, 90);
     wx_temp_face(&o, &a, WXF_WIND, &b);
     CHECK(wx_temp_bake_kind(&b, &a) == 0, "speed and direction in the level: no bake (value, colour, marker, text)");
+    o = windy(24, 90);
+    o.has_wind_dir = false;
+    wx_temp_face(&o, &a, WXF_WIND, &b);
+    CHECK(!b.wind.has_dir && wx_temp_bake_kind(&b, &a) == 0 && wx_temp_bake_kind(&a, &b) == 0,
+          "the direction coming or going: no bake, only the sub-line");
     o = windy(9, 90);
     wx_temp_face(&o, &a, WXF_WIND, &b);
     CHECK(wx_temp_bake_kind(&b, &a) == 0, "9 km/h with the gentle sock shown: kept, no bake");
@@ -514,10 +519,36 @@ static void test_paint(void)
                     cy += pt[i].y / 4;
                 }
                 int i = ((int)cy - l.sock.y0) * w + ((int)cx - l.sock.x0);
-                CHECK(m[l.fill[p] + i] == 255 && m[l.dark[p] + i] == ((q & 1) ? 255 : 0), "level %d pose %d stripe %d: fill %d dark %d", lv,
+                CHECK(m[l.fill[p] + i] == ((q & 1) ? 0 : 255) && m[l.dark[p] + i] == ((q & 1) ? 255 : 0), "level %d pose %d stripe %d: fill %d dark %d", lv,
                       p, q, m[l.fill[p] + i], m[l.dark[p] + i]);
             }
         CHECK(m[l.fill[1]] == 0 && m[l.fill[1] + w - 1] == 0, "level %d: box corners clear", lv);
+        {
+            wx_pt_t pt[4];
+            wx_wind_quad(lv, 0, 1, pt);
+            int sx = (int)((pt[0].x + pt[3].x) / 2), sy = (int)((pt[0].y + pt[3].y) / 2), seam = 0, solid = 0;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
+                    int i = (sy + dy - l.sock.y0) * w + (sx + dx - l.sock.x0), d = m[l.dark[0] + i];
+                    if (d == 0 || d == 255) continue;
+                    seam++;
+                    solid += m[l.fill[0] + i] == 255;
+                }
+            CHECK(seam > 0 && solid == seam, "level %d pose A: under the seam of stripes 1 and 2 the fill stays solid (%d of %d px)", lv, solid, seam);
+        }
+        for (int q = 0; q < 2; q++) {
+            wx_pt_t pt[4];
+            wx_wind_quad(lv, 1, q, pt);
+            float ex = (pt[0].x + pt[1].x) / 2, ey = (pt[0].y + pt[1].y) / 2, nx = pt[3].x - pt[0].x, ny = pt[3].y - pt[0].y,
+                  nl = hypotf(nx, ny);
+            ex += nx / nl * 0.5f;
+            ey += ny / nl * 0.5f;
+            int i = ((int)ey - l.sock.y0) * w + ((int)ex - l.sock.x0), f = m[l.fill[1] + i], d = m[l.dark[1] + i];
+            if (q)
+                CHECK(d > 0 && f == 0, "level %d: on the dark stripe's outer edge only the dark plane covers (fill %d, dark %d)", lv, f, d);
+            else
+                CHECK(f > 0 && d == 0, "level %d: the light stripe's outer edge (fill %d, dark %d)", lv, f, d);
+        }
         for (int k = 0; k < WX_LEAF_ROTS && l.nleaves; k++)
             CHECK(m[l.leaf[k] + (WX_LEAF_BOX / 2) * WX_LEAF_BOX + WX_LEAF_BOX / 2] == 255, "level %d: leaf rotation %d baked", lv, k);
         int diff = 0, partial = 0;
