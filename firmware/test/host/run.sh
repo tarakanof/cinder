@@ -61,11 +61,12 @@ echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
 WXC="$D/../../main/weather_client.c"
 body "$WXC" weather_client_get | awk '/xSemaphoreTake\(s_lock/ {lock=1} /xSemaphoreGive\(s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
     WIRING="$WIRING weather_client_get-reads-the-timer-under-the-lock"
+body "$WXC" poll_task | grep -qxF '    static EXT_RAM_BSS_ATTR wx_obs_t obs;' || WIRING="$WIRING legacy-weather-obs-in-PSRAM"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL weather wiring:$WIRING" >&2
     exit 1
 fi
-echo "weather wiring: weather_client_get reads the timer under the lock"
+echo "weather wiring: weather_client_get reads the timer under the lock, the legacy obs in PSRAM"
 grep -qF 'static void *json_malloc(size_t n) { return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT); }' "$MAINC" ||
     WIRING="$WIRING json_malloc-prefers-PSRAM"
 body "$MAINC" app_main | sed 1,2d | grep -vE '^[[:space:]]*(ESP_LOG[A-Z]\(|$)' | grep -m1 -E '[A-Za-z_][A-Za-z_0-9]*\(' |
