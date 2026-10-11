@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 
 enum { MV_IDLE, MV_BAKING, MV_PLAYING };
+#define MV_RETRY_S 5.0
 enum { BAKE_IDLE, BAKE_QUEUED, BAKE_RUNNING, BAKE_DONE };
 
 static lv_obj_t *s_parent, *s_box, *s_el[WXM_ELEMS], *s_text;
@@ -26,7 +27,8 @@ static EXT_RAM_BSS_ATTR wxm_frame_t s_shown;
 static EXT_RAM_BSS_ATTR bool s_any;
 static EXT_RAM_BSS_ATTR double s_t0, s_play_at;
 static EXT_RAM_BSS_ATTR int s_k;
-static EXT_RAM_BSS_ATTR int s_count, s_bake_ms;
+static EXT_RAM_BSS_ATTR int s_count, s_bake_ms, s_failed;
+static EXT_RAM_BSS_ATTR double s_retry_at;
 
 static void moment_bake_task(void *arg)
 {
@@ -110,7 +112,12 @@ bool moment_view_start(const wxm_moment_t *m, double t)
     if (s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;
     s_m = *m;
     wxm_layout(&s_m, &s_l);
-    if (s_l.total > WXM_ARENA || !ensure()) return false;
+    if (s_l.total > WXM_ARENA || t < s_retry_at) return false;
+    if (!ensure()) {
+        s_failed++;
+        s_retry_at = t + MV_RETRY_S;
+        return false;
+    }
     s_cancel = false;
     s_play_at = t + (m->quiet ? 0 : WXM_PRE_S);
     s_state = MV_BAKING;
@@ -228,8 +235,9 @@ void moment_view_hold(bool hold)
     if (hold) moment_view_stop();
 }
 
-void moment_view_stats(int *shown, int *bake_ms)
+void moment_view_stats(int *shown, int *bake_ms, int *failed)
 {
     *shown = s_count;
     *bake_ms = s_bake_ms;
+    *failed = s_failed;
 }

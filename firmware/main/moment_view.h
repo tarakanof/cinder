@@ -25,5 +25,6 @@ void moment_view_hold(bool hold);
 /* Moments off: frees the arena once nothing bakes or plays (the bake task stays, idle). The first start allocates it
    and the task. */
 void moment_view_release(void);
-/* For the stats log: moments shown since boot, the last bake's ms. */
-void moment_view_stats(int *shown, int *bake_ms);
+/* For the stats log: moments shown since boot, the last bake's ms, starts that found no arena or task (retried after
+   5 s; the trigger offers the moment again). */
+void moment_view_stats(int *shown, int *bake_ms, int *failed);

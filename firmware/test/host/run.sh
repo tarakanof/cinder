@@ -333,10 +333,13 @@ MT="$(fbody "$MAINC" moment_tick)"
 for L in 'if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();' 'if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
     'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,' \
     '.every_s = s_ks_lv->weather_every_min * 60};' '.bot_mood = (int)s_bot.mood, .shown = bot_page,' 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' 's_moment_mood = s_bot.mood;' \
-    'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
+    'wxm_shown(&s_wxm, &m, t);' 'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
     'while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);' 's_chase.hold = moment_view_busy();'; do
     printf '%s\n' "$MT" | grep -qF "$L" || WIRING="$WIRING moment_tick:$L"
 done
+[ "$(grep -c 'wxm_shown(' "$MAINC")" -eq 1 ] && printf '%s\n' "$MT" | grep -B1 -F 'wxm_shown(&s_wxm, &m, t);' | head -1 | grep -qF 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' ||
+    WIRING="$WIRING moment_tick-records-a-moment-only-once-it-started"
+body "$MVC" moment_view_start | grep -qF 's_retry_at = t + MV_RETRY_S;' || WIRING="$WIRING start-retries-a-failed-allocation-later"
 [ "$(printf '%s\n' "$MT" | grep -cF 'moment_unact(t);')" -eq 2 ] || WIRING="$WIRING moment_tick-ends-the-act-on-stop-and-abort"
 MC="$(body "$MAINC" moment_cue)"
 for L in 'case WXM_GLIDE: bot_act_gaze(&s_bot, c->a, c->b, true, t); break;' 'case WXM_SACCADE: bot_act_gaze(&s_bot, c->a, c->b, false, t); break;' \
@@ -362,7 +365,7 @@ body "$MVC" moment_view_poll | grep -qF 'if (s_state == MV_BAKING && atomic_load
     WIRING="$WIRING poll-attaches-a-landed-bake-after-the-pre-roll"
 body "$MVC" moment_view_start | grep -qF 's_play_at = t + (m->quiet ? 0 : WXM_PRE_S);' &&
     body "$MVC" moment_view_start | grep -qF 'if (s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;' &&
-    body "$MVC" moment_view_start | grep -qF 'if (s_l.total > WXM_ARENA || !ensure()) return false;' ||
+    body "$MVC" moment_view_start | grep -qF 'if (s_l.total > WXM_ARENA || t < s_retry_at) return false;' && body "$MVC" moment_view_start | grep -qF 'if (!ensure()) {' ||
     WIRING="$WIRING start-waits-for-an-idle-bake-and-the-hold"
 body "$MVC" moment_view_abort | grep -qF 'int k = wxm_abort_frame(s_k);' || WIRING="$WIRING abort-before-any-frame-ends-it"
 body "$MVC" moment_view_frame | grep -qF 'int d = wxm_diff(&s_l, s_any ? &s_shown : NULL, &f);' || WIRING="$WIRING frame-diffs-against-the-shown-frame"

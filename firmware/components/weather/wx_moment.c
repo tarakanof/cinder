@@ -200,17 +200,20 @@ bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m)
         periodic = true;
     }
     if (k == WXM_NONE || !wxm_moment_from(k, in->obs, in->mood == WXM_WORKING, &tr->scratch, m)) return false;
-    if (periodic) {
+    if (periodic && (strcmp(m->text, tr->last_text) == 0 || t - tr->kind_at[k] < WXM_SAME_S)) {
         tr->next_every = t + every;
-        if (strcmp(m->text, tr->last_text) == 0 || t - tr->kind_at[k] < WXM_SAME_S) return false;
-    } else {
-        tr->pending = WXM_NONE;
+        return false;
     }
-    if (every > 0) tr->next_every = t + every;
-    tr->last_at = t;
-    tr->kind_at[k] = t;
-    snprintf(tr->last_text, sizeof tr->last_text, "%s", m->text);
     return true;
+}
+
+void wxm_shown(wxm_trigger_t *tr, const wxm_moment_t *m, double t)
+{
+    if (tr->pending == m->kind) tr->pending = WXM_NONE;
+    if (tr->every > 0) tr->next_every = t + tr->every;
+    tr->last_at = t;
+    tr->kind_at[m->kind] = t;
+    snprintf(tr->last_text, sizeof tr->last_text, "%s", m->text);
 }
 
 typedef struct {

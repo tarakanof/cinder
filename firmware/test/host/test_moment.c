@@ -298,6 +298,7 @@ static int run(double until, double dt, wxm_kind_t *last, double *at)
     int n = 0;
     for (; s_rig.in.t < until; s_rig.in.t += dt) {
         if (wxm_tick(&s_rig.tr, &s_rig.in, &s_rig.m)) {
+            wxm_shown(&s_rig.tr, &s_rig.m, s_rig.in.t);
             n++;
             if (last) *last = s_rig.m.kind;
             if (at) *at = s_rig.in.t;
@@ -435,6 +436,17 @@ static void test_trigger(void)
     s_rig.o.rain_until = NOW + 7200;
     CHECK(run(1800 * 2 + 14, 1, &k, NULL) == 1 && k == WXM_RAIN && strstr(s_rig.m.text, "until"), "with an end time: shown");
 
+    rig(1800);
+    run(10, 1, NULL, NULL);
+    s_rig.o = rain(2, "61");
+    for (int i = 0; i < 3; i++, s_rig.in.t += 1)
+        CHECK(wxm_tick(&s_rig.tr, &s_rig.in, &s_rig.m) && s_rig.m.kind == WXM_RAIN, "a change not marked shown (no arena) is offered again: %d", i);
+    wxm_shown(&s_rig.tr, &s_rig.m, s_rig.in.t);
+    CHECK(run(s_rig.in.t + WXM_GAP_S, 1, NULL, NULL) == 0, "once shown it counts");
+    rig(1800);
+    run(1800, 1, NULL, NULL);
+    for (int i = 0; i < 3; i++, s_rig.in.t += 1)
+        CHECK(wxm_tick(&s_rig.tr, &s_rig.in, &s_rig.m) && s_rig.m.kind == WXM_GLANCE, "a periodic moment not marked shown is offered again: %d", i);
     rig(1800);
     run(1799, 1, NULL, NULL);
     s_rig.in.bot_mood = 5;

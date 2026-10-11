@@ -806,6 +806,7 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
                    .every_s = s_ks_lv->weather_every_min * 60};
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
     if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
+        wxm_shown(&s_wxm, &m, t);
         s_moment_mood = s_bot.mood;
         s_cues = wxm_script(&m, &s_cue_n);
         s_cue = 0;
@@ -992,9 +993,10 @@ static void stats_task(void *arg)
                  s_nav.page);
         ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
                  s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
-        int moments, bake_ms;
-        moment_view_stats(&moments, &bake_ms);
+        int moments, bake_ms, failed;
+        moment_view_stats(&moments, &bake_ms, &failed);
         ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
+        if (failed) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         memcpy(kc, s_kind, sizeof kc);
         memset(s_kind, 0, sizeof s_kind);

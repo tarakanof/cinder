@@ -120,9 +120,11 @@ typedef struct {
 } wxm_in_t;
 
 void wxm_init(wxm_trigger_t *tr);
-/* Every frame. Returns true and fills m when a moment starts now; it then counts as shown for the cooldowns. A change
-   of every_s reschedules the periodic moment every_s from then. The same-kind cooldown holds for periodic ones too. */
+/* Every frame. Returns true and fills m when a moment is due now; it counts for the cooldowns only once wxm_shown
+   records it, so a moment that could not start is offered again. A change of every_s reschedules the periodic moment
+   every_s from then. The same-kind cooldown holds for periodic ones too. */
 bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m);
+void wxm_shown(wxm_trigger_t *tr, const wxm_moment_t *m, double t);
 
 /* Layers: RGB565A8 images in the arena at byte offset at, box px (the sprite box at WXM_BOX_X/Y). Elements: a layer
    drawn at x, y at rest, in draw order; one layer may be drawn by several elements (the raindrops, the flakes). */
