@@ -78,7 +78,7 @@ static void parse_weather(const cJSON *w, knob_view_t *out)
         o->night = cJSON_IsTrue(item(w, "night"));
     }
     const cJSON *at = item(w, "observed_at");
-    if (cJSON_IsNumber(at) && at->valuedouble >= 1 && at->valuedouble < 1e15 &&
+    if (cJSON_IsNumber(at) && at->valuedouble >= 1577836800.0 && at->valuedouble < 1e13 &&
         at->valuedouble == (double)(long long)at->valuedouble)
         o->observed_at = (long long)at->valuedouble;
 }
