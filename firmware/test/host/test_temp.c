@@ -256,12 +256,10 @@ static void test_paint(void)
     static uint16_t px[WX_FACE * WX_FACE];
     static uint16_t lut[WX_RING_LUT];
     wx_img_t bg = {.px = px, .w = WX_FACE, .h = WX_FACE};
-    clock_t c0 = clock();
     wx_paint_clear(&bg);
     wx_paint_ring(&bg, 24, 34, false, lut);
     wx_paint_rays(&bg);
     wx_paint_thermo(&bg);
-    double ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
     float x, y;
     wx_gauge_xy(0, &x, &y);
     CHECK(near(px[(int)y * WX_FACE + (int)x], 0xEF913C), "ring start = low colour %06X", (unsigned)rgb_of(px[(int)y * WX_FACE + (int)x]));
@@ -283,7 +281,6 @@ static void test_paint(void)
     }
     CHECK(ray_px > 2000 && ray_far == 0, "rays inside the rim fade only: %d, %d past r 196", ray_px, ray_far);
     CHECK(px[245 * WX_FACE + 233] == 0, "rays keep out of the value");
-    printf("temp: background bake %.1f ms on the host\n", ms);
 
     wx_paint_clear(&bg);
     wx_paint_ring(&bg, 0, 0, true, lut);
@@ -358,6 +355,111 @@ static void test_paint(void)
     CHECK(ma[18 * WX_MARKER + 34] >= 250 && mp[18 * WX_MARKER + 34] == 0 && ma[0] == 0, "marker black halo, clear corner");
 }
 
+static void test_shift(void)
+{
+    static const int DX[5] = {0, 2, 2, 0, 0}, DY[5] = {0, 0, 2, 2, 0};
+    wx_shift_t s = {0};
+    int dx, dy, steps = 0;
+    wx_shift_xy(&s, &dx, &dy);
+    CHECK(dx == 0 && dy == 0, "burn-in: starts at 0,0");
+    for (int k = 1; k <= 4; k++) {
+        for (int f = 0; f < 119 * 30; f++) steps += wx_shift_tick(&s, 1.0 / 30);
+        CHECK(steps == k - 1, "burn-in: no step before %g s (%d)", WX_SHIFT_S, steps);
+        for (int f = 0; f < 31; f++) steps += wx_shift_tick(&s, 1.0 / 30);
+        wx_shift_xy(&s, &dx, &dy);
+        CHECK(steps == k && dx == DX[k] && dy == DY[k], "burn-in step %d: %d,%d want %d,%d", k, dx, dy, DX[k], DY[k]);
+    }
+    CHECK(!wx_shift_tick(&s, 0) && !wx_shift_tick(&s, NAN), "burn-in: no step on 0 or NaN");
+}
+
+static int px_of(wx_box_t b) { return (b.x1 - b.x0) * (b.y1 - b.y0); }
+
+static void test_bake(void)
+{
+    static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
+    static uint8_t hero[WX_HERO_BOX * WX_HERO_BOX * 3];
+    int still_max = wx_clouds_max_px(false), drift_max = wx_clouds_max_px(true);
+    uint8_t *still = malloc((size_t)still_max * 3), *drift = malloc((size_t)drift_max * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .hero = hero, .still = still, .drift = drift};
+
+    int layer_max = 0;
+    for (int band = 1; band <= 4; band++) {
+        wx_clouds_t all, st, dr;
+        wx_clouds_for(band, band == 3, &all);
+        wx_clouds_split(&all, &st, &dr);
+        wx_box_t ab = wx_clouds_box(&all), sb = wx_clouds_box(&st), db = wx_clouds_box(&dr);
+        if (px_of(ab) > layer_max) layer_max = px_of(ab);
+        CHECK(dr.n == 1 && st.n == all.n - 1 && !dr.cl[0].back, "band %d: one front cloud drifts", band);
+        CHECK(band == 1 ? px_of(db) == px_of(ab) : px_of(db) * 2 < px_of(ab), "band %d: drift box %d px, layer %d px", band, px_of(db), px_of(ab));
+        int aw = ab.x1 - ab.x0, ah = ab.y1 - ab.y0;
+        uint16_t *ap = calloc((size_t)aw * ah, 2);
+        uint8_t *aa = calloc((size_t)aw * ah, 1);
+        wx_img_t ai = {.px = ap, .a = aa, .w = aw, .h = ah, .x0 = ab.x0, .y0 = ab.y0};
+        wx_paint_clouds(&ai, &all);
+        wx_temp_t t = {.cloud_band = band, .night = band == 3, .lo = 0, .hi = 10};
+        wx_bake_out_t o;
+        wx_bake(&t, &b, &o);
+        CHECK(!memcmp(&o.drift, &db, sizeof db) && (st.n ? !memcmp(&o.still, &sb, sizeof sb) : o.still.x1 == 0),
+              "band %d: bake boxes", band);
+        int sw = o.still.x1 - o.still.x0, dw = o.drift.x1 - o.drift.x0, bad = 0;
+        for (int y = ab.y0; y < ab.y1; y++)
+            for (int x = ab.x0; x < ab.x1; x++) {
+                if (hypotf(x + 0.5f - 233, y + 0.5f - 233) > all.fade_from) continue;
+                float ra = 0, rr = 0, rg = 0, rb = 0;
+                int boxes[2][4] = {{o.still.x0, o.still.y0, o.still.x1, o.still.y1}, {o.drift.x0, o.drift.y0, o.drift.x1, o.drift.y1}};
+                for (int l = 0; l < 2; l++) {
+                    int *q = boxes[l];
+                    if (x < q[0] || x >= q[2] || y < q[1] || y >= q[3]) continue;
+                    int w = l ? dw : sw, h = q[3] - q[1];
+                    uint8_t *buf = l ? drift : still;
+                    int i = (y - q[1]) * w + (x - q[0]);
+                    float a = buf[(size_t)w * h * 2 + i] / 255.0f;
+                    uint32_t c = rgb_of(((uint16_t *)buf)[i]);
+                    rr = rr * (1 - a) + ((c >> 16) & 0xFF) * a;
+                    rg = rg * (1 - a) + ((c >> 8) & 0xFF) * a;
+                    rb = rb * (1 - a) + (c & 0xFF) * a;
+                    ra = a + ra * (1 - a);
+                }
+                int i = (y - ab.y0) * aw + (x - ab.x0);
+                uint32_t c = rgb_of(ap[i]);
+                float a = aa[i] / 255.0f;
+                if (fabsf(ra - a) > 0.02f || fabsf(rr - ((c >> 16) & 0xFF) * a) > 10 || fabsf(rg - ((c >> 8) & 0xFF) * a) > 10 ||
+                    fabsf(rb - (c & 0xFF) * a) > 10)
+                    bad++;
+            }
+        CHECK(bad == 0, "band %d: still under drift = the old single layer inside the rim fade (%d px off)", band, bad);
+        free(ap);
+        free(aa);
+    }
+    printf("temp: clouds still layer <= %d px, drift sprite <= %d px (was one %d px layer)\n", still_max, drift_max,
+           layer_max);
+    printf("temp: PSRAM while shown %d B\n", WX_FACE * WX_FACE * 2 + WX_RING_LUT * 2 + WX_HERO_BOX * WX_HERO_BOX * 3 +
+                                                  (still_max + drift_max + WX_THERMO_W * WX_THERMO_H + WX_MARKER * WX_MARKER) * 3);
+
+    static const struct {
+        const char *name;
+        wx_temp_t t;
+    } CASES[] = {
+        {"AT4 sun, one cloud", {.have = true, .lo = 24, .hi = 34, .cloud_band = 1, .hero = WX_HERO_SUN}},
+        {"AT5 moon, stars", {.have = true, .lo = 6, .hi = 15, .night = true, .hero = WX_HERO_MOON, .moon_phase = 80, .moon_illum = 30, .stars = true}},
+        {"AT6 small moon, light grey", {.have = true, .lo = 6, .hi = 15, .night = true, .cloud_band = 3, .hero = WX_HERO_MOON_SMALL, .moon_phase = 10, .moon_illum = 30}},
+        {"overcast", {.have = true, .lo = 6, .hi = 15, .cloud_band = 4}},
+    };
+    double worst = 0;
+    for (size_t k = 0; k < sizeof CASES / sizeof CASES[0]; k++) {
+        wx_bake_out_t o;
+        clock_t c0 = clock();
+        wx_bake(&CASES[k].t, &b, &o);
+        double ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
+        if (ms > worst) worst = ms;
+        CHECK((CASES[k].t.hero != WX_HERO_NONE) == (o.hero.x1 > o.hero.x0), "%s: hero box", CASES[k].name);
+        printf("temp: bake %s %.1f ms on the host (background, hero, clouds)\n", CASES[k].name, ms);
+    }
+    CHECK(worst > 0, "bake timed");
+    free(still);
+    free(drift);
+}
+
 int main(void)
 {
     test_scale();
@@ -368,6 +470,8 @@ int main(void)
     test_geometry();
     test_clouds();
     test_paint();
+    test_shift();
+    test_bake();
     if (failures) {
         printf("temp: %d failure(s)\n", failures);
         return 1;

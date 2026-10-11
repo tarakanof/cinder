@@ -45,6 +45,24 @@ void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c);
 void wx_paint_mercury(wx_img_t *im, float top, uint32_t rgb);
 void wx_paint_marker(wx_img_t *im);
 
+/* drift: the last (front) cloud, the one that moves; still: the others. still under drift = the whole layer. */
+void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift);
+/* Largest box over the cloud bands, in pixels: the drift sprite or the still layer. */
+int wx_clouds_max_px(bool drift);
+
+typedef struct {
+    uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
+    uint16_t *lut; /* WX_RING_LUT */
+    uint8_t *hero, *still, *drift; /* RGB565A8: WX_HERO_BOX squared, wx_clouds_max_px(false), wx_clouds_max_px(true) */
+} wx_bake_buf_t;
+
+typedef struct {
+    wx_box_t hero, still, drift; /* face boxes; empty when not shown */
+} wx_bake_out_t;
+
+/* Everything a data change redraws: background, hero, cloud layers. Pure, any task. */
+void wx_bake(const wx_temp_t *t, const wx_bake_buf_t *b, wx_bake_out_t *out);
+
 #ifdef __cplusplus
 }
 #endif

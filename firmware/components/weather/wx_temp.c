@@ -224,3 +224,18 @@ void wx_clouds_for(int band, bool night, wx_clouds_t *out)
         for (int k = 0; k < s->n; k++) c->c[k] = (wx_circle_t){s->c[k][0], s->c[k][1], s->c[k][2]};
     }
 }
+
+bool wx_shift_tick(wx_shift_t *s, double dt)
+{
+    s->t += dt;
+    if (!(s->t >= WX_SHIFT_S)) return false;
+    s->t = 0;
+    s->i = (s->i + 1) & 3;
+    return true;
+}
+
+void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy)
+{
+    *dx = (s->i == 1 || s->i == 2) ? WX_SHIFT_PX : 0;
+    *dy = s->i >= 2 ? WX_SHIFT_PX : 0;
+}

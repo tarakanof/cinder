@@ -19,6 +19,8 @@ extern "C" {
 #define WX_COUNT_MAX 30
 #define WX_MERC_BOTTOM 184.0f
 #define WX_THERMO_DY (-14.0f)
+#define WX_SHIFT_S 120.0
+#define WX_SHIFT_PX 2
 
 typedef enum { WX_HERO_NONE, WX_HERO_SUN, WX_HERO_MOON, WX_HERO_MOON_SMALL } wx_hero_t;
 typedef enum { WX_TONE_WHITE, WX_TONE_LIGHT, WX_TONE_DARK, WX_TONE_NIGHT } wx_tone_t;
@@ -81,6 +83,15 @@ float wx_merc_top(float c);
 
 void wx_clouds_for(int band, bool night, wx_clouds_t *out);
 int wx_cloud_band(int cloud);
+
+typedef struct {
+    double t;
+    int i;
+} wx_shift_t;
+
+/* Burn-in: after WX_SHIFT_S s on screen the face steps to the next corner of a WX_SHIFT_PX square; true on a step. */
+bool wx_shift_tick(wx_shift_t *s, double dt);
+void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy);
 
 #ifdef __cplusplus
 }

@@ -405,3 +405,60 @@ void wx_paint_marker(wx_img_t *im)
             put(im, i, ring, cov(fabsf(d - 10) - 2.5f));
         }
 }
+
+void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift)
+{
+    *still = *all;
+    *drift = *all;
+    drift->n = 0;
+    if (all->n <= 0) return;
+    still->n = all->n - 1;
+    drift->n = 1;
+    drift->cl[0] = all->cl[all->n - 1];
+}
+
+static int box_px(wx_box_t b) { return (b.x1 - b.x0) * (b.y1 - b.y0); }
+
+int wx_clouds_max_px(bool drift)
+{
+    int m = 0;
+    for (int band = 1; band <= 4; band++) {
+        wx_clouds_t all, s, d;
+        wx_clouds_for(band, false, &all);
+        wx_clouds_split(&all, &s, &d);
+        int px = box_px(wx_clouds_box(drift ? &d : &s));
+        if (px > m) m = px;
+    }
+    return m;
+}
+
+static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
+{
+    wx_box_t b = wx_clouds_box(c);
+    if (!c->n || b.x1 <= b.x0) return (wx_box_t){0, 0, 0, 0};
+    int w = b.x1 - b.x0, h = b.y1 - b.y0;
+    wx_img_t im = {.px = (uint16_t *)buf, .a = buf + (size_t)w * h * 2, .w = w, .h = h, .x0 = b.x0, .y0 = b.y0};
+    wx_paint_clouds(&im, c);
+    return b;
+}
+
+void wx_bake(const wx_temp_t *t, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    if (t->hero == WX_HERO_SUN) wx_paint_rays(&bg);
+    if (t->stars) wx_paint_stars(&bg);
+    wx_paint_thermo(&bg);
+    wx_paint_ring(&bg, t->lo, t->hi, !t->have, b->lut);
+    out->hero = (wx_box_t){0, 0, 0, 0};
+    if (t->hero != WX_HERO_NONE) {
+        wx_img_t h = {.px = (uint16_t *)b->hero, .a = b->hero + WX_HERO_BOX * WX_HERO_BOX * 2, .w = WX_HERO_BOX,
+                      .h = WX_HERO_BOX};
+        out->hero = wx_paint_hero(&h, t->hero, t->moon_phase, t->moon_illum);
+    }
+    wx_clouds_t all, still, drift;
+    wx_clouds_for(t->cloud_band, t->night, &all);
+    wx_clouds_split(&all, &still, &drift);
+    out->still = layer(b->still, &still);
+    out->drift = layer(b->drift, &drift);
+}
