@@ -27,6 +27,9 @@ extern "C" {
 #define WX_SUN_RAYS_X1 398
 #define WX_SUN_BLEND_S 1020
 #define WX_SUN_SPAN_MAX_S 43200
+#define WX_SUN_ROLL_DAYS 7
+#define WX_SUN_ROLL_GRACE_S 600
+#define WX_SUN_COUNT_MAX_S 172800
 #define WX_SUN_VALUE_RGB 0xE0A030
 #define WX_SUN_GOLD_RGB 0xFFB547
 #define WX_SUN_HZN_RGB 0xFF9A3D
@@ -56,9 +59,11 @@ typedef struct {
     uint32_t sub_rgb;
 } wx_sun_t;
 
-/* Fills s from the observation and the knob's clock; the Sun is never the auto face. */
+/* Fills s from the observation and the knob's clock; the Sun is never the auto face. With the clock, sun times whose
+   local day (of their solar noon) is not today or up to WX_SUN_ROLL_DAYS before count as none; from WX_SUN_ROLL_GRACE_S
+   past a later local midnight they move on by whole days (Ember's new view is due first while online). */
 void wx_sun_from(const wx_obs_t *o, wx_sun_t *s);
-/* Same picture: have, polar, the crossings and the offset (the ring, the ticks and the end labels). */
+/* Same picture: have, the crossings and the offset (the ring, the ticks and the end labels); polar only changes text. */
 bool wx_sun_same_scene(const wx_sun_t *a, const wx_sun_t *b);
 /* The gauge's ends: the first and the last crossing known. */
 long long wx_sun_start(const wx_sun_t *s);
@@ -67,7 +72,9 @@ long long wx_sun_end(const wx_sun_t *s);
 float wx_sun_frac(const wx_sun_t *s, long long t);
 /* The ring colour at a time: blue hour, the sunrise blush, golden hour, day; the evening mirrors the morning. */
 uint32_t wx_sun_rgb(const wx_sun_t *s, long long t);
-/* s seconds as the value: from an hour in half hours (floored), below it in whole minutes (rounded up, at least 1). */
+/* Whether the sun and its rays show: sun times or a midnight sun (not in polar night, nor without data). */
+bool wx_sun_hero(const wx_sun_t *s);
+/* s seconds as the value (at most WX_SUN_COUNT_MAX_S): from an hour in half hours (floored), below it in whole minutes (rounded up, at least 1). */
 void wx_sun_round(long long s, bool *hours, int *count);
 /* The value at count-up step k into buf; returns the unit, or NULL with "--" (no clock or no sun times). */
 const char *wx_sun_value(const wx_sun_t *s, int k, char *buf, size_t n);

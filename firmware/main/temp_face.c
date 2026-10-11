@@ -928,11 +928,12 @@ static void set_days(const wx_days_t *d, double ta, int fo)
     if (dirty) lv_obj_invalidate(s_dbox);
 }
 
-static void set_sun(double ta, int fo)
+static void set_sun(const wx_sun_t *sn, double ta, int fo)
 {
     wx_sun_frame_t f;
     wx_sun_frame(ta, &f);
-    bool dirty = false;
+    bool hero = wx_sun_hero(sn), dirty = false;
+    show_obj(s_sbox, hero);
     if (f.dy != s_shown.sun_dy) {
         s_shown.sun_dy = f.dy;
         lv_obj_set_y(s_ssun, f.dy);
@@ -943,7 +944,7 @@ static void set_sun(double ta, int fo)
         lv_obj_set_style_image_opa(s_ssun, (lv_opa_t)fo, 0);
         dirty = true;
     }
-    int rays = f.rays_opa * fo / 255;
+    int rays = hero ? f.rays_opa * fo / 255 : 0;
     show_obj(s_srays, rays > 0);
     if (rays != s_shown.rays_opa) {
         s_shown.rays_opa = rays;
@@ -1055,7 +1056,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         set_value(txt, unit ? WX_SUN_VALUE_RGB : GREY_RGB);
         set_unit(WX_SUN_UNIT_RGB);
         set_marker(sn->frac * (float)a, sn->have && sn->has_now);
-        set_sun(ta, fo);
+        set_sun(sn, ta, fo);
     } else if (s_days) {
         const wx_days_t *d = &s_io.key.days;
         if (d->have) set_days(d, ta, fo);

@@ -184,11 +184,27 @@ body "$TFC" paint | grep -qF 'const wx_sun_t *sn = wx_sun_same_scene(&t->sun, &s
     WIRING="$WIRING paint-keeps-the-baked-sun-while-fading-out"
 body "$TFC" paint | grep -qxF '        const char *unit = wx_sun_value(sn, wx_count_step(wx_sun_count_n(sn), ta), txt, sizeof txt);' &&
     body "$TFC" paint | grep -qxF '        set_value(txt, unit ? WX_SUN_VALUE_RGB : GREY_RGB);' || WIRING="$WIRING sun-value-from-wx_sun_value"
-body "$TFC" paint | grep -qxF '        set_marker(sn->frac * (float)a, sn->have && sn->has_now);' && body "$TFC" paint | grep -qxF '        set_sun(ta, fo);' ||
+body "$TFC" paint | grep -qxF '        set_marker(sn->frac * (float)a, sn->have && sn->has_now);' && body "$TFC" paint | grep -qxF '        set_sun(sn, ta, fo);' ||
     WIRING="$WIRING sun-marker-and-arrival"
 body "$TFC" paint | grep -qF 's_sun ? sn->sub_rgb : ' || WIRING="$WIRING sun-sub-line-colour"
 body "$TFC" set_sun | grep -qxF '    wx_sun_frame(ta, &f);' && body "$TFC" set_sun | grep -qxF '        lv_obj_set_y(s_ssun, f.dy);' &&
-    body "$TFC" set_sun | grep -qxF '    int rays = f.rays_opa * fo / 255;' || WIRING="$WIRING sun-frames-from-the-host-model"
+    body "$TFC" set_sun | grep -qxF '    int rays = hero ? f.rays_opa * fo / 255 : 0;' || WIRING="$WIRING sun-frames-from-the-host-model"
+body "$TFC" set_sun | grep -qxF '    bool hero = wx_sun_hero(sn), dirty = false;' && body "$TFC" set_sun | grep -qxF '    show_obj(s_sbox, hero);' &&
+    body "$TFC" set_sun | grep -qxF '    show_obj(s_srays, rays > 0);' || WIRING="$WIRING sun-and-rays-shown-only-with-a-sun"
+body "$TFC" set_sun | grep -qxF '        lv_obj_set_style_image_opa(s_ssun, (lv_opa_t)fo, 0);' &&
+    body "$TFC" set_sun | grep -qxF '        lv_obj_set_style_image_opa(s_srays, (lv_opa_t)rays, 0);' || WIRING="$WIRING sun-and-rays-fade"
+for LINE in 'lv_obj_set_pos(s_srays, r.x0, r.y0);' 'lv_obj_set_pos(s_sbox, b.x0, b.y0);' 'lv_obj_set_size(s_sbox, b.x1 - b.x0, b.y1 - b.y0);' \
+    'show_obj(s_sbox, true);' 's_shown.sun_dy = s_shown.sun_opa = s_shown.rays_opa = INT_MIN;'; do
+    body "$TFC" sun_attach | grep -qxF "    $LINE" || WIRING="$WIRING sun_attach:$LINE"
+done
+body "$TFC" paint | grep -qxF '        set_unit_text(unit);' && [ "$(body "$TFC" paint | grep -cxF '        set_unit_text(unit);')" -eq 2 ] ||
+    WIRING="$WIRING sun-and-forecast-set-their-unit"
+body "$TFC" face_kind | grep -qxF '    s_unit_on = s_rain || s_cast || s_wind || s_sun;' &&
+    body "$TFC" face_kind | grep -qF 's_rain ? -unit / 2 : s_cast || s_wind || s_days || s_sun ? 0 : deg / 2, VALUE_Y);' ||
+    WIRING="$WIRING sun-value-centred-with-its-unit"
+body "$TFC" apply | grep -qxF '        strlcpy(s_lo_txt, t->sun.rise, sizeof s_lo_txt);' && body "$TFC" apply | grep -qxF '        strlcpy(s_hi_txt, t->sun.set, sizeof s_hi_txt);' ||
+    WIRING="$WIRING sun-end-label-texts"
+body "$TFC" temp_face_create | grep -qxF '    sun_create();' || WIRING="$WIRING sun-objects-created"
 body "$TFC" set_sun | grep -qxF '    if (dirty) lv_obj_invalidate(s_sbox);' && [ "$(grep -c 'lv_obj_invalidate(s_sbox);' "$TFC")" -eq 2 ] ||
     WIRING="$WIRING sun-redraws-one-box"
 body "$TFC" apply | grep -qxF '        fixed_label(s_lo, s_lo_txt, t->sun.have, WX_SUN_HZN_RGB);' &&

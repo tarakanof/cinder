@@ -127,6 +127,7 @@ static void test_round(void)
     } C[] = {
         {-5, false, 1}, {0, false, 1}, {1, false, 1}, {60, false, 1}, {61, false, 2}, {3540, false, 59}, {3541, false, 60},
         {3599, false, 60}, {3600, true, 2}, {5399, true, 2}, {5400, true, 3}, {43200, true, 24}, {86399, true, 47},
+        {WX_SUN_COUNT_MAX_S, true, 96}, {WX_SUN_COUNT_MAX_S + 1800, true, 96}, {4000000000000LL, true, 96},
     };
     for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
         bool h;
@@ -147,22 +148,43 @@ static wx_sun_t seen(long long now, long long recv, int off)
 
 static void test_shift(void)
 {
-    wx_sun_t s = seen(MID + DAY - 1, H(10, 30), OFF);
-    CHECK(s.phase == WX_SUN_AFTER && s.t[WX_SUN_RISE] == H(7, 30), "23:59:59 local, offline since the morning: still the data's day");
-    s = seen(MID + DAY, H(10, 30), OFF);
+    wx_sun_t s = seen(MID + DAY + WX_SUN_ROLL_GRACE_S - 1, H(10, 30), OFF);
+    CHECK(s.phase == WX_SUN_AFTER && s.t[WX_SUN_RISE] == H(7, 30), "00:09:59 local: Ember's new view is due, nothing moved yet");
+    s = seen(MID + DAY + WX_SUN_ROLL_GRACE_S, H(10, 30), OFF);
     CHECK(s.phase == WX_SUN_BEFORE && s.t[WX_SUN_RISE] == H(7, 30) + DAY && s.t[WX_SUN_DAWN] == H(6, 55) + DAY &&
               s.t[WX_SUN_DUSK] == H(20, 5) + DAY,
-          "local midnight, offline: every crossing moves a day");
-    CHECK(s.hours && s.count == 15 && !strcmp(s.sub, "until sunrise 07:30") && !strcmp(s.rise, "07:30"),
-          "7½ h until tomorrow's sunrise, the same clock times");
+          "00:10 local, still the old view: every crossing moves a day");
+    CHECK(s.hours && s.count == 14 && !strcmp(s.sub, "until sunrise 07:30") && !strcmp(s.rise, "07:30"),
+          "7 h until tomorrow's sunrise, the same clock times (%d)", s.count);
+    s = seen(MID + DAY + 3600, MID + DAY + 1, OFF);
+    CHECK(s.t[WX_SUN_RISE] == H(7, 30) + DAY && s.phase == WX_SUN_BEFORE,
+          "yesterday's times received a second after midnight: the crossings' own day counts, not the receipt's");
     s = seen(H(10, 30) + 2 * DAY, H(10, 30), OFF);
     CHECK(s.t[WX_SUN_RISE] == H(7, 30) + 2 * DAY && s.phase == WX_SUN_DAY && s.count == 18, "two days on: two days moved");
-    s = seen(H(22, 59) + 59, H(10, 30), 2 * OFF);
-    CHECK(s.t[WX_SUN_RISE] == H(7, 30) && !strcmp(s.rise, "08:30"), "UTC+2: 23:59:59 local, the same day");
-    s = seen(H(23, 0), H(10, 30), 2 * OFF);
+    s = seen(H(10, 30) + WX_SUN_ROLL_DAYS * DAY, H(10, 30), OFF);
+    CHECK(s.have && s.t[WX_SUN_RISE] == H(7, 30) + WX_SUN_ROLL_DAYS * DAY, "a week on: still moved");
+    s = seen(H(10, 30) + (WX_SUN_ROLL_DAYS + 1) * DAY, H(10, 30), OFF);
+    CHECK(!s.have && !s.rise[0] && !s.count && !s.sub[0], "more than a week: no sun times");
+    s = seen(H(10, 30) - DAY, H(10, 30) - DAY, OFF);
+    CHECK(!s.have, "times for a day ahead of the clock: none");
+    s = seen(MID + DAY - 1, H(10, 30), OFF);
+    CHECK(s.have && s.phase == WX_SUN_AFTER, "23:59:59 local: the data's own day");
+    s = seen(H(23, 0) + WX_SUN_ROLL_GRACE_S - 1, H(10, 30), 2 * OFF);
+    CHECK(s.t[WX_SUN_RISE] == H(7, 30) && !strcmp(s.rise, "08:30"), "UTC+2: 00:09:59 local, not moved");
+    s = seen(H(23, 0) + WX_SUN_ROLL_GRACE_S, H(10, 30), 2 * OFF);
     CHECK(s.t[WX_SUN_RISE] == H(7, 30) + DAY, "UTC+2: its midnight is 23:00 UTC+1, the offset sets the boundary");
-    s = seen(H(23, 0) + 120, H(23, 0) + 60, 2 * OFF);
-    CHECK(s.t[WX_SUN_RISE] == H(7, 30), "received after that midnight: the data is already that day's, no move");
+    wx_obs_t edge = as2_at(H(12, 0));
+    edge.sunrise = MID - 600;
+    edge.sunset = MID + 23 * 3600;
+    memset(edge.twilight, 0, sizeof edge.twilight);
+    wx_sun_from(&edge, &s);
+    CHECK(s.have && s.t[WX_SUN_RISE] == MID - 600 && !strcmp(s.rise, "23:50"),
+          "a sunrise just before local midnight belongs to the day of its solar noon: not moved");
+    wx_obs_t far = as2_at(1782018000LL);
+    far.sunrise = 3867252584400LL;
+    far.sunset = 3867252627600LL;
+    wx_sun_from(&far, &s);
+    CHECK(!s.have && !s.count, "sun times in another millennium (Codex's case): none, no countdown");
     wx_obs_t o = as2_seen(MID + DAY + 600, H(10, 30));
     memset(o.twilight, 0, sizeof o.twilight);
     wx_sun_from(&o, &s);
@@ -313,6 +335,37 @@ static void test_rgb(void)
     CHECK(channel_diff(c, WX_SUN_HZN_RGB) <= 4, "a stop on the time of the one before is dropped: %06X", (unsigned)c);
 }
 
+static void test_day_edge(void)
+{
+    for (int d = -2; d <= 2; d++) {
+        long long noon = H(13, 30), ge = noon - WX_SUN_BLEND_S + d;
+        wx_sun_t s = with_twilight(H(6, 55), H(7, 13), ge, noon + (noon - ge), H(19, 47), H(20, 5));
+        uint32_t c = wx_sun_rgb(&s, ge + WX_SUN_BLEND_S);
+        CHECK(channel_diff(c, 0xB5832A) <= 1, "golden hour %+d s from 17 min before noon: noon's gold at noon, %06X", d, (unsigned)c);
+    }
+    wx_sun_t s = with_twilight(H(6, 55), H(7, 13), H(13, 30) - 2 * WX_SUN_BLEND_S, H(13, 30) + 2 * WX_SUN_BLEND_S, H(19, 47), H(20, 5));
+    uint32_t c = wx_sun_rgb(&s, H(13, 30) - WX_SUN_BLEND_S);
+    CHECK(channel_diff(c, 0x9A6E25) <= 1, "34 min from noon: half way from the edge to noon's gold, %06X", (unsigned)c);
+    s = with_twilight(H(6, 55), H(7, 13), H(13, 30) - WX_SUN_BLEND_S / 2, H(13, 30) + WX_SUN_BLEND_S / 2, H(19, 47), H(20, 5));
+    c = wx_sun_rgb(&s, H(13, 30) + WX_SUN_BLEND_S / 2);
+    CHECK(channel_diff(c, 0xB5832A) <= 1, "golden hour 8 min from noon: noon's gold, not past it, %06X", (unsigned)c);
+    s = with_twilight(H(6, 55), H(7, 13), H(13, 30), H(13, 30), H(19, 47), H(20, 5));
+    c = wx_sun_rgb(&s, H(13, 30) + WX_SUN_BLEND_S);
+    CHECK(channel_diff(c, 0xB5832A) <= 1, "golden hour at noon itself: no division by zero, %06X", (unsigned)c);
+}
+
+static void test_hero(void)
+{
+    wx_sun_t s = sun_at(H(10, 30));
+    CHECK(wx_sun_hero(&s), "sun times: the sun");
+    s = (wx_sun_t){.on = true, .polar = WX_SUN_POLAR_DAY};
+    CHECK(wx_sun_hero(&s), "midnight sun: the sun");
+    s.polar = WX_SUN_POLAR_NIGHT;
+    CHECK(!wx_sun_hero(&s), "polar night: no sun");
+    s.polar = WX_SUN_NOT_POLAR;
+    CHECK(!wx_sun_hero(&s), "no data: no sun");
+}
+
 static void test_same(void)
 {
     wx_sun_t a = sun_at(H(10, 30)), b = sun_at(H(11, 30));
@@ -351,7 +404,24 @@ static void test_pick(void)
     CHECK(wx_temp_bake_kind(&t, &shown) == 0, "an hour later: no bake");
     o = as2_seen(MID + DAY + 60, H(10, 30));
     wx_temp_face(&o, &shown, WXF_SUN, &t);
-    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL, "past local midnight: the moved day bakes");
+    CHECK(wx_temp_bake_kind(&t, &shown) == 0, "a minute past local midnight: no bake yet");
+    wx_temp_t next;
+    o = as2_seen(MID + DAY + 60, MID + DAY + 30);
+    o.sunrise += DAY;
+    o.sunset += DAY;
+    for (int i = 0; i < WX_TWILIGHT; i++) o.twilight[i] += DAY;
+    wx_temp_face(&o, &shown, WXF_SUN, &next);
+    CHECK(wx_temp_bake_kind(&next, &shown) == WX_BAKE_FULL, "Ember's new day: one bake");
+    o = as2_seen(MID + DAY + WX_SUN_ROLL_GRACE_S + 60, MID + DAY + WX_SUN_ROLL_GRACE_S + 30);
+    o.sunrise += DAY;
+    o.sunset += DAY;
+    for (int i = 0; i < WX_TWILIGHT; i++) o.twilight[i] += DAY;
+    wx_temp_t later;
+    wx_temp_face(&o, &next, WXF_SUN, &later);
+    CHECK(wx_temp_bake_kind(&later, &next) == 0, "past the grace with the new view: no second bake");
+    o = as2_seen(MID + DAY + WX_SUN_ROLL_GRACE_S, H(10, 30));
+    wx_temp_face(&o, &shown, WXF_SUN, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL, "offline past the grace: the moved day bakes");
     wx_temp_face(&o, &shown, WXF_TEMP, &t);
     CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL && !t.sun.on, "another face: full, and no sun");
     wx_obs_t wet = as2_at(H(10, 30));
@@ -570,6 +640,8 @@ int main(void)
     test_crossings();
     test_polar();
     test_rgb();
+    test_day_edge();
+    test_hero();
     test_same();
     test_pick();
     test_frame();

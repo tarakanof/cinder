@@ -46,6 +46,7 @@ static void crossings(const wx_obs_t *o, long long t[WX_SUN_N])
 
 void wx_sun_round(long long s, bool *hours, int *count)
 {
+    if (s > WX_SUN_COUNT_MAX_S) s = WX_SUN_COUNT_MAX_S;
     if (s >= 3600) {
         *hours = true;
         *count = (int)(s / 1800);
@@ -87,12 +88,18 @@ void wx_sun_from(const wx_obs_t *o, wx_sun_t *s)
         return;
     }
     s->utc_offset = o->utc_offset;
-    crossings(o, s->t);
     if (s->has_now) {
-        long long recv = o->observed_at + (long long)o->obs_age_s;
-        long long k = (now + s->utc_offset) / DAY_S - (recv + s->utc_offset) / DAY_S;
-        for (int i = 0; i < WX_SUN_N; i++)
-            if (s->t[i]) s->t[i] += k * DAY_S;
+        long long day = ((o->sunrise + o->sunset) / 2 + s->utc_offset) / DAY_S, late = (now + s->utc_offset) / DAY_S - day;
+        if (late < 0 || late > WX_SUN_ROLL_DAYS) {
+            s->have = false;
+            return;
+        }
+        late = (now + s->utc_offset - WX_SUN_ROLL_GRACE_S) / DAY_S - day;
+        crossings(o, s->t);
+        for (int i = 0; late > 0 && i < WX_SUN_N; i++)
+            if (s->t[i]) s->t[i] += late * DAY_S;
+    } else {
+        crossings(o, s->t);
     }
     hhmm(s->t[WX_SUN_RISE], s->utc_offset, s->rise, sizeof s->rise);
     hhmm(s->t[WX_SUN_SET], s->utc_offset, s->set, sizeof s->set);
@@ -179,7 +186,7 @@ static void add(stop_t *st, int *n, long long anchor, long long d, uint32_t rgb)
 static uint32_t day_edge(long long golden, long long noon)
 {
     long long span = golden > noon ? golden - noon : noon - golden;
-    return span > WX_SUN_BLEND_S ? lerp(DAY_EDGE, DAY_NOON, (double)WX_SUN_BLEND_S / (double)span) : DAY_EDGE;
+    return lerp(DAY_EDGE, DAY_NOON, span <= WX_SUN_BLEND_S ? 1 : (double)WX_SUN_BLEND_S / (double)span);
 }
 
 uint32_t wx_sun_rgb(const wx_sun_t *s, long long t)
@@ -240,3 +247,5 @@ void wx_sun_layout(wx_sun_layout_t *l)
     l->sun_at = (l->rays.x1 - l->rays.x0) * (l->rays.y1 - l->rays.y0);
     l->total = l->sun_at + (l->sun.x1 - l->sun.x0) * (l->sun.y1 - l->sun.y0) * 3;
 }
+
+bool wx_sun_hero(const wx_sun_t *s) { return s->have || s->polar == WX_SUN_POLAR_DAY; }

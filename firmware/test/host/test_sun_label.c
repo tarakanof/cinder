@@ -68,8 +68,14 @@ int main(void)
                           .observed_at = now, .has_obs_age = true, .has_utc_offset = true, .utc_offset = off,
                           .sunrise = H(7, 30), .sunset = H(19, 30),
                           .twilight = {H(6, 55), H(7, 13), H(8, 30), H(18, 30), H(19, 47), H(20, 5)}};
+            long long shift = ((now + off) / 86400 - (H(13, 30) + off) / 86400) * 86400;
+            o.sunrise += shift;
+            o.sunset += shift;
+            for (int i = 0; i < WX_TWILIGHT; i++) o.twilight[i] += shift;
             wx_sun_t s;
             wx_sun_from(&o, &s);
+            CHECK(s.have && s.unit, "offset %d, %lld: the day's sun", off, now);
+            if (!s.unit) continue;
             bool all;
             int w = text_w(f30, s.sub, 0, &all);
             CHECK(all, "'%s': every glyph in Montserrat 30", s.sub);
