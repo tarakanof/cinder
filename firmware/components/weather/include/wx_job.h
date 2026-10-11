@@ -11,29 +11,32 @@ extern "C" {
 #endif
 
 #define WX_JOB_RETRY_S 5.0
+#define WX_FADE_STEP_S (1.0 / 15)
 
 enum { WX_JOB_IDLE, WX_JOB_QUEUED, WX_JOB_RUNNING, WX_JOB_DONE };
 
 enum {
     WX_DO_RELEASE = 1, /* free the buffers, then wx_job_released */
     WX_DO_ACQUIRE = 2, /* allocate the buffers, then wx_job_acquired */
-    WX_DO_DETACH = 4,  /* hide the face and point the baked canvases away from the buffers the bake rewrites */
+    WX_DO_DETACH = 4,  /* hide the face and point the baked canvases away from the buffers a scene bake rewrites */
     WX_DO_BAKE = 8,    /* wake the bake task */
-    WX_DO_APPLY = 16,  /* attach the buffers and place the sprites for io->in and io->out */
-    WX_DO_PAINT = 32,  /* buffers hold a finished bake and none runs: animate and show the face */
+    WX_DO_APPLY = 16,  /* show the io->kind parts of the finished bake: io->key and io->out */
+    WX_DO_PAINT = 32,  /* the canvases show a finished bake: animate and show the face at opa */
 };
 
 typedef struct {
     wx_temp_t in, key;
+    int kind; /* WX_BAKE_* parts of the job */
     wx_bake_out_t out;
     int ms;
 } wx_job_io_t;
 
-/* state: internal RAM (atomic). io: any RAM; the bake task owns in/out while QUEUED or RUNNING. */
+/* state: internal RAM (atomic). io: any RAM; the bake task owns in/kind/out while QUEUED or RUNNING. opa: 0..255 for paint. */
 typedef struct {
     atomic_int state;
-    bool visible, bufs, baked, held;
-    double retry;
+    bool visible, bufs, baked, held, attached, out;
+    int opa;
+    double retry, fade;
     wx_job_io_t *io;
 } wx_job_t;
 

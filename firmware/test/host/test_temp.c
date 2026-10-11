@@ -344,9 +344,12 @@ static void test_paint(void)
 {
     static uint16_t px[WX_FACE * WX_FACE];
     static uint16_t lut[WX_RING_LUT];
+    static wx_ring_t ring;
     wx_img_t bg = {.px = px, .w = WX_FACE, .h = WX_FACE};
     wx_paint_clear(&bg);
-    wx_paint_ring(&bg, 24, 34, false, lut);
+    wx_paint_ring(&ring, 24, 34, false, lut);
+    CHECK(ring.npx == WX_RING_PX && ring.nrun == WX_RING_RUNS, "ring strip: %d px in %d runs", ring.npx, ring.nrun);
+    wx_ring_blit(&ring, px);
     wx_paint_rays(&bg);
     wx_paint_thermo(&bg);
     float x, y;
@@ -372,7 +375,8 @@ static void test_paint(void)
     CHECK(px[245 * WX_FACE + 233] == 0, "rays keep out of the value");
 
     wx_paint_clear(&bg);
-    wx_paint_ring(&bg, 0, 0, true, lut);
+    wx_paint_ring(&ring, 0, 0, true, lut);
+    wx_ring_blit(&ring, px);
     wx_gauge_xy(0.5f, &x, &y);
     CHECK(near(px[(int)y * WX_FACE + (int)x], 0x262626), "grey track");
 
@@ -473,9 +477,10 @@ static void test_bake(void)
 {
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
     static uint8_t hero[WX_HERO_BOX * WX_HERO_BOX * 3];
+    static wx_ring_t ring;
     int still_max = wx_clouds_max_px(false), drift_max = wx_clouds_max_px(true);
     uint8_t *still = malloc((size_t)still_max * 3), *drift = malloc((size_t)drift_max * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .hero = hero, .still = still, .drift = drift};
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = still, .drift = drift};
 
     int layer_max = 0;
     for (int band = 1; band <= 4; band++) {
@@ -493,7 +498,7 @@ static void test_bake(void)
         wx_paint_clouds(&ai, &all);
         wx_temp_t t = {.cloud_band = band, .night = band == 3, .lo = 0, .hi = 10};
         wx_bake_out_t o;
-        wx_bake(&t, &b, &o);
+        wx_bake(&t, WX_BAKE_FULL, &b, &o);
         CHECK(!memcmp(&o.drift, &db, sizeof db) && (st.n ? !memcmp(&o.still, &sb, sizeof sb) : o.still.x1 == 0),
               "band %d: bake boxes", band);
         int sw = o.still.x1 - o.still.x0, dw = o.drift.x1 - o.drift.x0, bad = 0;
@@ -528,8 +533,10 @@ static void test_bake(void)
     }
     printf("temp: clouds still layer <= %d px, drift sprite <= %d px (was one %d px layer)\n", still_max, drift_max,
            layer_max);
-    printf("temp: PSRAM while shown %d B\n", WX_FACE * WX_FACE * 2 + WX_RING_LUT * 2 + WX_HERO_BOX * WX_HERO_BOX * 3 +
-                                                  (still_max + drift_max + WX_THERMO_W * WX_THERMO_H + WX_MARKER * WX_MARKER) * 3);
+    printf("temp: PSRAM while shown %d B (ring strip %d B, hero back buffer %d B)\n",
+           WX_FACE * WX_FACE * 2 + WX_RING_LUT * 2 + (int)sizeof ring + 2 * WX_HERO_BOX * WX_HERO_BOX * 3 +
+               (still_max + drift_max + WX_THERMO_W * WX_THERMO_H + WX_MARKER * WX_MARKER) * 3,
+           (int)sizeof ring, WX_HERO_BOX * WX_HERO_BOX * 3);
 
     static const struct {
         const char *name;
@@ -544,13 +551,52 @@ static void test_bake(void)
     for (size_t k = 0; k < sizeof CASES / sizeof CASES[0]; k++) {
         wx_bake_out_t o;
         clock_t c0 = clock();
-        wx_bake(&CASES[k].t, &b, &o);
+        wx_bake(&CASES[k].t, WX_BAKE_FULL, &b, &o);
         double ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
         if (ms > worst) worst = ms;
         CHECK((CASES[k].t.hero != WX_HERO_NONE) == (o.hero.x1 > o.hero.x0), "%s: hero box", CASES[k].name);
         printf("temp: bake %s %.1f ms on the host (background, hero, clouds)\n", CASES[k].name, ms);
     }
     CHECK(worst > 0, "bake timed");
+
+    static uint16_t full[WX_FACE * WX_FACE], keep[WX_FACE * WX_FACE];
+    static uint8_t hero2[WX_HERO_BOX * WX_HERO_BOX * 3];
+    uint8_t *still2 = malloc((size_t)still_max * 3);
+    for (size_t k = 0; k < sizeof CASES / sizeof CASES[0]; k++) {
+        wx_temp_t t = CASES[k].t, n = t;
+        n.lo -= 7;
+        n.hi += 3;
+        wx_bake_out_t o, o2;
+        wx_bake(&n, WX_BAKE_FULL, &b, &o2);
+        memcpy(full, bg, sizeof full);
+        wx_bake(&t, WX_BAKE_FULL, &b, &o);
+        memcpy(keep, bg, sizeof keep);
+        memcpy(still2, still, (size_t)still_max * 3);
+        memcpy(hero2, hero, sizeof hero2);
+        clock_t c0 = clock();
+        wx_bake(&n, WX_BAKE_RING, &b, &o);
+        double ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
+        CHECK(!memcmp(bg, keep, sizeof keep) && memcmp(keep, full, sizeof full) != 0, "%s: a ring bake leaves the shown background", CASES[k].name);
+        wx_ring_blit(&ring, bg);
+        CHECK(!memcmp(bg, full, sizeof full), "%s: the ring blit over the old background = a full bake of the new range", CASES[k].name);
+        CHECK(!memcmp(hero, hero2, sizeof hero2) && !memcmp(still, still2, (size_t)still_max * 3) && !memcmp(&o.hero, &o2.hero, sizeof o.hero),
+              "%s: a ring bake leaves the hero and the clouds", CASES[k].name);
+        printf("temp: ring bake %s %.2f ms on the host\n", CASES[k].name, ms);
+
+        n = t;
+        n.moon_illum = t.moon_illum + 25;
+        n.moon_phase = 100 - t.moon_phase;
+        memcpy(keep, bg, sizeof keep);
+        memcpy(still2, still, (size_t)still_max * 3);
+        c0 = clock();
+        wx_bake(&n, WX_BAKE_HERO, &b, &o);
+        ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
+        CHECK(!memcmp(bg, keep, sizeof keep) && !memcmp(still, still2, (size_t)still_max * 3), "%s: a hero bake leaves the background and the clouds",
+              CASES[k].name);
+        CHECK(t.hero < WX_HERO_MOON || memcmp(hero, hero2, sizeof hero2) != 0, "%s: a hero bake repaints the moon", CASES[k].name);
+        printf("temp: hero bake %s %.2f ms on the host\n", CASES[k].name, ms);
+    }
+    free(still2);
     free(still);
     free(drift);
 }

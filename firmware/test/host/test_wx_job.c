@@ -67,6 +67,20 @@ static void baked(wx_temp_t t)
     CHECK(wx_job_step(&J, &t, 0.03) == (WX_DO_APPLY | WX_DO_PAINT), "a finished bake applies and paints");
 }
 
+static int fade_out(const wx_temp_t *t)
+{
+    int last = 255, frames = 0, f;
+    bool down = true;
+    while ((f = wx_job_step(&J, t, 1.0 / 30)) == WX_DO_PAINT && frames < 20) {
+        if (J.opa > last || J.opa % 85) down = false;
+        last = J.opa;
+        frames++;
+    }
+    CHECK(down && last == 0 && frames >= 5 && frames <= 7, "fade out in 3 steps of 85 to one black step (%d frames, last opa %d)",
+          frames, last);
+    return f;
+}
+
 static void test_first_bake(void)
 {
     wx_temp_t a = key(3, 12, 1);
@@ -89,15 +103,67 @@ static void test_rebake_detaches(void)
 {
     wx_temp_t a = key(3, 12, 1), b = key(-2, 12, 3);
     baked(a);
-    CHECK(wx_job_step(&J, &b, 0.03) == (WX_DO_BAKE | WX_DO_DETACH), "a re-bake on a shown face detaches first");
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "a scene re-bake on a shown face fades out, then detaches");
     CHECK(wx_job_step(&J, &b, 0.03) == 0, "no paint while a re-bake is queued");
     const wx_temp_t *in = wx_job_take(&J);
     CHECK(in && in->lo == -2 && in->cloud_band == 3, "the re-bake carries the new key");
     CHECK(wx_job_step(&J, &b, 0.03) == 0, "no paint while a re-bake runs");
     CHECK(wx_job_step(&J, &a, 0.03) == 0, "no new job or paint while one runs");
     wx_job_done(&J, 5);
-    CHECK(wx_job_step(&J, &b, 0.03) == (WX_DO_APPLY | WX_DO_PAINT), "a re-bake applies, then paints");
-    CHECK(IO.key.lo == -2, "the re-bake's key is applied");
+    CHECK(wx_job_step(&J, &b, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 85, "a re-bake applies, then fades in");
+    CHECK(IO.key.lo == -2 && IO.kind == WX_BAKE_FULL, "the re-bake's key is applied");
+    int frames = 0, last = J.opa;
+    bool up = true;
+    while (J.opa < 255 && frames < 20) {
+        CHECK(wx_job_step(&J, &b, 1.0 / 30) == WX_DO_PAINT, "paint while fading in");
+        if (J.opa < last) up = false;
+        last = J.opa;
+        frames++;
+    }
+    CHECK(up && J.opa == 255 && frames >= 3 && frames <= 5, "fade in over 3 steps (%d frames)", frames);
+}
+
+static void test_partial_rebake(void)
+{
+    wx_temp_t a = key(3, 12, 1), c = key(-2, 12, 1);
+    baked(a);
+    CHECK(wx_job_step(&J, &c, 0.03) == (WX_DO_BAKE | WX_DO_PAINT) && J.opa == 255, "a range change bakes the ring, no detach, keeps painting");
+    CHECK(IO.kind == WX_BAKE_RING, "ring only");
+    CHECK(wx_job_step(&J, &c, 0.03) == WX_DO_PAINT, "paint while the ring bake is queued");
+    const wx_temp_t *in = wx_job_take(&J);
+    CHECK(in && in->lo == -2, "the ring bake carries the new range");
+    CHECK(wx_job_step(&J, &a, 0.03) == WX_DO_PAINT, "paint while it runs, no second job");
+    wx_job_done(&J, 1);
+    CHECK(wx_job_step(&J, &c, 0.03) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 255, "applied without a fade");
+    CHECK(wx_job_step(&J, &c, 0.03) == WX_DO_PAINT, "then paint");
+
+    wx_temp_t m0 = c, m;
+    m0.night = true;
+    m0.hero = WX_HERO_MOON;
+    m0.moon_illum = 40;
+    baked(m0);
+    m = m0;
+    m.moon_illum = 45;
+    CHECK(wx_job_step(&J, &m, 0.03) == (WX_DO_BAKE | WX_DO_PAINT) && IO.kind == WX_BAKE_HERO, "a hero change bakes the hero only");
+    CHECK(wx_job_hold(&J, true) == 0 && wx_job_take(&J) == NULL, "held while shown: the hero bake is parked");
+    wx_job_hold(&J, false);
+    CHECK(wx_job_step(&J, &m, 0.03) == (WX_DO_BAKE | WX_DO_PAINT) && IO.kind == WX_BAKE_HERO,
+          "a parked partial bake comes back as a partial bake: the shown buffers stay attached");
+    bake();
+    wx_temp_t sc = key(-2, 12, 3);
+    CHECK(wx_job_step(&J, &sc, 0.03) == (WX_DO_APPLY | WX_DO_PAINT), "a scene change while the hero bake ran: the hero lands first");
+    CHECK(fade_out(&sc) == (WX_DO_BAKE | WX_DO_DETACH), "then the scene fades out and detaches");
+
+    baked(a);
+    wx_job_step(&J, &sc, 1.0 / 30);
+    wx_job_step(&J, &sc, 1.0 / 30);
+    CHECK(J.opa < 255, "fading out");
+    CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_PAINT && J.opa == 255 && atomic_load(&J.state) == WX_JOB_IDLE,
+          "the data goes back during the fade: full opacity, no bake");
+    wx_job_step(&J, &sc, 1.0 / 30);
+    CHECK(J.opa < 255 && wx_job_show(&J, false) == WX_DO_RELEASE, "hidden mid-fade: freed");
+    wx_job_released(&J);
+    CHECK(J.opa == 255 && !J.out, "opacity reset with the buffers");
 }
 
 static void test_hide_show_drops_a_done_job(void)
@@ -168,12 +234,12 @@ static void test_ota_hold(void)
     wx_temp_t b = key(-5, 0, 4);
     CHECK(wx_job_step(&J, &b, 0.03) == 0 && atomic_load(&J.state) == WX_JOB_IDLE, "held and shown: no bake starts");
     wx_job_hold(&J, false);
-    CHECK(wx_job_step(&J, &b, 0.03) == (WX_DO_BAKE | WX_DO_DETACH), "released: the bake starts");
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "released: the bake starts");
     CHECK(wx_job_hold(&J, true) == 0 && wx_job_take(&J) == NULL, "a hold parks a queued job");
     wx_job_hold(&J, false);
     CHECK(wx_job_step(&J, &a, 0.03) == WX_DO_BAKE, "back to the old key after a parked re-bake: bake again, no paint on detached canvases");
     bake();
-    CHECK(wx_job_step(&J, &a, 0.03) == (WX_DO_APPLY | WX_DO_PAINT), "the re-bake re-attaches");
+    CHECK(wx_job_step(&J, &a, 0.03) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 85, "the re-bake re-attaches and fades in");
 }
 
 static void test_alloc_retry(void)
@@ -204,18 +270,20 @@ static void test_alloc_retry(void)
 
 static void test_race_start(void)
 {
-    wx_temp_t a = key(3, 12, 1), b = key(-2, 12, 3);
-    for (int at = 1; at <= 2; at++) {
+    wx_temp_t a = key(3, 12, 1), b = key(-2, 12, 3), c = key(-2, 12, 1);
+    for (int i = 0; i < 4; i++) {
+        int at = 1 + i % 2;
+        const wx_temp_t *n = i < 2 ? &b : &c;
         baked(a);
         s_race_at = at;
         s_race_mode = RACE_TAKE;
         s_race_fired = 0;
         s_race_took = false;
-        wx_job_step(&J, &b, 0.03);
+        for (int f = 0; f < 20 && !s_race_fired; f++) wx_job_step(&J, n, 1.0 / 30);
         s_race_mode = RACE_NONE;
         CHECK(s_race_fired == at, "race point %d reached", at);
-        CHECK(!s_race_took || (s_race_in.lo == -2 && s_race_in.cloud_band == 3),
-              "a job taken at race point %d carries the new key (lo %d band %d)", at, s_race_in.lo, s_race_in.cloud_band);
+        CHECK(!s_race_took || (s_race_in.lo == -2 && s_race_in.cloud_band == n->cloud_band && IO.kind == (i < 2 ? WX_BAKE_FULL : WX_BAKE_RING)),
+              "a job taken at race point %d carries the new key and kind (lo %d band %d)", at, s_race_in.lo, s_race_in.cloud_band);
         CHECK(s_race_took == (at == 2), "race point %d: the job is %s", at, at == 2 ? "queued" : "not yet queued");
     }
 }
@@ -245,6 +313,7 @@ int main(void)
 {
     test_first_bake();
     test_rebake_detaches();
+    test_partial_rebake();
     test_hide_show_drops_a_done_job();
     test_hide_during_bake();
     test_ota_hold();

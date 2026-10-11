@@ -79,7 +79,7 @@ echo "cJSON hook wiring: app_main sets PSRAM-first hooks before anything parses"
 TFC="$D/../../main/temp_face.c"
 body "$TFC" temp_face_update | grep -qF 'if (wx_shift_tick(&s_shift, dt)) shift_root();' || WIRING="$WIRING update-steps-the-burn-in-shift"
 body "$TFC" shift_root | grep -qF 'lv_obj_set_style_translate_y(s_root, dy, 0);' || WIRING="$WIRING shift-moves-the-root"
-[ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(t, &s_buf, &s_io.out);' ||
+[ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(t, s_io.kind, &s_buf, &s_io.out);' ||
     WIRING="$WIRING wx_bake-only-in-bake_task"
 grep -qE 'wx_paint_(clear|ring|rays|stars|thermo|hero|clouds)\(' "$TFC" && WIRING="$WIRING no-bake-pass-on-the-LVGL-task"
 body "$TFC" bake_task | grep -qF 'const wx_temp_t *t = wx_job_take(&s_job);' || WIRING="$WIRING bake_task-takes-through-wx_job"
@@ -92,7 +92,7 @@ body "$TFC" temp_face_hold | grep -qF 'act(wx_job_hold(&s_job, hold));' || WIRIN
 body "$TFC" temp_face_update | grep -qF 'int a = wx_job_step(&s_job, &t, dt);' || WIRING="$WIRING update-steps-wx_job"
 body "$TFC" temp_face_update | grep -qF 'if (!(a & WX_DO_PAINT)) return;' || WIRING="$WIRING update-paints-only-on-WX_DO_PAINT"
 for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'if (a & WX_DO_DETACH) detach();' \
-    'if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);' 'if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out);'; do
+    'if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);' 'if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out, s_io.kind);'; do
     body "$TFC" act | grep -qF "$ACT" || WIRING="$WIRING act:$ACT"
 done
 [ "$(grep -c 'xTaskNotifyGive(' "$TFC")" -eq 1 ] || WIRING="$WIRING notify-only-in-act"
@@ -104,6 +104,11 @@ body "$TFC" release | grep -qF 'detach();' && body "$TFC" release | grep -qF 'wx
     WIRING="$WIRING release-detaches-and-tells-wx_job"
 grep -qF 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' "$TFC" && [ "$(grep -c 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' "$TFC")" -eq 1 ] &&
     body "$TFC" apply | grep -qF 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' || WIRING="$WIRING bg-attached-only-on-apply"
+[ "$(grep -c 'wx_ring_blit(' "$TFC")" -eq 1 ] && body "$TFC" apply | grep -qF 'wx_ring_blit(s_buf.ring, s_buf.bg);' ||
+    WIRING="$WIRING ring-blit-only-in-apply"
+body "$TFC" apply | awk '/s_front \^= 1;/ {f = NR} /sprite\(s_hero, s_hero_buf\[s_front\], / {if (f) h = NR} /s_buf\.hero = s_hero_buf\[!s_front\];/ {if (h) b = 1} END {exit !b}' &&
+    [ "$(grep -c 'sprite(s_hero, ' "$TFC")" -eq 1 ] && [ "$(grep -c 's_buf.hero = ' "$TFC")" -eq 3 ] ||
+    WIRING="$WIRING hero-shows-the-front-and-bakes-the-back"
 [ "$(grep -c 'heap_caps_free(' "$TFC")" -eq 1 ] && grep -qF '#define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)' "$TFC" ||
     WIRING="$WIRING free-only-through-DROP"
 [ "$(body "$TFC" acquire | grep -c 'psram(')" -eq "$(body "$TFC" release | grep -c 'DROP(')" ] || WIRING="$WIRING release-drops-every-buffer"

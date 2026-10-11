@@ -36,6 +36,8 @@ static const char *TAG = "tempface";
 static lv_obj_t *s_root, *s_bg, *s_hero, *s_still, *s_drift, *s_thermo, *s_marker, *s_value, *s_lo, *s_hi, *s_sub;
 static EXT_RAM_BSS_ATTR wx_bake_buf_t s_buf;
 static uint8_t *s_thermo_buf, *s_marker_buf;
+static EXT_RAM_BSS_ATTR uint8_t *s_hero_buf[2];
+static EXT_RAM_BSS_ATTR int s_front;
 static uint8_t s_none[2 * 2 * 3];
 static EXT_RAM_BSS_ATTR wx_img_t s_thermo_img;
 static EXT_RAM_BSS_ATTR wx_job_io_t s_io;
@@ -49,7 +51,7 @@ static EXT_RAM_BSS_ATTR int s_tick;
 typedef struct {
     char value[20], sub[24];
     uint32_t value_rgb, sub_rgb;
-    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, drift;
+    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift;
     uint32_t merc_rgb;
 } shown_t;
 
@@ -91,7 +93,7 @@ static void bake_task(void *arg)
         const wx_temp_t *t = wx_job_take(&s_job);
         if (!t) continue;
         int64_t t0 = esp_timer_get_time();
-        wx_bake(t, &s_buf, &s_io.out);
+        wx_bake(t, s_io.kind, &s_buf, &s_io.out);
         wx_job_done(&s_job, (int)((esp_timer_get_time() - t0) / 1000));
     }
 }
@@ -145,7 +147,10 @@ static void release(void)
     lv_canvas_set_buffer(s_marker, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     DROP(s_buf.bg);
     DROP(s_buf.lut);
-    DROP(s_buf.hero);
+    DROP(s_buf.ring);
+    DROP(s_hero_buf[0]);
+    DROP(s_hero_buf[1]);
+    s_buf.hero = NULL;
     DROP(s_buf.still);
     DROP(s_buf.drift);
     DROP(s_thermo_buf);
@@ -157,18 +162,22 @@ static bool acquire(void)
 {
     s_buf.bg = psram((size_t)WX_FACE * WX_FACE * 2);
     s_buf.lut = psram(WX_RING_LUT * sizeof *s_buf.lut);
-    s_buf.hero = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
+    s_buf.ring = psram(sizeof *s_buf.ring);
+    s_hero_buf[0] = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
+    s_hero_buf[1] = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
     s_buf.still = psram((size_t)wx_clouds_max_px(false) * 3);
     s_buf.drift = psram((size_t)wx_clouds_max_px(true) * 3);
     s_thermo_buf = psram(WX_THERMO_W * WX_THERMO_H * 3);
     s_marker_buf = psram(WX_MARKER * WX_MARKER * 3);
-    if (!s_buf.bg || !s_buf.lut || !s_buf.hero || !s_buf.still || !s_buf.drift || !s_thermo_buf || !s_marker_buf) {
+    if (!s_buf.bg || !s_buf.lut || !s_buf.ring || !s_hero_buf[0] || !s_hero_buf[1] || !s_buf.still || !s_buf.drift || !s_thermo_buf || !s_marker_buf) {
         ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black, retrying in 5 s",
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
                  (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
         release();
         return false;
     }
+    s_front = 0;
+    s_buf.hero = s_hero_buf[1];
     s_thermo_img = (wx_img_t){.px = (uint16_t *)s_thermo_buf, .a = s_thermo_buf + WX_THERMO_W * WX_THERMO_H * 2,
                               .w = WX_THERMO_W, .h = WX_THERMO_H};
     wx_img_t mk = {.px = (uint16_t *)s_marker_buf, .a = s_marker_buf + WX_MARKER * WX_MARKER * 2, .w = WX_MARKER,
@@ -206,19 +215,28 @@ static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
     lv_obj_invalidate(c);
 }
 
-static void apply(const wx_temp_t *t, const wx_bake_out_t *o)
+static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
 {
-    lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
-    lv_obj_invalidate(s_bg);
-    s_tick = -1;
-    sprite(s_hero, s_buf.hero, o->hero);
-    sprite(s_still, s_buf.still, o->still);
-    sprite(s_drift, s_buf.drift, o->drift);
+    if (kind & WX_BAKE_SCENE) {
+        lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
+        sprite(s_still, s_buf.still, o->still);
+        sprite(s_drift, s_buf.drift, o->drift);
+    } else if (kind & WX_BAKE_RING) {
+        wx_ring_blit(s_buf.ring, s_buf.bg);
+    }
+    if (kind & (WX_BAKE_SCENE | WX_BAKE_RING)) lv_obj_invalidate(s_bg);
+    if (kind & WX_BAKE_HERO) {
+        s_front ^= 1;
+        sprite(s_hero, s_hero_buf[s_front], o->hero);
+        s_buf.hero = s_hero_buf[!s_front];
+    }
     end_label(s_lo, s_lo_txt, sizeof s_lo_txt, t->have && t->has_range, t->lo);
     end_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->have && t->has_range, t->hi);
     s_out = *o;
+    s_tick = -1;
     s_shown.drift = 0x7FFFFFFF;
-    ESP_LOGI(TAG, "baked %d..%d hero %d clouds %d in %d ms", t->lo, t->hi, (int)t->hero, t->cloud_band, s_io.ms);
+    ESP_LOGI(TAG, "baked parts %d (1 ring, 2 hero, 7 scene) %d..%d hero %d clouds %d in %d ms", kind, t->lo, t->hi,
+             (int)t->hero, t->cloud_band, s_io.ms);
 }
 
 static void shift_root(void)
@@ -280,6 +298,18 @@ static void set_mercury(float top, uint32_t rgb)
     lv_obj_invalidate(s_thermo);
 }
 
+static void set_face_opa(int opa)
+{
+    if (opa == s_shown.face_opa) return;
+    s_shown.face_opa = opa;
+    lv_obj_set_style_image_opa(s_bg, (lv_opa_t)opa, 0);
+    lv_obj_set_style_image_opa(s_thermo, (lv_opa_t)opa, 0);
+    lv_obj_set_style_image_opa(s_marker, (lv_opa_t)opa, 0);
+    lv_obj_set_style_text_opa(s_value, (lv_opa_t)opa, 0);
+    lv_obj_set_style_text_opa(s_lo, (lv_opa_t)opa, 0);
+    lv_obj_set_style_text_opa(s_hi, (lv_opa_t)opa, 0);
+}
+
 static void set_sprites(int opa, int drift)
 {
     if (opa != s_shown.sprite_opa) {
@@ -301,8 +331,9 @@ static int drift_px(double t)
     return 2 * (int)lround(tri * 2);
 }
 
-static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline)
+static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
 {
+    set_face_opa(fo);
     double ta = floor(s_t * ARRIVE_FPS) / ARRIVE_FPS;
     double a = wx_arrive(ta);
     char txt[20];
@@ -320,9 +351,9 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline)
     }
     set_marker(t->frac * (float)a, t->have);
     double tf = floor(s_t * FADE_FPS) / FADE_FPS;
-    set_sprites((int)lround(255 * wx_arrive(tf)), s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
+    set_sprites((int)lround(fo * wx_arrive(tf)), s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
     double sf = (s_t - WX_ARRIVE_S) / SUB_FADE_S;
-    int sub_opa = sf <= 0 ? 0 : sf >= 1 ? 255 : 85 * (1 + (int)(sf * 3));
+    int sub_opa = (sf <= 0 ? 0 : sf >= 1 ? 255 : 85 * (1 + (int)(sf * 3))) * fo / 255;
     char age[24];
     if (offline && obs && obs->valid) {
         wx_age_label(obs, age, sizeof age);
@@ -342,7 +373,7 @@ static void act(int a)
     }
     if (a & WX_DO_DETACH) detach();
     if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);
-    if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out);
+    if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out, s_io.kind);
 }
 
 void temp_face_show(bool on)
@@ -371,8 +402,8 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     if (wx_shift_tick(&s_shift, dt)) shift_root();
     s_t += dt;
     int tick = (int)floor(s_t * ARRIVE_FPS);
-    if (s_t < WX_ARRIVE_S + SUB_FADE_S && tick == s_tick) return;
+    if (s_t < WX_ARRIVE_S + SUB_FADE_S && tick == s_tick && s_job.opa == s_shown.face_opa) return;
     s_tick = tick;
-    paint(&t, obs, offline);
+    paint(&t, obs, offline, s_job.opa);
     show_obj(s_root, true);
 }

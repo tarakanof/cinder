@@ -93,7 +93,7 @@ static void clip(const wx_img_t *im, float fx0, float fy0, float fx1, float fy1,
 
 #define RING_STEPS (WX_RING_LUT - 1)
 
-void wx_paint_ring(wx_img_t *im, int lo, int hi, bool grey, uint16_t lut[WX_RING_LUT])
+void wx_paint_ring(wx_ring_t *r, int lo, int hi, bool grey, uint16_t lut[WX_RING_LUT])
 {
     for (int i = 0; i <= RING_STEPS; i++)
         lut[i] = wx_rgb565(grey ? 0x262626 : wx_temp_rgb((float)lo + (float)(hi - lo) * i / RING_STEPS));
@@ -101,14 +101,26 @@ void wx_paint_ring(wx_img_t *im, int lo, int hi, bool grey, uint16_t lut[WX_RING
     wx_gauge_xy(0, &sx, &sy);
     wx_gauge_xy(1, &ex, &ey);
     const float r_in = WX_RING_R - WX_RING_HW - 1, r_out = WX_RING_R + WX_RING_HW + 1;
+    wx_img_t face = {.w = WX_FACE, .h = WX_FACE};
     int x0, y0, x1, y1;
-    clip(im, WX_FACE_C - r_out, WX_FACE_C - r_out, WX_FACE_C + r_out, WX_FACE_C + r_out, &x0, &y0, &x1, &y1);
+    clip(&face, WX_FACE_C - r_out, WX_FACE_C - r_out, WX_FACE_C + r_out, WX_FACE_C + r_out, &x0, &y0, &x1, &y1);
+    r->nrun = r->npx = 0;
     for (int y = y0; y < y1; y++) {
-        float fy = (float)(im->y0 + y) + 0.5f, dy = fy - WX_FACE_C;
+        float fy = (float)y + 0.5f, dy = fy - WX_FACE_C;
+        bool in = false;
         for (int x = x0; x < x1; x++) {
-            float fx = (float)(im->x0 + x) + 0.5f, dx = fx - WX_FACE_C;
+            float fx = (float)x + 0.5f, dx = fx - WX_FACE_C;
             float r2 = dx * dx + dy * dy;
-            if (r2 < r_in * r_in || r2 > r_out * r_out) continue;
+            if (r2 < r_in * r_in || r2 > r_out * r_out) {
+                in = false;
+                continue;
+            }
+            if (!in) {
+                if (r->nrun == WX_RING_RUNS) return;
+                r->run[r->nrun++] = (wx_run_t){(int16_t)y, (int16_t)x, 0};
+                in = true;
+            }
+            if (r->npx == WX_RING_PX) return;
             float th = atan2f(dx, -dy) / DEG;
             float s = th - 225.0f;
             while (s < 0) s += 360.0f;
@@ -122,8 +134,22 @@ void wx_paint_ring(wx_img_t *im, int lo, int hi, bool grey, uint16_t lut[WX_RING
                 d = (ds < de ? ds : de) - WX_RING_HW;
                 li = ds < de ? 0 : RING_STEPS;
             }
-            put(im, y * im->w + x, lut[li], cov(d));
+            uint16_t px = 0;
+            wx_img_t one = {.px = &px, .w = 1, .h = 1};
+            put(&one, 0, lut[li], cov(d));
+            r->px[r->npx++] = px;
+            r->run[r->nrun - 1].n++;
         }
+    }
+}
+
+void wx_ring_blit(const wx_ring_t *r, uint16_t *bg)
+{
+    const uint16_t *p = r->px;
+    for (int i = 0; i < r->nrun; i++) {
+        const wx_run_t *u = &r->run[i];
+        memcpy(bg + (size_t)u->y * WX_FACE + u->x, p, (size_t)u->n * sizeof *p);
+        p += u->n;
     }
 }
 
@@ -442,23 +468,29 @@ static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
     return b;
 }
 
-void wx_bake(const wx_temp_t *t, const wx_bake_buf_t *b, wx_bake_out_t *out)
+void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
-    wx_paint_clear(&bg);
-    if (t->hero == WX_HERO_SUN) wx_paint_rays(&bg);
-    if (t->stars) wx_paint_stars(&bg);
-    wx_paint_thermo(&bg);
-    wx_paint_ring(&bg, t->lo, t->hi, !t->have, b->lut);
-    out->hero = (wx_box_t){0, 0, 0, 0};
-    if (t->hero != WX_HERO_NONE) {
-        wx_img_t h = {.px = (uint16_t *)b->hero, .a = b->hero + WX_HERO_BOX * WX_HERO_BOX * 2, .w = WX_HERO_BOX,
-                      .h = WX_HERO_BOX};
-        out->hero = wx_paint_hero(&h, t->hero, t->moon_phase, t->moon_illum);
+    if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
+    if (kind & WX_BAKE_RING) wx_paint_ring(b->ring, t->lo, t->hi, !t->have, b->lut);
+    if (kind & WX_BAKE_SCENE) {
+        wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+        wx_paint_clear(&bg);
+        if (t->hero == WX_HERO_SUN) wx_paint_rays(&bg);
+        if (t->stars) wx_paint_stars(&bg);
+        wx_paint_thermo(&bg);
+        wx_ring_blit(b->ring, b->bg);
+        wx_clouds_t all, still, drift;
+        wx_clouds_for(t->cloud_band, t->night, &all);
+        wx_clouds_split(&all, &still, &drift);
+        out->still = layer(b->still, &still);
+        out->drift = layer(b->drift, &drift);
     }
-    wx_clouds_t all, still, drift;
-    wx_clouds_for(t->cloud_band, t->night, &all);
-    wx_clouds_split(&all, &still, &drift);
-    out->still = layer(b->still, &still);
-    out->drift = layer(b->drift, &drift);
+    if (kind & WX_BAKE_HERO) {
+        out->hero = (wx_box_t){0, 0, 0, 0};
+        if (t->hero != WX_HERO_NONE) {
+            wx_img_t h = {.px = (uint16_t *)b->hero, .a = b->hero + WX_HERO_BOX * WX_HERO_BOX * 2, .w = WX_HERO_BOX,
+                          .h = WX_HERO_BOX};
+            out->hero = wx_paint_hero(&h, t->hero, t->moon_phase, t->moon_illum);
+        }
+    }
 }
