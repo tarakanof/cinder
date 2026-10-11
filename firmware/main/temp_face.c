@@ -252,7 +252,7 @@ void temp_face_create(lv_obj_t *parent)
 {
     if (s_root) return;
     wx_job_init(&s_job, &s_io);
-    if (xTaskCreatePinnedToCoreWithCaps(bake_task, "wxbake", 4096, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+    if (xTaskCreatePinnedToCoreWithCaps(bake_task, "wxbake", 5120, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "bake task not created: the weather page stays black");
         return;
     }
