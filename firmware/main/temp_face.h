@@ -6,7 +6,7 @@
 #include "lvgl.h"
 #include "weather_face.h"
 
-/* Allocates the face images in PSRAM (~0.7 MB). */
+/* Allocates the face images in PSRAM (~0.7 MB); without them the page stays black. */
 void temp_face_create(lv_obj_t *parent);
 
 /* Showing replays the arrival. */

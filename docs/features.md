@@ -775,14 +775,14 @@ The weather page is now the Temperature face (canvases AT4/AT5, [`face-design.md
 
   | | 0.9.50 | 0.9.51 | Δ |
   |---|---|---|---|
-  | Image (`cinder.bin`) | 1,557,216 B | 1,592,496 B | +35,280 (the two face fonts ~28 KB) |
-  | Flash `.text` / `.rodata` | 1,058,384 / 395,348 B | 1,063,496 / 425,532 B | +5,112 / +30,184 |
+  | Image (`cinder.bin`) | 1,557,216 B | 1,592,560 B | +35,344 (the two face fonts ~28 KB) |
+  | Flash `.text` / `.rodata` | 1,058,384 / 395,348 B | 1,063,548 / 425,532 B | +5,164 / +30,184 |
   | DIRAM static (`.data` / `.bss`) | 102,791 B (23,480 / 16,088) | 101,519 B (23,464 / 14,832) | −1,272 (the old sky scene state) |
   | PSRAM `.bss` | 49,180 B | 49,492 B | +312 |
   | PSRAM heap (weather page) | 164 KB (sprites 80 KB + canvas 84 KB) | 731 KB (background 434 KB, clouds 201 KB, hero 81 KB, mercury, marker, LUT) | about +567 KB |
   | `stack_walk.py` | `ember` 5,152, `lvgl` 8,592 | same | 0 |
 
-  Internal RAM goes down; no new task, timer or NVS key.
+  Internal RAM goes down; no new task, timer or NVS key. PSRAM free at runtime was about 2.4 MB on 0.9.0 (bot page) and the now-playing pictures take 0.6 MB; not measured since. If the face's buffers do not fit at boot, it logs `no PSRAM for the face` and the weather page stays black instead of asserting.
 - **Deviations from the canvas**: the sun's UV pulse and glow pulse, the heat shimmer (AT4), the star twinkle (AT5) and the frost sparkle (AT3) are left out (static); the hero and the clouds fade in instead of sliding in; the clouds drift as one layer, not each on its own period; no face dots (only one weather face exists); the night sub-line is the sky word, not "low 6° by 06:00" (Ember sends no time of the low); the marker sweep uses ease-out cubic, not the canvas bezier (0.2, 0.8, 0.2, 1). The rain, snow and storm animations of the old sky are gone from the page until the Rain face (#34); the sub-line names the condition.
 - **Tests**: `test_temp.c` (colour scale against the canvas colours, UV bands, AT4/AT5/AT6-style selection and the overcast, rain and snow cases, legacy and missing fields, bake key, count-up values and timing against the AT4 strip, gauge and mercury geometry against the canvas, cloud boxes, ring/rays/thermometer/sun/moon phases/clouds/mercury/marker pixels), `test_fixtures.c` (the four new fixtures, legacy views without detail, bad and missing detail keys, the cJSON hooks, `FEATURES_AHEAD`), `test_caps.c` (six features), `run.sh` (hook wiring).
 - **On the knob** (to do, within the live-device rules): open the weather page and compare with AT4/AT5 (snapshot); the bake log line; arrival smoothness and fps in the stats log; internal heap and PSRAM free in the checkin against 0.9.50; Ember's `effective_caps.features` lists `wx_faces` and the view carries the detail keys.

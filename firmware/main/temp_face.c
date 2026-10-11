@@ -1,6 +1,5 @@
 #include "temp_face.h"
 
-#include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -49,12 +48,7 @@ typedef struct {
 static EXT_RAM_BSS_ATTR shown_t s_shown;
 static EXT_RAM_BSS_ATTR char s_lo_txt[20], s_hi_txt[20];
 
-static uint8_t *alloc3(int px)
-{
-    uint8_t *b = heap_caps_calloc((size_t)px, 3, MALLOC_CAP_SPIRAM);
-    assert(b);
-    return b;
-}
+static uint8_t *alloc3(int px) { return heap_caps_calloc((size_t)px, 3, MALLOC_CAP_SPIRAM); }
 
 static void sprite_img(wx_img_t *im, uint8_t *buf, int w, int h)
 {
@@ -95,19 +89,28 @@ static int max_cloud_px(void)
 void temp_face_create(lv_obj_t *parent)
 {
     if (s_root) return;
+    s_bg_img = (wx_img_t){.px = heap_caps_calloc(WX_FACE * WX_FACE, 2, MALLOC_CAP_SPIRAM), .w = WX_FACE, .h = WX_FACE};
+    s_lut = heap_caps_malloc(WX_RING_LUT * sizeof *s_lut, MALLOC_CAP_SPIRAM);
+    uint8_t *hero = alloc3(WX_HERO_BOX * WX_HERO_BOX), *thermo = alloc3(WX_THERMO_W * WX_THERMO_H),
+            *marker = alloc3(WX_MARKER * WX_MARKER);
+    s_cloud_buf = alloc3(max_cloud_px());
+    if (!s_bg_img.px || !s_lut || !hero || !thermo || !marker || !s_cloud_buf) {
+        ESP_LOGE(TAG, "no PSRAM for the face (%u KB free): the weather page stays black",
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+        heap_caps_free(s_bg_img.px);
+        heap_caps_free(s_lut);
+        heap_caps_free(hero);
+        heap_caps_free(thermo);
+        heap_caps_free(marker);
+        heap_caps_free(s_cloud_buf);
+        return;
+    }
     s_root = lv_obj_create(parent);
     lv_obj_remove_style_all(s_root);
     lv_obj_set_size(s_root, WX_FACE, WX_FACE);
     lv_obj_set_pos(s_root, FACE_X, 0);
     lv_obj_remove_flag(s_root, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
-
-    s_bg_img = (wx_img_t){.px = heap_caps_calloc(WX_FACE * WX_FACE, 2, MALLOC_CAP_SPIRAM), .w = WX_FACE, .h = WX_FACE};
-    s_lut = heap_caps_malloc(WX_RING_LUT * sizeof *s_lut, MALLOC_CAP_SPIRAM);
-    assert(s_bg_img.px && s_lut);
-    uint8_t *hero = alloc3(WX_HERO_BOX * WX_HERO_BOX), *thermo = alloc3(WX_THERMO_W * WX_THERMO_H),
-            *marker = alloc3(WX_MARKER * WX_MARKER);
-    s_cloud_buf = alloc3(max_cloud_px());
     sprite_img(&s_hero_img, hero, WX_HERO_BOX, WX_HERO_BOX);
     sprite_img(&s_thermo_img, thermo, WX_THERMO_W, WX_THERMO_H);
     wx_img_t mk;
