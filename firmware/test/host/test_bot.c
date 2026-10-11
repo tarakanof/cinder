@@ -890,6 +890,25 @@ static void test_act(void)
     bot_act_end(&b, true, 0.3, t + 4);
     bot_look(&b, 0, 0.85, t + 5);
     CHECK(b.gaze_to_y == 0.85, "it does again after the act");
+
+    bot_init(&b, 25, 0);
+    for (t = 0; t < 2; t += 0.016) bot_pose(&b, t);
+    bot_act_begin(&b, t);
+    bot_act_lid(&b, 0.4, 0.2, t);
+    bot_act_eyes(&b, BOT_EYES_ROUND, t);
+    bot_push(&b, t + 0.1);
+    CHECK(!b.hopping && !b.popping, "a push does not hop the outline while acting");
+    bot_set_mood(&b, BOT_WORKING, t + 1);
+    double wx = b.gaze_to_x, wy = b.gaze_to_y, ws = b.gaze_start;
+    bot_act_drop(&b, t + 1);
+    CHECK(!b.acting && b.gaze_to_x == wx && b.gaze_to_y == wy && b.gaze_start == ws, "dropping the act keeps the new mood's gaze");
+    CHECK(b.act_eyes == -1 && b.act_lid.to == 0, "but ends the costume and the lid floor");
+    for (double u = t + 1; u < t + 2; u += 0.016) bot_pose(&b, u);
+    CHECK(bot_pose(&b, t + 2).eyes == BOT_EYES_DASH && fabs(bot_pose(&b, t + 2).lid_l) < 1e-9, "working eyes, open");
+    bot_push(&b, t + 2);
+    CHECK(b.hopping, "a push hops again after the act");
+    bot_act_drop(&b, t + 3);
+    CHECK(!b.acting, "a second drop: nothing");
 }
 
 int main(void)

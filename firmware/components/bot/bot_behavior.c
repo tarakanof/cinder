@@ -430,7 +430,7 @@ static void track_step(bot_t *b, double t)
 
 void bot_push(bot_t *b, double t)
 {
-    if (!bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
+    if (b->acting || !bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
     b->hopping = true; b->hop_start = t;
     b->popping = true; b->pop_start = t;
 }
@@ -496,6 +496,14 @@ void bot_act_end(bot_t *b, bool glide, double lid_dur, double t)
     if (!b->acting) return;
     start_saccade_to(b, t, glide, VIEWER_X, VIEWER_Y);
     bot_act_lid(b, 0, lid_dur, t);
+    bot_act_eyes(b, -1, t);
+    b->acting = false;
+}
+
+void bot_act_drop(bot_t *b, double t)
+{
+    if (!b->acting) return;
+    bot_act_lid(b, 0, 0.3, t);
     bot_act_eyes(b, -1, t);
     b->acting = false;
 }

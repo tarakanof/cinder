@@ -522,7 +522,8 @@ static void drop_inputs(void)
 
 static void moment_unact(double t)
 {
-    if (s_acting) bot_act_end(&s_bot, true, 0.3, t);
+    if (s_acting && s_bot.mood != s_moment_mood) bot_act_drop(&s_bot, t);
+    else if (s_acting) bot_act_end(&s_bot, true, 0.3, t);
     s_acting = false;
     s_cue = s_cue_n;
 }

@@ -348,7 +348,8 @@ for L in 'case WXM_GLIDE: bot_act_gaze(&s_bot, c->a, c->b, true, t); break;' 'ca
     'case WXM_HOP: bot_act_hop(&s_bot, t); break;' 'bot_act_end(&s_bot, c->a > 0, c->b, t);'; do
     printf '%s\n' "$MC" | grep -qF "$L" || WIRING="$WIRING moment_cue:$L"
 done
-body "$MAINC" moment_unact | grep -qF 'if (s_acting) bot_act_end(&s_bot, true, 0.3, t);' && body "$MAINC" moment_unact | grep -qF 's_cue = s_cue_n;' ||
+body "$MAINC" moment_unact | grep -qF 'if (s_acting && s_bot.mood != s_moment_mood) bot_act_drop(&s_bot, t);' &&
+    body "$MAINC" moment_unact | grep -qF 'else if (s_acting) bot_act_end(&s_bot, true, 0.3, t);' && body "$MAINC" moment_unact | grep -qF 's_cue = s_cue_n;' ||
     WIRING="$WIRING moment_unact-ends-the-act-and-the-cues"
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
 body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);' ||
