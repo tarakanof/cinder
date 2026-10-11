@@ -32,7 +32,6 @@ static const char *TAG = "ota";
 
 #define NS "ota"
 #define PIECE 4096
-#define YIELD_EVERY (64 * 1024)
 
 #if CONFIG_CINDER_OTA_TEST
 #define ROLLBACK_LIMIT_MS (2 * 60 * 1000)
@@ -422,7 +421,8 @@ typedef struct {
     esp_ota_handle_t h;
     bool open;
     mbedtls_sha256_context sha;
-    uint32_t written, from, next_yield;
+    uint32_t written, from;
+    int64_t yield_ms;
     uint8_t hdr[OTA_HEADER_LEN];
     uint32_t hdr_have;
     bool hdr_ok;
@@ -442,7 +442,7 @@ static bool dl_begin(dl_t *d)
     mbedtls_sha256_starts(&d->sha, 0);
     d->written = d->hdr_have = 0;
     d->hdr_ok = false;
-    d->next_yield = YIELD_EVERY;
+    d->yield_ms = uptime_ms();
     esp_err_t err = esp_ota_begin(d->part, OTA_WITH_SEQUENTIAL_WRITES, &d->h);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_begin: %s", esp_err_to_name(err));
@@ -466,6 +466,10 @@ static bool dl_write(dl_t *d, const uint8_t *p, int n)
         strcpy(d->err, "size");
         return false;
     }
+    if (ota_yield_due(d->yield_ms, uptime_ms())) {
+        vTaskDelay(OTA_YIELD_TICKS);
+        d->yield_ms = uptime_ms();
+    }
     mbedtls_sha256_update(&d->sha, p, (size_t)n);
     esp_err_t err = esp_ota_write(d->h, p, (size_t)n);
     if (err != ESP_OK) {
@@ -475,10 +479,6 @@ static bool dl_write(dl_t *d, const uint8_t *p, int n)
     }
     d->written += (uint32_t)n;
     ota_face_pct(ota_pct(d->written, d->offer->size));
-    if (d->written >= d->next_yield) {
-        d->next_yield += YIELD_EVERY;
-        vTaskDelay(1);
-    }
     return true;
 }
 
@@ -650,7 +650,11 @@ static void run_update(const ota_ctx_t *ctx)
     ctx->alive();
     bool ok = d->part && offer->size <= d->part->size;
     if (!ok) strcpy(d->err, d->part ? "size" : "flash");
-    if (ok) ok = dl_begin(d) && download(d, piece);
+    if (ok) {
+        http_conn_set_rx_buf(ctx->conn, OTA_RX_BUF);
+        ok = dl_begin(d) && download(d, piece);
+        http_conn_set_rx_buf(ctx->conn, 0);
+    }
     free(piece);
     bool bad = false;
     if (ok && d->written != offer->size) {

@@ -40,6 +40,7 @@ typedef struct {
     const char *user_agent;
     http_event_handle_cb event_handler;
     void *user_data;
+    int buffer_size;
 } esp_http_client_config_t;
 
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *config);

@@ -344,6 +344,8 @@ int ota_pct(uint32_t written, uint32_t size)
     return p > 100 ? 100 : (int)p;
 }
 
+bool ota_yield_due(int64_t last_yield_ms, int64_t now_ms) { return now_ms - last_yield_ms >= OTA_YIELD_MS; }
+
 ota_link_t ota_link_result(bool failed, bool fast_clock)
 {
     return failed && !fast_clock ? OTA_LINK_FAIL : OTA_LINK_OK;

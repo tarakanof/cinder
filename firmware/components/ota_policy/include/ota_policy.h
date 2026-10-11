@@ -160,6 +160,12 @@ const char *ota_header_check(const uint8_t *b, size_t n, const char *version, co
 
 int ota_pct(uint32_t written, uint32_t size);
 
+#define OTA_YIELD_MS 200
+#define OTA_YIELD_TICKS 2
+#define OTA_RX_BUF 4096
+/* Download task, before each flash write: true once OTA_YIELD_MS have passed since the last yield ended. */
+bool ota_yield_due(int64_t last_yield_ms, int64_t now_ms);
+
 #define OTA_HEALTH_MIN_FRAMES 20
 #define OTA_HEALTH_LOOP_MS (30 * 1000)
 #define OTA_HEALTH_HEAP_MIN (27 * 1024)

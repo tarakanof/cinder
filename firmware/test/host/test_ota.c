@@ -728,6 +728,60 @@ static void test_override(void)
     CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_NOT_READY, "the view rule still applies");
 }
 
+typedef enum { YIELD_BY_TIME, YIELD_BY_BYTES } yield_rule_t;
+
+static int64_t max_busy_ms(yield_rule_t rule, uint32_t size, const int *read_ms, const int *write_ms, int n_steps,
+                           int *yields)
+{
+    int64_t t = 0, last = 0, gap = 0;
+    uint32_t written = 0, next_yield = 64 * 1024;
+    *yields = 0;
+    for (int i = 0; written < size; i++) {
+        uint32_t piece = size - written < 4096 ? size - written : 4096;
+        t += read_ms[i % n_steps];
+        if (rule == YIELD_BY_TIME && ota_yield_due(last, t)) {
+            if (t - last > gap) gap = t - last;
+            t += OTA_YIELD_TICKS;
+            last = t;
+            ++*yields;
+        }
+        t += write_ms[i % n_steps];
+        written += piece;
+        if (rule == YIELD_BY_BYTES && written >= next_yield) {
+            next_yield += 64 * 1024;
+            if (t - last > gap) gap = t - last;
+            t += 1;
+            last = t;
+            ++*yields;
+        }
+    }
+    return t - last > gap ? t - last : gap;
+}
+
+static void test_yield(void)
+{
+    CHECK(!ota_yield_due(1000, 1000 + OTA_YIELD_MS - 1) && ota_yield_due(1000, 1000 + OTA_YIELD_MS) &&
+              ota_yield_due(0, 5000),
+          "yield due after OTA_YIELD_MS");
+    CHECK(OTA_YIELD_TICKS >= 2, "a yield blocks for at least one whole tick");
+    static const int fast_r[] = {1, 1}, fast_w[] = {4, 6};
+    static const int slow_r[] = {3, 12, 25, 2}, slow_w[] = {45, 30, 20, 48};
+    static const int erase_r[] = {1, 1, 1}, erase_w[] = {12, 12, 40};
+    const struct {
+        const int *r, *w;
+        int n;
+        const char *name;
+    } cases[] = {{fast_r, fast_w, 2, "fast"}, {slow_r, slow_w, 4, "slow"}, {erase_r, erase_w, 3, "erase"}};
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        int yields = 0, old_yields = 0;
+        int64_t gap = max_busy_ms(YIELD_BY_TIME, 1625408, cases[i].r, cases[i].w, cases[i].n, &yields);
+        int64_t old = max_busy_ms(YIELD_BY_BYTES, 1625408, cases[i].r, cases[i].w, cases[i].n, &old_yields);
+        CHECK(gap <= 250, "%s writes: longest run without a yield %lld ms", cases[i].name, (long long)gap);
+        CHECK(yields > 0, "%s writes: yields", cases[i].name);
+        if (i > 0) CHECK(old > 250, "%s writes: the 64 KB rule ran %lld ms without a yield", cases[i].name, (long long)old);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1) vectors_dir = argv[1];
@@ -749,6 +803,7 @@ int main(int argc, char **argv)
     test_verify_rollback();
     test_override();
     test_link_mapping();
+    test_yield();
     if (failures) {
         printf("ota: %d failure(s)\n", failures);
         return 1;
