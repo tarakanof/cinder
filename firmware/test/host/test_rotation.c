@@ -9,7 +9,7 @@ static int failures;
 #define VIS_X1 (KR_FRAME_W - 1)
 #define VIS_Y1 (KR_FRAME_H - 1)
 #define GRAM 480
-#define PANEL_ROWS 466
+#define MEASURED_ROWS 466
 #define STRIP_ROWS 60
 
 static void test_supported(void)
@@ -150,11 +150,11 @@ static void panel_write(int deg, int x1, int y1, int x2, int y2)
     kr_panel_t p = kr_panel(deg);
     for (int y = y1; y <= y2; y++) {
         int r = y + p.gap_y;
-        int gy = p.mirror_y ? PANEL_ROWS - 1 - r : r;
+        int gy = p.mirror_y ? MEASURED_ROWS - 1 - r : r;
         for (int x = x1; x <= x2; x++) {
             int c = x + p.gap_x;
             int gx = p.mirror_x ? GRAM - 1 - c : c;
-            if (r < 0 || r >= PANEL_ROWS || c < 0 || c >= GRAM || gy < 0 || gx < 0) {
+            if (r < 0 || r >= MEASURED_ROWS || c < 0 || c >= GRAM || gy < 0 || gx < 0) {
                 s_off_panel++;
                 continue;
             }
@@ -192,7 +192,7 @@ static void test_panel_frame(int deg)
     flush_area(deg, 0, 0, KR_FRAME_W - 1, KR_FRAME_H - 1);
     int unwritten, wrong = glass_errors(deg, 0, 0, VIS_X1, VIS_Y1, &unwritten);
     CHECK(s_off_panel == 0, "%d: a full refresh in %d-row strips stays inside the panel's %d rows: %d pixels past it",
-          deg, STRIP_ROWS, PANEL_ROWS, s_off_panel);
+          deg, STRIP_ROWS, MEASURED_ROWS, s_off_panel);
     CHECK(unwritten == 0, "%d: a full refresh writes every visible pixel: %d left stale", deg, unwritten);
     CHECK(wrong == 0, "%d: every visible pixel shows its own frame pixel (upright): %d wrong", deg, wrong);
     CHECK(s_gram[233][236] == frame_id(deg == 180 ? 235 : 236, deg == 180 ? 232 : 233),
@@ -208,26 +208,34 @@ static void test_panel_frame(int deg)
           deg, s_off_panel, unwritten, wrong);
 }
 
-static void test_windows_in_gram(void)
+static int windows_outside(int deg, int w, int h)
 {
-    for (int deg = 0; deg <= 180; deg += 180) {
-        kr_panel_t p = kr_panel(deg);
-        int bad = 0;
-        for (int a = -4; a < KR_FRAME_W; a++)
-            for (int b = a < 0 ? 0 : a; b < KR_FRAME_W + 4; b++) {
-                int x1 = a, y1 = 0, x2 = b, y2 = 1;
-                kr_round(&p, &x1, &y1, &x2, &y2);
-                bad += x1 > x2 || x1 + p.gap_x < 0 || x2 + p.gap_x > GRAM - 1;
+    kr_panel_t p = kr_panel_in(deg, w, h);
+    int bad = 0;
+    for (int a = -4; a < KR_FRAME_W; a++)
+        for (int b = a < 0 ? 0 : a; b < KR_FRAME_W + 4; b++) {
+            int x1 = a, y1 = 0, x2 = b, y2 = 1;
+            kr_round(&p, &x1, &y1, &x2, &y2);
+            bad += x1 > x2 || x1 + p.gap_x < 0 || x2 + p.gap_x > w - 1;
+        }
+    for (int a = -4; a < KR_FRAME_H; a++)
+        for (int b = a < 0 ? 0 : a; b < KR_FRAME_H + 4; b++) {
+            int x1 = 0, y1 = a, x2 = 1, y2 = b;
+            kr_round(&p, &x1, &y1, &x2, &y2);
+            bad += y1 > y2 || y1 + p.gap_y < 0 || y2 + p.gap_y > h - 1;
+        }
+    return bad;
+}
+
+static void test_windows_in_mirror_window(void)
+{
+    for (int deg = 0; deg <= 180; deg += 180)
+        for (int w = KR_FRAME_W; w <= GRAM; w += 2)
+            for (int h = KR_FRAME_H; h <= GRAM; h += 2) {
+                int bad = windows_outside(deg, w, h);
+                CHECK(bad == 0, "%d in %dx%d: every rounded window of an area overlapping the frame, plus gap, stays in columns 0..%d and rows 0..%d: %d bad",
+                      deg, w, h, w - 1, h - 1, bad);
             }
-        for (int a = -4; a < KR_FRAME_H; a++)
-            for (int b = a < 0 ? 0 : a; b < KR_FRAME_H + 4; b++) {
-                int x1 = 0, y1 = a, x2 = 1, y2 = b;
-                kr_round(&p, &x1, &y1, &x2, &y2);
-                bad += y1 > y2 || y1 + p.gap_y < 0 || y2 + p.gap_y > PANEL_ROWS - 1;
-            }
-        CHECK(bad == 0, "%d: every rounded window of an area overlapping the frame, plus gap, stays in GRAM columns 0..%d and rows 0..%d: %d bad", deg,
-              GRAM - 1, PANEL_ROWS - 1, bad);
-    }
 }
 
 static void test_touch(void)
@@ -354,32 +362,77 @@ static void test_failed_rollback(void)
           "unknown and the wish goes back to 0: 0 is written, not assumed");
 }
 
-static void switch_and_redraw(kr_state_t *s, int64_t now, int deg)
+static kr_result_t switch_and_redraw(kr_state_t *s, int64_t now, int deg, fake_t *f)
 {
-    fake_t f = {0};
     kr_want(s, deg);
-    s_gen++;
-    if (kr_step(s, now, fake_orient, &f) == KR_APPLIED) flush_area(s->shown, 0, 0, KR_FRAME_W - 1, KR_FRAME_H - 1);
-    flush_area(s->shown, 200, 100, 271, 131);
+    kr_result_t r = kr_step(s, now, fake_orient, f);
+    if (r == KR_APPLIED) {
+        s_gen++;
+        flush_area(s->shown, 0, 0, KR_FRAME_W - 1, KR_FRAME_H - 1);
+    }
+    if (s->shown != KR_UNKNOWN) flush_area(s->shown, 200, 100, 271, 131);
+    return r;
 }
 
-static void test_switch_over_stale(void)
+static void stale_gram(kr_state_t *s)
 {
     for (int y = 0; y < GRAM; y++)
         for (int x = 0; x < GRAM; x++) s_gram[y][x] = STALE;
     s_gen = 0;
+    kr_state_init(s);
+    s->shown = KR_UNKNOWN;
+}
+
+static void test_switch_over_stale(void)
+{
     kr_state_t s;
-    kr_state_init(&s);
-    s.shown = KR_UNKNOWN;
+    stale_gram(&s);
     const int seq[] = {0, 180, 0, 180};
     for (size_t i = 0; i < sizeof seq / sizeof seq[0]; i++) {
         s_off_panel = 0;
-        switch_and_redraw(&s, (int64_t)i * 1000, seq[i]);
+        fake_t f = {0};
+        switch_and_redraw(&s, (int64_t)i * 1000, seq[i], &f);
         int unwritten, wrong = glass_errors(seq[i], 0, 0, VIS_X1, VIS_Y1, &unwritten);
         CHECK(s.shown == seq[i] && s_off_panel == 0 && unwritten == 0 && wrong == 0,
               "switch %zu to %d over stale GRAM: every visible pixel shows the current frame: %d stale, %d wrong, %d past the panel",
               i, seq[i], unwritten, wrong, s_off_panel);
     }
+    s_gen = 0;
+}
+
+static void test_rollback_over_stale(void)
+{
+    kr_state_t s;
+    stale_gram(&s);
+    s_off_panel = 0;
+    fake_t ok = {0};
+    switch_and_redraw(&s, 0, 0, &ok);
+    for (int from = 0; from <= 180; from += 180) {
+        int to = 180 - from;
+        fake_t back = {.fail = {1}};
+        kr_result_t r = switch_and_redraw(&s, 1000, to, &back);
+        int unwritten, wrong = glass_errors(from, 0, 0, VIS_X1, VIS_Y1, &unwritten);
+        CHECK(r == KR_ROLLED_BACK && back.calls == 2 && back.degs[1] == from, "%d to %d fails, rollback writes %d", from, to, from);
+        CHECK(s.shown == from && s.touch == from && s_off_panel == 0 && unwritten == 0 && wrong == 0,
+              "%d to %d rolled back over stale GRAM: the next redraw keeps the %d picture: %d stale, %d wrong, %d past the panel",
+              from, to, from, unwritten, wrong, s_off_panel);
+        fake_t retry = {0};
+        CHECK(kr_step(&s, s.retry_ms, fake_orient, &retry) == KR_APPLIED && s.shown == to, "%d to %d: the retry applies", from, to);
+        s_gen++;
+        flush_area(s.shown, 0, 0, KR_FRAME_W - 1, KR_FRAME_H - 1);
+    }
+
+    stale_gram(&s);
+    switch_and_redraw(&s, 0, 0, &ok);
+    fake_t lost = {.fail = {1, 1}};
+    CHECK(switch_and_redraw(&s, 1000, 180, &lost) == KR_LOST && s.shown == KR_UNKNOWN, "apply and rollback fail: unknown");
+    fake_t retry = {0};
+    s_off_panel = 0;
+    CHECK(switch_and_redraw(&s, s.retry_ms, 180, &retry) == KR_APPLIED, "the retry from unknown applies");
+    int unwritten, wrong = glass_errors(180, 0, 0, VIS_X1, VIS_Y1, &unwritten);
+    CHECK(s.shown == 180 && s_off_panel == 0 && unwritten == 0 && wrong == 0,
+          "recovered from a failed rollback over stale GRAM: every visible pixel shows the current frame: %d stale, %d wrong, %d past the panel",
+          unwritten, wrong, s_off_panel);
     s_gen = 0;
 }
 
@@ -392,8 +445,9 @@ int main(void)
     test_image_in_place();
     test_panel_frame(0);
     test_panel_frame(180);
-    test_windows_in_gram();
+    test_windows_in_mirror_window();
     test_switch_over_stale();
+    test_rollback_over_stale();
     test_touch();
     test_state_basics();
     test_failed_apply_retried();
