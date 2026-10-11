@@ -171,3 +171,19 @@ void wx_days_arrive(int i, double t, int *opa, int *dy)
     *opa = (int)lround(255 * u);
     *dy = (int)lround(WX_DAYS_SLIDE * (1 - u));
 }
+
+void wx_days_frame(const wx_days_t *d, double t, wx_days_frame_t *f)
+{
+    memset(f, 0, sizeof *f);
+    for (int i = 0; i < d->n && i < WX_DAYS; i++) {
+        wx_days_arrive(i, t, &f->opa[i], &f->dy[i]);
+        f->lo[i] = wx_count_value(d->row[i].lo, wx_count_step(wx_count_n(d->row[i].lo), t));
+        f->hi[i] = wx_count_value(d->row[i].hi, wx_count_step(wx_count_n(d->row[i].hi), t));
+    }
+}
+
+wx_box_t wx_days_row_box(const wx_days_layout_t *l, int i, int dy)
+{
+    int y = l->y[i] - WX_DAYS_ROW_UP + dy;
+    return (wx_box_t){l->area.x0, y, l->area.x1, y + WX_DAYS_ROW_H};
+}

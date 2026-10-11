@@ -211,7 +211,6 @@ static void days_create(void)
     s_dbox = box_obj(s_root);
     for (int i = 0; i < WX_DAYS; i++) {
         lv_obj_t *r = s_drow[i] = box_obj(s_root);
-        lv_obj_set_size(r, WX_FACE, WX_DAYS_ROW_H);
         s_dicon[i] = canvas(r, LV_COLOR_FORMAT_RGB565A8);
         s_dday[i] = label(r, &lv_font_montserrat_30, LV_ALIGN_TOP_LEFT, 0, 0);
         lv_obj_set_style_text_color(s_dday[i], lv_color_hex(WX_DAYS_NAME_RGB), 0);
@@ -525,17 +524,21 @@ static void days_attach(const wx_days_t *d)
         s_shown.day_opa[i] = s_shown.day_dy[i] = s_shown.day_lo[i] = s_shown.day_hi[i] = INT_MIN;
         if (!on) continue;
         const wx_days_row_t *r = &d->row[i];
+        wx_box_t rb = wx_days_row_box(&s_dlay, i, 0);
+        int w = rb.x1 - rb.x0;
+        lv_obj_set_pos(s_drow[i], rb.x0, rb.y0);
+        lv_obj_set_size(s_drow[i], w, rb.y1 - rb.y0);
         lv_canvas_set_buffer(s_dicon[i], m + s_dlay.at[i], sp.x1 - sp.x0, sp.y1 - sp.y0, LV_COLOR_FORMAT_RGB565A8);
-        lv_obj_set_pos(s_dicon[i], sp.x0, sp.y0);
+        lv_obj_set_pos(s_dicon[i], sp.x0 - rb.x0, sp.y0);
         lv_label_set_text_static(s_dday[i], wx_weekday_name(r->wday));
-        lv_obj_align(s_dday[i], LV_ALIGN_TOP_LEFT, c->day_x, WX_DAYS_ROW_UP - lv_font_montserrat_30.line_height / 2);
-        lv_obj_align(s_dlo[i], LV_ALIGN_TOP_RIGHT, c->lo_x + c->lo_w - WX_FACE, temp_y);
-        lv_obj_align(s_dhi[i], LV_ALIGN_TOP_LEFT, c->hi_x, temp_y);
+        lv_obj_align(s_dday[i], LV_ALIGN_TOP_LEFT, c->day_x - rb.x0, WX_DAYS_ROW_UP - lv_font_montserrat_30.line_height / 2);
+        lv_obj_align(s_dlo[i], LV_ALIGN_TOP_RIGHT, c->lo_x + c->lo_w - rb.x1, temp_y);
+        lv_obj_align(s_dhi[i], LV_ALIGN_TOP_LEFT, c->hi_x - rb.x0, temp_y);
         show_obj(s_dpop[i], r->pop >= 0);
         if (r->pop < 0) continue;
         snprintf(s_dpop_txt[i], sizeof s_dpop_txt[i], "%d%%", r->pop);
         lv_label_set_text_static(s_dpop[i], s_dpop_txt[i]);
-        lv_obj_align(s_dpop[i], LV_ALIGN_TOP_MID, c->icon_x + WX_DAYS_ICON / 2 - WX_FACE / 2, WX_DAYS_ROW_UP + WX_DAYS_POP_DY);
+        lv_obj_align(s_dpop[i], LV_ALIGN_TOP_MID, c->icon_x + WX_DAYS_ICON / 2 - rb.x0 - w / 2, WX_DAYS_ROW_UP + WX_DAYS_POP_DY);
     }
     lv_obj_invalidate(s_dbox);
 }
@@ -854,11 +857,10 @@ static void set_wind(const wx_wind_t *w, uint32_t rgb, int fo, int opa)
 static void set_days(const wx_days_t *d, double ta, int fo)
 {
     bool dirty = false;
+    wx_days_frame_t f;
+    wx_days_frame(d, ta, &f);
     for (int i = 0; i < s_dlay.n; i++) {
-        const wx_days_row_t *r = &d->row[i];
-        int opa, dy;
-        wx_days_arrive(i, ta, &opa, &dy);
-        opa = opa * fo / 255;
+        int opa = f.opa[i] * fo / 255, dy = f.dy[i], lo = f.lo[i], hi = f.hi[i];
         if (opa != s_shown.day_opa[i]) {
             s_shown.day_opa[i] = opa;
             lv_obj_set_style_opa(s_drow[i], (lv_opa_t)opa, 0);
@@ -866,11 +868,9 @@ static void set_days(const wx_days_t *d, double ta, int fo)
         }
         if (dy != s_shown.day_dy[i]) {
             s_shown.day_dy[i] = dy;
-            lv_obj_set_y(s_drow[i], s_dlay.y[i] - WX_DAYS_ROW_UP + dy);
+            lv_obj_set_y(s_drow[i], wx_days_row_box(&s_dlay, i, dy).y0);
             dirty = true;
         }
-        int lo = wx_count_value(r->lo, wx_count_step(wx_count_n(r->lo), ta));
-        int hi = wx_count_value(r->hi, wx_count_step(wx_count_n(r->hi), ta));
         if (lo != s_shown.day_lo[i]) {
             s_shown.day_lo[i] = lo;
             end_label(s_dlo[i], s_dlo_txt[i], sizeof s_dlo_txt[i], true, lo);

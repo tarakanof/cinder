@@ -551,6 +551,61 @@ static void test_arrive(void)
         }
 }
 
+static bool box_in(wx_box_t b, wx_box_t a) { return b.x0 >= a.x0 && b.y0 >= a.y0 && b.x1 <= a.x1 && b.y1 <= a.y1; }
+
+static void test_areas(void)
+{
+    for (int n = 1; n <= 3; n++) {
+        wx_obs_t o = an1();
+        o.day_n = n;
+        wx_days_t d;
+        wx_days_layout_t l;
+        wx_days_from(&o, &d);
+        wx_days_layout(&d, &l);
+        int bw = l.area.x1 - l.area.x0, bh = l.area.y1 - l.area.y0;
+        wx_days_frame_t prev, f;
+        wx_days_frame(&d, -1, &prev);
+        int changed = 0, last = -1;
+        bool inside = true;
+        for (int k = 0; k <= 30 * 5; k++) {
+            wx_days_frame(&d, k / 30.0, &f);
+            bool dirty = false;
+            for (int i = 0; i < l.n; i++) {
+                if (f.opa[i] == prev.opa[i] && f.dy[i] == prev.dy[i] && f.lo[i] == prev.lo[i] && f.hi[i] == prev.hi[i]) continue;
+                dirty = true;
+                inside &= box_in(wx_days_row_box(&l, i, prev.dy[i]), l.area) && box_in(wx_days_row_box(&l, i, f.dy[i]), l.area);
+            }
+            if (dirty) {
+                changed++;
+                last = k;
+            }
+            prev = f;
+        }
+        CHECK(inside, "%d rows: every row box, old and new, inside the one redraw box", n);
+        CHECK(last >= 0 && last <= (int)ceil(WX_ARRIVE_S * 30), "%d rows: nothing changes after the arrival (last change at frame %d)", n, last);
+        CHECK(bw == 362 && bh == WX_DAYS_ROW_H + WX_DAYS_SLIDE + (n - 1) * 85 - (n == 2 ? 1 : 0),
+              "%d rows: the box %dx%d", n, bw, bh);
+        printf("days: %d rows, 1 area of %dx%d (%d px) on %d of the arrival's frames, then none\n", n, bw, bh, bw * bh, changed);
+        wx_box_t r = wx_days_row_box(&l, 0, 0);
+        CHECK(r.x0 == l.area.x0 && r.x1 == l.area.x1 && r.y0 == l.y[0] - WX_DAYS_ROW_UP && r.y1 == r.y0 + WX_DAYS_ROW_H,
+              "a row is as wide as the box, not the face");
+        CHECK(wx_days_row_box(&l, 0, 7).y0 == r.y0 + 7, "the slide moves it down");
+        CHECK(l.sprite.x0 >= l.area.x0 && l.sprite.x1 <= l.area.x1 && l.c.x0 >= l.area.x0 && l.c.x1 <= l.area.x1, "the row's content inside it");
+    }
+    wx_obs_t o = an1();
+    wx_days_t d;
+    wx_days_from(&o, &d);
+    wx_days_frame_t f;
+    wx_days_frame(&d, 0, &f);
+    CHECK(f.opa[0] == 0 && f.dy[0] == 12 && f.lo[0] == 0 && f.hi[0] == 0, "frame 0: hidden, down, counts at 0");
+    wx_days_frame(&d, 10, &f);
+    for (int i = 0; i < 3; i++)
+        CHECK(f.opa[i] == 255 && f.dy[i] == 0 && f.lo[i] == d.row[i].lo && f.hi[i] == d.row[i].hi, "row %d settled", i);
+    wx_days_frame(&d, 0.5, &f);
+    CHECK(f.lo[1] == wx_count_value(9, wx_count_step(wx_count_n(9), 0.5)) && f.hi[2] == wx_count_value(17, wx_count_step(wx_count_n(17), 0.5)),
+          "the counts on the Temperature face's ease");
+}
+
 static uint32_t rgb_of(uint16_t c)
 {
     uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
@@ -731,6 +786,7 @@ int main(void)
     test_cols();
     test_layout();
     test_arrive();
+    test_areas();
     test_paint();
     if (failures) {
         printf("days: %d failure(s)\n", failures);

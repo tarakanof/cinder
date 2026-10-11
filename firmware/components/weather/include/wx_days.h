@@ -94,6 +94,16 @@ void wx_days_layout(const wx_days_t *d, wx_days_layout_t *l);
 /* Row i's arrival t s after the face showed: opacity 0..255 and the slide, px down. */
 void wx_days_arrive(int i, double t, int *opa, int *dy);
 
+typedef struct {
+    int opa[WX_DAYS], dy[WX_DAYS]; /* wx_days_arrive */
+    int lo[WX_DAYS], hi[WX_DAYS];  /* the count-up values shown */
+} wx_days_frame_t;
+
+/* Every row's state t s after the face showed (the device paints it at 30 fps). */
+void wx_days_frame(const wx_days_t *d, double t, wx_days_frame_t *f);
+/* Row i's container at slide dy: as wide as l's redraw box, WX_DAYS_ROW_H tall from WX_DAYS_ROW_UP above its centre. */
+wx_box_t wx_days_row_box(const wx_days_layout_t *l, int i, int dy);
+
 #ifdef __cplusplus
 }
 #endif
