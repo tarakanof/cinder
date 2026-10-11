@@ -120,6 +120,17 @@ RAIN_CV='lv_canvas_set_buffer\(s_(strip|top|bottom|cover|splash|bolt|drip)'
     $(body "$TFC" set_rain | grep -cE "$RAIN_CV") )) ] && ! body "$TFC" detach | grep -E "$RAIN_CV" | grep -vqF 's_none, ' ||
     WIRING="$WIRING rain-layers-attach-only-in-rain_attach-and-set_rain"
 body "$TFC" apply | grep -qF 'if (t->rain.on) rain_attach(&t->rain);' || WIRING="$WIRING rain-attaches-on-a-scene-apply"
+body "$TFC" apply | grep -qF 'if (t->cast.on) cast_attach(&t->cast);' || WIRING="$WIRING forecast-attaches-on-a-scene-apply"
+for CV in 's_cloud[s]' 's_cstrip[s][0]' 's_cstrip[s][1]' 's_ctop[s]' 's_cbottom[s]'; do
+    body "$TFC" detach | grep -qF "lv_canvas_set_buffer($CV, s_none, " || WIRING="$WIRING detach-$CV"
+done
+CAST_CV='lv_canvas_set_buffer\(s_(cloud|cstrip|ctop|cbottom)'
+[ "$(grep -cE "$CAST_CV" "$TFC")" -eq $(( $(body "$TFC" detach | grep -cE "$CAST_CV") + $(body "$TFC" cast_attach | grep -cE "$CAST_CV") )) ] &&
+    body "$TFC" cast_attach | grep -qF 'uint8_t *m = s_buf.still;' || WIRING="$WIRING forecast-layers-attach-only-in-cast_attach-from-the-still-buffer"
+body "$TFC" paint | grep -qF 'const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;' ||
+    WIRING="$WIRING paint-keeps-the-baked-forecast-while-fading-out"
+body "$TFC" set_cast | grep -qF 'bool rain = fo == 255 && gate > 0;' || WIRING="$WIRING forecast-sheets-hidden-while-fading"
+body "$TFC" set_cast | grep -qF 'if (cloud) lv_obj_invalidate(s_cbox[s]);' || WIRING="$WIRING forecast-cloud-and-sheet-in-one-area"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
     WIRING="$WIRING rain-layers-live-in-the-still-buffer"
 body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255 && !r->dry);' || WIRING="$WIRING paint-drives-the-rain-frames-not-when-dry"
@@ -169,7 +180,7 @@ for LINE in 'memset(&s_shown.rain, 0xFF, sizeof s_shown.rain);' 's_shown.rain_op
     body "$TFC" rain_attach | grep -qxF "    $LINE" || WIRING="$WIRING rain_attach-resets:$LINE"
 done
 body "$TFC" face_kind | grep -qxF '    s_shown.value_w = -1;' || WIRING="$WIRING face_kind-resets-the-text-measure"
-body "$TFC" set_value | grep -qxF '        if (s_rain && sz.x != s_shown.value_w) {' &&
+body "$TFC" set_value | grep -qxF '        if (s_unit_on && sz.x != s_shown.value_w) {' &&
     body "$TFC" set_value | grep -qxF '            s_shown.value_w = sz.x;' || WIRING="$WIRING set_value-aligns-the-unit-on-a-width-change"
 [ "$(grep -c 'show_obj(s_sheet\[s\], ' "$TFC")" -eq 2 ] && body "$TFC" face_kind | grep -qF 'show_obj(s_sheet[s], false);' ||
     WIRING="$WIRING sheets-shown-only-by-set_rain"
@@ -217,10 +228,11 @@ cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_be
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
-cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_job.c" \
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
+cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_job.c" \
     "$D/test_wx_job.c" -lm -o "${OUT}_wx_job"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
@@ -261,6 +273,7 @@ fi
 "${OUT}_weather"
 "${OUT}_temp"
 "${OUT}_rain"
+"${OUT}_cast"
 "${OUT}_faces"
 "${OUT}_wx_job"
 "${OUT}_ember"
@@ -291,7 +304,7 @@ cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/in
 "${OUT}_legacy"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
-    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \

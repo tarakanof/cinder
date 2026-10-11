@@ -44,7 +44,7 @@ float wx_canopy_y(float x)
 
 uint32_t wx_rain_rgb(int intensity) { return intensity <= 1 ? 0x4F81B7 : intensity == 2 ? 0x5C9CE0 : 0x3D7BF5; }
 
-static bool obs_now(const wx_obs_t *o, long long *now)
+bool wx_knob_now(const wx_obs_t *o, long long *now)
 {
     if (!o->has_obs_age || o->observed_at <= 0) return false;
     double a = o->obs_age_s + (o->age_s > 0 ? o->age_s : 0);
@@ -68,7 +68,7 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r)
     wx_look_t l = wx_look_from_obs(o);
     if (l.still) return;
     long long now = 0;
-    bool known = obs_now(o, &now);
+    bool known = wx_knob_now(o, &now);
     long long at = known ? now : o->observed_at;
     const wx_spell_t *sp = NULL;
     for (int i = 0; at > 0 && i < o->rain_n && i < WX_SPELLS; i++)

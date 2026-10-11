@@ -36,6 +36,8 @@ typedef struct {
     char sub[24];
 } wx_rain_t;
 
+/* The knob's clock in Unix s: observed_at plus the observation's age at receipt and the time since; false when unknown. */
+bool wx_knob_now(const wx_obs_t *o, long long *now);
 /* The Rain now face: on while it rains, snows or storms now and the data is fresh. */
 void wx_rain_from(const wx_obs_t *o, wx_rain_t *r);
 /* The Rain now face picked while wx_rain_from is off: dry, light, today's chance while the data is fresh. */
