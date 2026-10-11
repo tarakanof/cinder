@@ -545,6 +545,7 @@ static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
 }
 
 static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
+static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
 
 static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
@@ -631,6 +632,10 @@ static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
+    if (t->sun.on) {
+        bake_sun(t, kind, b, out);
+        return;
+    }
     if (t->days.on) {
         bake_days(t, kind, b, out);
         return;
@@ -1369,4 +1374,113 @@ static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
                        .y0 = l.y[i] - WX_DAYS_ROW_UP};
         wx_paint_day_row(&im, d, i, &l);
     }
+}
+
+void wx_paint_ring_sun(wx_ring_t *r, const wx_sun_t *s, uint16_t lut[WX_RING_LUT])
+{
+    long long a = wx_sun_start(s), b = wx_sun_end(s);
+    for (int i = 0; i <= RING_STEPS; i++)
+        lut[i] = wx_rgb565(s->have ? wx_sun_rgb(s, a + (long long)llround((double)(b - a) * i / RING_STEPS)) : 0x262626);
+    ring_raster(r, lut);
+}
+
+void wx_paint_sun_scene(wx_img_t *im, const wx_sun_t *s)
+{
+    const uint16_t hz = wx_rgb565(0x9AA4B0), dash = wx_rgb565(0x5A5A5A), tick = wx_rgb565(WX_SUN_HZN_RGB);
+    float tx[2][2], ty[2][2];
+    for (int k = 0; k < 2; k++) {
+        float a = (225.0f + 270.0f * wx_sun_frac(s, s->t[k ? WX_SUN_SET : WX_SUN_RISE])) * DEG;
+        for (int e = 0; e < 2; e++) {
+            float rr = e ? 210.0f : 199.0f;
+            tx[k][e] = WX_FACE_C + rr * sinf(a);
+            ty[k][e] = WX_FACE_C - rr * cosf(a);
+        }
+    }
+    int x0, y0, x1, y1;
+    clip(im, 120, WX_SUN_HZ_Y - 4, 346, WX_SUN_HZ_Y + 12, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
+            int i = y * im->w + x;
+            put(im, i, hz, cov(seg_d(fx, fy, 125, WX_SUN_HZ_Y, 341, WX_SUN_HZ_Y) - 2.25f));
+            float d = fminf(seg_d(fx, fy, 168, WX_SUN_HZ_Y + 8, 208, WX_SUN_HZ_Y + 8), seg_d(fx, fy, 258, WX_SUN_HZ_Y + 8, 298, WX_SUN_HZ_Y + 8));
+            put(im, i, dash, cov(d - 1.5f));
+        }
+    for (int k = 0; s->have && k < 2; k++) {
+        clip(im, fminf(tx[k][0], tx[k][1]) - 2, fminf(ty[k][0], ty[k][1]) - 2, fmaxf(tx[k][0], tx[k][1]) + 2,
+             fmaxf(ty[k][0], ty[k][1]) + 2, &x0, &y0, &x1, &y1);
+        for (int y = y0; y < y1; y++)
+            for (int x = x0; x < x1; x++) {
+                float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
+                put(im, y * im->w + x, tick, cov(seg_d(fx, fy, tx[k][0], ty[k][0], tx[k][1], ty[k][1]) - 1));
+            }
+    }
+}
+
+static const float RAY_DIR[WX_SUN_RAYS][2] = {
+    {-0.978148f, -0.207912f}, {-0.906308f, -0.422618f}, {-0.788011f, -0.615661f}, {-0.629320f, -0.777146f},
+    {-0.438371f, -0.898794f}, {-0.224951f, -0.974370f}, {0.000000f, -1.000000f},  {0.224951f, -0.974370f},
+    {0.438371f, -0.898794f},  {0.629320f, -0.777146f},  {0.788011f, -0.615661f},  {0.906308f, -0.422618f},
+    {0.978148f, -0.207912f},
+};
+
+void wx_paint_sun_rays(uint8_t *a8, wx_box_t box)
+{
+    const int w = box.x1 - box.x0, h = box.y1 - box.y0;
+    const float cx = WX_SUN_CX, cy = WX_SUN_CY, r1 = WX_SUN_R + 12;
+    memset(a8, 0, (size_t)w * h);
+    for (int y = 0; y < h; y++) {
+        float fy = (float)(box.y0 + y) + 0.5f;
+        for (int x = 0; x < w; x++) {
+            float fx = (float)(box.x0 + x) + 0.5f;
+            float m = rim(fx, fy, HERO_FADE), rho = hypotf(fx - cx, fy - cy), g = rho / 170.0f;
+            float ga = g <= 0.3f ? 0.55f : g >= 1 ? 0 : 0.55f * (1 - (g - 0.3f) / 0.7f);
+            if (m <= 0 || ga <= 0 || rho < r1 - 3) continue;
+            int k = (int)lroundf((atan2f(fy - cy, fx - cx) / DEG + 168.0f) * (WX_SUN_RAYS - 1) / 156.0f);
+            if (k < 0 || k >= WX_SUN_RAYS) continue;
+            float r2 = k % 2 ? 130.0f : 170.0f, dx = RAY_DIR[k][0], dy = RAY_DIR[k][1];
+            float c = cov(seg_d(fx, fy, cx + r1 * dx, cy + r1 * dy, cx + r2 * dx, cy + r2 * dy) - (k % 2 ? 1.5f : 1.75f));
+            put_a(&a8[y * w + x], c * ga * m);
+        }
+    }
+}
+
+void wx_paint_sun(wx_img_t *im)
+{
+    const uint16_t gold = wx_rgb565(WX_SUN_GOLD_RGB);
+    const float inner = WX_SUN_R / WX_SUN_GLOW;
+    wx_paint_clear(im);
+    for (int y = 0; y < im->h; y++) {
+        float fy = (float)(im->y0 + y) + 0.5f;
+        if (fy >= WX_SUN_CLIP_Y) continue;
+        for (int x = 0; x < im->w; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, d = hypotf(fx - WX_SUN_CX, fy - WX_SUN_CY);
+            int i = y * im->w + x;
+            float g = d / WX_SUN_GLOW;
+            put(im, i, gold, g <= inner ? 0.24f : g >= 1 ? 0 : 0.24f * (1 - (g - inner) / (1 - inner)));
+            put(im, i, wx_rgb565(sun_rgb(d / WX_SUN_R)), 0.9f * cov(d - WX_SUN_R));
+            put(im, i, gold, 0.9f * cov(fabsf(d - WX_SUN_R) - 0.75f));
+        }
+    }
+}
+
+static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    const wx_sun_t *s = &t->sun;
+    if (kind & WX_BAKE_RING) wx_paint_ring_sun(b->ring, s, b->lut);
+    if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
+    if (!(kind & WX_BAKE_SCENE)) return;
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    wx_paint_sun_scene(&bg, s);
+    wx_paint_face_dots(&bg, t->face, WXF_N);
+    wx_ring_blit(b->ring, b->bg);
+    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    wx_sun_layout_t l;
+    wx_sun_layout(&l);
+    wx_paint_sun_rays(b->still + l.rays_at, l.rays);
+    int w = l.sun.x1 - l.sun.x0, h = l.sun.y1 - l.sun.y0;
+    uint8_t *m = b->still + l.sun_at;
+    wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sun.x0, .y0 = l.sun.y0};
+    wx_paint_sun(&im);
 }

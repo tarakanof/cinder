@@ -174,6 +174,11 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
         wx_rain_from(NULL, &t->rain);
         wx_days_from(o, &t->days);
         break;
+    case WXF_SUN:
+        t->face = WXF_SUN;
+        wx_rain_from(NULL, &t->rain);
+        wx_sun_from(o, &t->sun);
+        break;
     case WXF_N:
         break;
     }
@@ -182,6 +187,7 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
 {
     if (t->face != s->face) return WX_BAKE_FULL;
+    if (t->sun.on || s->sun.on) return wx_sun_same_scene(&t->sun, &s->sun) ? 0 : WX_BAKE_FULL;
     if (t->days.on || s->days.on) return wx_days_same(&t->days, &s->days) ? 0 : WX_BAKE_FULL;
     if (t->wind.on || s->wind.on) return wx_wind_same_scene(&t->wind, &s->wind) ? 0 : WX_BAKE_FULL;
     if (t->cast.on || s->cast.on) {

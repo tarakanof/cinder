@@ -517,6 +517,102 @@ static void test_view_days(void)
         if (view(names[i], &v)) CHECK(o->day_n == 0, "%s: no days without wx_faces", names[i]);
 }
 
+static wx_sun_t sun_now(const wx_obs_t *o)
+{
+    wx_obs_t c = *o;
+    c.has_obs_age = true;
+    c.obs_age_s = 0;
+    wx_sun_t s;
+    wx_sun_from(&c, &s);
+    return s;
+}
+
+static void test_view_sun(void)
+{
+    knob_view_t v;
+    const wx_obs_t *o = &v.weather;
+    if (!view("view_faces.json", &v)) return;
+    static const long long TW[WX_TWILIGHT] = {1782010500, 1782011700, 1782016500, 1782069900, 1782075000, 1782076200};
+    CHECK(o->sunrise == 1782013500 && o->sunset == 1782073200 && !memcmp(o->twilight, TW, sizeof TW), "sun: times and all six crossings");
+    CHECK(o->has_sun_down && !o->sun_down, "sun: the night flag, day");
+    wx_sun_t s = sun_now(o);
+    CHECK(s.have && s.has_now && s.phase == WX_SUN_DAY && s.hours && s.count == 16 && !strcmp(s.unit, "h left") &&
+              !strcmp(s.sub, "golden hour 20:25") && !strcmp(s.rise, "04:45") && !strcmp(s.set, "21:20"),
+          "Sun at 13:00 local: 8 h left, '%s', %s..%s", s.sub, s.rise, s.set);
+    CHECK(wx_sun_start(&s) == TW[0] && wx_sun_end(&s) == TW[5], "Sun: dawn to dusk");
+    wx_sun_from(o, &s);
+    CHECK(s.have && !s.has_now, "Sun without the server time: no clock");
+    wx_temp_t t;
+    wx_temp_from(o, &t);
+    CHECK(t.face != WXF_SUN && !t.sun.on, "Sun: never the auto face");
+
+    if (!view("view_faces_met.json", &v)) return;
+    s = sun_now(o);
+    CHECK(s.have && !strcmp(s.rise, "03:45") && !strcmp(s.set, "20:20") && s.t[WX_SUN_DAWN] == TW[0], "MET: the same sun at offset 0");
+
+    if (!view("view_faces_polar_dry.json", &v)) return;
+    CHECK(o->sunrise == 1788226500 && o->sunset == 1788294000 && !o->twilight[0] && !o->twilight[1] && o->twilight[2] == 1788236100 &&
+              o->twilight[3] == 1788284400 && !o->twilight[4] && !o->twilight[5],
+          "polar: only the golden crossings");
+    s = sun_now(o);
+    CHECK(s.have && wx_sun_start(&s) == 1788226500 && wx_sun_end(&s) == 1788294000 && !strcmp(s.sub, "golden hour 19:40") &&
+              !strcmp(s.rise, "03:35") && !strcmp(s.set, "22:20") && s.count == 16,
+          "polar Sun: sunrise to sunset, '%s'", s.sub);
+
+    if (!view("view_single_host_paused.json", &v)) return;
+    CHECK(!o->sunrise && !o->sunset && o->has_sun_down && !o->sun_down && o->moon_up == -1, "no location: null sun times, no moon");
+    s = sun_now(o);
+    CHECK(!s.have && s.polar == WX_SUN_NOT_POLAR && !s.sub[0], "no location: never 'Midnight sun'");
+
+    if (!view("view_full.json", &v)) return;
+    CHECK(o->sunrise == 1782013500 && o->sunset == 1782073200 && !o->twilight[0] && !o->twilight[5], "a legacy block: sun times, no twilight");
+    s = sun_now(o);
+    CHECK(!s.have, "without wx_faces there is no offset: no gauge");
+
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "sunrise", cJSON_CreateNull());
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "sunset", cJSON_CreateNull());
+        cJSON_DeleteItemFromObjectCaseSensitive(w, "twilight");
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->sunrise && !o->sunset && !o->twilight[2] && o->moon_up == 1, "polar day: null sun times");
+        s = sun_now(o);
+        CHECK(s.polar == WX_SUN_POLAR_DAY && !strcmp(s.sub, "Midnight sun"), "polar day: '%s'", s.sub);
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "sunrise", cJSON_CreateNull());
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "night", cJSON_CreateTrue());
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->sunrise && !o->sunset && o->sun_down, "one null: both unknown");
+        s = sun_now(o);
+        CHECK(s.polar == WX_SUN_POLAR_NIGHT && !strcmp(s.sub, "Polar night"), "a boundary day after its sunset: '%s'", s.sub);
+    }
+    {
+        cJSON *root, *w = faces_weather(&root), *tw = cJSON_GetObjectItemCaseSensitive(w, "twilight");
+        cJSON_ReplaceItemInObjectCaseSensitive(tw, "dawn", cJSON_CreateString("1782010500"));
+        cJSON_ReplaceItemInObjectCaseSensitive(tw, "blue_end", cJSON_CreateNumber(1782011700.5));
+        cJSON_ReplaceItemInObjectCaseSensitive(tw, "golden_end", cJSON_CreateNumber(-1));
+        cJSON_ReplaceItemInObjectCaseSensitive(tw, "golden_start", cJSON_CreateNumber(0));
+        cJSON_ReplaceItemInObjectCaseSensitive(tw, "blue_start", cJSON_CreateNumber(1e13));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "night", cJSON_CreateString("true"));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "sunset", cJSON_CreateNumber(1782073200.25));
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->twilight[0] && !o->twilight[1] && !o->twilight[2] && !o->twilight[3] && !o->twilight[4] &&
+                  o->twilight[5] == 1782076200,
+              "a string, a fraction, a negative, a zero and a huge crossing are unknown; dusk kept");
+        CHECK(!o->has_sun_down && !o->sun_down, "a night flag that is not a boolean: unknown");
+        CHECK(!o->sunrise && !o->sunset, "a fractional sunset: both unknown");
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "twilight", cJSON_CreateArray());
+        cJSON_DeleteItemFromObjectCaseSensitive(w, "night");
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->twilight[0] && !o->twilight[5] && !o->has_sun_down && o->sunrise == 1782013500, "twilight not an object, no night");
+    }
+}
+
 static void test_view_legacy_weather(void)
 {
     const char *names[] = {"view_full.json", "view_caps_limited.json"};
@@ -1050,6 +1146,7 @@ int main(int argc, char **argv)
     test_view_faces();
     test_view_rain_keys();
     test_view_days();
+    test_view_sun();
     test_view_legacy_weather();
     test_view_np_cover();
     test_json_hooks();

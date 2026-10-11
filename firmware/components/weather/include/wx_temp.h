@@ -8,6 +8,7 @@
 #include "wx_days.h"
 #include "wx_faces.h"
 #include "wx_rain.h"
+#include "wx_sun.h"
 #include "wx_wind.h"
 
 #ifdef __cplusplus
@@ -68,7 +69,9 @@ typedef struct {
     wx_cast_t cast; /* cast.on: the Rain forecast face */
     wx_wind_t wind; /* wind.on: the Wind face */
     wx_days_t days; /* days.on: the Next days face */
-    int face;       /* WXF_*: rain.on exactly when WXF_RAIN, cast.on when WXF_CAST, wind.on when WXF_WIND, days.on when WXF_DAYS */
+    wx_sun_t sun;   /* sun.on: the Sun face */
+    int face;       /* WXF_*: rain.on exactly when WXF_RAIN, cast.on when WXF_CAST, wind.on when WXF_WIND, days.on when WXF_DAYS,
+                       sun.on when WXF_SUN */
 } wx_temp_t;
 
 uint32_t wx_temp_rgb(float c);
@@ -86,10 +89,10 @@ void wx_temp_from(const wx_obs_t *obs, wx_temp_t *out);
 void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *out);
 /* wx_temp_from_shown for a face: WXF_AUTO (or any id outside the list) is the auto face; WXF_TEMP shows the temperature
    even while wet; WXF_RAIN shows Rain now, dry (wx_rain_dry) when nothing falls; WXF_CAST the forecast, WXF_WIND the wind and
-   WXF_DAYS the next days on any weather; Next days is never the auto face. */
+   WXF_DAYS the next days and WXF_SUN the sun on any weather; Next days and Sun are never the auto face. */
 void wx_temp_face(const wx_obs_t *obs, const wx_temp_t *shown, int face, wx_temp_t *out);
 /* WX_BAKE_* parts that differ from shown: RING the range (or the forecast dial), HERO the hero sprite, SCENE background
-   and clouds (or the rain, forecast, wind or days layers); 0 none. A change between the faces is FULL. */
+   and clouds (or the rain, forecast, wind, days or sun layers); 0 none. A change between the faces is FULL. */
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *shown);
 bool wx_temp_same_bake(const wx_temp_t *a, const wx_temp_t *b);
 
