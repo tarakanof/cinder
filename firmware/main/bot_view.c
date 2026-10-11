@@ -65,7 +65,6 @@ static lv_obj_t *s_rim_canvas;
 static uint16_t *s_rim_buf[RIM_VARIANTS];
 static rim_job_t s_rim;
 static atomic_uint s_var_ready_gen[RIM_VARIANTS];
-static atomic_int s_job_shape, s_job_mood;
 static TaskHandle_t s_rim_task;
 static int s_rim_shown = RIM_BASE;
 static int s_rim_shape = -1;
@@ -201,13 +200,12 @@ static void rim_task(void *arg)
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         unsigned gen;
-        if (!rim_job_take(&s_rim, &gen)) continue;
-        int shape = atomic_load(&s_job_shape);
-        bot_mood_t mood = (bot_mood_t)atomic_load(&s_job_mood);
+        int shape, mood;
+        if (!rim_job_take(&s_rim, &gen, &shape, &mood)) continue;
         for (int k = 0; k < RIM_VARIANTS - 1; k++) {
             if (!rim_job_live(&s_rim, gen)) break;
             int v = VAR_ORDER[k];
-            rim_raster(s_rim_buf[v], shape, mood, VAR_SX[v], VAR_SY[v], &work);
+            rim_raster(s_rim_buf[v], shape, (bot_mood_t)mood, VAR_SX[v], VAR_SY[v], &work);
             atomic_store(&s_var_ready_gen[v], gen);
             vTaskDelay(1);
         }
@@ -745,13 +743,11 @@ void bot_view_update(const bot_pose_t *p)
     if (shape != s_rim_shape || p->mood != s_rim_mood) {
         s_rim_shape = shape;
         s_rim_mood = p->mood;
-        rim_job_new(&s_rim);
+        rim_job_new(&s_rim, shape, p->mood);
         rim_raster(s_rim_buf[RIM_BASE], shape, p->mood, 1.0f, 1.0f, &work);
         rim_show(RIM_BASE);
         lv_obj_set_pos(s_rim_canvas, 0, s_rim_dy);
         lv_obj_remove_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN);
-        atomic_store(&s_job_shape, shape);
-        atomic_store(&s_job_mood, p->mood);
         xTaskNotifyGive(s_rim_task);
         lv_obj_set_style_bg_color(s_badge_dot, lv_color_hex(mood_rgb(p->mood)), 0);
         host_sync();

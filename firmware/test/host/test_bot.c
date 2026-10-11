@@ -674,7 +674,8 @@ static void test_calm(void)
 static int rim_run(rim_job_t *j, int hold_at, bool *started)
 {
     unsigned gen = 0;
-    *started = rim_job_take(j, &gen);
+    int shape, mood;
+    *started = rim_job_take(j, &gen, &shape, &mood);
     int n = 0;
     for (int k = 0; *started && k < 10; k++) {
         if (k == hold_at) rim_job_hold(j);
@@ -688,14 +689,14 @@ static void test_rim_job(void)
 {
     rim_job_t j = {0};
     bool started;
-    rim_job_new(&j);
+    rim_job_new(&j, 0, 0);
     CHECK(rim_run(&j, -1, &started) == 10 && started, "a job rasters every variant");
-    rim_job_new(&j);
+    rim_job_new(&j, 0, 0);
     unsigned before = rim_job_gen(&j);
     CHECK(rim_run(&j, 2, &started) == 2, "a hold stops the job at the next variant");
     CHECK(rim_job_gen(&j) != before, "a hold makes the dropped job's variants stale");
     CHECK(rim_run(&j, -1, &started) == 0 && !started, "no job starts while held");
-    rim_job_new(&j);
+    rim_job_new(&j, 0, 0);
     CHECK(rim_run(&j, -1, &started) == 0 && !started, "a new outline while held waits");
     CHECK(rim_job_release(&j), "the release asks for the job again");
     CHECK(!rim_job_release(&j), "a second release asks nothing");
@@ -703,10 +704,70 @@ static void test_rim_job(void)
     CHECK(!rim_job_release(&j), "release without a hold asks nothing");
 }
 
+static int s_race_at, s_race_fired, s_race_done;
+static bool s_race_took;
+static unsigned s_race_gen, s_race_base_gen, *s_take_gen;
+static int s_race_shape, s_race_mood, *s_take_shape, *s_take_mood;
+
+void rj_race_point(rim_job_t *j, int at);
+void rj_race_point(rim_job_t *j, int at)
+{
+    if (at != s_race_at) return;
+    s_race_at = 0;
+    s_race_fired = at;
+    if (at <= 3) {
+        s_race_done = (atomic_load(&j->shape) == 1) + (atomic_load(&j->mood) == BOT_ERROR) +
+                      (atomic_load(&j->gen) != s_race_base_gen);
+        s_race_took = rim_job_take(j, &s_race_gen, &s_race_shape, &s_race_mood);
+    } else {
+        s_race_done = (*s_take_gen != ~0u) + (*s_take_shape != -1) + (*s_take_mood != -1);
+        rim_job_new(j, 1, BOT_ERROR);
+    }
+}
+
+static void test_rim_job_order(void)
+{
+    for (int at = 1; at <= 3; at++) {
+        rim_job_t j = {0};
+        rim_job_new(&j, 0, BOT_IDLE);
+        s_race_base_gen = rim_job_gen(&j);
+        s_race_at = at;
+        s_race_fired = 0;
+        rim_job_new(&j, 1, BOT_ERROR);
+        CHECK(s_race_fired == at && s_race_took, "a pending notify takes a job at rim_job_new's race point %d", at);
+        CHECK(s_race_done == at, "rim_job_new's race point %d follows its atomic step %d (%d done)", at, at, s_race_done);
+        CHECK(s_race_gen != rim_job_gen(&j) || (s_race_shape == 1 && s_race_mood == BOT_ERROR),
+              "a job taken at rim_job_new's race point %d is stale or for the new outline (shape %d, mood %d)", at,
+              s_race_shape, s_race_mood);
+        unsigned gen;
+        int shape, mood;
+        CHECK(rim_job_take(&j, &gen, &shape, &mood) && gen == rim_job_gen(&j) && shape == 1 && mood == BOT_ERROR,
+              "after race point %d the next take gets the new outline under the current generation", at);
+    }
+    for (int at = 4; at <= 7; at++) {
+        rim_job_t j = {0};
+        rim_job_new(&j, 0, BOT_IDLE);
+        unsigned gen = ~0u;
+        int shape = -1, mood = -1;
+        s_take_gen = &gen;
+        s_take_shape = &shape;
+        s_take_mood = &mood;
+        s_race_at = at;
+        s_race_fired = 0;
+        bool took = rim_job_take(&j, &gen, &shape, &mood);
+        CHECK(s_race_fired == at && took, "rim_job_new runs at rim_job_take's race point %d", at);
+        CHECK(s_race_done == at - 4, "rim_job_take's race point %d follows its load %d (%d done)", at, at - 4, s_race_done);
+        CHECK(gen != rim_job_gen(&j) || (shape == 1 && mood == BOT_ERROR),
+              "a job taken around a new outline at race point %d is stale or for the new outline (shape %d, mood %d)", at,
+              shape, mood);
+    }
+}
+
 int main(void)
 {
     bot_shape_init();
     test_rim_job();
+    test_rim_job_order();
     test_orbit_table();
     test_chase_orbit();
     test_label_wipe();

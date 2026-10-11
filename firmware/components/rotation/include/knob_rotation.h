@@ -11,7 +11,7 @@ extern "C" {
 #define KR_FRAME_W 472
 #define KR_FRAME_H 466
 #define KR_VIS_X0 6
-/* MX mirrors over 480 columns, MY over the panel's 466 rows, not 480 (docs/features.md, "Display rotation"). */
+/* Empirical, not from the datasheet: MX mirrors over 480 columns, MY over 466 rows (docs/features.md, "Display rotation"). */
 #define KR_MIRROR_W 480
 #define KR_MIRROR_H 466
 
