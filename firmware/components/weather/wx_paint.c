@@ -977,9 +977,8 @@ void wx_paint_cast_ramp(uint8_t *a8, const wx_cast_sheet_t *sh, bool bottom, int
 
 #define DROP_TAIL 15.0f
 #define DROP_HEAD 7.0f
-#define DROP_HW_N 61
 
-static const float DROP_HW[DROP_HW_N] = {
+const float wx_drop_hw[WX_DROP_HW_N] = {
     0.0000f, 0.0653f, 0.1364f, 0.2133f, 0.2960f, 0.3847f, 0.4794f, 0.5801f, 0.6868f, 0.7995f, 0.9183f, 1.0429f,
     1.1734f, 1.3096f, 1.4513f, 1.5984f, 1.7507f, 1.9078f, 2.0695f, 2.2353f, 2.4050f, 2.5780f, 2.7538f, 2.9320f,
     3.1120f, 3.2932f, 3.4750f, 3.6568f, 3.8379f, 4.0178f, 4.1958f, 4.3714f, 4.5439f, 4.7128f, 4.8777f, 5.0379f,
@@ -990,11 +989,11 @@ static const float DROP_HW[DROP_HW_N] = {
 
 static float drop_hw_at(float x)
 {
-    float f = (x + DROP_TAIL) / DROP_TAIL * (float)(DROP_HW_N - 1);
-    if (f <= 0) return DROP_HW[0];
-    if (f >= DROP_HW_N - 1) return DROP_HW[DROP_HW_N - 1];
+    float f = (x + DROP_TAIL) / DROP_TAIL * (float)(WX_DROP_HW_N - 1);
+    if (f <= 0) return wx_drop_hw[0];
+    if (f >= WX_DROP_HW_N - 1) return wx_drop_hw[WX_DROP_HW_N - 1];
     int i = (int)f;
-    return DROP_HW[i] + (DROP_HW[i + 1] - DROP_HW[i]) * (f - (float)i);
+    return wx_drop_hw[i] + (wx_drop_hw[i + 1] - wx_drop_hw[i]) * (f - (float)i);
 }
 
 wx_box_t wx_paint_drop(wx_img_t *im, float deg)

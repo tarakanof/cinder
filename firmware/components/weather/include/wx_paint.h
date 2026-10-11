@@ -119,6 +119,9 @@ void wx_paint_ring_cast(wx_ring_t *r, const wx_cast_t *c);
 void wx_paint_cast_sheet(uint8_t *a8, const wx_cast_sheet_t *s, bool snow);
 /* Overlay alpha of the sheet's fade (WX_CAST_RAMP of its height): the top or the bottom ramp_h rows. */
 void wx_paint_cast_ramp(uint8_t *a8, const wx_cast_sheet_t *s, bool bottom, int ramp_h);
+#define WX_DROP_HW_N 61
+/* The drop tail's half-width in px at x = -15 + 15 i / (WX_DROP_HW_N - 1) from the head's centre (the canvas's bezier). */
+extern const float wx_drop_hw[WX_DROP_HW_N];
 /* The forecast drop with its head on the ring at deg into a WX_DROP_BOX square RGB565A8 im; sets and returns its box. */
 wx_box_t wx_paint_drop(wx_img_t *im, float deg);
 

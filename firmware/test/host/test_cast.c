@@ -657,6 +657,21 @@ static void test_paint(void)
         }
     }
 
+    static const float P[4][2] = {{-15, 0}, {-9, 1.5f}, {-6.5f, 7}, {0, 7}};
+    double worst = 0;
+    for (int i = 0; i < WX_DROP_HW_N; i++) {
+        double x = -15.0 + 15.0 * i / (WX_DROP_HW_N - 1), lo = 0, hi = 1;
+        for (int it = 0; it < 60; it++) {
+            double u = (lo + hi) / 2, v = 1 - u;
+            double bx = v * v * v * P[0][0] + 3 * v * v * u * P[1][0] + 3 * v * u * u * P[2][0] + u * u * u * P[3][0];
+            if (bx < x) lo = u;
+            else hi = u;
+        }
+        double u = (lo + hi) / 2, v = 1 - u;
+        double y = v * v * v * P[0][1] + 3 * v * v * u * P[1][1] + 3 * v * u * u * P[2][1] + u * u * u * P[3][1];
+        worst = fabs(y - wx_drop_hw[i]) > worst ? fabs(y - wx_drop_hw[i]) : worst;
+    }
+    CHECK(worst < 1e-4, "the drop's tail table follows the canvas bezier (worst %.6f px)", worst);
     static uint16_t px[WX_DROP_BOX * WX_DROP_BOX];
     static uint8_t al[WX_DROP_BOX * WX_DROP_BOX];
     wx_img_t im = {.px = px, .a = al, .w = WX_DROP_BOX, .h = WX_DROP_BOX};
