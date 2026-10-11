@@ -61,8 +61,8 @@ static EXT_RAM_BSS_ATTR int s_tick;
 typedef struct {
     char value[20], sub[24];
     uint32_t value_rgb, sub_rgb;
-    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift, rain_opa;
-    uint32_t merc_rgb;
+    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift, rain_opa, value_w;
+    uint32_t merc_rgb, unit_rgb;
     wx_rain_frame_t rain;
 } shown_t;
 
@@ -186,7 +186,6 @@ void temp_face_create(lv_obj_t *parent)
     s_sub = label(s_root, &lv_font_montserrat_30, LV_ALIGN_TOP_MID, 0, SUB_Y);
     s_unit = label(s_root, &lv_font_montserrat_30, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_label_set_text_static(s_unit, "%");
-    lv_obj_set_style_text_color(s_unit, lv_color_hex(UNIT_RGB), 0);
     lv_obj_add_flag(s_unit, LV_OBJ_FLAG_HIDDEN);
     s_marker = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
 }
@@ -335,6 +334,7 @@ static void face_kind(const wx_temp_t *t)
     int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
     lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : deg / 2, VALUE_Y);
     s_shown.value[0] = 0;
+    s_shown.value_w = -1;
 }
 
 static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
@@ -381,7 +381,10 @@ static void set_value(const char *txt, uint32_t rgb)
     if (strcmp(txt, s_shown.value) != 0) {
         strlcpy(s_shown.value, txt, sizeof s_shown.value);
         lv_label_set_text_static(s_value, s_shown.value);
-        if (s_rain) {
+        lv_point_t sz = {0};
+        if (s_rain) lv_text_get_size(&sz, s_shown.value, &font_digits_96, VALUE_SPACE, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (s_rain && sz.x != s_shown.value_w) {
+            s_shown.value_w = sz.x;
             lv_obj_update_layout(s_value);
             lv_obj_align_to(s_unit, s_value, LV_ALIGN_OUT_RIGHT_BOTTOM, UNIT_GAP,
                             lv_font_montserrat_30.base_line - font_digits_96.base_line);
@@ -391,6 +394,13 @@ static void set_value(const char *txt, uint32_t rgb)
         s_shown.value_rgb = rgb;
         lv_obj_set_style_text_color(s_value, lv_color_hex(rgb), 0);
     }
+}
+
+static void set_unit(uint32_t rgb)
+{
+    if (rgb == s_shown.unit_rgb) return;
+    s_shown.unit_rgb = rgb;
+    lv_obj_set_style_text_color(s_unit, lv_color_hex(rgb), 0);
 }
 
 static void set_sub(const char *txt, uint32_t rgb, int opa)
@@ -529,6 +539,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
             set_value("--", GREY_RGB);
         }
         set_marker(r->pop / 100.0f * (float)a, r->has_pop);
+        set_unit(r->has_pop ? UNIT_RGB : GREY_RGB);
         set_rain(r, sprite_opa, fo == 255);
     } else if (t->have) {
         int k = wx_count_step(wx_count_n(t->value), ta);

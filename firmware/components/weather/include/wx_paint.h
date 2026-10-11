@@ -86,7 +86,7 @@ void wx_rain_layout(wx_rain_layout_t *l);
 int wx_drip_x(int i);
 /* Gauge ring 0..100 % for the rain face: from the dry track colour to the intensity colour; grey: no chance known. */
 void wx_paint_ring_rain(wx_ring_t *r, int intensity, bool grey, uint16_t lut[WX_RING_LUT]);
-/* Umbrella (canopy, tip, shaft stub, handle) over im; covers use the canopy and tip only. */
+/* Umbrella (canopy, tip, shaft stub, handle) over im; a cover's box clips it, so a cover holds no handle. */
 void wx_paint_umbrella(wx_img_t *im);
 /* Sheet s's strip, WX_SHEET_PERIOD rows, seamless top to bottom: streaks, or flakes for snow, by intensity. */
 void wx_paint_sheet(uint8_t *a8, int s, const wx_rain_t *r);
