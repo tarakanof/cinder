@@ -19,7 +19,7 @@ void wx_job_init(wx_job_t *j, wx_job_io_t *io)
 static int park(wx_job_t *j)
 {
     int queued = WX_JOB_QUEUED;
-    atomic_compare_exchange_strong(&j->state, &queued, WX_JOB_IDLE);
+    if (atomic_compare_exchange_strong(&j->state, &queued, WX_JOB_IDLE)) j->baked = false;
     if (j->visible || !j->bufs || atomic_load(&j->state) == WX_JOB_RUNNING) return 0;
     return WX_DO_RELEASE;
 }

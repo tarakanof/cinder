@@ -170,6 +170,10 @@ static void test_ota_hold(void)
     wx_job_hold(&J, false);
     CHECK(wx_job_step(&J, &b, 0.03) == (WX_DO_BAKE | WX_DO_DETACH), "released: the bake starts");
     CHECK(wx_job_hold(&J, true) == 0 && wx_job_take(&J) == NULL, "a hold parks a queued job");
+    wx_job_hold(&J, false);
+    CHECK(wx_job_step(&J, &a, 0.03) == WX_DO_BAKE, "back to the old key after a parked re-bake: bake again, no paint on detached canvases");
+    bake();
+    CHECK(wx_job_step(&J, &a, 0.03) == (WX_DO_APPLY | WX_DO_PAINT), "the re-bake re-attaches");
 }
 
 static void test_alloc_retry(void)
