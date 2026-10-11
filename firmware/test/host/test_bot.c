@@ -674,7 +674,8 @@ static void test_calm(void)
 static int rim_run(rim_job_t *j, int hold_at, bool *started)
 {
     unsigned gen = 0;
-    *started = rim_job_take(j, &gen);
+    int shape, mood;
+    *started = rim_job_take(j, &gen, &shape, &mood);
     int n = 0;
     for (int k = 0; *started && k < 10; k++) {
         if (k == hold_at) rim_job_hold(j);
@@ -688,14 +689,14 @@ static void test_rim_job(void)
 {
     rim_job_t j = {0};
     bool started;
-    rim_job_new(&j);
+    rim_job_new(&j, 0, 0);
     CHECK(rim_run(&j, -1, &started) == 10 && started, "a job rasters every variant");
-    rim_job_new(&j);
+    rim_job_new(&j, 0, 0);
     unsigned before = rim_job_gen(&j);
     CHECK(rim_run(&j, 2, &started) == 2, "a hold stops the job at the next variant");
     CHECK(rim_job_gen(&j) != before, "a hold makes the dropped job's variants stale");
     CHECK(rim_run(&j, -1, &started) == 0 && !started, "no job starts while held");
-    rim_job_new(&j);
+    rim_job_new(&j, 0, 0);
     CHECK(rim_run(&j, -1, &started) == 0 && !started, "a new outline while held waits");
     CHECK(rim_job_release(&j), "the release asks for the job again");
     CHECK(!rim_job_release(&j), "a second release asks nothing");
@@ -703,10 +704,40 @@ static void test_rim_job(void)
     CHECK(!rim_job_release(&j), "release without a hold asks nothing");
 }
 
+static bool s_take_in_race, s_race_took;
+static unsigned s_race_gen;
+static int s_race_shape, s_race_mood;
+
+void rj_race_point(rim_job_t *j);
+void rj_race_point(rim_job_t *j)
+{
+    if (!s_take_in_race) return;
+    s_take_in_race = false;
+    s_race_took = rim_job_take(j, &s_race_gen, &s_race_shape, &s_race_mood);
+}
+
+static void test_rim_job_order(void)
+{
+    rim_job_t j = {0};
+    rim_job_new(&j, 0, BOT_IDLE);
+    s_take_in_race = true;
+    rim_job_new(&j, 1, BOT_ERROR);
+    CHECK(s_race_took, "a pending notify takes a job inside rim_job_new");
+    bool current = s_race_gen == rim_job_gen(&j);
+    CHECK(!current || (s_race_shape == 1 && s_race_mood == BOT_ERROR),
+          "variants stamped current were built from the new outline, not the old one (shape %d, mood %d)", s_race_shape, s_race_mood);
+    CHECK(!current || rim_job_live(&j, s_race_gen), "a job taken mid-update is either stale or for the new outline");
+    unsigned gen;
+    int shape, mood;
+    CHECK(rim_job_take(&j, &gen, &shape, &mood) && gen == rim_job_gen(&j) && shape == 1 && mood == BOT_ERROR,
+          "the next take gets the new outline under the current generation");
+}
+
 int main(void)
 {
     bot_shape_init();
     test_rim_job();
+    test_rim_job_order();
     test_orbit_table();
     test_chase_orbit();
     test_label_wipe();
