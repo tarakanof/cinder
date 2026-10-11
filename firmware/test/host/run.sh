@@ -155,7 +155,15 @@ body "$TFC" detach | grep -qF 'lv_canvas_set_buffer(s_dicon[i], s_none, ' || WIR
 [ "$(grep -c 'lv_canvas_set_buffer(s_dicon' "$TFC")" -eq 2 ] && body "$TFC" days_attach | grep -qF 'uint8_t *m = s_buf.still;' &&
     body "$TFC" days_attach | grep -qF 'lv_canvas_set_buffer(s_dicon[i], m + s_dlay.at[i], ' || WIRING="$WIRING days-sprites-attach-only-from-the-still-buffer"
 body "$TFC" paint | grep -qF 'const wx_days_t *d = &s_io.key.days;' || WIRING="$WIRING paint-shows-the-baked-days"
-body "$TFC" set_days | grep -qF 'opa = opa * fo / 255;' || WIRING="$WIRING days-rows-fade-with-the-face"
+body "$TFC" face_kind | grep -qxF '    bool rows = s_days && t->days.have;' && body "$TFC" face_kind | grep -qxF '    show_obj(s_value, !rows);' &&
+    [ "$(grep -c 'show_obj(s_value, ' "$TFC")" -eq 1 ] || WIRING="$WIRING days-hide-the-value-under-the-rows"
+body "$TFC" face_kind | grep -qxF '    lv_obj_align(s_sub, LV_ALIGN_TOP_MID, 0, rows ? WX_DAYS_SUB_Y : SUB_Y);' || WIRING="$WIRING days-sub-line-under-the-rows"
+body "$TFC" apply | grep -qxF '    if (t->cast.on || t->days.on) {' || WIRING="$WIRING days-hide-the-gauge-end-labels"
+body "$TFC" set_days | grep -qxF '    wx_days_frame(d, ta, &f);' && body "$TFC" set_days | grep -qxF '            lv_obj_set_y(s_drow[i], wx_days_row_box(&s_dlay, i, dy).y0);' &&
+    body "$TFC" days_attach | grep -qxF '        wx_box_t rb = wx_days_row_box(&s_dlay, i, 0);' &&
+    body "$TFC" days_attach | grep -qxF '        lv_obj_set_pos(s_drow[i], rb.x0, rb.y0);' &&
+    body "$TFC" days_attach | grep -qxF '        lv_obj_set_size(s_drow[i], w, rb.y1 - rb.y0);' || WIRING="$WIRING days-rows-from-the-host-model"
+body "$TFC" set_days | grep -qF 'int opa = f.opa[i] * fo / 255, dy = f.dy[i], lo = f.lo[i], hi = f.hi[i];' || WIRING="$WIRING days-rows-fade-with-the-face"
 body "$TFC" set_days | grep -qF 'if (dirty) lv_obj_invalidate(s_dbox);' && [ "$(grep -c 'lv_obj_invalidate(s_dbox);' "$TFC")" -eq 2 ] ||
     WIRING="$WIRING days-redraw-one-box"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
