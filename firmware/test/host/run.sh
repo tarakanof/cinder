@@ -68,8 +68,9 @@ fi
 echo "weather wiring: weather_client_get reads the timer under the lock"
 grep -qF 'static void *json_malloc(size_t n) { return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT); }' "$MAINC" ||
     WIRING="$WIRING json_malloc-prefers-PSRAM"
-body "$MAINC" app_main | sed -n 3p | grep -qF 'cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = json_malloc, .free_fn = free});' ||
-    WIRING="$WIRING app_main-sets-the-cJSON-hooks-first"
+body "$MAINC" app_main | sed 1,2d | grep -vE '^[[:space:]]*(ESP_LOG[A-Z]\(|$)' | grep -m1 -E '[A-Za-z_][A-Za-z_0-9]*\(' |
+    grep -qF 'cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = json_malloc, .free_fn = free});' ||
+    WIRING="$WIRING app_main-sets-the-cJSON-hooks-before-any-other-call"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL cJSON hook wiring:$WIRING" >&2
     exit 1

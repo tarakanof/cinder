@@ -566,6 +566,7 @@ static void features_diff(const char *name, const cJSON *want, const cJSON *got)
 {
     cJSON *g = cJSON_Duplicate(got, true);
     for (int i = 0; i < N_FEATURES_AHEAD; i++) {
+        int sent = 0;
         const cJSON *e;
         cJSON_ArrayForEach(e, want)
         {
@@ -576,9 +577,11 @@ static void features_diff(const char *name, const cJSON *want, const cJSON *got)
             const char *s = cJSON_GetStringValue(cJSON_GetArrayItem(g, k));
             if (s && strcmp(s, FEATURES_AHEAD[i]) == 0) {
                 cJSON_DeleteItemFromArray(g, k);
-                features_ahead_used[i]++;
+                sent++;
             }
         }
+        CHECK(sent == 1, "%s: the firmware sends %s %d times", name, FEATURES_AHEAD[i], sent);
+        features_ahead_used[i] += sent;
     }
     CHECK(cJSON_Compare(want, g, true), "%s: .caps.features differs", name);
     cJSON_Delete(g);
@@ -636,7 +639,7 @@ static void test_not_yet_sent_used(void)
     for (int i = 0; i < N_NOT_YET_SENT; i++)
         if (NOT_YET_SENT[i]) CHECK(not_yet_sent_used[i] > 0, "NOT_YET_SENT %s is in no checkin_req fixture, drop it", NOT_YET_SENT[i]);
     for (int i = 0; i < N_FEATURES_AHEAD; i++)
-        CHECK(features_ahead_used[i] == 1, "FEATURES_AHEAD %s: the firmware sends it %d times", FEATURES_AHEAD[i],
+        CHECK(features_ahead_used[i] > 0, "FEATURES_AHEAD %s is in no checkin_req fixture with caps (%d)", FEATURES_AHEAD[i],
               features_ahead_used[i]);
 }
 

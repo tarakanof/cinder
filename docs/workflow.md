@@ -33,7 +33,8 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   an array. A token in Ember's feature registry that the firmware sends before
   `checkin_req_caps.json` lists it goes in `FEATURES_AHEAD[]` in `test_fixtures.c`
   (`wx_faces` since 0.9.51): the test drops it from the firmware's list before comparing,
-  fails when the firmware does not send it, and fails once the fixture has it (then remove
+  fails when a caps body does not carry it exactly once or no caps fixture is checked, and
+  fails once the fixture has it (then remove
   the entry in the sync commit).
 - Every PR that changes the firmware image bumps `PROJECT_VER` in
   `firmware/CMakeLists.txt` (patch for fixes and small features); test-, tool- and
