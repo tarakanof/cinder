@@ -70,6 +70,7 @@ bool wx_legacy_parse(const char *body, wx_obs_t *o)
     cJSON *root = cJSON_Parse(body);
     if (!root) return false;
     memset(o, 0, sizeof *o);
+    o->moon_up = -1;
     o->enabled = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "enabled"));
     copy_str(o->provider, sizeof o->provider, cJSON_GetObjectItemCaseSensitive(root, "provider"));
     o->now_min = minute_of(root, "generated_at");

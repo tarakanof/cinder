@@ -102,7 +102,7 @@ void wx_temp_from(const wx_obs_t *o, wx_temp_t *t)
     t->cloud_band = wx_cloud_band(cloud);
     if (!t->night) {
         if (t->cloud_band <= 1) t->hero = WX_HERO_SUN;
-    } else if (o->has_moon && o->moon_up != 0 && t->cloud_band < 4) {
+    } else if (o->has_moon && o->moon_up == 1 && t->cloud_band < 4) {
         t->hero = t->cloud_band < 3 ? WX_HERO_MOON : WX_HERO_MOON_SMALL;
         t->moon_phase = o->moon_phase;
         t->moon_illum = o->moon_illum;

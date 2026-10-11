@@ -91,6 +91,16 @@ static void test_face_from(void)
     wx_temp_from(&o, &t);
     CHECK(t.hero == WX_HERO_NONE && t.stars, "moon down: stars only");
     o.moon_up = -1;
+    wx_temp_from(&o, &t);
+    CHECK(t.hero == WX_HERO_NONE && t.stars, "moon.up unknown: no moon");
+    o.moon_up = 2;
+    wx_temp_from(&o, &t);
+    CHECK(t.hero == WX_HERO_NONE, "moon.up invalid: no moon");
+    o.moon_up = 1;
+    o.has_moon = false;
+    wx_temp_from(&o, &t);
+    CHECK(t.hero == WX_HERO_NONE && t.stars, "moon missing: no moon");
+    o.has_moon = true;
     o.cloud = 80;
     wx_temp_from(&o, &t);
     CHECK(t.hero == WX_HERO_MOON_SMALL && !t.stars && t.cloud_band == 3 && !strcmp(t.sub, "Cloudy"), "AT6 small moon");

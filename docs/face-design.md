@@ -31,7 +31,7 @@ Status: design 2026-10-08; the Temperature face is built (0.9.51, [`features.md`
 | Face | Build notes |
 |---|---|
 | All gauges | The 150-piece gradient arcs on the canvas are a preview artefact. On the device: rasterise the ring once per data change with the existing analytic ring rasteriser and a colour LUT along the angle, keep it as one image; only the marker box moves. |
-| Temperature (day/night) | Sky slot by `is_day` + cloud cover: clouds (white < 70 %, light grey < 90 %, dark grey overcast; night tones at night), big sun (hot, AT4), moon with phase (night, AT5). Pre-render each cloud/sun/moon sprite with its rim fade; the drift moves one box at ≤ 15 fps. AT4: the sun rays are static (baked); only the sun box (glow, UV pulse) and the heat shimmer move. AT5: 4 twinkling stars (2 areas), the moon and the other stars are static. Open: show the moon only when it is above the horizon (moonrise/moonset). Mercury, ticks, ° colour: one small box. UV advice line only in daytime and UV ≥ 3. |
+| Temperature (day/night) | Sky slot by `is_day` + cloud cover: clouds (white < 70 %, light grey < 90 %, dark grey overcast; night tones at night), big sun (hot, AT4), moon with phase (night, AT5). Pre-render each cloud/sun/moon sprite with its rim fade; the drift moves one box at ≤ 15 fps. AT4: the sun rays are static (baked); only the sun box (glow, UV pulse) and the heat shimmer move. AT5: 4 twinkling stars (2 areas), the moon and the other stars are static. The moon shows only when Ember's `moon.up` is true; missing or not a boolean means no moon (decided in #33). Mercury, ticks, ° colour: one small box. UV advice line only in daytime and UV ≥ 3. |
 | Rain now (AR2, umbrella) | No "Rain" caption. Rain is irregular A/B drop sheet tiles (three sheets, periods 1.33, 1.6 and 1.13 s) moving inside a static clip with a baked fade mask, not a regular grid; fewer drops than the first draft. 15 fps, 3 areas: left and right rain sheets, the band above the canopy. Edge drips slide off both umbrella sides; splashes land on the drop's hit frame. Dry zone under the canopy = fewer pixels to draw. |
 | Rain forecast (AD3-AD5) | Countdown value ("2½ h", "45 min"). 2 areas at 15 fps, each box = cloud + its drop sheet. Light (AD4): one white cloud. Regular (AD5): lighter filled clouds from both sides. Heavy (AD3): grey shaded clouds from both sides. Drop slide along the ring: one small box during arrival. |
 | Wind (AW2-AW4) | No "Wind" caption; the hero icon is 1.9× larger, using the freed space. Windsock with 3 baked poses per wind-speed level (limp, gentle, straight out), switched in an A-B-C-B cycle faster as the wind rises (667 / 333 / 133 ms); no live rotation or skew. 1 area (the sock and its streaks). |
@@ -98,7 +98,6 @@ The BotNext port comes first (see Next session).
 **Open decisions**
 - B2 moment icon size.
 - Whether waiting's loud first 20 s in BotNext is too much.
-- Moon on the night face only when it is above the horizon.
 - What Ember must provide: hourly rain / wind / gusts, daily forecast, cloud cover, UV index, moonrise/moonset, golden/blue hour times, full-size album cover + accent colour.
 
 **Next steps, in order**
