@@ -29,6 +29,25 @@ if [ "$OTA_CALLS" -eq 0 ] || [ "$OTA_BAD" -ne 0 ]; then
     exit 1
 fi
 echo "ota call sites: $OTA_CALLS pass step.ota_status"
+OCL="$D/../../main/ota_client.c"
+body() { awk -v f="$2" '$0 ~ "^static [a-z_0-9 ]+[ *]" f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
+WIRING=""
+body "$OCL" dl_write | grep -q 'ota_piece_write(&io, &d->yield_ms, ' || WIRING="$WIRING dl_write-must-call-ota_piece_write"
+body "$OCL" dl_write | grep -q 'esp_ota_write(' && WIRING="$WIRING dl_write-must-not-call-esp_ota_write"
+[ "$(grep -c 'esp_ota_write(' "$OCL")" -eq "$(body "$OCL" io_write | grep -c 'esp_ota_write(')" ] ||
+    WIRING="$WIRING esp_ota_write-only-in-io_write"
+for CALL in esp_ota_end esp_ota_set_boot_partition; do
+    grep -B3 "= $CALL(" "$OCL" | grep -q 'ota_yield(&YIELD_IO);' || WIRING="$WIRING ota_yield-before-$CALL"
+done
+MAINC="$D/../../main/main.c"
+for ARG in true false; do
+    body "$MAINC" ota_frame | grep -q "bot_view_rim_hold($ARG);" || WIRING="$WIRING ota_frame-bot_view_rim_hold($ARG)"
+done
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL OTA watchdog wiring:$WIRING" >&2
+    exit 1
+fi
+echo "ota yield wiring: dl_write, esp_ota_end, esp_ota_set_boot_partition, rim hold"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"

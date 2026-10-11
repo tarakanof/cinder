@@ -361,6 +361,15 @@
   "stream_attempt": [
    "dl_sink"
   ],
+  "ota_piece_write": [
+   "io_now",
+   "io_write"
+  ],
+  "ota_yield": [
+   "io_now",
+   "io_idle",
+   "io_delay"
+  ],
   "http_dispatch_event": [
    "on_event"
   ],

@@ -460,16 +460,27 @@ static void dl_abort(dl_t *d)
     mbedtls_sha256_free(&d->sha);
 }
 
-static bool dl_write(dl_t *d, const uint8_t *p, int n)
+static int64_t io_now(void *ctx)
 {
-    if (d->written + (uint32_t)n > d->offer->size) {
-        strcpy(d->err, "size");
-        return false;
-    }
-    if (ota_yield_due(d->yield_ms, uptime_ms())) {
-        vTaskDelay(OTA_YIELD_TICKS);
-        d->yield_ms = uptime_ms();
-    }
+    (void)ctx;
+    return uptime_ms();
+}
+
+static uint64_t io_idle(void *ctx)
+{
+    (void)ctx;
+    return (uint64_t)ulTaskGetIdleRunTimeCounterForCore(xPortGetCoreID());
+}
+
+static void io_delay(void *ctx, int ticks)
+{
+    (void)ctx;
+    vTaskDelay(ticks);
+}
+
+static bool io_write(void *ctx, const uint8_t *p, int n)
+{
+    dl_t *d = ctx;
     mbedtls_sha256_update(&d->sha, p, (size_t)n);
     esp_err_t err = esp_ota_write(d->h, p, (size_t)n);
     if (err != ESP_OK) {
@@ -477,6 +488,19 @@ static bool dl_write(dl_t *d, const uint8_t *p, int n)
         strcpy(d->err, "flash");
         return false;
     }
+    return true;
+}
+
+static const ota_piece_io_t YIELD_IO = {.now_ms = io_now, .idle = io_idle, .delay = io_delay};
+
+static bool dl_write(dl_t *d, const uint8_t *p, int n)
+{
+    if (d->written + (uint32_t)n > d->offer->size) {
+        strcpy(d->err, "size");
+        return false;
+    }
+    const ota_piece_io_t io = {.now_ms = io_now, .idle = io_idle, .delay = io_delay, .write = io_write, .ctx = d};
+    if (!ota_piece_write(&io, &d->yield_ms, p, n)) return false;
     d->written += (uint32_t)n;
     ota_face_pct(ota_pct(d->written, d->offer->size));
     return true;
@@ -669,6 +693,7 @@ static void run_update(const ota_ctx_t *ctx)
     if (ok) {
         d->open = false;
         mbedtls_sha256_free(&d->sha);
+        ota_yield(&YIELD_IO);
         ctx->alive();
         esp_err_t err = esp_ota_end(d->h);
         ctx->alive();
@@ -712,6 +737,7 @@ static void finish(const ota_ctx_t *ctx)
     }
     ota_rec_rebooting(&O->rec);
     rec_save();
+    ota_yield(&YIELD_IO);
     esp_err_t err = esp_ota_set_boot_partition(O->ready);
     ctx->alive();
     if (err != ESP_OK) {

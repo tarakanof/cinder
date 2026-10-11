@@ -346,6 +346,26 @@ int ota_pct(uint32_t written, uint32_t size)
 
 bool ota_yield_due(int64_t last_yield_ms, int64_t now_ms) { return now_ms - last_yield_ms >= OTA_YIELD_MS; }
 
+bool ota_yield_more(uint64_t idle_before, uint64_t idle_now, int64_t start_ms, int64_t now_ms)
+{
+    return idle_now == idle_before && now_ms - start_ms < OTA_YIELD_MAX_MS;
+}
+
+int64_t ota_yield(const ota_piece_io_t *io)
+{
+    int64_t start = io->now_ms(io->ctx);
+    uint64_t idle = io->idle(io->ctx);
+    io->delay(io->ctx, OTA_YIELD_TICKS);
+    while (ota_yield_more(idle, io->idle(io->ctx), start, io->now_ms(io->ctx))) io->delay(io->ctx, 1);
+    return io->now_ms(io->ctx);
+}
+
+bool ota_piece_write(const ota_piece_io_t *io, int64_t *last_yield_ms, const uint8_t *p, int n)
+{
+    if (ota_yield_due(*last_yield_ms, io->now_ms(io->ctx))) *last_yield_ms = ota_yield(io);
+    return io->write(io->ctx, p, n);
+}
+
 ota_link_t ota_link_result(bool failed, bool fast_clock)
 {
     return failed && !fast_clock ? OTA_LINK_FAIL : OTA_LINK_OK;

@@ -728,34 +728,81 @@ static void test_override(void)
     CHECK(ota_override_check(true, &v) == OTA_OVERRIDE_NOT_READY, "the view rule still applies");
 }
 
-typedef enum { YIELD_BY_TIME, YIELD_BY_BYTES } yield_rule_t;
+#define SIM_SIZE 1625408
+#define SIM_RIM_VARIANT_MS 120
+#define SIM_WDT_MS 5000
 
-static int64_t max_busy_ms(yield_rule_t rule, uint32_t size, const int *read_ms, const int *write_ms, int n_steps,
-                           int *yields)
+typedef struct {
+    int64_t t, idle_at, gap;
+    uint64_t idle;
+    int rim_variants, rim_left;
+    bool rim_nap, hog;
+    int yields, delay_ms, extra_ticks, writes, fail_at;
+    const int *w;
+    int nw;
+} sim_t;
+
+static void sim_ms(sim_t *s)
 {
-    int64_t t = 0, last = 0, gap = 0;
-    uint32_t written = 0, next_yield = 64 * 1024;
-    *yields = 0;
-    for (int i = 0; written < size; i++) {
-        uint32_t piece = size - written < 4096 ? size - written : 4096;
-        t += read_ms[i % n_steps];
-        if (rule == YIELD_BY_TIME && ota_yield_due(last, t)) {
-            if (t - last > gap) gap = t - last;
-            t += OTA_YIELD_TICKS;
-            last = t;
-            ++*yields;
+    s->t++;
+    if (s->hog) return;
+    if (s->rim_variants > 0 && !s->rim_nap) {
+        if (--s->rim_left == 0) {
+            s->rim_variants--;
+            s->rim_left = SIM_RIM_VARIANT_MS;
+            s->rim_nap = true;
         }
-        t += write_ms[i % n_steps];
-        written += piece;
-        if (rule == YIELD_BY_BYTES && written >= next_yield) {
-            next_yield += 64 * 1024;
-            if (t - last > gap) gap = t - last;
-            t += 1;
-            last = t;
-            ++*yields;
-        }
+        return;
     }
-    return t - last > gap ? t - last : gap;
+    s->rim_nap = false;
+    s->idle += 1000;
+    if (s->t - 1 - s->idle_at > s->gap) s->gap = s->t - 1 - s->idle_at;
+    s->idle_at = s->t;
+}
+
+static int64_t sim_now(void *ctx) { return ((sim_t *)ctx)->t; }
+static uint64_t sim_idle(void *ctx) { return ((sim_t *)ctx)->idle; }
+
+static void sim_delay(void *ctx, int ticks)
+{
+    sim_t *s = ctx;
+    if (ticks == OTA_YIELD_TICKS) s->yields++;
+    else s->extra_ticks += ticks;
+    s->delay_ms += ticks;
+    for (int i = 0; i < ticks; i++) sim_ms(s);
+}
+
+static bool sim_write(void *ctx, const uint8_t *p, int n)
+{
+    sim_t *s = ctx;
+    (void)p;
+    (void)n;
+    s->t += s->w[s->writes % s->nw];
+    return ++s->writes != s->fail_at;
+}
+
+static sim_t sim_download(const int *r, const int *w, int n, int rim_variants, bool hog)
+{
+    sim_t s = {.rim_variants = rim_variants, .rim_left = SIM_RIM_VARIANT_MS, .hog = hog, .w = w, .nw = n};
+    const ota_piece_io_t io = {.now_ms = sim_now, .idle = sim_idle, .delay = sim_delay, .write = sim_write, .ctx = &s};
+    static const uint8_t piece[4096];
+    int64_t last = s.t;
+    for (uint32_t written = 0; written < SIM_SIZE; written += 4096) {
+        s.t += r[s.writes % n];
+        if (!ota_piece_write(&io, &last, piece, SIM_SIZE - written < 4096 ? (int)(SIM_SIZE - written) : 4096)) break;
+    }
+    if (s.t - s.idle_at > s.gap) s.gap = s.t - s.idle_at;
+    return s;
+}
+
+static int s_order_delays;
+
+static bool order_write(void *ctx, const uint8_t *p, int n)
+{
+    (void)p;
+    (void)n;
+    s_order_delays = ((sim_t *)ctx)->yields;
+    return true;
 }
 
 static void test_yield(void)
@@ -764,21 +811,48 @@ static void test_yield(void)
               ota_yield_due(0, 5000),
           "yield due after OTA_YIELD_MS");
     CHECK(OTA_YIELD_TICKS >= 2, "a yield blocks for at least one whole tick");
+    CHECK(ota_yield_more(7, 7, 0, OTA_YIELD_MAX_MS - 1) && !ota_yield_more(7, 8, 0, 1) &&
+              !ota_yield_more(7, 7, 0, OTA_YIELD_MAX_MS),
+          "wait more only while the idle counter stands still, up to OTA_YIELD_MAX_MS");
+
+    static const int one[] = {1};
+    sim_t s = {.w = one, .nw = 1};
+    ota_piece_io_t io = {.now_ms = sim_now, .idle = sim_idle, .delay = sim_delay, .write = order_write, .ctx = &s};
+    int64_t last = 0;
+    s.t = OTA_YIELD_MS - 1;
+    CHECK(ota_piece_write(&io, &last, NULL, 1) && s.yields == 0 && last == 0, "no yield before OTA_YIELD_MS");
+    s.t = OTA_YIELD_MS;
+    CHECK(ota_piece_write(&io, &last, NULL, 1) && s_order_delays == 1 && last == s.t, "the yield runs before the write");
+    io.write = sim_write;
+    s.fail_at = s.writes + 1;
+    CHECK(!ota_piece_write(&io, &last, NULL, 1), "a failed write stops the download");
+
     static const int fast_r[] = {1, 1}, fast_w[] = {4, 6};
     static const int slow_r[] = {3, 12, 25, 2}, slow_w[] = {45, 30, 20, 48};
     static const int erase_r[] = {1, 1, 1}, erase_w[] = {12, 12, 40};
     const struct {
         const int *r, *w;
-        int n;
+        int n, step_max;
         const char *name;
-    } cases[] = {{fast_r, fast_w, 2, "fast"}, {slow_r, slow_w, 4, "slow"}, {erase_r, erase_w, 3, "erase"}};
+    } cases[] = {{fast_r, fast_w, 2, 7, "fast"}, {slow_r, slow_w, 4, 73, "slow"}, {erase_r, erase_w, 3, 41, "erase"}};
+    int pieces = (SIM_SIZE + 4095) / 4096;
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
-        int yields = 0, old_yields = 0;
-        int64_t gap = max_busy_ms(YIELD_BY_TIME, 1625408, cases[i].r, cases[i].w, cases[i].n, &yields);
-        int64_t old = max_busy_ms(YIELD_BY_BYTES, 1625408, cases[i].r, cases[i].w, cases[i].n, &old_yields);
-        CHECK(gap <= 250, "%s writes: longest run without a yield %lld ms", cases[i].name, (long long)gap);
-        CHECK(yields > 0, "%s writes: yields", cases[i].name);
-        if (i > 0) CHECK(old > 250, "%s writes: the 64 KB rule ran %lld ms without a yield", cases[i].name, (long long)old);
+        sim_t q = sim_download(cases[i].r, cases[i].w, cases[i].n, 0, false);
+        CHECK(q.writes == pieces && q.yields > 0, "%s: %d pieces, %d yields", cases[i].name, q.writes, q.yields);
+        CHECK(q.gap <= OTA_YIELD_MS + cases[i].step_max + OTA_YIELD_TICKS, "%s, core free: IDLE waits at most %lld ms",
+              cases[i].name, (long long)q.gap);
+        CHECK(q.extra_ticks == 0, "%s, core free: no extra ticks (%d)", cases[i].name, q.extra_ticks);
+
+        sim_t rim = sim_download(cases[i].r, cases[i].w, cases[i].n, 10, false);
+        CHECK(rim.writes == pieces && rim.gap < SIM_WDT_MS / 2, "%s, rim job pending: IDLE waits at most %lld ms",
+              cases[i].name, (long long)rim.gap);
+
+        sim_t hog = sim_download(cases[i].r, cases[i].w, cases[i].n, 0, true);
+        CHECK(hog.writes == pieces && hog.delay_ms <= hog.yields * OTA_YIELD_MAX_MS,
+              "%s, core never free: the download finishes, %d ms of delay over %d yields", cases[i].name, hog.delay_ms,
+              hog.yields);
+        printf("yield %s: IDLE gap %lld ms free, %lld ms rim job, %lld ms delay, hog %d ms over %d yields\n",
+               cases[i].name, (long long)q.gap, (long long)rim.gap, (long long)rim.delay_ms, hog.delay_ms, hog.yields);
     }
 }
 

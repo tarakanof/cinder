@@ -162,9 +162,22 @@ int ota_pct(uint32_t written, uint32_t size);
 
 #define OTA_YIELD_MS 200
 #define OTA_YIELD_TICKS 2
+#define OTA_YIELD_MAX_MS 50
 #define OTA_RX_BUF 4096
-/* Download task, before each flash write: true once OTA_YIELD_MS have passed since the last yield ended. */
+/* idle: the calling core's idle task run-time counter. write: false stops the download. */
+typedef struct {
+    int64_t (*now_ms)(void *ctx);
+    uint64_t (*idle)(void *ctx);
+    void (*delay)(void *ctx, int ticks);
+    bool (*write)(void *ctx, const uint8_t *p, int n);
+    void *ctx;
+} ota_piece_io_t;
 bool ota_yield_due(int64_t last_yield_ms, int64_t now_ms);
+bool ota_yield_more(uint64_t idle_before, uint64_t idle_now, int64_t start_ms, int64_t now_ms);
+/* Blocks OTA_YIELD_TICKS, then 1 tick at a time until the idle counter moves or OTA_YIELD_MAX_MS pass; returns now_ms after. */
+int64_t ota_yield(const ota_piece_io_t *io);
+/* Download task, every piece: ota_yield first once ota_yield_due(*last_yield_ms), then write. */
+bool ota_piece_write(const ota_piece_io_t *io, int64_t *last_yield_ms, const uint8_t *p, int n);
 
 #define OTA_HEALTH_MIN_FRAMES 20
 #define OTA_HEALTH_LOOP_MS (30 * 1000)
