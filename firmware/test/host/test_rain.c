@@ -216,18 +216,30 @@ static void test_bake_kind(void)
     CHECK(b.rain.intensity == 3 && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "no face shown: the spell's peak");
     long long until = o.rain_until;
     o.rain_until = 0;
-    for (int step = 0; step < 6; step++) {
-        static const int PEAK[6] = {1, 3, 2, 3, 1, 3};
+    o.rain_spell[0].intensity = 1;
+    o.now_rain = 1;
+    wx_temp_from_shown(&o, &a, &b);
+    CHECK(b.rain.on && b.rain.intensity == 2 && !strcmp(b.rain.sub, "Rain") && wx_temp_bake_kind(&b, &a) == 0,
+          "wet, falling peak: the shown intensity holds, no re-bake, '%s'", b.rain.sub);
+    wx_temp_t s = a;
+    int bakes = 0;
+    for (int step = 0; step < 7; step++) {
+        static const int PEAK[7] = {3, 2, 3, 2, 3, 2, 1};
         o.rain_spell[0].intensity = PEAK[step];
         o.now_rain = PEAK[step];
-        wx_temp_from_shown(&o, &a, &b);
-        CHECK(b.rain.on && b.rain.intensity == 2 && !strcmp(b.rain.sub, "Rain") && wx_temp_bake_kind(&b, &a) == 0,
-              "wet, peak %d (falling or revised over the edge): the shown intensity holds, no re-bake, '%s'", PEAK[step],
-              b.rain.sub);
+        wx_temp_from_shown(&o, &s, &b);
+        int k = wx_temp_bake_kind(&b, &s);
+        CHECK(b.rain.on && b.rain.intensity == 3 && !strcmp(b.rain.sub, "Heavy rain") && (k == 0 || k == WX_BAKE_FULL),
+              "wet, peak %d around the edge: heavy shown, '%s'", PEAK[step], b.rain.sub);
+        if (k) {
+            bakes++;
+            s = b;
+        }
     }
+    CHECK(bakes == 1, "oscillation 2 <-> 3 re-bakes once on the rise, then holds at 3 (%d bakes)", bakes);
     o.rain_until = until;
-    wx_temp_from_shown(&o, &a, &b);
-    CHECK(b.rain.intensity == 2 && b.rain.has_until && !strcmp(b.rain.sub, "until 15:00"), "a held intensity keeps the until '%s'",
+    wx_temp_from_shown(&o, &s, &b);
+    CHECK(b.rain.intensity == 3 && b.rain.has_until && !strcmp(b.rain.sub, "until 15:00"), "a held intensity keeps the until '%s'",
           b.rain.sub);
     wx_temp_t dry;
     o.now_rain = 0;
@@ -237,6 +249,7 @@ static void test_bake_kind(void)
           "rain stops or starts: full both ways");
     o.now_rain = 3;
     o.rain_n = 1;
+    o.rain_spell[0].intensity = 3;
     wx_temp_from_shown(&o, &dry, &b);
     CHECK(b.rain.on && b.rain.intensity == 3 && wx_temp_bake_kind(&b, &dry) == WX_BAKE_FULL, "dry, then wet again: the new peak");
     o.rain_spell[0].intensity = 2;
@@ -246,6 +259,38 @@ static void test_bake_kind(void)
     wx_temp_from_shown(&o, &b, &dry);
     CHECK(dry.rain.kind == WX_PRECIP_SNOW && dry.rain.intensity == 2 && wx_temp_bake_kind(&dry, &b) == WX_BAKE_FULL,
           "kind: full, the new intensity");
+}
+
+static void test_rain_rises(void)
+{
+    wx_temp_t a, b;
+    wx_obs_t o = obs("rain", "61");
+    detail(&o, 1, 0, 0);
+    o.rain_spell[0].intensity = 1;
+    wx_temp_from(&o, &a);
+    CHECK(a.rain.on && a.rain.intensity == 1 && !strcmp(a.rain.sub, "Light rain"), "spell: wet as light '%s'", a.rain.sub);
+    o.rain_spell[0].intensity = 3;
+    wx_temp_from_shown(&o, &a, &b);
+    CHECK(b.rain.intensity == 3 && !strcmp(b.rain.sub, "Heavy rain") && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL,
+          "spell revised up to heavy: re-bake as heavy '%s'", b.rain.sub);
+
+    o = obs("rain", "61");
+    detail(&o, 1, 0, 0);
+    o.rain_n = 0;
+    wx_temp_from(&o, &a);
+    CHECK(a.rain.on && a.rain.intensity == 1, "no spell: now.rain 1, light");
+    o.now_rain = 3;
+    wx_temp_from_shown(&o, &a, &b);
+    CHECK(b.rain.intensity == 3 && !strcmp(b.rain.sub, "Heavy rain") && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL,
+          "no spell, now.rain 1 -> 3: re-bake as heavy '%s'", b.rain.sub);
+
+    o = obs("rain", "51");
+    wx_temp_from(&o, &a);
+    CHECK(a.rain.on && a.rain.intensity == 1, "legacy: drizzle, light");
+    o = obs("rain", "65");
+    wx_temp_from_shown(&o, &a, &b);
+    CHECK(b.rain.intensity == 3 && !strcmp(b.rain.sub, "Heavy rain") && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL,
+          "legacy, drizzle -> heavy: re-bake as heavy '%s'", b.rain.sub);
 }
 
 static const float CANVAS[3][8][5] = {
@@ -925,6 +970,7 @@ int main(void)
 {
     test_select();
     test_bake_kind();
+    test_rain_rises();
     test_sheets();
     test_tiles();
     test_splash_drip_bolt();

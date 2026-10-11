@@ -106,7 +106,7 @@ bool wx_rain_same_scene(const wx_rain_t *a, const wx_rain_t *b)
 
 void wx_rain_keep(wx_rain_t *r, const wx_rain_t *shown)
 {
-    if (!shown || !r->on || !shown->on || r->kind != shown->kind || r->intensity == shown->intensity) return;
+    if (!shown || !r->on || !shown->on || r->kind != shown->kind || r->intensity >= shown->intensity) return;
     r->intensity = shown->intensity;
     if (!r->has_until) snprintf(r->sub, sizeof r->sub, "%s", word(r->kind, r->intensity));
 }
