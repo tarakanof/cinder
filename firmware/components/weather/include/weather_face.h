@@ -41,6 +41,11 @@ typedef struct {
     long long observed_at; /* Unix s from the view, 0 unknown */
     bool has_obs_age;
     double obs_age_s;      /* the observation's age when the knob received it */
+    bool has_cloud, has_uv, has_today, has_moon;
+    int cloud, uv;         /* %, UV index */
+    int min_c, max_c;      /* today's range, whole degrees */
+    int moon_phase, moon_illum;
+    int moon_up;           /* with has_moon: 1 up, 0 down, -1 unknown */
 } wx_obs_t;
 
 typedef struct {

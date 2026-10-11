@@ -15,6 +15,7 @@
 #include "pages.h"
 #include "pomo.h"
 #include "pomo_legacy.h"
+#include "wx_temp.h"
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -28,6 +29,8 @@ static const char *const COVERED[] = {
     "checkin_reply_ota.json",  "checkin_reply_rotation.json", "config_default.json",
     "config_custom.json",      "pomodoro_action.json",        "view_quiet.json",
     "checkin_req_caps.json",   "checkin_reply_caps.json",     "view_caps_limited.json",
+    "view_faces.json",         "view_faces_met.json",         "view_faces_polar_dry.json",
+    "view_np_cover.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -193,6 +196,111 @@ static void test_view_caps_limited(void)
     CHECK(v.has_weather && strcmp(v.weather.condition, "rain") == 0, "weather");
     CHECK(v.weather.observed_at == 1782041400LL, "observed_at %lld", v.weather.observed_at);
     CHECK(!v.has_np && v.has_brightness && v.diag_live_until == 1782043500LL, "no nowplaying, brightness, live");
+}
+
+static void test_view_faces(void)
+{
+    knob_view_t v;
+    if (!view("view_faces.json", &v)) return;
+    const wx_obs_t *o = &v.weather;
+    CHECK(v.has_weather && o->has_temp && fabsf(o->temp_c - 15.4f) < 1e-4f && o->observed_at == 1782043200LL, "legacy keys");
+    CHECK(o->has_cloud && o->cloud == 94 && o->has_uv && o->uv == 3, "now: cloud %d uv %d", o->cloud, o->uv);
+    CHECK(o->has_today && o->min_c == 9 && o->max_c == 15, "today %d..%d", o->min_c, o->max_c);
+    CHECK(o->has_moon && o->moon_phase == 24 && o->moon_illum == 46 && o->moon_up == 1, "moon");
+    wx_temp_t t;
+    wx_temp_from(o, &t);
+    CHECK(t.have && t.value == 15 && t.has_range && t.lo == 9 && t.hi == 15 && t.frac == 1, "gauge %d..%d", t.lo, t.hi);
+    CHECK(!t.night && t.cloud_band == 4 && t.hero == WX_HERO_NONE && !t.stars, "overcast day");
+    CHECK(strcmp(t.sub, "Sunglasses on") == 0 && t.sub_rgb == 0xF0E641, "UV 3 by day: '%s'", t.sub);
+
+    if (!view("view_faces_met.json", &v)) return;
+    CHECK(o->has_cloud && o->cloud == 70 && o->has_uv && o->uv == 3, "MET now");
+    CHECK(o->has_today && o->min_c == 14 && o->max_c == 17, "MET today");
+    wx_temp_from(o, &t);
+    CHECK(t.value == 14 && t.lo == 14 && t.hi == 17 && t.frac == 0 && t.cloud_band == 3 && t.hero == WX_HERO_NONE,
+          "MET gauge and clouds");
+
+    if (!view("view_faces_polar_dry.json", &v)) return;
+    CHECK(o->has_moon && o->moon_phase == 65 && o->moon_illum == 80 && o->moon_up == 1, "polar moon without set");
+    char *j = load("view_faces.json");
+    cJSON *f = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    cJSON *w = cJSON_GetObjectItemCaseSensitive(f, "weather");
+    cJSON_DeleteItemFromObjectCaseSensitive(w, "today");
+    cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "cloud");
+    cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "moon"), "illum", cJSON_CreateString("46"));
+    cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "moon"), "up");
+    cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "uv", cJSON_CreateNumber(-1));
+    j = cJSON_PrintUnformatted(f);
+    cJSON_Delete(f);
+    bool ok = j && knob_view_parse(j, &v);
+    free(j);
+    CHECK(ok && !o->has_today && !o->has_cloud && !o->has_uv && !o->has_moon && o->moon_up == -1, "missing or bad keys degrade");
+    wx_temp_from(o, &t);
+    CHECK(t.have && !t.has_range && t.lo == WX_SCALE_LO && t.cloud_band == 4 && strcmp(t.sub, "Rain") == 0,
+          "without detail: fixed scale, cloud from the condition, sky word");
+}
+
+static void test_view_legacy_weather(void)
+{
+    const char *names[] = {"view_full.json", "view_caps_limited.json"};
+    knob_view_t v;
+    wx_temp_t t;
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) {
+        if (!view(names[i], &v)) continue;
+        const wx_obs_t *o = &v.weather;
+        CHECK(!o->has_cloud && !o->has_uv && !o->has_today && !o->has_moon, "%s: no detail without wx_faces", names[i]);
+        wx_temp_from(o, &t);
+        CHECK(t.have && !t.has_range && t.lo == WX_SCALE_LO && t.hi == WX_SCALE_HI && t.cloud_band == 4 &&
+                  t.hero == WX_HERO_NONE && strcmp(t.sub, "Rain") == 0,
+              "%s: rain without detail: fixed scale, overcast, '%s'", names[i], t.sub);
+    }
+    if (!view("view_single_host_paused.json", &v)) return;
+    wx_temp_from(&v.weather, &t);
+    CHECK(t.have && t.value == -3 && t.still && !t.night && t.hero == WX_HERO_SUN && strcmp(t.sub, "Sunny") == 0,
+          "stale clear, night unknown: day sun, grey value");
+}
+
+static void test_view_np_cover(void)
+{
+    knob_view_t v;
+    if (!view("view_np_cover.json", &v)) return;
+    CHECK(v.has_np && v.np.state == NP_PLAYING && strcmp(v.np.title, "Example Song") == 0, "cover view: now playing");
+    CHECK(!v.has_weather, "no weather block");
+}
+
+static int hook_allocs, hook_frees;
+
+static void *count_malloc(size_t n)
+{
+    hook_allocs++;
+    return malloc(n);
+}
+
+static void count_free(void *p)
+{
+    if (p) hook_frees++;
+    free(p);
+}
+
+static void test_json_hooks(void)
+{
+    char *j = load("view_faces.json");
+    if (!j) return;
+    cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = count_malloc, .free_fn = count_free});
+    knob_view_t v;
+    bool ok = knob_view_parse(j, &v);
+    int faces = hook_allocs;
+    hook_allocs = hook_frees = 0;
+    char *legacy = load("view_caps_limited.json");
+    ok &= legacy && knob_view_parse(legacy, &v);
+    cJSON_InitHooks(NULL);
+    printf("fixtures: cJSON allocations: wx_faces view %d, legacy view %d\n", faces, hook_allocs);
+    CHECK(ok && faces >= 150 && hook_allocs < faces / 2 && hook_frees == hook_allocs,
+          "every node of the wx_faces view goes through the hooks and is freed: %d vs %d legacy, %d freed", faces, hook_allocs,
+          hook_frees);
+    free(legacy);
+    free(j);
 }
 
 static void apply(pomo_srv_clock_t *clk, wx_store_t *st, const knob_view_t *v, long long srv_now, double sent,
@@ -450,6 +558,32 @@ static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
+static const char *const FEATURES_AHEAD[] = {"wx_faces"};
+#define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
+static int features_ahead_used[N_FEATURES_AHEAD];
+
+static void features_diff(const char *name, const cJSON *want, const cJSON *got)
+{
+    cJSON *g = cJSON_Duplicate(got, true);
+    for (int i = 0; i < N_FEATURES_AHEAD; i++) {
+        const cJSON *e;
+        cJSON_ArrayForEach(e, want)
+        {
+            CHECK(!cJSON_IsString(e) || strcmp(e->valuestring, FEATURES_AHEAD[i]) != 0,
+                  "%s: the fixture has feature %s now, drop it from FEATURES_AHEAD", name, FEATURES_AHEAD[i]);
+        }
+        for (int k = cJSON_GetArraySize(g) - 1; k >= 0; k--) {
+            const char *s = cJSON_GetStringValue(cJSON_GetArrayItem(g, k));
+            if (s && strcmp(s, FEATURES_AHEAD[i]) == 0) {
+                cJSON_DeleteItemFromArray(g, k);
+                features_ahead_used[i]++;
+            }
+        }
+    }
+    CHECK(cJSON_Compare(want, g, true), "%s: .caps.features differs", name);
+    cJSON_Delete(g);
+}
+
 static int not_yet_sent(const char *path)
 {
     for (int i = 0; i < N_NOT_YET_SENT; i++)
@@ -473,6 +607,8 @@ static void body_diff(const char *name, const cJSON *want, const cJSON *got, con
             CHECK(false, "%s: firmware does not send %s (list it in NOT_YET_SENT until it does)", name, p);
         } else if (cJSON_IsObject(e) && cJSON_IsObject(g)) {
             body_diff(name, e, g, p);
+        } else if (strcmp(p, ".caps.features") == 0 && cJSON_IsArray(e) && cJSON_IsArray(g)) {
+            features_diff(name, e, g);
         } else {
             CHECK(cJSON_Compare(e, g, true), "%s: %s differs", name, p);
         }
@@ -499,6 +635,9 @@ static void test_not_yet_sent_used(void)
 {
     for (int i = 0; i < N_NOT_YET_SENT; i++)
         if (NOT_YET_SENT[i]) CHECK(not_yet_sent_used[i] > 0, "NOT_YET_SENT %s is in no checkin_req fixture, drop it", NOT_YET_SENT[i]);
+    for (int i = 0; i < N_FEATURES_AHEAD; i++)
+        CHECK(features_ahead_used[i] == 1, "FEATURES_AHEAD %s: the firmware sends it %d times", FEATURES_AHEAD[i],
+              features_ahead_used[i]);
 }
 
 static void test_checkin_req_minimal(void)
@@ -628,6 +767,10 @@ int main(int argc, char **argv)
     test_view_single_host_paused();
     test_view_quiet();
     test_view_caps_limited();
+    test_view_faces();
+    test_view_legacy_weather();
+    test_view_np_cover();
+    test_json_hooks();
     test_obs_age_wiring();
     test_view_without_blocks();
     test_view_major_99();

@@ -45,7 +45,7 @@
 #include "reset_gesture.h"
 #include "touch_swipe.h"
 #include "weather_client.h"
-#include "weather_view.h"
+#include "temp_face.h"
 #include "bsp_knob_15_md50et.h"
 
 static const char *TAG = "cinder";
@@ -478,7 +478,7 @@ void page_bot_show(bool on)
 }
 
 void page_pomo_show(bool on) { pomo_view_show(on); }
-void page_weather_show(bool on) { weather_view_show(on); }
+void page_weather_show(bool on) { temp_face_show(on); }
 void page_np_show(bool on) { np_view_show(on); }
 
 static bool s_ota_paused;
@@ -754,7 +754,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bool offline = ember_client_offline();
     wx_obs_t wx;
     bool have_wx = weather_client_get(&wx);
-    weather_view_update(have_wx ? &wx : NULL, offline, dt);
+    temp_face_update(have_wx ? &wx : NULL, offline, dt);
 
     bool calm = bot_calm(ember_client_quiet(), s_ks_lv->quiet_calm);
     bot_set_calm(&s_bot, calm, t);
@@ -1005,7 +1005,7 @@ void app_main(void)
         lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         bot_view_create(s_bot_page);
         pomo_view_create(scr);
-        weather_view_create(scr);
+        temp_face_create(scr);
         np_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);

@@ -54,6 +54,26 @@ static void parse_pomo(const cJSON *p, knob_view_t *out)
     if (out->pomo_counting) out->pomo.remaining_sec = 0;
 }
 
+static bool num_in(const cJSON *o, const char *k, int lo, int hi, int *out)
+{
+    const cJSON *v = cJSON_IsObject(o) ? item(o, k) : NULL;
+    if (!cJSON_IsNumber(v) || !(v->valuedouble >= lo && v->valuedouble <= hi)) return false;
+    *out = (int)(v->valuedouble < 0 ? v->valuedouble - 0.5 : v->valuedouble + 0.5);
+    return true;
+}
+
+static void parse_detail(const cJSON *w, wx_obs_t *o)
+{
+    const cJSON *now = item(w, "now"), *today = item(w, "today"), *moon = item(w, "moon");
+    o->has_cloud = num_in(now, "cloud", 0, 100, &o->cloud);
+    o->has_uv = num_in(now, "uv", 0, 40, &o->uv);
+    o->has_today = num_in(today, "min_c", -99, 99, &o->min_c) && num_in(today, "max_c", -99, 99, &o->max_c) &&
+                   o->min_c <= o->max_c;
+    o->has_moon = num_in(moon, "phase", 0, 99, &o->moon_phase) && num_in(moon, "illum", 0, 100, &o->moon_illum);
+    const cJSON *up = cJSON_IsObject(moon) ? item(moon, "up") : NULL;
+    o->moon_up = cJSON_IsBool(up) ? cJSON_IsTrue(up) : -1;
+}
+
 static void parse_weather(const cJSON *w, knob_view_t *out)
 {
     if (!cJSON_IsObject(w)) return;
@@ -81,6 +101,7 @@ static void parse_weather(const cJSON *w, knob_view_t *out)
     if (cJSON_IsNumber(at) && at->valuedouble >= 1577836800.0 && at->valuedouble < 1e13 &&
         at->valuedouble == (double)(long long)at->valuedouble)
         o->observed_at = (long long)at->valuedouble;
+    parse_detail(w, o);
 }
 
 static knob_view_res_t view_major(const cJSON *root, int *major)

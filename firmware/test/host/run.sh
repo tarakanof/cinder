@@ -66,6 +66,15 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "weather wiring: weather_client_get reads the timer under the lock"
+grep -qF 'static void *json_malloc(size_t n) { return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT); }' "$MAINC" ||
+    WIRING="$WIRING json_malloc-prefers-PSRAM"
+body "$MAINC" app_main | sed -n 3p | grep -qF 'cJSON_InitHooks(&(cJSON_Hooks){.malloc_fn = json_malloc, .free_fn = free});' ||
+    WIRING="$WIRING app_main-sets-the-cJSON-hooks-first"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL cJSON hook wiring:$WIRING" >&2
+    exit 1
+fi
+echo "cJSON hook wiring: app_main sets PSRAM-first hooks before anything parses"
 BVC="$D/../../main/bot_view.c"
 body "$BVC" rim_task | grep -q 'if (!rim_job_take(&s_rim, .*)) continue;' || WIRING="$WIRING rim_task-skips-a-held-take"
 body "$BVC" rim_task | grep -qF 'if (!rim_job_live(&s_rim, gen)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
@@ -79,6 +88,7 @@ cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_be
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_paint.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
@@ -116,6 +126,7 @@ fi
 "${OUT}_bot"
 "${OUT}_pomo"
 "${OUT}_weather"
+"${OUT}_temp"
 "${OUT}_ember"
 "${OUT}_cfg"
 "${OUT}_panel"
@@ -144,7 +155,7 @@ cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/in
 "${OUT}_legacy"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
-    "$W/weather_face.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    "$W/weather_face.c" "$W/wx_temp.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
