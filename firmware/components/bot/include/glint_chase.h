@@ -36,6 +36,7 @@ typedef struct {
     int style;
     int forced;
     int forced_laps;
+    bool hold; /* no chase starts while set; the working time still counts */
 } glint_chase_t;
 
 #define GC_STYLE_FULL 0

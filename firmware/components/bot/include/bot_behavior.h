@@ -57,6 +57,10 @@ typedef struct {
 
     bool tracking;
     double trk_x, trk_y, trk_gx, trk_gy, trk_vx, trk_vy, trk_t;
+
+    bool acting;
+    int act_eyes;
+    bot_tween_t act_lid;
 } bot_t;
 
 #define BOT_SLEEP_AFTER_S 300.0
@@ -79,6 +83,17 @@ void bot_blink(bot_t *b, double t);
 void bot_look_still(bot_t *b, double x, double y, double t);
 void bot_hold_gaze(bot_t *b, double until);
 void bot_push(bot_t *b, double t);
+/* Weather-moment acting. Begin glides to the viewer; while acting the bot makes no saccades of its own. act_eyes: a bot_eyes_t costume, or -1 for
+   the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s and stays
+   after the act ends until set again. */
+void bot_act_begin(bot_t *b, double t);
+void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t);
+void bot_act_lid(bot_t *b, double lid, double dur, double t);
+void bot_act_eyes(bot_t *b, int eyes, double t);
+void bot_act_blink(bot_t *b, double speed, double t);
+void bot_act_hop(bot_t *b, double t);
+/* Back to the viewer (a glide, else a saccade), the mood's eyes and no lid floor; own saccades again after it. */
+void bot_act_end(bot_t *b, bool glide, double lid_dur, double t);
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px);
 
 #ifdef __cplusplus

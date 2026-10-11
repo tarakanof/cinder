@@ -321,6 +321,67 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "rim wiring: rim_task skips a held take and stops a dead job"
+MVC="$D/../../main/moment_view.c"
+fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
+for ARG in true false; do
+    body "$MAINC" ota_frame | grep -qF "moment_view_hold($ARG);" || WIRING="$WIRING ota_frame-moment_view_hold($ARG)"
+done
+body "$MAINC" ota_frame | grep -qF 'moment_unact(now_s());' || WIRING="$WIRING ota_frame-ends-the-act"
+fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, pg->frame == page_bot_frame\);/ {m = NR} /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && m < p)}' ||
+    WIRING="$WIRING page_tick-runs-moment_tick-before-the-chase-and-the-pose"
+MT="$(fbody "$MAINC" moment_tick)"
+for L in 'if (moment_view_busy() && !bot_page) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
+    'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,' \
+    '.every_s = s_ks_lv->weather_every_min * 60};' 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' 's_moment_mood = s_bot.mood;' \
+    'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
+    'while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);' 's_chase.hold = moment_view_busy();'; do
+    printf '%s\n' "$MT" | grep -qF "$L" || WIRING="$WIRING moment_tick:$L"
+done
+[ "$(printf '%s\n' "$MT" | grep -cF 'moment_unact(t);')" -eq 2 ] || WIRING="$WIRING moment_tick-ends-the-act-on-stop-and-abort"
+MC="$(body "$MAINC" moment_cue)"
+for L in 'case WXM_GLIDE: bot_act_gaze(&s_bot, c->a, c->b, true, t); break;' 'case WXM_SACCADE: bot_act_gaze(&s_bot, c->a, c->b, false, t); break;' \
+    'case WXM_LID: bot_act_lid(&s_bot, c->a, c->b, t); break;' 'case WXM_BLINK: bot_act_blink(&s_bot, c->a, t); break;' \
+    'bot_act_eyes(&s_bot, c->eyes == WXM_EYES_ROUND ? BOT_EYES_ROUND : c->eyes == WXM_EYES_HAPPY ? BOT_EYES_HAPPY : -1, t);' \
+    'case WXM_HOP: bot_act_hop(&s_bot, t); break;' 'bot_act_end(&s_bot, c->a > 0, c->b, t);'; do
+    printf '%s\n' "$MC" | grep -qF "$L" || WIRING="$WIRING moment_cue:$L"
+done
+body "$MAINC" moment_unact | grep -qF 'if (s_acting) bot_act_end(&s_bot, true, 0.3, t);' && body "$MAINC" moment_unact | grep -qF 's_cue = s_cue_n;' ||
+    WIRING="$WIRING moment_unact-ends-the-act-and-the-cues"
+body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
+body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
+    WIRING="$WIRING app_main-creates-the-moments"
+grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MAINC" || WIRING="$WIRING trigger-in-PSRAM"
+[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'wxm_paint(&s_m, &s_l, s_arena);' ||
+    WIRING="$WIRING wxm_paint-only-in-the-bake-task"
+body "$MVC" moment_bake_task | grep -qF 'if (!atomic_compare_exchange_strong(&s_bake, &queued, BAKE_RUNNING)) continue;' &&
+    body "$MVC" moment_bake_task | awk '/wxm_paint\(/ {p = NR} /atomic_store\(&s_bake, BAKE_DONE\);/ {d = NR} END {exit !(p && d > p)}' ||
+    WIRING="$WIRING bake-claims-by-CAS-and-publishes-after-the-paint"
+body "$MVC" moment_view_poll | grep -qF 'if (s_state == MV_BAKING && atomic_load(&s_bake) == BAKE_DONE && (s_cancel || t >= s_play_at)) {' ||
+    WIRING="$WIRING poll-attaches-a-landed-bake-after-the-pre-roll"
+body "$MVC" moment_view_start | grep -qF 's_play_at = t + (m->quiet ? 0 : WXM_PRE_S);' &&
+    body "$MVC" moment_view_start | grep -qF 'if (!s_arena || s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;' ||
+    WIRING="$WIRING start-waits-for-an-idle-bake-and-the-hold"
+body "$MVC" moment_view_frame | grep -qF 'int d = wxm_diff(&s_l, s_any ? &s_shown : NULL, &f);' || WIRING="$WIRING frame-diffs-against-the-shown-frame"
+body "$MVC" sprite | sed -n 2,4p | grep -qF 'lv_obj_invalidate_area(s_parent, &box);' || WIRING="$WIRING sprite-invalidates-its-box-first"
+body "$MVC" text | awk '/lv_obj_invalidate_area\(s_parent, &u\);/ {u = NR} /bot_view_icon_redraw\(&icon\);/ {i = NR} /lv_obj_set_style_opa\(s_text/ {o = NR} END {exit !(u && u < i && u < o)}' ||
+    WIRING="$WIRING text-invalidates-the-line-and-the-icon-as-one-area-first"
+body "$MVC" hide_all | grep -qF 'if (s_any && s_shown.icon_off && bot_view_icon_off(false, &a)) bot_view_icon_redraw(&a);' ||
+    WIRING="$WIRING hide_all-returns-a-hidden-icon"
+body "$MVC" text | grep -qF 'bool turns = s_m.quiet && (s_any && s_shown.icon_off) != f->icon_off;' || WIRING="$WIRING text-joins-the-icon-only-when-it-turns"
+grep -qF 's_arena = heap_caps_malloc(WXM_ARENA, MALLOC_CAP_SPIRAM);' "$MVC" || WIRING="$WIRING arena-in-PSRAM"
+STK=$(grep -o 'moment_bake_task, "moment", [0-9]*' "$MVC" | awk '{print $3}')
+python3 -c "import json,sys; sys.exit(json.load(open('$D/../../tools/stack_walk.json'))['tasks']['moment']['stack'] != int('$STK'))" ||
+    WIRING="$WIRING moment-stack-matches-stack_walk.json"
+body "$BVC" label_crop | grep -qF 'icon_apply();' && body "$BVC" label_draw | grep -qF 's_icon_box = a;' || WIRING="$WIRING label-redraw-keeps-the-icon-state"
+for DEF in '#define CX 236.0' '#define CY 233.0' '#define FILL 0.84' '#define HOP_SCALE 0.45'; do
+    grep -qxF "$DEF" "$BVC" || WIRING="$WIRING test_moment-geometry:$DEF"
+done
+grep -qF '#define BOT_VIEW_EYE_SCALE 1.15' "$D/../../main/bot_view.h" || WIRING="$WIRING test_moment-eye-scale"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL weather moment wiring:$WIRING" >&2
+    exit 1
+fi
+echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task, one area per change"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
@@ -336,6 +397,8 @@ cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_days.c" -lm -o "${OUT}_days"
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_sun.c" -lm -o "${OUT}_sun"
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
+cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
+    "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
@@ -384,6 +447,9 @@ if [ -d "$LV" ]; then
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" \
         "$W/weather_face.c" "$W/wx_air.c" "$D/test_air_label.c" -lm -o "${OUT}_air_label"
+    cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" \
+        "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$D/test_moment_label.c" -lm -o "${OUT}_moment_label"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -395,6 +461,7 @@ fi
 "${OUT}_days"
 "${OUT}_sun"
 "${OUT}_air"
+"${OUT}_moment"
 "${OUT}_faces"
 "${OUT}_wx_job"
 "${OUT}_ember"
@@ -418,8 +485,9 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_days_label"
     "${OUT}_sun_label"
     "${OUT}_air_label"
+    "${OUT}_moment_label"
 else
-    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun and air label tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"

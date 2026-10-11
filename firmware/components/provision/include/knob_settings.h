@@ -30,6 +30,8 @@ typedef struct {
     int demo_hold_s;
     bool source_label;
     bool working_ring;
+    bool weather_moments;
+    int weather_every_min;
     bool fast_link;
     bool swipe_pages;
     uint8_t diagnostics;
@@ -41,6 +43,8 @@ typedef struct {
 } knob_settings_t;
 
 #define KS_QUIET_DIM_DEFAULT 20
+#define KS_WEATHER_EVERY_MIN_DEFAULT 30
+#define KS_WEATHER_EVERY_MIN_MAX 240
 
 #define KS_STATS_INTERVAL_S_DEFAULT 60
 #define KS_LIVE_INTERVAL_S_DEFAULT 5

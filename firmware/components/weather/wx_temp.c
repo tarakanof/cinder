@@ -146,6 +146,13 @@ void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
     }
 }
 
+const char *wx_temp_sky(const wx_obs_t *o, const wx_temp_t *t)
+{
+    if (!o || !t->have) return NULL;
+    wx_look_t l = wx_look_from_obs(o);
+    return sky_word(&l, t->cloud_band, o->has_cloud, t->night);
+}
+
 void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t *t)
 {
     wx_temp_from_shown(o, shown, t);

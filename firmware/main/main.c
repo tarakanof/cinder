@@ -46,6 +46,8 @@
 #include "touch_swipe.h"
 #include "weather_client.h"
 #include "temp_face.h"
+#include "moment_view.h"
+#include "wx_moment.h"
 #include "bsp_knob_15_md50et.h"
 
 static const char *TAG = "cinder";
@@ -109,6 +111,11 @@ static atomic_int s_chase_fps = CHASE_FPS_DEFAULT;
 static gc_half_t s_half;
 static double s_half_hold_deg;
 static bool s_half_snapped;
+static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;
+static const wxm_cue_t *s_cues;
+static int s_cue, s_cue_n;
+static bot_mood_t s_moment_mood;
+static bool s_acting;
 
 int app_chase_request(int style, int fps, int laps)
 {
@@ -513,6 +520,13 @@ static void drop_inputs(void)
     atomic_store(&s_long_pushes, 0);
 }
 
+static void moment_unact(double t)
+{
+    if (s_acting) bot_act_end(&s_bot, true, 0.3, t);
+    s_acting = false;
+    s_cue = s_cue_n;
+}
+
 static bool ota_frame(void)
 {
     if (ota_face_frame()) {
@@ -520,6 +534,8 @@ static bool ota_frame(void)
             s_ota_paused = true;
             pages_pause();
             bot_view_rim_hold(true);
+            moment_view_hold(true);
+            moment_unact(now_s());
         }
         temp_face_hold(true);
         taskENTER_CRITICAL(&s_rg_mux);
@@ -531,6 +547,7 @@ static bool ota_frame(void)
     if (s_ota_paused) {
         s_ota_paused = false;
         bot_view_rim_hold(false);
+        moment_view_hold(false);
         temp_face_hold(false);
         pages_resume(&s_nav);
     }
@@ -748,6 +765,57 @@ void page_bot_frame(const page_frame_t *f)
     }
     if (bot_view_tick(t, pose && !chase->chasing)) s_frame_kind |= 2;
     bot_view_label_fx(chase->label_opa, chase->shift_x, chase->shift_y);
+    moment_view_frame(t);
+}
+
+static wxm_mood_t moment_mood(bot_mood_t m)
+{
+    return m == BOT_WORKING ? WXM_WORKING : m == BOT_WAITING || m == BOT_ERROR ? WXM_BUSY : WXM_REST;
+}
+
+static void moment_cue(const wxm_cue_t *c, double t)
+{
+    switch (c->op) {
+    case WXM_GLIDE: bot_act_gaze(&s_bot, c->a, c->b, true, t); break;
+    case WXM_SACCADE: bot_act_gaze(&s_bot, c->a, c->b, false, t); break;
+    case WXM_LID: bot_act_lid(&s_bot, c->a, c->b, t); break;
+    case WXM_BLINK: bot_act_blink(&s_bot, c->a, t); break;
+    case WXM_EYES:
+        bot_act_eyes(&s_bot, c->eyes == WXM_EYES_ROUND ? BOT_EYES_ROUND : c->eyes == WXM_EYES_HAPPY ? BOT_EYES_HAPPY : -1, t);
+        break;
+    case WXM_HOP: bot_act_hop(&s_bot, t); break;
+    case WXM_END:
+        bot_act_end(&s_bot, c->a > 0, c->b, t);
+        s_acting = false;
+        break;
+    }
+}
+
+static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page)
+{
+    if (moment_view_busy() && !bot_page) {
+        moment_view_stop();
+        moment_unact(t);
+    } else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {
+        moment_view_abort(t);
+        moment_unact(t);
+    }
+    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .shown = bot_page,
+                   .blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,
+                   .every_s = s_ks_lv->weather_every_min * 60};
+    static EXT_RAM_BSS_ATTR wxm_moment_t m;
+    if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
+        s_moment_mood = s_bot.mood;
+        s_cues = wxm_script(&m, &s_cue_n);
+        s_cue = 0;
+        if (s_cue_n > 0) {
+            bot_act_begin(&s_bot, t);
+            s_acting = true;
+        }
+    }
+    double tau = moment_view_poll(t);
+    while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);
+    s_chase.hold = moment_view_busy();
 }
 
 static __attribute__((noinline)) void page_tick(double t, double dt)
@@ -771,6 +839,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_mood_t em;
     if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
+    moment_tick(t, have_wx ? &wx : NULL, calm, pg->frame == page_bot_frame);
 
     float gdeg;
     bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
@@ -922,6 +991,9 @@ static void stats_task(void *arg)
                  s_nav.page);
         ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
                  s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
+        int moments, bake_ms;
+        moment_view_stats(&moments, &bake_ms);
+        ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         memcpy(kc, s_kind, sizeof kc);
         memset(s_kind, 0, sizeof s_kind);
@@ -1013,6 +1085,7 @@ void app_main(void)
         lv_obj_set_size(s_bot_page, lv_pct(100), lv_pct(100));
         lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         bot_view_create(s_bot_page);
+        moment_view_create(s_bot_page);
         pomo_view_create(scr);
         temp_face_create(scr);
         np_view_create(scr);
@@ -1027,6 +1100,7 @@ void app_main(void)
     reset_overlay_create();
     join_label_create();
     gc_init(&s_chase, esp_random());
+    wxm_init(&s_wxm);
     bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
     lv_timer_create(frame_cb, 16, handles.disp);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_START, NULL);

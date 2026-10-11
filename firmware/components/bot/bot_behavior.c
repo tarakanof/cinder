@@ -68,6 +68,8 @@ static bot_eyes_t eyes_for(bot_mood_t m)
     }
 }
 
+static bot_eyes_t eyes_now(const bot_t *b) { return b->act_eyes >= 0 ? (bot_eyes_t)b->act_eyes : eyes_for(b->mood); }
+
 static double lid_curve(double u, double speed)
 {
     double close = 0.075 * speed, hold = 0.035 * speed, open = 0.15 * speed;
@@ -260,7 +262,8 @@ void bot_init(bot_t *b, uint64_t seed, double now)
     b->blink_speed = 1;
     b->next_blink_at = now + 0.8;
     b->last_blink_at = -INFINITY;
-    b->triangle = b->slump = b->badge = b->lean_x = b->lean_y = tween_const(0);
+    b->triangle = b->slump = b->badge = b->lean_x = b->lean_y = b->act_lid = tween_const(0);
+    b->act_eyes = -1;
     b->next_hop_at = INFINITY;
     b->animating = true;
 }
@@ -286,7 +289,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
 {
     if (b->mood == BOT_IDLE && b->sleep_after_s > 0 && t - b->mood_since >= b->sleep_after_s) enter(b, BOT_SLEEPY, t);
     if (!b->blinking && t >= b->next_blink_at) start_blink(b, t);
-    if (t >= b->next_saccade_at) start_saccade(b, t, false);
+    if (t >= b->next_saccade_at && !b->acting) start_saccade(b, t, false);
     if (t >= b->next_hop_at) {
         b->hopping = true;
         b->hop_start = t;
@@ -299,9 +302,9 @@ bot_pose_t bot_pose(bot_t *b, double t)
         double u = t - b->blink_start;
         bl = lid_curve(u, b->blink_speed);
         br = lid_curve(u - b->blink_lag, b->blink_speed);
-        if (b->swap_eyes_on_close && fmax(bl, br) >= 0.9) { b->eyes = eyes_for(b->mood); b->swap_eyes_on_close = false; }
+        if (b->swap_eyes_on_close && fmax(bl, br) >= 0.9) { b->eyes = eyes_now(b); b->swap_eyes_on_close = false; }
         if (u - b->blink_lag >= blink_length(b->blink_speed)) {
-            if (b->swap_eyes_on_close && !b->double_blink_pending) { b->eyes = eyes_for(b->mood); b->swap_eyes_on_close = false; }
+            if (b->swap_eyes_on_close && !b->double_blink_pending) { b->eyes = eyes_now(b); b->swap_eyes_on_close = false; }
             b->blinking = false;
             if (b->double_blink_pending) {
                 b->double_blink_pending = false;
@@ -311,7 +314,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
         }
     }
     p.eyes = b->eyes;
-    double heavy = tween_value(&b->slump, t) * 0.55;
+    double heavy = fmax(tween_value(&b->slump, t) * 0.55, tween_value(&b->act_lid, t));
     p.lid_l = heavy + (1 - heavy) * bl;
     p.lid_r = heavy + (1 - heavy) * br;
 
@@ -351,7 +354,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
     }
     b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping ||
                    tween_active(&b->triangle, t) || tween_active(&b->slump, t) || tween_active(&b->badge, t) ||
-                   tween_active(&b->lean_x, t) || tween_active(&b->lean_y, t);
+                   tween_active(&b->lean_x, t) || tween_active(&b->lean_y, t) || tween_active(&b->act_lid, t);
     (void)TRANSITION_S;
     return p;
 }
@@ -442,4 +445,51 @@ bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
            SAME(offset_y, step) && SAME(orbit, step) && SAME(scale_x, step / 2) && SAME(scale_y, step / 2);
 #undef SAME
 #undef Q
+}
+
+void bot_act_begin(bot_t *b, double t)
+{
+    b->acting = true;
+    start_saccade_to(b, t, true, VIEWER_X, VIEWER_Y);
+}
+
+void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t)
+{
+    start_saccade_to(b, t, glide, x, y);
+}
+
+void bot_act_lid(bot_t *b, double lid, double dur, double t)
+{
+    b->act_lid = tween(tween_value(&b->act_lid, t), lid, t, dur, EASE_IN_OUT);
+}
+
+void bot_act_eyes(bot_t *b, int eyes, double t)
+{
+    b->act_eyes = eyes;
+    if (b->eyes == eyes_now(b)) return;
+    b->swap_eyes_on_close = true;
+    if (!b->blinking) start_blink(b, t);
+}
+
+void bot_act_blink(bot_t *b, double speed, double t)
+{
+    if (b->blinking) return;
+    start_blink(b, t);
+    b->blink_speed = speed;
+    b->double_blink_pending = false;
+}
+
+void bot_act_hop(bot_t *b, double t)
+{
+    b->hopping = true;
+    b->hop_start = t;
+}
+
+void bot_act_end(bot_t *b, bool glide, double lid_dur, double t)
+{
+    if (!b->acting) return;
+    start_saccade_to(b, t, glide, VIEWER_X, VIEWER_Y);
+    bot_act_lid(b, 0, lid_dur, t);
+    bot_act_eyes(b, -1, t);
+    b->acting = false;
 }
