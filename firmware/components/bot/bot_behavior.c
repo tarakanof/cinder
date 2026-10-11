@@ -361,6 +361,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
 
 void bot_look(bot_t *b, double x, double y, double t)
 {
+    if (b->acting) return;
     start_saccade_to(b, t, false, x, y);
     b->next_saccade_at = t + 2.5;
 }

@@ -884,6 +884,12 @@ static void test_act(void)
     bot_pose_t held = bot_pose(&b, t + 2.6);
     CHECK(held.offset_x == settled.offset_x && held.offset_y == settled.offset_y, "acting gazes keep the body lean: %g %g", held.offset_x,
           held.offset_y);
+    double lx = b.gaze_to_x, ly = b.gaze_to_y;
+    bot_look(&b, 0, 0.85, t + 3);
+    CHECK(b.gaze_to_x == lx && b.gaze_to_y == ly, "a knob turn does not move the eyes while acting");
+    bot_act_end(&b, true, 0.3, t + 4);
+    bot_look(&b, 0, 0.85, t + 5);
+    CHECK(b.gaze_to_y == 0.85, "it does again after the act");
 }
 
 int main(void)

@@ -83,9 +83,10 @@ void bot_blink(bot_t *b, double t);
 void bot_look_still(bot_t *b, double x, double y, double t);
 void bot_hold_gaze(bot_t *b, double until);
 void bot_push(bot_t *b, double t);
-/* Weather-moment acting. Begin glides to the viewer; while acting the bot makes no saccades of its own. act_eyes: a bot_eyes_t costume, or -1 for
-   the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s and stays
-   after the act ends until set again. */
+/* Weather-moment acting. Begin glides to the viewer and leans as for it; acting gazes keep that lean, the bot makes
+   no saccades of its own and ignores bot_look (a knob turn). act_eyes: a bot_eyes_t costume, or -1 for the mood's
+   eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s and stays after the
+   act ends until set again. */
 void bot_act_begin(bot_t *b, double t);
 void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t);
 void bot_act_lid(bot_t *b, double lid, double dur, double t);
