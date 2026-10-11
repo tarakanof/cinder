@@ -173,6 +173,24 @@ void wx_cast_label_at(float deg, float *x, float *y, int *align)
     *y = 233.0f - r * cosf(a);
 }
 
+bool wx_cast_label_place(float deg, int w, int h, wx_box_t avoid, int *x, int *y)
+{
+    float ax, ay;
+    int align;
+    wx_cast_label_at(deg, &ax, &ay, &align);
+    float left = align < 0 ? ax - (float)w : align == 0 ? ax - (float)w / 2 : ax;
+    *x = (int)lroundf(left);
+    *y = (int)lroundf(ay - (float)h / 2);
+    return *x + w + WX_LABEL_GAP <= avoid.x0 || *x >= avoid.x1 + WX_LABEL_GAP || *y + h + WX_LABEL_GAP <= avoid.y0 ||
+           *y >= avoid.y1 + WX_LABEL_GAP;
+}
+
+wx_box_t wx_cast_sub_box(int w, int h)
+{
+    int x0 = 233 - (w + 1) / 2;
+    return (wx_box_t){x0, WX_SUB_Y, x0 + w, WX_SUB_Y + h};
+}
+
 double wx_cast_ease(double p)
 {
     if (!(p > 0)) return 0;

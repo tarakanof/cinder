@@ -24,7 +24,7 @@ static const char *TAG = "tempface";
 
 #define FACE_X 3
 #define VALUE_Y 200
-#define SUB_Y 302
+#define SUB_Y WX_SUB_Y
 #define END_X 96
 #define END_Y 362
 #define VALUE_SPACE (-2)
@@ -69,12 +69,13 @@ static EXT_RAM_BSS_ATTR wx_faces_t s_faces;
 static EXT_RAM_BSS_ATTR int s_face;
 
 typedef struct {
-    char value[20], sub[40], label[8];
+    char value[20], sub[40], label[8], label_sub[40];
     uint32_t value_rgb, sub_rgb;
     int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift, rain_opa, value_w;
     uint32_t merc_rgb, unit_rgb;
     wx_rain_frame_t rain;
     int cast_dx[WX_CAST_SIDES], cast_opa[WX_CAST_SIDES], cast_off[WX_CAST_SIDES], cast_gate, drop_q, drop_opa, label_opa;
+    bool label_clear;
     const char *unit;
 } shown_t;
 
@@ -310,7 +311,7 @@ static bool acquire(void)
                             .h = WX_DROP_BOX};
     lv_canvas_set_buffer(s_drop, s_drop_buf, WX_DROP_BOX, WX_DROP_BOX, LV_COLOR_FORMAT_RGB565A8);
     memset(&s_shown, 0xFF, sizeof s_shown);
-    s_shown.value[0] = s_shown.sub[0] = s_shown.label[0] = 0;
+    s_shown.value[0] = s_shown.sub[0] = s_shown.label[0] = s_shown.label_sub[0] = 0;
     s_shown.unit = NULL;
     return true;
 }
@@ -411,7 +412,7 @@ static void cast_attach(const wx_cast_t *c)
         lv_obj_invalidate(s_cbox[s]);
     }
     s_shown.cast_gate = s_shown.drop_q = s_shown.drop_opa = s_shown.label_opa = INT_MIN;
-    s_shown.label[0] = 0;
+    s_shown.label[0] = s_shown.label_sub[0] = 0;
 }
 
 static void face_kind(const wx_temp_t *t)
@@ -562,20 +563,20 @@ static void set_unit_text(const char *u)
 
 static void set_label(const wx_cast_t *c, int opa)
 {
-    bool on = c->has_count && opa > 0;
+    if (strcmp(c->label, s_shown.label) != 0 || strcmp(c->sub, s_shown.label_sub) != 0) {
+        strlcpy(s_shown.label, c->label, sizeof s_shown.label);
+        strlcpy(s_shown.label_sub, c->sub, sizeof s_shown.label_sub);
+        lv_label_set_text_static(s_clabel, s_shown.label);
+        lv_point_t sz = {0}, sub = {0};
+        lv_text_get_size(&sz, s_shown.label, &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        lv_text_get_size(&sub, c->sub, &lv_font_montserrat_30, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_RECOLOR);
+        int x, y;
+        s_shown.label_clear = wx_cast_label_place(c->label_deg, sz.x, sz.y, wx_cast_sub_box(sub.x, sub.y), &x, &y);
+        lv_obj_set_pos(s_clabel, x, y);
+    }
+    bool on = c->has_count && opa > 0 && s_shown.label_clear;
     show_obj(s_clabel, on);
     if (!on) return;
-    if (strcmp(c->label, s_shown.label) != 0) {
-        strlcpy(s_shown.label, c->label, sizeof s_shown.label);
-        lv_label_set_text_static(s_clabel, s_shown.label);
-        lv_point_t sz = {0};
-        lv_text_get_size(&sz, s_shown.label, &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        float x, y;
-        int align;
-        wx_cast_label_at(c->label_deg, &x, &y, &align);
-        float left = align < 0 ? x - (float)sz.x : align == 0 ? x - (float)sz.x / 2 : x;
-        lv_obj_set_pos(s_clabel, (int)lroundf(left), (int)lroundf(y - (float)sz.y / 2));
-    }
     if (opa != s_shown.label_opa) {
         s_shown.label_opa = opa;
         lv_obj_set_style_text_opa(s_clabel, (lv_opa_t)opa, 0);

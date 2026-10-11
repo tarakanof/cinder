@@ -131,6 +131,9 @@ body "$TFC" paint | grep -qF 'const wx_cast_t *c = wx_cast_same_scene(&t->cast, 
     WIRING="$WIRING paint-keeps-the-baked-forecast-while-fading-out"
 body "$TFC" set_cast | grep -qF 'bool rain = fo == 255 && gate > 0;' || WIRING="$WIRING forecast-sheets-hidden-while-fading"
 body "$TFC" set_cast | grep -qF 'if (cloud) lv_obj_invalidate(s_cbox[s]);' || WIRING="$WIRING forecast-cloud-and-sheet-in-one-area"
+body "$TFC" set_label | grep -qF 'lv_text_get_size(&sub, c->sub, &lv_font_montserrat_30, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_RECOLOR);' &&
+    body "$TFC" set_label | grep -qF 's_shown.label_clear = wx_cast_label_place(c->label_deg, sz.x, sz.y, wx_cast_sub_box(sub.x, sub.y), &x, &y);' &&
+    body "$TFC" set_label | grep -qF 'bool on = c->has_count && opa > 0 && s_shown.label_clear;' || WIRING="$WIRING forecast-label-clears-the-sub-line"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
     WIRING="$WIRING rain-layers-live-in-the-still-buffer"
 body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255 && !r->dry);' || WIRING="$WIRING paint-drives-the-rain-frames-not-when-dry"
@@ -267,6 +270,9 @@ if [ -d "$LV" ]; then
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_36.c" "$D/test_face_fonts.c" \
         -o "${OUT}_face_fonts"
+    cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_24.c" "$LV/src/font/lv_font_montserrat_30.c" \
+        "$W/weather_face.c" "$W/wx_rain.c" "$W/wx_cast.c" "$D/test_cast_label.c" -lm -o "${OUT}_cast_label"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -292,8 +298,9 @@ fi
 if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_title_font"
     "${OUT}_face_fonts"
+    "${OUT}_cast_label"
 else
-    echo "run.sh: SKIPPED title and face font tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font and forecast label tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"

@@ -28,6 +28,8 @@ extern "C" {
 #define WX_CAST_RAMP 0.08f
 #define WX_CAST_GLOOM_STEPS 4
 #define WX_DROP_BOX 34
+#define WX_SUB_Y 302
+#define WX_LABEL_GAP 2
 
 typedef struct {
     int a, n;      /* dial minute (0..719) the lit part starts at, minutes long */
@@ -68,6 +70,11 @@ void wx_cast_step_text(const wx_cast_t *c, int k, char *buf, size_t n);
 
 /* Dial label anchor at deg: align -1 right edge at x, 0 centred, 1 left edge; y is the text's centre line. */
 void wx_cast_label_at(float deg, float *x, float *y, int *align);
+/* Top-left of a w x h dial label at deg; false when it would come within WX_LABEL_GAP px of avoid, and then it is not
+   shown (the sub-line names the same time). */
+bool wx_cast_label_place(float deg, int w, int h, wx_box_t avoid, int *x, int *y);
+/* The sub-line's box for a w x h text, centred under the value at WX_SUB_Y. */
+wx_box_t wx_cast_sub_box(int w, int h);
 void wx_cast_ring_xy(float deg, float *x, float *y);
 /* cubic-bezier(0.45, 0, 0.25, 1) at p 0..1. */
 double wx_cast_ease(double p);
