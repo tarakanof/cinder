@@ -123,6 +123,28 @@ static void test_rebake_detaches(void)
     CHECK(up && J.opa == 255 && frames >= 3 && frames <= 5, "fade in over 3 steps (%d frames)", frames);
 }
 
+static void test_rain_face_switch(void)
+{
+    wx_temp_t a = key(3, 12, 1), r = a;
+    r.rain = (wx_rain_t){.on = true, .kind = WX_PRECIP_RAIN, .intensity = 2, .has_pop = true, .pop = 40};
+    baked(a);
+    CHECK(fade_out(&r) == (WX_DO_BAKE | WX_DO_DETACH), "rain starts: fade out, detach, bake the Rain now face");
+    const wx_temp_t *in = wx_job_take(&J);
+    CHECK(in && in->rain.on && IO.kind == WX_BAKE_FULL, "the job is the full rain scene");
+    wx_job_done(&J, 9);
+    CHECK(wx_job_step(&J, &r, 0.03) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 85, "applied, fading in");
+    while (J.opa < 255) wx_job_step(&J, &r, 1.0 / 15);
+    wx_temp_t p = r;
+    p.rain.pop = 90;
+    CHECK(wx_job_step(&J, &p, 0.03) == WX_DO_PAINT, "a new chance only moves the marker");
+    p.rain.has_pop = false;
+    CHECK(wx_job_step(&J, &p, 0.03) == (WX_DO_BAKE | WX_DO_PAINT), "the chance goes: ring bake, still painting");
+    wx_job_take(&J);
+    wx_job_done(&J, 1);
+    CHECK(wx_job_step(&J, &p, 0.03) == (WX_DO_APPLY | WX_DO_PAINT) && IO.kind == WX_BAKE_RING, "ring applied");
+    CHECK(fade_out(&a) == (WX_DO_BAKE | WX_DO_DETACH), "rain stops: back to the Temperature face through black");
+}
+
 static void test_partial_during_fade_in(void)
 {
     wx_temp_t a = key(3, 12, 1), b = key(3, 12, 3), c = key(-2, 12, 3);
@@ -335,6 +357,7 @@ int main(void)
     test_rebake_detaches();
     test_partial_rebake();
     test_partial_during_fade_in();
+    test_rain_face_switch();
     test_hide_show_drops_a_done_job();
     test_hide_during_bake();
     test_ota_hold();

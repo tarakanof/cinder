@@ -93,10 +93,25 @@ static void clip(const wx_img_t *im, float fx0, float fy0, float fx1, float fy1,
 
 #define RING_STEPS (WX_RING_LUT - 1)
 
+static void ring_raster(wx_ring_t *r, const uint16_t lut[WX_RING_LUT]);
+
 void wx_paint_ring(wx_ring_t *r, int lo, int hi, bool grey, uint16_t lut[WX_RING_LUT])
 {
     for (int i = 0; i <= RING_STEPS; i++)
         lut[i] = wx_rgb565(grey ? 0x262626 : wx_temp_rgb((float)lo + (float)(hi - lo) * i / RING_STEPS));
+    ring_raster(r, lut);
+}
+
+void wx_paint_ring_rain(wx_ring_t *r, int intensity, bool grey, uint16_t lut[WX_RING_LUT])
+{
+    uint32_t to = wx_rain_rgb(intensity);
+    for (int i = 0; i <= RING_STEPS; i++)
+        lut[i] = wx_rgb565(grey ? 0x262626 : lerp_rgb(0x2E3A48, to, (float)i / RING_STEPS));
+    ring_raster(r, lut);
+}
+
+static void ring_raster(wx_ring_t *r, const uint16_t lut[WX_RING_LUT])
+{
     float sx, sy, ex, ey;
     wx_gauge_xy(0, &sx, &sy);
     wx_gauge_xy(1, &ex, &ey);
@@ -468,9 +483,43 @@ static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
     return b;
 }
 
+static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    const wx_rain_t *r = &t->rain;
+    if (kind & WX_BAKE_RING) wx_paint_ring_rain(b->ring, r->intensity, !r->has_pop, b->lut);
+    if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
+    if (!(kind & WX_BAKE_SCENE)) return;
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    wx_paint_umbrella(&bg);
+    wx_ring_blit(b->ring, b->bg);
+    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    wx_rain_layout_t l;
+    wx_rain_layout(&l);
+    uint8_t *m = b->still;
+    for (int s = 0; s < WX_SHEETS; s++) {
+        wx_paint_sheet(m + l.tile[s], s, r);
+        wx_paint_ramp(m + l.top[s], s, false, l.ramp_h[s]);
+        wx_paint_ramp(m + l.bottom[s], s, true, l.ramp_h[s]);
+        wx_box_t c = l.cover_box[s];
+        int w = c.x1 - c.x0, h = c.y1 - c.y0;
+        wx_img_t cv = {.px = (uint16_t *)(m + l.cover[s]), .a = m + l.cover[s] + (size_t)w * h * 2, .w = w, .h = h,
+                       .x0 = c.x0, .y0 = c.y0};
+        wx_paint_clear(&cv);
+        wx_paint_umbrella(&cv);
+    }
+    for (int p = 0; p < WX_DRIP_POSES; p++) wx_paint_drip(m + l.drip[p], p);
+    for (int n = 0; n < WX_SPLASHES; n++) wx_paint_splash(m + l.splash[n], n);
+    wx_paint_bolt(m + l.bolt);
+}
+
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
+    if (t->rain.on) {
+        bake_rain(t, kind, b, out);
+        return;
+    }
     if (kind & WX_BAKE_RING) wx_paint_ring(b->ring, t->lo, t->hi, !t->have, b->lut);
     if (kind & WX_BAKE_SCENE) {
         wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
@@ -493,4 +542,225 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
             out->hero = wx_paint_hero(&h, t->hero, t->moon_phase, t->moon_illum);
         }
     }
+}
+
+static const wx_box_t COVER[WX_SHEETS] = {{102, 150, 118, 202}, {348, 150, 364, 202}, {150, 78, 316, 132}};
+
+static int box_w(wx_box_t b) { return b.x1 - b.x0; }
+static int box_h(wx_box_t b) { return b.y1 - b.y0; }
+
+void wx_rain_layout(wx_rain_layout_t *l)
+{
+    int o = 0;
+    for (int s = 0; s < WX_SHEETS; s++) {
+        wx_box_t b = wx_sheet(s)->box;
+        l->ramp_h[s] = (int)ceilf(WX_RAMP * (float)box_h(b));
+        l->tile[s] = o;
+        o += box_w(b) * WX_SHEET_PERIOD;
+        l->top[s] = o;
+        o += box_w(b) * l->ramp_h[s];
+        l->bottom[s] = o;
+        o += box_w(b) * l->ramp_h[s];
+        l->cover_box[s] = COVER[s];
+        l->cover[s] = o;
+        o += box_w(COVER[s]) * box_h(COVER[s]) * 3;
+    }
+    for (int p = 0; p < WX_DRIP_POSES; p++) {
+        l->drip[p] = o;
+        o += WX_DRIP_W * WX_DRIP_H;
+    }
+    for (int n = 0; n < WX_SPLASHES; n++) {
+        l->splash[n] = o;
+        o += WX_SPLASH_W * WX_SPLASH_H;
+    }
+    l->bolt = o;
+    o += WX_BOLT_W * WX_BOLT_H;
+    l->total = o;
+}
+
+static const float DRIP_X[WX_DRIPS] = {107, 359};
+
+int wx_drip_x(int i) { return (int)DRIP_X[i] - WX_DRIP_W / 2; }
+
+static inline void put_a(uint8_t *a, float v)
+{
+    if (!(v > 0.002f)) return;
+    if (v > 1) v = 1;
+    float o = v + (*a / 255.0f) * (1 - v);
+    *a = (uint8_t)lroundf(o * 255.0f);
+}
+
+static float seg_d(float px, float py, float ax, float ay, float bx, float by)
+{
+    float vx = bx - ax, vy = by - ay, wx = px - ax, wy = py - ay;
+    float l2 = vx * vx + vy * vy;
+    float t = l2 > 0 ? (wx * vx + wy * vy) / l2 : 0;
+    t = clamp01(t);
+    return hypotf(wx - t * vx, wy - t * vy);
+}
+
+static float ellipse_d(float x, float y, float cx, float cy, float rx, float ry)
+{
+    float dx = x - cx, dy = y - cy;
+    float f = dx * dx / (rx * rx) + dy * dy / (ry * ry) - 1;
+    float gx = 2 * dx / (rx * rx), gy = 2 * dy / (ry * ry);
+    float gl = sqrtf(gx * gx + gy * gy);
+    return gl > 1e-6f ? f / gl : -(rx < ry ? rx : ry);
+}
+
+#define CANOPY_L 105.0f
+#define CANOPY_R 361.0f
+#define CANOPY_RIM 198.0f
+#define CANOPY_RY 103.0f
+#define SCALLOPS 5
+#define UMB_HW 2.25f
+
+static float canopy_d(float x, float y)
+{
+    float cx = (CANOPY_L + CANOPY_R) / 2, rx = (CANOPY_R - CANOPY_L) / 2;
+    float d = fmaxf(ellipse_d(x, y, cx, CANOPY_RIM, rx, CANOPY_RY), y - CANOPY_RIM);
+    float w = (CANOPY_R - CANOPY_L) / SCALLOPS;
+    for (int k = 0; k < SCALLOPS; k++) d = fmaxf(d, -ellipse_d(x, y, CANOPY_L + w * (k + 0.5f), CANOPY_RIM, w / 2, 9));
+    return d;
+}
+
+static float handle_d(float x, float y)
+{
+    float d = seg_d(x, y, 233, 185, 233, 210.75f);
+    d = fminf(d, seg_d(x, y, 233, 336.25f, 233, 366));
+    float arc = y >= 366 ? fabsf(hypotf(x - 244, y - 366) - 11) : fminf(hypotf(x - 233, y - 366), hypotf(x - 255, y - 366));
+    return fminf(d, arc);
+}
+
+void wx_paint_umbrella(wx_img_t *im)
+{
+    const uint16_t orange = wx_rgb565(0xFF8A3D);
+    int x0, y0, x1, y1;
+    clip(im, CANOPY_L - 4, 76, CANOPY_R + 4, 382, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
+            int i = y * im->w + x;
+            put(im, i, orange, cov(handle_d(fx, fy) - UMB_HW));
+            float d = canopy_d(fx, fy);
+            put(im, i, 0, cov(d));
+            put(im, i, orange, cov(fabsf(d) - UMB_HW));
+            put(im, i, orange, cov(seg_d(fx, fy, 233, 93, 233, 81) - UMB_HW));
+        }
+}
+
+static float flake_d(float x, float y, float cx, float cy, float r)
+{
+    float d = 1e9f;
+    for (int k = 0; k < 3; k++) {
+        float a = (float)k * 60.0f * DEG, dx = r * cosf(a), dy = r * sinf(a);
+        d = fminf(d, seg_d(x, y, cx - dx, cy - dy, cx + dx, cy + dy));
+    }
+    return d;
+}
+
+void wx_paint_sheet(uint8_t *a8, int s, const wx_rain_t *r)
+{
+    const wx_sheet_t *sh = wx_sheet(s);
+    int w = box_w(sh->box);
+    memset(a8, 0, (size_t)w * WX_SHEET_PERIOD);
+    bool snow = r->kind == WX_PRECIP_SNOW;
+    for (int n = 0; n < sh->n; n++) {
+        const wx_drop_t *d = &sh->drop[n];
+        if (!wx_drop_shown(d, r)) continue;
+        float ax = d->x - (float)sh->box.x0, ay = d->y + (d->tile ? WX_SHEET_H : 0);
+        float bx = ax - d->slant, by = ay + d->len;
+        float cx = (ax + bx) / 2, cy = (ay + by) / 2, fr = d->op >= 0.8f ? 5.0f : 4.0f;
+        float ext = snow ? fr + 2 : 3;
+        float lo_y = (snow ? cy - ext : ay - ext), hi_y = (snow ? cy + ext : by + ext);
+        float lo_x = fminf(ax, bx) - (snow ? fr + 2 : 3), hi_x = fmaxf(ax, bx) + (snow ? fr + 2 : 3);
+        for (int wrap = -1; wrap <= 1; wrap++) {
+            float oy = (float)(wrap * WX_SHEET_PERIOD);
+            int ys = (int)floorf(lo_y + oy), ye = (int)ceilf(hi_y + oy);
+            if (ys < 0) ys = 0;
+            if (ye > WX_SHEET_PERIOD) ye = WX_SHEET_PERIOD;
+            int xs = (int)floorf(lo_x), xe = (int)ceilf(hi_x);
+            if (xs < 0) xs = 0;
+            if (xe > w) xe = w;
+            for (int y = ys; y < ye; y++)
+                for (int x = xs; x < xe; x++) {
+                    float px = (float)x + 0.5f, py = (float)y + 0.5f - oy;
+                    float c = snow ? cov(flake_d(px, py, cx, cy, fr) - 1.25f) : cov(seg_d(px, py, ax, ay, bx, by) - 2.0f);
+                    put_a(&a8[y * w + x], c * d->op);
+                }
+        }
+    }
+}
+
+void wx_paint_ramp(uint8_t *a8, int s, bool bottom, int ramp_h)
+{
+    wx_box_t b = wx_sheet(s)->box;
+    int w = box_w(b), h = box_h(b);
+    for (int k = 0; k < ramp_h; k++) {
+        int row = bottom ? h - ramp_h + k : k;
+        float t = ((float)row + 0.5f) / (float)h;
+        float m = t < WX_RAMP ? t / WX_RAMP : t > 1 - WX_RAMP ? (1 - t) / WX_RAMP : 1;
+        memset(a8 + (size_t)k * w, (int)lroundf((1 - clamp01(m)) * 255.0f), (size_t)w);
+    }
+}
+
+static float drip_hw(float t) { return 8.0f * t * (1 - t); }
+
+void wx_paint_drip(uint8_t *a8, int pose)
+{
+    static const float SCALE[WX_DRIP_POSES] = {0.45f, 0.75f, 1.0f};
+    const float sc = SCALE[pose < 0 ? 0 : pose >= WX_DRIP_POSES ? WX_DRIP_POSES - 1 : pose];
+    const float ox = WX_DRIP_W / 2.0f, oy = 203.0f - WX_DRIP_Y;
+    memset(a8, 0, WX_DRIP_W * WX_DRIP_H);
+    for (int y = 0; y < WX_DRIP_H; y++)
+        for (int x = 0; x < WX_DRIP_W; x++) {
+            int hit = 0;
+            for (int sy = 0; sy < 4; sy++)
+                for (int sx = 0; sx < 4; sx++) {
+                    float px = ((float)x + (sx + 0.5f) / 4 - ox) / sc, py = ((float)y + (sy + 0.5f) / 4 - oy) / sc + 203.0f;
+                    if (py < 199 || py > 208) continue;
+                    float lo = 0, hi = 1;
+                    for (int it = 0; it < 24; it++) {
+                        float t = (lo + hi) / 2, u = 1 - t;
+                        float yt = 199 * u * u + 2 * u * t * 205 + 208 * t * t;
+                        if (yt < py) lo = t;
+                        else hi = t;
+                    }
+                    if (fabsf(px) <= drip_hw((lo + hi) / 2)) hit++;
+                }
+            a8[y * WX_DRIP_W + x] = (uint8_t)(hit * 255 / 16);
+        }
+}
+
+void wx_paint_splash(uint8_t *a8, int n)
+{
+    wx_splash_at_t at;
+    memset(a8, 0, WX_SPLASH_W * WX_SPLASH_H);
+    if (!wx_splash_at(n, &at)) return;
+    const wx_drop_t *d = &wx_sheet(at.sheet)->drop[at.drop];
+    float x = d->x, y = wx_canopy_y(d->x) - 3;
+    for (int r = 0; r < WX_SPLASH_H; r++)
+        for (int c = 0; c < WX_SPLASH_W; c++) {
+            float px = (float)(at.x + c) + 0.5f, py = (float)(at.y + r) + 0.5f;
+            float dd = fminf(seg_d(px, py, x, y, x - 5, y - 6), seg_d(px, py, x, y, x + 5, y - 6));
+            put_a(&a8[r * WX_SPLASH_W + c], cov(dd - 1.5f));
+        }
+}
+
+void wx_paint_bolt(uint8_t *a8)
+{
+    static const float P[7][2] = {{14, 0}, {36, 0}, {24, 22}, {38, 22}, {6, 52}, {14, 30}, {0, 30}};
+    const float k = 0.8f, o = 1.0f;
+    memset(a8, 0, WX_BOLT_W * WX_BOLT_H);
+    for (int y = 0; y < WX_BOLT_H; y++)
+        for (int x = 0; x < WX_BOLT_W; x++) {
+            float px = (float)x + 0.5f, py = (float)y + 0.5f, d = 1e9f;
+            bool in = false;
+            for (int i = 0, j = 6; i < 7; j = i++) {
+                float ax = P[j][0] * k + o, ay = P[j][1] * k + o, bx = P[i][0] * k + o, by = P[i][1] * k + o;
+                d = fminf(d, seg_d(px, py, ax, ay, bx, by));
+                if ((ay > py) != (by > py) && px < (bx - ax) * (py - ay) / (by - ay) + ax) in = !in;
+            }
+            a8[y * WX_BOLT_W + x] = (uint8_t)lroundf(cov((in ? -d : d) - 0.8f) * 255.0f);
+        }
 }

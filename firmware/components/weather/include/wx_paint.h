@@ -16,10 +16,6 @@ typedef struct {
     int w, h, x0, y0;
 } wx_img_t;
 
-typedef struct {
-    int x0, y0, x1, y1; /* face coordinates, x1/y1 exclusive */
-} wx_box_t;
-
 #define WX_HERO_BOX 164
 #define WX_THERMO_X 222
 #define WX_THERMO_Y 106
@@ -64,6 +60,41 @@ void wx_paint_marker(wx_img_t *im);
 void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift);
 /* Largest box over the cloud bands, in pixels: the drift sprite or the still layer. */
 int wx_clouds_max_px(bool drift);
+
+#define WX_DRIP_W 8
+#define WX_DRIP_H 14
+#define WX_DRIP_Y 196
+#define WX_SPLASH_W 16
+#define WX_SPLASH_H 12
+#define WX_BOLT_W 32
+#define WX_BOLT_H 44
+#define WX_BOLT_X 196
+#define WX_BOLT_Y 54
+#define WX_RAMP 0.16f
+
+/* Rain layers, carved out of the still-cloud buffer (a rain scene and a cloud scene never show together). Byte offsets;
+   tiles, ramps, drips, splash and bolt are A8, covers RGB565A8. */
+typedef struct {
+    int tile[WX_SHEETS], top[WX_SHEETS], bottom[WX_SHEETS], cover[WX_SHEETS];
+    int ramp_h[WX_SHEETS];
+    wx_box_t cover_box[WX_SHEETS];
+    int drip[WX_DRIP_POSES], splash[WX_SPLASHES], bolt, total;
+} wx_rain_layout_t;
+
+void wx_rain_layout(wx_rain_layout_t *l);
+/* Face x of drip i's sprite (its y is WX_DRIP_Y plus the frame's dy). */
+int wx_drip_x(int i);
+/* Gauge ring 0..100 % for the rain face: from the dry track colour to the intensity colour; grey: no chance known. */
+void wx_paint_ring_rain(wx_ring_t *r, int intensity, bool grey, uint16_t lut[WX_RING_LUT]);
+/* Umbrella (canopy, tip, shaft stub, handle) over im; a cover's box clips it, so a cover holds no handle. */
+void wx_paint_umbrella(wx_img_t *im);
+/* Sheet s's strip, WX_SHEET_PERIOD rows, seamless top to bottom: streaks, or flakes for snow, by intensity. */
+void wx_paint_sheet(uint8_t *a8, int s, const wx_rain_t *r);
+/* Overlay alpha of sheet s's fade: 255 - mask along the box, rows 0..ramp_h-1 (top) or the last ramp_h rows. */
+void wx_paint_ramp(uint8_t *a8, int s, bool bottom, int ramp_h);
+void wx_paint_drip(uint8_t *a8, int pose);
+void wx_paint_splash(uint8_t *a8, int n);
+void wx_paint_bolt(uint8_t *a8);
 
 typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */

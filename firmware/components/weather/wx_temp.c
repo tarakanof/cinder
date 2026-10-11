@@ -99,6 +99,8 @@ void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
     t->lo = WX_SCALE_LO;
     t->hi = WX_SCALE_HI;
     t->sub_rgb = 0xBDBDBD;
+    wx_rain_from(o, &t->rain);
+    wx_rain_keep(&t->rain, shown ? &shown->rain : NULL);
     if (!o || !o->valid || !o->has_temp || !isfinite(o->temp_c)) return;
     wx_look_t l = wx_look_from_obs(o);
     t->have = true;
@@ -138,6 +140,8 @@ void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
 
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
 {
+    if (!wx_rain_same_scene(&t->rain, &s->rain)) return WX_BAKE_FULL;
+    if (t->rain.on) return t->rain.has_pop != s->rain.has_pop ? WX_BAKE_RING : 0;
     if (t->have != s->have || t->night != s->night || t->cloud_band != s->cloud_band || t->stars != s->stars ||
         (t->hero == WX_HERO_SUN) != (s->hero == WX_HERO_SUN))
         return WX_BAKE_FULL;
