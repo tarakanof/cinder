@@ -365,12 +365,23 @@ static void test_splash_drip_bolt(void)
         if (jr >= 0 && jr < 7) CHECK(f.drip_dy[1] == DY[jr], "right drip dy");
     }
     r.kind = WX_PRECIP_STORM;
+    static const int LIT[6] = {12, 13, 18, 19, 24, 25};
+    bool lit[2 * WX_STORM_FRAMES + 1] = {0};
     int flashes = 0;
-    for (int k = 0; k < 2 * WX_STORM_FRAMES; k++) {
+    for (int k = 0; k <= 2 * WX_STORM_FRAMES; k++) {
         wx_rain_frame(&r, k, &f);
+        lit[k] = f.bolt;
         flashes += f.bolt;
+        bool want = false;
+        for (int i = 0; i < 6; i++) want |= k % WX_STORM_FRAMES == LIT[i];
+        CHECK(f.bolt == want, "storm frame %d: bolt %d, the pinned rhythm says %d", k, f.bolt, want);
     }
     CHECK(flashes == 12, "storm: three 2-frame flashes per 6 s, %d frames lit in 12 s", flashes);
+    for (int k0 = 0; k0 + 15 <= 2 * WX_STORM_FRAMES; k0++) {
+        int edges = 0;
+        for (int k = k0; k < k0 + 15; k++) edges += lit[k] && (k == 0 || !lit[k - 1]);
+        CHECK(edges <= 3, "storm: %d flashes in the 1 s from frame %d (WCAG 2.3.1: at most 3)", edges, k0);
+    }
     r.kind = WX_PRECIP_SNOW;
     for (int k = 0; k < 96; k++) {
         wx_rain_frame(&r, k, &f);
