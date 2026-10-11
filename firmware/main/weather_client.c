@@ -179,8 +179,8 @@ void weather_client_feed(const wx_obs_t *obs, double server_now)
 bool weather_client_get(wx_obs_t *out)
 {
     if (!s_lock) return false;
-    double now_s = esp_timer_get_time() / 1e6;
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    double now_s = esp_timer_get_time() / 1e6;
     bool have = wx_store_get(&s_store, now_s, out);
     xSemaphoreGive(s_lock);
     return have;

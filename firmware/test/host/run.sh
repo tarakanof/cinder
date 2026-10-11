@@ -58,6 +58,14 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
+WXC="$D/../../main/weather_client.c"
+body "$WXC" weather_client_get | awk '/xSemaphoreTake\(s_lock/ {lock=1} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
+    WIRING="$WIRING weather_client_get-reads-the-timer-under-the-lock"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL weather wiring:$WIRING" >&2
+    exit 1
+fi
+echo "weather wiring: weather_client_get reads the timer under the lock"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
