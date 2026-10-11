@@ -1,6 +1,5 @@
 #include "rim_job.h"
 
-/* Host tests only: runs the rim task's take between the outline's store and the generation bump. */
 #ifdef RJ_RACE_POINT
 void rj_race_point(rim_job_t *j);
 #else
