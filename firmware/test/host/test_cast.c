@@ -225,7 +225,7 @@ static void test_arcs(void)
     wx_obs_t o = dry_with(LOCAL(23, 0), LOCAL(4, 0) + 86400, 2, 0);
     wx_cast_t c, d;
     wx_cast_from(&o, NULL, &c);
-    CHECK(c.narc == 1 && c.arc[0].a == 660 && c.arc[0].n == 210, "a spell past 12 h is cut at now + 12 h (%d+%d)", c.arc[0].a,
+    CHECK(c.narc == 1 && c.arc[0].a == 660 && c.arc[0].n == 180, "a spell past 12 h is cut at now + 12 h (%d+%d)", c.arc[0].a,
           c.arc[0].n);
     o = wet_until(LOCAL(15, 40));
     wx_cast_from(&o, NULL, &c);
@@ -245,6 +245,114 @@ static void test_arcs(void)
     o = dry_with(LOCAL(14, 0), LOCAL(14, 20), 1, 0);
     wx_cast_from(&o, NULL, &c);
     CHECK(c.narc == 0 && !c.has_count, "an ended spell draws nothing");
+}
+
+static void test_expired_until(void)
+{
+    wx_obs_t o = obs_at(NOW);
+    snprintf(o.condition, sizeof o.condition, "rain");
+    snprintf(o.code, sizeof o.code, "63");
+    o.now_rain = 2;
+    o.rain_until = LOCAL(14, 5);
+    o.rain_n = 2;
+    o.rain_spell[0] = (wx_spell_t){LOCAL(13, 0), LOCAL(14, 5), 2, 0};
+    o.rain_spell[1] = (wx_spell_t){LOCAL(14, 20), LOCAL(14, 40), 3, 0};
+    wx_cast_t c;
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.wet && c.variant == 3 && !c.has_count && !strcmp(c.sub, "Heavy rain"),
+          "a later spell covering now stays wet after the old until passed: '%s'", c.sub);
+    wx_rain_t r;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && !r.dry && r.intensity == 3 && !r.has_until && !strcmp(r.sub, "Heavy rain"),
+          "Rain now agrees: wet, no past 'until' ('%s')", r.sub);
+    wx_temp_t t;
+    wx_temp_face(&o, NULL, WXF_AUTO, &t);
+    CHECK(t.face == WXF_RAIN, "the auto face is Rain now");
+    o.rain_spell[1] = (wx_spell_t){LOCAL(14, 50), LOCAL(15, 10), 3, 0};
+    wx_cast_from(&o, NULL, &c);
+    wx_rain_from(&o, &r);
+    CHECK(!c.wet && c.has_count && !r.on, "until passed and no spell covering now: dry in both faces");
+    o.rain_spell[1] = (wx_spell_t){LOCAL(14, 0), LOCAL(14, 40), 3, 0};
+    o.rain_n = 2;
+    wx_cast_from(&o, NULL, &c);
+    wx_rain_from(&o, &r);
+    CHECK(!c.wet && !r.on, "a covering spell that began before the passed until does not revive it");
+}
+
+static void test_wet_paths(void)
+{
+    wx_obs_t o = obs_at(NOW);
+    o.now_rain = 2;
+    o.rain_until = LOCAL(15, 0);
+    wx_cast_t c;
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.wet && c.has_count && c.variant == 2 && !c.hours && c.count == 6, "wet by now.rain alone, no spell listed");
+    snprintf(o.condition, sizeof o.condition, "snow");
+    snprintf(o.code, sizeof o.code, "73");
+    o.now_rain = 1;
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.wet && c.snow && c.variant == 1 && strstr(c.sub, "light snow"), "no spell covering now: snow from the condition");
+    o = dry_with(NOW, LOCAL(15, 0), 1, 0);
+    o.rain_spell[0].end = NOW;
+    o.rain_spell[0].start = LOCAL(14, 0);
+    wx_cast_from(&o, NULL, &c);
+    CHECK(!c.wet && c.narc == 0, "a spell ending exactly now does not cover now");
+    o = dry_with(LOCAL(15, 0), LOCAL(15, 0) + 60, 1, 0);
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.narc == 1 && c.arc[0].n == 1, "a one-minute spell keeps its arc");
+    o.rain_spell[0].end = LOCAL(15, 0) + 59;
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.narc == 0, "under a minute draws nothing");
+
+    wx_obs_t w = wet_until(LOCAL(15, 40));
+    w.rain_spell[0].intensity = 1;
+    wx_cast_t light;
+    wx_cast_from(&w, NULL, &light);
+    w.rain_spell[0].intensity = 3;
+    wx_cast_from(&w, &light, &c);
+    CHECK(light.variant == 1 && c.variant == 3 && strstr(c.sub, "heavy rain"), "wet rain getting heavier takes the heavier clouds");
+}
+
+static void test_hold_key(void)
+{
+    wx_obs_t o = dry_with(LOCAL(15, 50), LOCAL(16, 30), 2, 0);
+    wx_temp_t shown, t;
+    wx_temp_face(&o, NULL, WXF_TEMP, &shown);
+    wx_temp_face(&o, &shown, WXF_AUTO, &t);
+    CHECK(t.face == WXF_TEMP, "80 min with Temperature on screen: no hold, Temperature");
+    wx_temp_face(&o, NULL, WXF_RAIN, &shown);
+    wx_temp_face(&o, &shown, WXF_AUTO, &t);
+    CHECK(t.face == WXF_TEMP, "80 min with Rain now on screen: Temperature");
+    o = dry_with(LOCAL(15, 30), LOCAL(16, 30), 2, 0);
+    wx_temp_face(&o, NULL, WXF_AUTO, &t);
+    CHECK(t.face == WXF_CAST, "exactly 60 min: the forecast");
+    o = dry_with(LOCAL(15, 30) + 1, LOCAL(16, 30), 2, 0);
+    wx_temp_face(&o, NULL, WXF_AUTO, &t);
+    CHECK(t.face == WXF_TEMP, "a second past 60 min: Temperature");
+    wx_temp_face(&o, NULL, WXF_CAST, &shown);
+    o = dry_with(LOCAL(16, 0), LOCAL(16, 30), 2, 0);
+    wx_temp_face(&o, &shown, WXF_AUTO, &t);
+    CHECK(t.face == WXF_CAST, "exactly 90 min while shown: held");
+    o = dry_with(LOCAL(16, 0) + 1, LOCAL(16, 30), 2, 0);
+    wx_temp_face(&o, &shown, WXF_AUTO, &t);
+    CHECK(t.face == WXF_TEMP, "past 90 min: released");
+}
+
+static void test_dry_horizon(void)
+{
+    wx_obs_t o = dry_with(LOCAL(15, 0), LOCAL(5, 0) + 86400, 2, 0);
+    wx_cast_t c, d;
+    wx_cast_from(&o, NULL, &c);
+    bool same = true;
+    for (int m = 5; m <= 25; m += 5) {
+        wx_obs_t later = o;
+        later.obs_age_s += m * 60;
+        wx_cast_from(&later, NULL, &d);
+        same &= wx_cast_same_ring(&c, &d);
+    }
+    CHECK(same, "dry, a spell running past now + 12 h: no dial bake every 5 min");
+    CHECK(c.narc == 1 && c.arc[0].a == 180 && c.arc[0].n == 660, "the far end stops at the hour of now + 12 h (%d+%d)", c.arc[0].a,
+          c.arc[0].n);
 }
 
 static void test_auto(void)
@@ -373,6 +481,13 @@ static void test_motion(void)
             CHECK(ok, "sheet %d/%d loops every %d frames, snow every %d", v, s, frames, 2 * frames);
             CHECK(wx_cast_sheet_off(sh, false, -sh->delay_frames + frames) == 0, "sheet %d/%d delay %d frames", v, s, sh->delay_frames);
         }
+    const wx_cast_sheet_t *lt = wx_cast_sheet(1, 0);
+    bool half = true, differs = false;
+    for (int k = 0; k < 120; k++) {
+        half &= wx_cast_sheet_off(lt, true, 2 * k) == wx_cast_sheet_off(lt, false, k);
+        differs |= wx_cast_sheet_off(lt, true, k) != wx_cast_sheet_off(lt, false, k);
+    }
+    CHECK(lt->delay_frames == 0 && half && differs, "snow falls at half speed");
     CHECK(wx_cast_sides(0) == 0 && wx_cast_sides(1) == 1 && wx_cast_sides(2) == 2 && wx_cast_sides(3) == 2 && !wx_cast_sheet(1, 1) &&
               !wx_cast_sheet(0, 0),
           "sides per variant");
@@ -481,6 +596,14 @@ static void test_paint(void)
     CHECK(ring_px(bg, 152.5f) == wx_rgb565(0x4F81B7), "the lit arc starts with the 17 h cell (151.5)");
     CHECK(ring_px(bg, 105) == wx_rgb565(0x262626) && ring_px(bg, 225) == wx_rgb565(0x262626), "other hours grey");
     CHECK(ring_px(bg, 150) == 0 && ring_px(bg, 0) == 0 && ring_px(bg, 180) == 0, "gaps between the hour cells");
+    wx_obs_t ow = dry_with(LOCAL(23, 0), LOCAL(1, 0) + 86400, 3, 0);
+    wx_temp_face(&ow, NULL, WXF_CAST, &t);
+    wx_bake(&t, WX_BAKE_RING, &b, &out);
+    wx_ring_blit(&ring, bg);
+    CHECK(ring_px(bg, 345) == wx_rgb565(0x3D7BF5) && ring_px(bg, 15) == wx_rgb565(0x3D7BF5),
+          "a spell across 12 o'clock lights the cells on both sides");
+    wx_temp_face(&o, NULL, WXF_CAST, &t);
+    wx_bake(&t, WX_BAKE_FULL, &b, &out);
     float dx, dy;
     wx_face_dot_xy(WXF_CAST, WXF_N, &dx, &dy);
     CHECK(bg[(int)dy * WX_FACE + (int)dx] == wx_rgb565(WX_DOT_ON), "the forecast's face dot is white");
@@ -550,6 +673,10 @@ int main(void)
     test_canvases();
     test_states();
     test_arcs();
+    test_expired_until();
+    test_wet_paths();
+    test_hold_key();
+    test_dry_horizon();
     test_auto();
     test_bake_kind();
     test_motion();

@@ -28,7 +28,7 @@ static bool scan(const wx_obs_t *o, scan_t *s)
         else if (p->start > s->now && (!s->next || p->start < s->next->start)) s->next = p;
     }
     s->wet = (o->has_now_rain && o->now_rain > 0) || s->cur;
-    if (s->wet && o->rain_until > 0 && s->now >= o->rain_until) s->wet = false;
+    if (s->wet && o->rain_until > 0 && s->now >= o->rain_until) s->wet = s->cur && s->cur->start >= o->rain_until;
     return true;
 }
 
@@ -53,10 +53,11 @@ void wx_cast_from(const wx_obs_t *o, const wx_cast_t *shown, wx_cast_t *c)
     }
     c->have = true;
     long long off = o->utc_offset, q = s.now - fmod_ll(s.now, WX_CAST_STEP_S);
+    long long end = s.now - fmod_ll(s.now, 3600) + WX_CAST_SPAN_S;
     c->now_deg = dial_deg(s.now + off);
     for (int i = 0; i < o->rain_n && i < WX_SPELLS; i++) {
         const wx_spell_t *p = &o->rain_spell[i];
-        long long a = p->start > q ? p->start : q, b = p->end < q + WX_CAST_SPAN_S ? p->end : q + WX_CAST_SPAN_S;
+        long long a = p->start > q ? p->start : q, b = p->end < end ? p->end : end;
         if (b - a < 60) continue;
         c->arc[c->narc++] = (wx_arc_t){(int)fmod_ll(floor_div(a + off, 60), 720), (int)((b - a) / 60), clamp_in(p->intensity)};
     }

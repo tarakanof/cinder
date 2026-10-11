@@ -77,7 +77,8 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r)
     bool wet;
     if (o->has_now_rain || o->has_rain) wet = (o->has_now_rain && o->now_rain > 0) || sp != NULL;
     else wet = l.face == WX_RAIN || l.face == WX_SNOW;
-    if (wet && known && o->rain_until > 0 && now >= o->rain_until) wet = false;
+    bool passed = known && o->rain_until > 0 && now >= o->rain_until;
+    if (wet && passed) wet = sp && sp->start >= o->rain_until;
     if (!wet && !storm) return;
     r->on = true;
     r->kind = storm ? WX_PRECIP_STORM
@@ -89,7 +90,7 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r)
     r->intensity = in < 1 ? 1 : in > 3 ? 3 : in;
     r->has_pop = o->has_pop;
     r->pop = o->has_pop ? (o->pop < 0 ? 0 : o->pop > 100 ? 100 : o->pop) : 0;
-    if (wet && o->rain_until > 0 && o->has_utc_offset) {
+    if (wet && !passed && o->rain_until > 0 && o->has_utc_offset) {
         long long loc = o->rain_until + o->utc_offset;
         r->has_until = true;
         r->until_min = (int)(((loc % 86400) + 86400) % 86400 / 60);
