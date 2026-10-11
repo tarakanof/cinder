@@ -218,6 +218,9 @@ static void test_view_faces(void)
               o->rain_spell[0].end == 1782049500LL && o->rain_spell[0].intensity == 2 && o->rain_spell[0].kind == 0 &&
               o->rain_spell[1].intensity == 1 && o->rain_spell[1].kind == 1,
           "rain block");
+    CHECK(t.rain.on && t.rain.kind == WX_PRECIP_RAIN && t.rain.intensity == 1 && t.rain.has_pop && t.rain.pop == 83 &&
+              !strcmp(t.rain.sub, "until 14:45"),
+          "raining now: the Rain now face, light, 83 %%, '%s'", t.rain.sub);
 
     if (!view("view_faces_met.json", &v)) return;
     CHECK(o->has_cloud && o->cloud == 70 && o->has_uv && o->uv == 3, "MET now");
@@ -225,12 +228,14 @@ static void test_view_faces(void)
     wx_temp_from(o, &t);
     CHECK(t.value == 14 && t.lo == 14 && t.hi == 17 && t.frac == 0 && t.cloud_band == 3 && t.hero == WX_HERO_NONE,
           "MET gauge and clouds");
-    CHECK(o->has_now_rain && o->now_rain == 0 && !o->has_pop && o->has_rain && o->rain_until == 0 && o->rain_n == 2,
-          "MET dry now, rain later");
+    CHECK(o->has_now_rain && o->now_rain == 0 && !o->has_pop && o->has_rain && o->rain_until == 0 && o->rain_n == 2 && !t.rain.on,
+          "MET dry now, rain later: Temperature face");
 
     if (!view("view_faces_polar_dry.json", &v)) return;
     CHECK(o->has_moon && o->moon_phase == 65 && o->moon_illum == 80 && o->moon_up == 1, "polar moon without set");
-    CHECK(o->has_rain && o->rain_n == 0 && o->has_now_rain && o->now_rain == 0, "polar: dry steps, no spells");
+    wx_temp_from(o, &t);
+    CHECK(o->has_rain && o->rain_n == 0 && o->has_now_rain && o->now_rain == 0 && !t.rain.on,
+          "condition rain but dry steps and no spells: Temperature face");
     char *j = load("view_faces.json");
     cJSON *f = j ? cJSON_Parse(j) : NULL;
     free(j);
@@ -255,6 +260,7 @@ static void test_view_faces(void)
     CHECK(!o->has_now_rain && !o->has_pop && !o->has_utc_offset && o->has_rain && o->rain_until == 0 && o->rain_n == 0,
           "bad rain keys are unknown; a bad spell is skipped");
     wx_temp_from(o, &t);
+    CHECK(!t.rain.on, "a rain block without a valid step or spell: dry, whatever the condition");
     CHECK(t.have && !t.has_range && t.lo == WX_SCALE_LO && t.cloud_band == 4 && strcmp(t.sub, "Rain") == 0,
           "without detail: fixed scale, cloud from the condition, sky word");
 }

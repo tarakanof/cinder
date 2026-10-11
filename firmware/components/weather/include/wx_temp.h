@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "weather_face.h"
+#include "wx_rain.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +60,7 @@ typedef struct {
     bool stars;
     char sub[24];
     uint32_t sub_rgb;
+    wx_rain_t rain; /* rain.on: the Rain now face instead */
 } wx_temp_t;
 
 uint32_t wx_temp_rgb(float c);
@@ -72,7 +74,8 @@ enum { WX_BAKE_RING = 1, WX_BAKE_HERO = 2, WX_BAKE_SCENE = 4, WX_BAKE_FULL = 7 }
 void wx_temp_from(const wx_obs_t *obs, wx_temp_t *out);
 /* shown: the face on screen or NULL; a cloud cover within WX_BAND_HYST % of its band keeps that band. */
 void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *out);
-/* WX_BAKE_* parts that differ from shown: RING the range, HERO the hero sprite, SCENE background and clouds; 0 none. */
+/* WX_BAKE_* parts that differ from shown: RING the range, HERO the hero sprite, SCENE background and clouds (or the rain
+   layers); 0 none. A change between the faces is FULL. */
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *shown);
 bool wx_temp_same_bake(const wx_temp_t *a, const wx_temp_t *b);
 

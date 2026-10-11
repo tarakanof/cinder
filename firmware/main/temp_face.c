@@ -30,10 +30,20 @@ static const char *TAG = "tempface";
 #define SUB_FADE_S 0.48
 #define DRIFT_PERIOD_S 8.0
 #define GREY_RGB 0x5A5A5A
+#define UNIT_GAP 6
+#define SNOW_RGB 0xD0DCE8
+#define BOLT_RGB 0xF0D040
+#define LABEL_GREY_RGB 0x8A8A8A
+#define UNIT_RGB 0x9A9A9A
+#define SUB_RGB 0xBDBDBD
 
 #define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)
 
-static lv_obj_t *s_root, *s_bg, *s_hero, *s_still, *s_drift, *s_thermo, *s_marker, *s_value, *s_lo, *s_hi, *s_sub;
+static lv_obj_t *s_root, *s_bg, *s_hero, *s_still, *s_drift, *s_thermo, *s_marker, *s_value, *s_unit, *s_lo, *s_hi, *s_sub;
+static lv_obj_t *s_sheet[WX_SHEETS], *s_strip[WX_SHEETS][2], *s_top[WX_SHEETS], *s_bottom[WX_SHEETS], *s_cover[WX_SHEETS];
+static lv_obj_t *s_drip[WX_DRIPS], *s_splash[WX_SPLASHES], *s_bolt;
+static EXT_RAM_BSS_ATTR wx_rain_layout_t s_lay;
+static EXT_RAM_BSS_ATTR bool s_rain;
 static EXT_RAM_BSS_ATTR wx_bake_buf_t s_buf;
 static uint8_t *s_thermo_buf, *s_marker_buf;
 static EXT_RAM_BSS_ATTR uint8_t *s_hero_buf[2];
@@ -51,8 +61,9 @@ static EXT_RAM_BSS_ATTR int s_tick;
 typedef struct {
     char value[20], sub[24];
     uint32_t value_rgb, sub_rgb;
-    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift;
+    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift, rain_opa;
     uint32_t merc_rgb;
+    wx_rain_frame_t rain;
 } shown_t;
 
 static EXT_RAM_BSS_ATTR shown_t s_shown;
@@ -83,6 +94,50 @@ static void show_obj(lv_obj_t *o, bool on)
     if (on == !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return;
     if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+static lv_obj_t *a8(lv_obj_t *parent, uint32_t rgb)
+{
+    lv_obj_t *c = canvas(parent, LV_COLOR_FORMAT_A8);
+    lv_obj_set_style_image_recolor(c, lv_color_hex(rgb), 0);
+    lv_obj_set_style_image_recolor_opa(c, LV_OPA_COVER, 0);
+    return c;
+}
+
+static void rain_create(void)
+{
+    wx_rain_layout(&s_lay);
+    for (int s = 0; s < WX_SHEETS; s++) {
+        wx_box_t b = wx_sheet(s)->box;
+        lv_obj_t *o = s_sheet[s] = lv_obj_create(s_root);
+        lv_obj_remove_style_all(o);
+        lv_obj_set_pos(o, b.x0, b.y0);
+        lv_obj_set_size(o, b.x1 - b.x0, b.y1 - b.y0);
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+        s_strip[s][0] = a8(o, 0);
+        s_strip[s][1] = a8(o, 0);
+        if (s < WX_DRIPS) {
+            s_drip[s] = a8(o, 0);
+            lv_obj_set_x(s_drip[s], wx_drip_x(s) - b.x0);
+        } else {
+            for (int n = 0; n < WX_SPLASHES; n++) {
+                wx_splash_at_t at;
+                wx_splash_at(n, &at);
+                s_splash[n] = a8(o, 0);
+                lv_obj_set_x(s_splash[n], at.x - b.x0);
+            }
+        }
+        s_top[s] = a8(o, 0);
+        s_bottom[s] = a8(o, 0);
+        lv_obj_set_y(s_bottom[s], b.y1 - b.y0 - s_lay.ramp_h[s]);
+        if (s == WX_SHEETS - 1) {
+            s_bolt = a8(o, BOLT_RGB);
+            lv_obj_set_pos(s_bolt, WX_BOLT_X - b.x0, WX_BOLT_Y - b.y0);
+        }
+        s_cover[s] = canvas(o, LV_COLOR_FORMAT_RGB565A8);
+        lv_obj_set_pos(s_cover[s], s_lay.cover_box[s].x0 - b.x0, s_lay.cover_box[s].y0 - b.y0);
+    }
 }
 
 static void bake_task(void *arg)
@@ -116,6 +171,7 @@ void temp_face_create(lv_obj_t *parent)
     s_hero = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     s_still = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     s_drift = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
+    rain_create();
     s_thermo = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     lv_obj_set_pos(s_thermo, WX_THERMO_X, WX_THERMO_Y);
     lv_obj_add_flag(s_hero, LV_OBJ_FLAG_HIDDEN);
@@ -128,6 +184,10 @@ void temp_face_create(lv_obj_t *parent)
     s_lo = label(s_root, &font_face_36, LV_ALIGN_TOP_LEFT, END_X, END_Y);
     s_hi = label(s_root, &font_face_36, LV_ALIGN_TOP_RIGHT, -END_X, END_Y);
     s_sub = label(s_root, &lv_font_montserrat_30, LV_ALIGN_TOP_MID, 0, SUB_Y);
+    s_unit = label(s_root, &lv_font_montserrat_30, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_label_set_text_static(s_unit, "%");
+    lv_obj_set_style_text_color(s_unit, lv_color_hex(UNIT_RGB), 0);
+    lv_obj_add_flag(s_unit, LV_OBJ_FLAG_HIDDEN);
     s_marker = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
 }
 
@@ -138,6 +198,16 @@ static void detach(void)
     lv_canvas_set_buffer(s_hero, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_still, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_drift, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    for (int s = 0; s < WX_SHEETS; s++) {
+        lv_canvas_set_buffer(s_strip[s][0], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_strip[s][1], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_top[s], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_bottom[s], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_cover[s], s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    }
+    for (int i = 0; i < WX_DRIPS; i++) lv_canvas_set_buffer(s_drip[i], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+    for (int n = 0; n < WX_SPLASHES; n++) lv_canvas_set_buffer(s_splash[n], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+    lv_canvas_set_buffer(s_bolt, s_none, 2, 2, LV_COLOR_FORMAT_A8);
 }
 
 static void release(void)
@@ -205,6 +275,15 @@ static void end_label(lv_obj_t *l, char *buf, size_t n, bool on, int v)
     lv_obj_set_style_text_color(l, lv_color_hex(wx_temp_rgb((float)v)), 0);
 }
 
+static void pct_label(lv_obj_t *l, char *buf, size_t n, bool on, int v, uint32_t rgb)
+{
+    show_obj(l, on);
+    if (!on) return;
+    snprintf(buf, n, "%d%%", v);
+    lv_label_set_text_static(l, buf);
+    lv_obj_set_style_text_color(l, lv_color_hex(rgb), 0);
+}
+
 static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
 {
     int w = b.x1 - b.x0, h = b.y1 - b.y0;
@@ -215,12 +294,58 @@ static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
     lv_obj_invalidate(c);
 }
 
+static void rain_attach(const wx_rain_t *r)
+{
+    uint8_t *m = s_buf.still;
+    uint32_t col = r->kind == WX_PRECIP_SNOW ? SNOW_RGB : wx_rain_rgb(r->intensity);
+    for (int s = 0; s < WX_SHEETS; s++) {
+        wx_box_t b = wx_sheet(s)->box, c = s_lay.cover_box[s];
+        int w = b.x1 - b.x0;
+        for (int k = 0; k < 2; k++) {
+            lv_canvas_set_buffer(s_strip[s][k], m + s_lay.tile[s], w, WX_SHEET_PERIOD, LV_COLOR_FORMAT_A8);
+            lv_obj_set_style_image_recolor(s_strip[s][k], lv_color_hex(col), 0);
+        }
+        lv_canvas_set_buffer(s_top[s], m + s_lay.top[s], w, s_lay.ramp_h[s], LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_bottom[s], m + s_lay.bottom[s], w, s_lay.ramp_h[s], LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_cover[s], m + s_lay.cover[s], c.x1 - c.x0, c.y1 - c.y0, LV_COLOR_FORMAT_RGB565A8);
+        show_obj(s_sheet[s], true);
+        lv_obj_invalidate(s_sheet[s]);
+    }
+    for (int i = 0; i < WX_DRIPS; i++) {
+        lv_obj_set_style_image_recolor(s_drip[i], lv_color_hex(col), 0);
+        show_obj(s_drip[i], false);
+    }
+    for (int n = 0; n < WX_SPLASHES; n++) {
+        lv_canvas_set_buffer(s_splash[n], m + s_lay.splash[n], WX_SPLASH_W, WX_SPLASH_H, LV_COLOR_FORMAT_A8);
+        lv_obj_set_style_image_recolor(s_splash[n], lv_color_hex(col), 0);
+        show_obj(s_splash[n], false);
+    }
+    lv_canvas_set_buffer(s_bolt, m + s_lay.bolt, WX_BOLT_W, WX_BOLT_H, LV_COLOR_FORMAT_A8);
+    show_obj(s_bolt, false);
+    memset(&s_shown.rain, 0xFF, sizeof s_shown.rain);
+    s_shown.rain_opa = -1;
+}
+
+static void face_kind(const wx_temp_t *t)
+{
+    s_rain = t->rain.on;
+    show_obj(s_thermo, !s_rain);
+    show_obj(s_unit, s_rain);
+    for (int s = 0; s < WX_SHEETS && !s_rain; s++) show_obj(s_sheet[s], false);
+    int unit = lv_font_get_glyph_width(&lv_font_montserrat_30, '%', 0) + UNIT_GAP;
+    int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
+    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : deg / 2, VALUE_Y);
+    s_shown.value[0] = 0;
+}
+
 static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
 {
     if (kind & WX_BAKE_SCENE) {
         lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
         sprite(s_still, s_buf.still, o->still);
         sprite(s_drift, s_buf.drift, o->drift);
+        face_kind(t);
+        if (t->rain.on) rain_attach(&t->rain);
     } else if (kind & WX_BAKE_RING) {
         wx_ring_blit(s_buf.ring, s_buf.bg);
     }
@@ -230,8 +355,13 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
         sprite(s_hero, s_hero_buf[s_front], o->hero);
         s_buf.hero = s_hero_buf[!s_front];
     }
-    end_label(s_lo, s_lo_txt, sizeof s_lo_txt, t->have && t->has_range, t->lo);
-    end_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->have && t->has_range, t->hi);
+    if (t->rain.on) {
+        pct_label(s_lo, s_lo_txt, sizeof s_lo_txt, t->rain.has_pop, 0, LABEL_GREY_RGB);
+        pct_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->rain.has_pop, 100, wx_rain_rgb(t->rain.intensity));
+    } else {
+        end_label(s_lo, s_lo_txt, sizeof s_lo_txt, t->have && t->has_range, t->lo);
+        end_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->have && t->has_range, t->hi);
+    }
     s_out = *o;
     s_tick = -1;
     s_shown.drift = 0x7FFFFFFF;
@@ -252,6 +382,11 @@ static void set_value(const char *txt, uint32_t rgb)
     if (strcmp(txt, s_shown.value) != 0) {
         strlcpy(s_shown.value, txt, sizeof s_shown.value);
         lv_label_set_text_static(s_value, s_shown.value);
+        if (s_rain) {
+            lv_obj_update_layout(s_value);
+            lv_obj_align_to(s_unit, s_value, LV_ALIGN_OUT_RIGHT_BOTTOM, UNIT_GAP,
+                            lv_font_montserrat_30.base_line - font_digits_96.base_line);
+        }
     }
     if (rgb != s_shown.value_rgb) {
         s_shown.value_rgb = rgb;
@@ -308,6 +443,12 @@ static void set_face_opa(int opa)
     lv_obj_set_style_text_opa(s_value, (lv_opa_t)opa, 0);
     lv_obj_set_style_text_opa(s_lo, (lv_opa_t)opa, 0);
     lv_obj_set_style_text_opa(s_hi, (lv_opa_t)opa, 0);
+    lv_obj_set_style_text_opa(s_unit, (lv_opa_t)opa, 0);
+    for (int s = 0; s < WX_SHEETS; s++) {
+        lv_obj_set_style_image_opa(s_top[s], (lv_opa_t)opa, 0);
+        lv_obj_set_style_image_opa(s_bottom[s], (lv_opa_t)opa, 0);
+        lv_obj_set_style_image_opa(s_cover[s], (lv_opa_t)opa, 0);
+    }
 }
 
 static void set_sprites(int opa, int drift)
@@ -324,6 +465,48 @@ static void set_sprites(int opa, int drift)
     }
 }
 
+static void set_rain(const wx_rain_t *r, int opa)
+{
+    wx_rain_frame_t f;
+    wx_rain_frame(r, (int)floor(s_t * WX_RAIN_FPS), &f);
+    wx_rain_frame_t *p = &s_shown.rain;
+    bool fade = opa != s_shown.rain_opa;
+    s_shown.rain_opa = opa;
+    for (int s = 0; s < WX_SHEETS; s++) {
+        if (f.off[s] != p->off[s]) {
+            lv_obj_set_y(s_strip[s][0], f.off[s] - WX_SHEET_PERIOD);
+            lv_obj_set_y(s_strip[s][1], f.off[s]);
+        }
+        if (fade) {
+            lv_obj_set_style_image_opa(s_strip[s][0], (lv_opa_t)opa, 0);
+            lv_obj_set_style_image_opa(s_strip[s][1], (lv_opa_t)opa, 0);
+        }
+    }
+    for (int i = 0; i < WX_DRIPS; i++) {
+        bool on = f.drip_pose[i] >= 0;
+        if (on && f.drip_pose[i] != p->drip_pose[i])
+            lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[f.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
+        if (on && f.drip_dy[i] != p->drip_dy[i]) lv_obj_set_y(s_drip[i], WX_DRIP_Y + f.drip_dy[i] - wx_sheet(i)->box.y0);
+        if (on && (fade || f.drip_opa[i] != p->drip_opa[i]))
+            lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)(f.drip_opa[i] * opa / 255), 0);
+        show_obj(s_drip[i], on);
+    }
+    for (int n = 0; n < WX_SPLASHES; n++) {
+        bool on = f.splash_opa[n] > 0;
+        if (on && f.splash_dy[n] != p->splash_dy[n]) {
+            wx_splash_at_t at;
+            wx_splash_at(n, &at);
+            lv_obj_set_y(s_splash[n], at.y + f.splash_dy[n] - wx_sheet(WX_SHEETS - 1)->box.y0);
+        }
+        if (on && (fade || f.splash_opa[n] != p->splash_opa[n]))
+            lv_obj_set_style_image_opa(s_splash[n], (lv_opa_t)(f.splash_opa[n] * opa / 255), 0);
+        show_obj(s_splash[n], on);
+    }
+    if (fade) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)opa, 0);
+    show_obj(s_bolt, f.bolt);
+    *p = f;
+}
+
 static int drift_px(double t)
 {
     double p = fmod(t, DRIFT_PERIOD_S) / DRIFT_PERIOD_S;
@@ -336,8 +519,21 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
     set_face_opa(fo);
     double ta = floor(s_t * ARRIVE_FPS) / ARRIVE_FPS;
     double a = wx_arrive(ta);
+    double tf = floor(s_t * FADE_FPS) / FADE_FPS;
+    int sprite_opa = (int)lround(fo * wx_arrive(tf));
+    const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;
     char txt[20];
-    if (t->have) {
+    if (s_rain) {
+        if (r->has_pop) {
+            int k = wx_count_step(wx_count_n(r->pop), ta);
+            snprintf(txt, sizeof txt, "%d", wx_count_value(r->pop, k));
+            set_value(txt, wx_rain_rgb(r->intensity));
+        } else {
+            set_value("--", GREY_RGB);
+        }
+        set_marker(r->pop / 100.0f * (float)a, r->has_pop);
+        set_rain(r, sprite_opa);
+    } else if (t->have) {
         int k = wx_count_step(wx_count_n(t->value), ta);
         int v = wx_count_value(t->value, k);
         uint32_t rgb = t->still ? GREY_RGB : wx_temp_rgb((float)v);
@@ -349,9 +545,8 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         set_value("--\xC2\xB0", GREY_RGB);
         set_mercury(WX_MERC_BOTTOM, GREY_RGB);
     }
-    set_marker(t->frac * (float)a, t->have);
-    double tf = floor(s_t * FADE_FPS) / FADE_FPS;
-    set_sprites((int)lround(fo * wx_arrive(tf)), s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
+    if (!s_rain) set_marker(t->frac * (float)a, t->have);
+    set_sprites(sprite_opa, !s_rain && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
     double sf = (s_t - WX_ARRIVE_S) / SUB_FADE_S;
     int sub_opa = (sf <= 0 ? 0 : sf >= 1 ? 255 : 85 * (1 + (int)(sf * 3))) * fo / 255;
     char age[24];
@@ -359,7 +554,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         wx_age_label(obs, age, sizeof age);
         set_sub(age, GREY_RGB, sub_opa);
     } else {
-        set_sub(t->have ? t->sub : "", t->sub_rgb, sub_opa);
+        set_sub(s_rain ? r->sub : t->have ? t->sub : "", s_rain ? SUB_RGB : t->sub_rgb, sub_opa);
     }
 }
 
