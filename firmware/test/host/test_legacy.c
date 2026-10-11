@@ -67,6 +67,7 @@ static void test_drop_hourly(void)
     wx_obs_t o;
     CHECK(wx_legacy_parse(body, &o) && o.valid && o.has_temp && o.temp_c == 4.5f && strcmp(o.condition, "rain") == 0,
           "nested hourly still parses: %s", body);
+    CHECK(!o.has_moon && o.moon_up == -1, "legacy poller: moon unknown, as in a view without the key");
 }
 
 static void test_weather(void)

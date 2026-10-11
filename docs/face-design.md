@@ -1,6 +1,6 @@
 # Weather and music faces: design and device plan
 
-Status: design only (2026-10-08), nothing built on the device. The faces live on the "Cinder Weather" design canvas (claude.ai artifact, rows "Bot page: weather moments", "Weather faces" and "Music faces"; press Play to see the motion) and are mirrored in [`design/faces/`](../design/faces/README.md). This file records the design system and how to build it within the knob's measured limits ([`features.md`](features.md): bot face rendering, now-playing page, glint).
+Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.9.51, [`features.md`](features.md) "Temperature face", "Rain now face"), the rest is design only. The faces live on the "Cinder Weather" design canvas (claude.ai artifact, rows "Bot page: weather moments", "Weather faces" and "Music faces"; press Play to see the motion) and are mirrored in [`design/faces/`](../design/faces/README.md). This file records the design system and how to build it within the knob's measured limits ([`features.md`](features.md): bot face rendering, now-playing page, glint).
 
 ## Where things live
 
@@ -31,8 +31,8 @@ Status: design only (2026-10-08), nothing built on the device. The faces live on
 | Face | Build notes |
 |---|---|
 | All gauges | The 150-piece gradient arcs on the canvas are a preview artefact. On the device: rasterise the ring once per data change with the existing analytic ring rasteriser and a colour LUT along the angle, keep it as one image; only the marker box moves. |
-| Temperature (day/night) | Sky slot by `is_day` + cloud cover: clouds (white < 70 %, light grey < 90 %, dark grey overcast; night tones at night), big sun (hot, AT4), moon with phase (night, AT5). Pre-render each cloud/sun/moon sprite with its rim fade; the drift moves one box at ≤ 15 fps. AT4: the sun rays are static (baked); only the sun box (glow, UV pulse) and the heat shimmer move. AT5: 4 twinkling stars (2 areas), the moon and the other stars are static. Open: show the moon only when it is above the horizon (moonrise/moonset). Mercury, ticks, ° colour: one small box. UV advice line only in daytime and UV ≥ 3. |
-| Rain now (AR2, umbrella) | No "Rain" caption. Rain is irregular A/B drop sheet tiles (three sheets, periods 1.33, 1.6 and 1.13 s) moving inside a static clip with a baked fade mask, not a regular grid; fewer drops than the first draft. 15 fps, 3 areas: left and right rain sheets, the band above the canopy. Edge drips slide off both umbrella sides; splashes land on the drop's hit frame. Dry zone under the canopy = fewer pixels to draw. |
+| Temperature (day/night) | Sky slot by `is_day` + cloud cover: clouds (white < 70 %, light grey < 90 %, dark grey overcast; night tones at night), big sun (hot, AT4), moon with phase (night, AT5). Pre-render each cloud/sun/moon sprite with its rim fade; the drift moves one box at ≤ 15 fps. AT4: the sun rays are static (baked); only the sun box (glow, UV pulse) and the heat shimmer move. AT5: 4 twinkling stars (2 areas), the moon and the other stars are static. The moon shows only when Ember's `moon.up` is true; missing or not a boolean means no moon (decided in #33). Mercury, ticks, ° colour: one small box. UV advice line only in daytime and UV ≥ 3. |
+| Rain now (AR2, umbrella) | Built (0.9.51): shown instead of Temperature while it rains, snows or storms now; snow (flakes, half speed) and storm (B2's bolt, 3 flashes per 6 s) are device variants. No "Rain" caption. Rain is irregular A/B drop sheet tiles (three sheets, periods 1.33, 1.6 and 1.13 s) moving inside a static clip with a baked fade mask, not a regular grid; fewer drops than the first draft. 15 fps, 3 areas: left and right rain sheets, the band above the canopy. Edge drips slide off both umbrella sides; splashes land on the drop's hit frame. Dry zone under the canopy = fewer pixels to draw. |
 | Rain forecast (AD3-AD5) | Countdown value ("2½ h", "45 min"). 2 areas at 15 fps, each box = cloud + its drop sheet. Light (AD4): one white cloud. Regular (AD5): lighter filled clouds from both sides. Heavy (AD3): grey shaded clouds from both sides. Drop slide along the ring: one small box during arrival. |
 | Wind (AW2-AW4) | No "Wind" caption; the hero icon is 1.9× larger, using the freed space. Windsock with 3 baked poses per wind-speed level (limp, gentle, straight out), switched in an A-B-C-B cycle faster as the wind rises (667 / 333 / 133 ms); no live rotation or skew. 1 area (the sock and its streaks). |
 | Sun | Rising sun sprite masked by the horizon; rays as one baked fan image. |
@@ -73,7 +73,7 @@ Compiled: Montserrat 14/18/24/30/48 (LVGL built-in) plus two generated subsets (
 - `font_digits_96`: big values, glyphs ` %+-0-9:°½−`; line box 107 / base 19 (built-in 36 scaled). Bitmaps 24,923 B.
 - `FONTS` entries are name, size, glyphs, line height, base line, underline position, underline thickness. The 36 px box matches the built-in font so a label keeps its layout if it switches to the full font.
 - The host test checks the glyph sets (U+00B0 degree, U+00BD one half, U+2212 minus), the line boxes against the built-in 36, that end labels 96 px in from the face edge stay clear of the centre column, and that big values stay inside the 300 px middle band.
-- Neither is in `main/CMakeLists.txt` yet (only the host test compiles them); add them to `SRCS` with the first face that uses them. Add a glyph: edit `FONTS` in the script, rerun, run the host tests.
+- Both are in `main/CMakeLists.txt` since the Temperature face (0.9.51). Add a glyph: edit `FONTS` in the script, rerun, run the host tests.
 - Curved labels (title, host) keep using the arc_text path into a cached canvas.
 
 ## Build order
@@ -98,13 +98,12 @@ The BotNext port comes first (see Next session).
 **Open decisions**
 - B2 moment icon size.
 - Whether waiting's loud first 20 s in BotNext is too much.
-- Moon on the night face only when it is above the horizon.
 - What Ember must provide: hourly rain / wind / gusts, daily forecast, cloud cover, UV index, moonrise/moonset, golden/blue hour times, full-size album cover + accent colour.
 
 **Next steps, in order**
 1. Port BotNext's changes into `firmware/components/bot/bot_behavior.c` / `firmware/main/bot_view.c` with host tests, one proposal at a time, checking invalidated areas on the device.
 2. Write the Ember weather/music API spec from the data list above.
-3. First device face: Temperature (baked gauge ring image + moving marker + count-up value).
+3. First device face: Temperature (baked gauge ring image + moving marker + count-up value). Done in 0.9.51, not yet checked on the knob.
 4. Then music.
 
 **Remember**

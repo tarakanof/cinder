@@ -54,6 +54,75 @@ static void parse_pomo(const cJSON *p, knob_view_t *out)
     if (out->pomo_counting) out->pomo.remaining_sec = 0;
 }
 
+static bool num_in(const cJSON *o, const char *k, int lo, int hi, int *out)
+{
+    const cJSON *v = cJSON_IsObject(o) ? item(o, k) : NULL;
+    if (!cJSON_IsNumber(v) || !(v->valuedouble >= lo && v->valuedouble <= hi)) return false;
+    *out = (int)(v->valuedouble < 0 ? v->valuedouble - 0.5 : v->valuedouble + 0.5);
+    return true;
+}
+
+static bool int_in(const cJSON *o, const char *k, int lo, int hi, int *out)
+{
+    const cJSON *v = cJSON_IsObject(o) ? item(o, k) : NULL;
+    if (!cJSON_IsNumber(v) || !(v->valuedouble >= lo && v->valuedouble <= hi) || v->valuedouble != (int)v->valuedouble)
+        return false;
+    *out = (int)v->valuedouble;
+    return true;
+}
+
+static bool unix_in(const cJSON *v, long long *out)
+{
+    if (!cJSON_IsNumber(v) || !(v->valuedouble > 0 && v->valuedouble < 1e13) ||
+        v->valuedouble != (double)(long long)v->valuedouble)
+        return false;
+    *out = (long long)v->valuedouble;
+    return true;
+}
+
+static bool spell_in(const cJSON *s, wx_spell_t *out)
+{
+    if (!cJSON_IsArray(s) || cJSON_GetArraySize(s) < 4) return false;
+    wx_spell_t p;
+    const cJSON *in = cJSON_GetArrayItem(s, 2), *kind = cJSON_GetArrayItem(s, 3);
+    if (!unix_in(cJSON_GetArrayItem(s, 0), &p.start) || !unix_in(cJSON_GetArrayItem(s, 1), &p.end) || p.end <= p.start ||
+        !cJSON_IsNumber(in) || !cJSON_IsNumber(kind))
+        return false;
+    double i = in->valuedouble, k = kind->valuedouble;
+    if (!(i == 1 || i == 2 || i == 3) || !(k == 0 || k == 1)) return false;
+    p.intensity = (int)i;
+    p.kind = (int)k;
+    *out = p;
+    return true;
+}
+
+static void parse_rain(const cJSON *r, wx_obs_t *o)
+{
+    o->has_rain = cJSON_IsObject(r);
+    if (!o->has_rain) return;
+    long long u;
+    if (unix_in(item(r, "until"), &u)) o->rain_until = u;
+    const cJSON *sp = item(r, "spells");
+    for (const cJSON *s = cJSON_IsArray(sp) ? sp->child : NULL; s && o->rain_n < WX_SPELLS; s = s->next)
+        if (spell_in(s, &o->rain_spell[o->rain_n])) o->rain_n++;
+}
+
+static void parse_detail(const cJSON *w, wx_obs_t *o)
+{
+    const cJSON *now = item(w, "now"), *today = item(w, "today"), *moon = item(w, "moon");
+    o->has_cloud = num_in(now, "cloud", 0, 100, &o->cloud);
+    o->has_uv = num_in(now, "uv", 0, 40, &o->uv);
+    o->has_today = num_in(today, "min_c", -99, 99, &o->min_c) && num_in(today, "max_c", -99, 99, &o->max_c) &&
+                   o->min_c <= o->max_c;
+    o->has_moon = num_in(moon, "phase", 0, 99, &o->moon_phase) && num_in(moon, "illum", 0, 100, &o->moon_illum);
+    const cJSON *up = cJSON_IsObject(moon) ? item(moon, "up") : NULL;
+    o->moon_up = cJSON_IsBool(up) ? cJSON_IsTrue(up) : -1;
+    o->has_now_rain = int_in(now, "rain", 0, 3, &o->now_rain);
+    o->has_pop = int_in(today, "pop", 0, 100, &o->pop);
+    o->has_utc_offset = int_in(w, "utc_offset", -50400, 50400, &o->utc_offset);
+    parse_rain(item(w, "rain"), o);
+}
+
 static void parse_weather(const cJSON *w, knob_view_t *out)
 {
     if (!cJSON_IsObject(w)) return;
@@ -81,6 +150,7 @@ static void parse_weather(const cJSON *w, knob_view_t *out)
     if (cJSON_IsNumber(at) && at->valuedouble >= 1577836800.0 && at->valuedouble < 1e13 &&
         at->valuedouble == (double)(long long)at->valuedouble)
         o->observed_at = (long long)at->valuedouble;
+    parse_detail(w, o);
 }
 
 static knob_view_res_t view_major(const cJSON *root, int *major)

@@ -22,6 +22,13 @@ typedef enum {
 typedef enum { WX_INT_NONE, WX_INT_LIGHT, WX_INT_MODERATE, WX_INT_HEAVY } wx_intensity_t;
 
 #define WX_MAX_AGE_S 1800.0
+#define WX_SPELLS 4
+
+typedef struct {
+    long long start, end; /* Unix s */
+    int intensity;        /* 1..3 */
+    int kind;             /* 0 rain, 1 snow or sleet */
+} wx_spell_t;
 
 typedef struct {
     bool valid;
@@ -41,6 +48,18 @@ typedef struct {
     long long observed_at; /* Unix s from the view, 0 unknown */
     bool has_obs_age;
     double obs_age_s;      /* the observation's age when the knob received it */
+    bool has_cloud, has_uv, has_today, has_moon;
+    int cloud, uv;         /* %, UV index */
+    int min_c, max_c;      /* today's range, whole degrees */
+    int moon_phase, moon_illum;
+    int moon_up;           /* with has_moon: 1 up, 0 down, -1 unknown */
+    bool has_now_rain, has_pop, has_utc_offset, has_rain;
+    int now_rain;          /* wx_intensity_t of the step containing now */
+    int pop;               /* today's chance of precipitation, % */
+    int utc_offset;        /* s */
+    long long rain_until;  /* Unix s, 0 unknown */
+    int rain_n;
+    wx_spell_t rain_spell[WX_SPELLS];
 } wx_obs_t;
 
 typedef struct {
