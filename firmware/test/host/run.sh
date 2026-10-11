@@ -115,6 +115,16 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold"
+WJC="$W/wx_job.c"
+body "$WJC" park | awk '/atomic_compare_exchange_strong\(&j->state, &queued, WX_JOB_IDLE\)/ {cas = NR} /atomic_load\(/ {if (!cas) early = 1; if ($0 ~ /atomic_load\(&j->state\) == WX_JOB_RUNNING/) run = 1} /atomic_store\(/ {st = 1} END {exit !(cas && run && !early && !st)}' ||
+    WIRING="$WIRING park-cancels-by-CAS-then-loads-RUNNING"
+body "$WJC" wx_job_take | grep -qF 'if (!atomic_compare_exchange_strong(&j->state, &queued, WX_JOB_RUNNING)) return NULL;' &&
+    ! body "$WJC" wx_job_take | grep -qE 'atomic_(load|store)\(' || WIRING="$WIRING take-claims-by-CAS-only"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL wx_job CAS wiring:$WIRING" >&2
+    exit 1
+fi
+echo "wx_job CAS wiring: park cancels by CAS then loads RUNNING, take claims by CAS only"
 BVC="$D/../../main/bot_view.c"
 body "$BVC" rim_task | grep -q 'if (!rim_job_take(&s_rim, .*)) continue;' || WIRING="$WIRING rim_task-skips-a-held-take"
 body "$BVC" rim_task | grep -qF 'if (!rim_job_live(&s_rim, gen)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
