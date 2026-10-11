@@ -89,7 +89,7 @@ typedef struct {
     int i;
 } wx_shift_t;
 
-/* Burn-in: after WX_SHIFT_S s on screen the face steps to the next corner of a WX_SHIFT_PX square; true on a step. */
+/* Burn-in: after WX_SHIFT_S s on screen the face steps to the next corner of a WX_SHIFT_PX square; true on a step. A non-finite or negative dt counts as 0. */
 bool wx_shift_tick(wx_shift_t *s, double dt);
 void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy);
 

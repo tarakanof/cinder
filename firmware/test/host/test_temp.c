@@ -369,7 +369,13 @@ static void test_shift(void)
         wx_shift_xy(&s, &dx, &dy);
         CHECK(steps == k && dx == DX[k] && dy == DY[k], "burn-in step %d: %d,%d want %d,%d", k, dx, dy, DX[k], DY[k]);
     }
-    CHECK(!wx_shift_tick(&s, 0) && !wx_shift_tick(&s, NAN), "burn-in: no step on 0 or NaN");
+    CHECK(!wx_shift_tick(&s, 0) && !wx_shift_tick(&s, NAN) && !wx_shift_tick(&s, INFINITY) && !wx_shift_tick(&s, -1e9),
+          "burn-in: no step on 0, NaN, infinity or a negative dt");
+    steps = 0;
+    for (int f = 0; f < 121 * 30; f++) steps += wx_shift_tick(&s, 1.0 / 30);
+    wx_shift_xy(&s, &dx, &dy);
+    CHECK(steps == 1 && dx == DX[1] && dy == DY[1], "burn-in: steps again after a NaN dt (%d steps, at %d,%d)", steps, dx,
+          dy);
 }
 
 static int px_of(wx_box_t b) { return (b.x1 - b.x0) * (b.y1 - b.y0); }

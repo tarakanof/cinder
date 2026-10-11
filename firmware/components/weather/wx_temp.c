@@ -227,8 +227,8 @@ void wx_clouds_for(int band, bool night, wx_clouds_t *out)
 
 bool wx_shift_tick(wx_shift_t *s, double dt)
 {
-    s->t += dt;
-    if (!(s->t >= WX_SHIFT_S)) return false;
+    if (isfinite(dt) && dt > 0) s->t += dt;
+    if (s->t < WX_SHIFT_S) return false;
     s->t = 0;
     s->i = (s->i + 1) & 3;
     return true;
