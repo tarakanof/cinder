@@ -77,11 +77,12 @@ int main(void)
                     }
                     cases++;
                     int lw = text_w(f24, c.label), lh = f24->line_height, x, y;
-                    wx_box_t sub = wx_cast_sub_box(text_w(f30, c.sub), f30->line_height);
-                    lv_area_t face = {0, 0, 465, 465}, sa = {0, 0, sub.x1 - sub.x0 - 1, sub.y1 - sub.y0 - 1};
+                    int sw = text_w(f30, c.sub);
+                    wx_box_t sub = wx_cast_sub_box(sw, f30->line_height);
+                    lv_area_t face = {0, 0, 465, 465}, sa = {0, 0, sw - 1, f30->line_height - 1};
                     lv_area_align(&face, &sa, LV_ALIGN_TOP_MID, 0, WX_SUB_Y);
-                    CHECK(sa.x1 == sub.x0 && sa.y1 == sub.y0, "minute %d: the sub box is where LVGL's TOP_MID puts a %d px label (%d, not %d)",
-                          m, sub.x1 - sub.x0, (int)sa.x1, sub.x0);
+                    CHECK(sa.x1 == sub.x0 && sa.y1 == sub.y0 && sa.x2 + 1 == sub.x1 && sa.y2 + 1 == sub.y1, "minute %d: the sub box is where LVGL's TOP_MID puts a %d px label (%d, not %d)",
+                          m, sw, (int)sa.x1, sub.x0);
                     float ax, ay;
                     int al;
                     wx_cast_label_at(c.label_deg, &ax, &ay, &al);
