@@ -763,9 +763,159 @@ static void test_rim_job_order(void)
     }
 }
 
+static void test_chase_hold(void)
+{
+    glint_chase_t c;
+    gc_init(&c, 7);
+    gc_out_t o;
+    c.hold = true;
+    double t = 0;
+    for (; t < GC_WAIT_MAX_S + 60; t += 0.1) {
+        gc_tick(&c, t, true, 3.0, &o);
+        CHECK(!o.chasing, "held: no chase at %g", t);
+        if (o.chasing) break;
+    }
+    CHECK(c.work_s >= c.wait_s, "the working time still counts: %g of %g", c.work_s, c.wait_s);
+    c.hold = false;
+    gc_tick(&c, t + 0.1, true, 3.0, &o);
+    CHECK(o.chasing, "released: the chase starts at once");
+    gc_init(&c, 8);
+    gc_tick(&c, 0, true, 3.0, &o);
+    c.hold = true;
+    CHECK(gc_start_now(&c, GC_STYLE_FULL, 0), "a forced chase is accepted");
+    gc_tick(&c, 0.1, true, 3.0, &o);
+    CHECK(!o.chasing, "and waits for the hold");
+    c.hold = false;
+    gc_tick(&c, 0.2, true, 3.0, &o);
+    CHECK(o.chasing, "then runs");
+}
+
+static double lid_at(bot_t *b, double t)
+{
+    bot_pose_t p = bot_pose(b, t);
+    return p.lid_l;
+}
+
+static void test_act(void)
+{
+    bot_t b;
+    bot_init(&b, 21, 0);
+    for (double t = 0; t < 3; t += 0.016) bot_pose(&b, t);
+    b.next_blink_at = 1e9;
+    double t = 3;
+    while (b.blinking) bot_pose(&b, t += 0.016);
+    bot_act_begin(&b, t);
+    bot_act_lid(&b, 0.45, 0.25, t);
+    CHECK(lid_at(&b, t + 0.1) > 0.05 && lid_at(&b, t + 0.1) < 0.45, "the lid floor eases in");
+    CHECK(fabs(lid_at(&b, t + 0.3) - 0.45) < 1e-9, "then holds at 0.45: %g", lid_at(&b, t + 0.3));
+    bot_act_lid(&b, 0, 0.3, t + 1);
+    CHECK(fabs(lid_at(&b, t + 1.4)) < 1e-9, "and eases out");
+
+    t += 2;
+    for (double u = t; u < t + 3 && b.animating; u += 0.016) bot_pose(&b, u);
+    bot_act_lid(&b, 0.2, 1, t + 3);
+    bot_pose(&b, t + 3.5);
+    CHECK(b.animating, "a lid easing counts as animating");
+    bot_act_lid(&b, 0, 0.1, t + 3.6);
+    bot_pose(&b, t + 3.8);
+    t += 4;
+    bot_act_eyes(&b, BOT_EYES_ROUND, t);
+    CHECK(b.blinking, "a costume blinks");
+    double bs = b.blink_start;
+    bot_act_eyes(&b, BOT_EYES_HAPPY, t + 0.01);
+    CHECK(b.blink_start == bs, "a second costume change rides the same blink");
+    bot_act_eyes(&b, BOT_EYES_ROUND, t + 0.01);
+    CHECK(bot_pose(&b, t + 0.02).eyes == BOT_EYES_DASH, "the old eyes until the lids close");
+    CHECK(bot_pose(&b, t + 0.09).eyes == BOT_EYES_ROUND, "round once they close");
+    for (double u = t + 0.1; u < t + 1; u += 0.016) bot_pose(&b, u);
+    bot_set_mood(&b, BOT_DONE, t + 1);
+    for (double u = t + 1; u < t + 2; u += 0.016) bot_pose(&b, u);
+    CHECK(bot_pose(&b, t + 2).eyes == BOT_EYES_ROUND, "a mood change keeps the costume");
+    bot_act_end(&b, true, 0.3, t + 2);
+    CHECK(!b.acting && b.act_eyes == -1 && b.blinking, "the end blinks the costume away");
+    for (double u = t + 2; u < t + 2.5; u += 0.016) bot_pose(&b, u);
+    CHECK(bot_pose(&b, t + 2.5).eyes == BOT_EYES_HAPPY, "the mood's eyes again");
+    CHECK(b.gaze_to_x == 0 && fabs(b.gaze_to_y - 0.1) < 1e-9, "back at the viewer");
+
+    bot_init(&b, 22, 0);
+    for (t = 0; t < 2; t += 0.016) bot_pose(&b, t);
+    while (b.blinking) bot_pose(&b, t += 0.016);
+    bot_act_eyes(&b, -1, t);
+    CHECK(!b.blinking, "no costume change: no blink");
+    for (int k = 0; k < 40; k++) {
+        bot_t c = b;
+        c.rng += (uint64_t)k * 977;
+        bot_act_blink(&c, 2.2, t);
+        CHECK(!c.double_blink_pending, "a slow blink is single (seed %d)", k);
+    }
+    bot_act_blink(&b, 2.2, t);
+    CHECK(b.blinking && b.blink_speed == 2.2, "a slow blink");
+    bot_pose(&b, t + 0.55);
+    CHECK(b.blinking, "still closed-ish at 0.55 s");
+    bot_pose(&b, t + 0.6);
+    CHECK(!b.blinking, "over after 0.26 x 2.2 s");
+    double sp = b.blink_speed;
+    b.blinking = true;
+    bot_act_blink(&b, 3, t + 1);
+    CHECK(b.blink_speed == sp, "no new blink over a running one");
+    b.blinking = false;
+
+    bot_init(&b, 23, 0);
+    for (t = 0; t < 2; t += 0.016) bot_pose(&b, t);
+    bot_pose_t p0 = bot_pose(&b, t);
+    CHECK(!b.hopping && p0.scale_x == 1, "on the ground");
+    bot_act_hop(&b, t);
+    bot_pose_t up = bot_pose(&b, t + 0.4);
+    CHECK(up.offset_y - p0.offset_y > 0.15, "a hop lifts: %g", up.offset_y - p0.offset_y);
+    bot_pose_t down = bot_pose(&b, t + BOT_HOP_DURATION_S + 0.05);
+    CHECK(!b.hopping && down.scale_x == 1 && down.scale_y == 1, "and lands");
+
+    bot_init(&b, 24, 0);
+    for (t = 0; t < 2; t += 0.016) bot_pose(&b, t);
+    bot_act_begin(&b, t);
+    CHECK(b.gaze_to_x == 0 && fabs(b.gaze_to_y - 0.1) < 1e-9 && b.gaze_dur == 0.42, "begin glides to the viewer");
+    bot_pose_t settled = bot_pose(&b, t + 0.5);
+    CHECK(fabs(settled.offset_x) < 1e-9 && fabs(settled.offset_y - 0.003) < 1e-9, "and leans as for the viewer within the pre-roll: %g %g",
+          settled.offset_x, settled.offset_y);
+    bot_act_gaze(&b, 0.3, 0.2, true, t + 1);
+    CHECK(b.gaze_to_x == 0.3 && b.gaze_to_y == 0.2 && b.gaze_dur == 0.42, "a glide: 0.42 s");
+    bot_act_gaze(&b, -0.3, 0.1, false, t + 2);
+    CHECK(b.gaze_dur < 0.1, "a saccade: fast (%g)", b.gaze_dur);
+    bot_pose_t held = bot_pose(&b, t + 2.6);
+    CHECK(held.offset_x == settled.offset_x && held.offset_y == settled.offset_y, "acting gazes keep the body lean: %g %g", held.offset_x,
+          held.offset_y);
+    double lx = b.gaze_to_x, ly = b.gaze_to_y;
+    bot_look(&b, 0, 0.85, t + 3);
+    CHECK(b.gaze_to_x == lx && b.gaze_to_y == ly, "a knob turn does not move the eyes while acting");
+    bot_act_end(&b, true, 0.3, t + 4);
+    bot_look(&b, 0, 0.85, t + 5);
+    CHECK(b.gaze_to_y == 0.85, "it does again after the act");
+
+    bot_init(&b, 25, 0);
+    for (t = 0; t < 2; t += 0.016) bot_pose(&b, t);
+    bot_act_begin(&b, t);
+    bot_act_lid(&b, 0.4, 0.2, t);
+    bot_act_eyes(&b, BOT_EYES_ROUND, t);
+    bot_push(&b, t + 0.1);
+    CHECK(!b.hopping && !b.popping, "a push does not hop the outline while acting");
+    bot_set_mood(&b, BOT_WORKING, t + 1);
+    double wx = b.gaze_to_x, wy = b.gaze_to_y, ws = b.gaze_start;
+    bot_act_drop(&b, t + 1);
+    CHECK(!b.acting && b.gaze_to_x == wx && b.gaze_to_y == wy && b.gaze_start == ws, "dropping the act keeps the new mood's gaze");
+    CHECK(b.act_eyes == -1 && b.act_lid.to == 0, "but ends the costume and the lid floor");
+    for (double u = t + 1; u < t + 2; u += 0.016) bot_pose(&b, u);
+    CHECK(bot_pose(&b, t + 2).eyes == BOT_EYES_DASH && fabs(bot_pose(&b, t + 2).lid_l) < 1e-9, "working eyes, open");
+    bot_push(&b, t + 2);
+    CHECK(b.hopping, "a push hops again after the act");
+    bot_act_drop(&b, t + 3);
+    CHECK(!b.acting, "a second drop: nothing");
+}
+
 int main(void)
 {
     bot_shape_init();
+    test_chase_hold();
+    test_act();
     test_rim_job();
     test_rim_job_order();
     test_orbit_table();

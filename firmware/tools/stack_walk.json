@@ -30,6 +30,10 @@
   [
    "^assert_valid_block$",
    "^__call_ets_printf$"
+  ],
+  [
+   "^__ssvfscanf_r$",
+   "^ieee80211_"
   ]
  ],
  "pointers": {
@@ -522,6 +526,11 @@
    "entry": "bake_task",
    "file": "main/temp_face.c",
    "stack": 5120
+  },
+  "moment": {
+   "entry": "moment_bake_task",
+   "file": "main/moment_view.c",
+   "stack": 4608
   },
   "stats": {
    "entry": "stats_task",

@@ -99,6 +99,18 @@ static void test_settings_values(void)
     CHECK(k.swipe_pages, "swipe_pages: non-boolean keeps the default");
     knob_settings_parse("{\"bot\":{\"source_label\":0,\"working_ring\":null}}", &k);
     CHECK(k.source_label && k.working_ring, "bot flags: non-booleans keep the default");
+    knob_settings_parse("{}", &k);
+    CHECK(k.weather_moments && k.weather_every_min == 30, "weather moments absent: on, every 30 min");
+    knob_settings_parse("{\"bot\":{\"weather_moments\":false,\"weather_every_min\":0}}", &k);
+    CHECK(!k.weather_moments && k.weather_every_min == 0, "weather moments off, no periodic one");
+    knob_settings_parse("{\"bot\":{\"weather_moments\":1,\"weather_every_min\":45}}", &k);
+    CHECK(k.weather_moments && k.weather_every_min == 45, "weather moments: a non-boolean keeps on, 45 min");
+    knob_settings_parse("{\"bot\":{\"weather_every_min\":1000}}", &k);
+    CHECK(k.weather_every_min == 240, "every clamps to 240: %d", k.weather_every_min);
+    knob_settings_parse("{\"bot\":{\"weather_every_min\":-5}}", &k);
+    CHECK(k.weather_every_min == 0, "every clamps to 0: %d", k.weather_every_min);
+    knob_settings_parse("{\"bot\":{\"weather_every_min\":\"x\"}}", &k);
+    CHECK(k.weather_every_min == 30, "every: a string keeps 30");
 }
 
 static void test_settings_rotation(void)

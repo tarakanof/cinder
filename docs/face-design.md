@@ -1,6 +1,6 @@
 # Weather and music faces: design and device plan
 
-Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.9.51, [`features.md`](features.md) "Temperature face", "Rain now face"); a plain turn on the weather page switches between them, with face dots (0.9.53, "Weather face switching"); Rain forecast (AD3-AD5) is built as the third face (0.9.54, "Rain forecast face"); Wind (AW2-AW4) as the fourth (0.9.56, "Wind face"); Next days (AN1) as the fifth (0.9.57, "Next days face"); Sun (AS2) as the sixth (0.9.58, "Sun face"); Air (AA2/AA4) as the seventh (0.9.59, "Air face"); the music faces and bot moments are design only. The faces live on the "Cinder Weather" design canvas (claude.ai artifact, rows "Bot page: weather moments", "Weather faces" and "Music faces"; press Play to see the motion) and are mirrored in [`design/faces/`](../design/faces/README.md). This file records the design system and how to build it within the knob's measured limits ([`features.md`](features.md): bot face rendering, now-playing page, glint).
+Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.9.51, [`features.md`](features.md) "Temperature face", "Rain now face"); a plain turn on the weather page switches between them, with face dots (0.9.53, "Weather face switching"); Rain forecast (AD3-AD5) is built as the third face (0.9.54, "Rain forecast face"); Wind (AW2-AW4) as the fourth (0.9.56, "Wind face"); Next days (AN1) as the fifth (0.9.57, "Next days face"); Sun (AS2) as the sixth (0.9.58, "Sun face"); Air (AA2/AA4) as the seventh (0.9.59, "Air face"); the bot weather moments are built (0.9.61, "Bot weather moments"); the music faces are design only. The faces live on the "Cinder Weather" design canvas (claude.ai artifact, rows "Bot page: weather moments", "Weather faces" and "Music faces"; press Play to see the motion) and are mirrored in [`design/faces/`](../design/faces/README.md). This file records the design system and how to build it within the knob's measured limits ([`features.md`](features.md): bot face rendering, now-playing page, glint).
 
 ## Where things live
 
@@ -63,6 +63,7 @@ The bot page shows the coding agents' status first; weather only interrupts it b
 - **Eyes**: the real bot eye shapes (dash, round, happy), ported from `BotNow` / `BotNext`, not stand-ins.
 - **Layout**: sprite box (156,62)-(308,152) above the eyes, sprites pre-rendered at 0.9 scale, filled style like the weather faces, pre-drawn poses switched by opacity. Text: one straight centred 30 px line under the eyes at y 310-346, sentence case, weather colour ("Rain until 14:30", "12° Cloudy", "Storm", "Snow −2°", "Wind 45 km/h", "Hot 31°", "Clear 9°", "Rain stops"). The curved host label never swaps; in working the tool icon hides while the line shows (frames 0-67).
 - **Never**: change the ring colour (that is a ~120 ms outline re-render), full-ring effects, rain around the eyes, rotating ray rings.
+- **Built** (0.9.61, [`features.md`](features.md) "Bot weather moments"): all nine canvases, plus Frost (Glance sprite). Decided: sprites at the canvas's 0.9 scale; the moon only when `moon.up` is true. Deviation: the full variant first glides the eyes to the viewer and starts 0.5 s later (the rest gaze reaches into the sprite box).
 - **Budget**: full variant ≤ 2 areas per frame (eyes + sprite, or eyes + text on its 6 fade frames); working ≤ 3 (+ glint). The one exception is AfterRain's hop: ~1 s, one-off, the whole outline moves and squashes as in normal bot life. Measured eye boxes per moment are in the `design/faces/` README.
 
 ## Fonts
@@ -96,7 +97,6 @@ The BotNext port comes first (see Next session).
 - `python3 design/faces/tools/build_all.py` regenerates `canvas/` and `gallery/` from `tools/` + `tools/orig/`. `tools/verify_gallery.py` checks the pages (needs Playwright).
 
 **Open decisions**
-- B2 moment icon size.
 - Whether waiting's loud first 20 s in BotNext is too much.
 - What Ember must provide: hourly rain / wind / gusts, daily forecast, cloud cover, UV index, moonrise/moonset, golden/blue hour times, full-size album cover + accent colour.
 

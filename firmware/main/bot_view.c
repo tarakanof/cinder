@@ -86,6 +86,8 @@ static int s_label_cx, s_label_cy;
 static int s_label_sx, s_label_sy;
 static int s_label_opa = 255;
 static uint32_t *s_icon_buf;
+static lv_area_t s_icon_box = {0, 0, -1, -1};
+static bool s_icon_off;
 static ember_host_info_t s_host = {.color = -1};
 static bool s_label_dirty = true;
 static uint32_t s_label_mood_rgb;
@@ -318,6 +320,17 @@ static void label_bins(uint8_t *alpha, int w, int h)
         if (s_label_bin[i] != UINT16_MAX && lw_has(&s_wipe, s_label_bin[i])) alpha[i] = 0;
 }
 
+static void icon_apply(void)
+{
+    if (s_icon_box.x2 < s_icon_box.x1 || s_icon_box.y2 < s_icon_box.y1) return;
+    uint8_t *alpha = (uint8_t *)(s_label_buf + s_label_w * s_label_h);
+    for (int y = s_icon_box.y1; y <= s_icon_box.y2; y++)
+        for (int x = s_icon_box.x1; x <= s_icon_box.x2; x++) {
+            int i = y * s_label_w + x;
+            alpha[i] = s_icon_off ? 0 : s_label_alpha0[i];
+        }
+}
+
 static void label_unwipe(void)
 {
     if (!s_wipe.count) return;
@@ -367,7 +380,16 @@ static void label_crop(const uint32_t *src)
     s_label_cy = y0;
     s_label_w = w;
     s_label_h = h;
+    if (s_icon_box.x2 >= s_icon_box.x1) {
+        lv_area_t b = {s_icon_box.x1 - x0, s_icon_box.y1 - y0, s_icon_box.x2 - x0, s_icon_box.y2 - y0};
+        if (b.x1 < 0) b.x1 = 0;
+        if (b.y1 < 0) b.y1 = 0;
+        if (b.x2 > w - 1) b.x2 = w - 1;
+        if (b.y2 > h - 1) b.y2 = h - 1;
+        s_icon_box = b;
+    }
     label_bins(alpha, w, h);
+    icon_apply();
     lv_canvas_set_buffer(s_label, s_label_buf, w, h, LV_COLOR_FORMAT_RGB565A8);
     label_place();
 }
@@ -415,6 +437,9 @@ static void label_draw(void)
         int x = (int)(CX - LABEL_X), y = (int)(CY - LABEL_Y) + LABEL_ICON_R;
         lv_area_t a = {x - s_icon_w / 2, y - s_icon_h, x - s_icon_w / 2 + s_icon_w - 1, y - 1};
         lv_draw_image(&layer, &d, &a);
+        s_icon_box = a;
+    } else {
+        s_icon_box = (lv_area_t){0, 0, -1, -1};
     }
     for (int i = first; i < n; i++) {
         lv_draw_letter_dsc_t d;
@@ -452,6 +477,24 @@ void bot_view_set_host(const ember_host_info_t *host)
     s_host = *host;
     s_label_dirty = true;
     host_sync();
+}
+
+bool bot_view_icon_off(bool off, lv_area_t *a)
+{
+    *a = (lv_area_t){0, 0, -1, -1};
+    if (off != s_icon_off) {
+        s_icon_off = off;
+        icon_apply();
+    }
+    if (s_icon_box.x2 < s_icon_box.x1 || lv_obj_has_flag(s_label, LV_OBJ_FLAG_HIDDEN)) return false;
+    int lx = LABEL_X + s_label_cx + s_label_sx, ly = LABEL_Y + s_label_cy + s_label_sy + s_rim_dy;
+    *a = (lv_area_t){(lx + s_icon_box.x1) & ~1, (ly + s_icon_box.y1) & ~1, (lx + s_icon_box.x2) | 1, (ly + s_icon_box.y2) | 1};
+    return true;
+}
+
+void bot_view_icon_redraw(const lv_area_t *a)
+{
+    lv_obj_invalidate_area(s_label, a);
 }
 
 void bot_view_set_offline(bool on)

@@ -91,7 +91,7 @@ void gc_tick(glint_chase_t *c, double t, bool active, double lap_s, gc_out_t *ou
     switch (c->phase) {
     case GC_IDLE:
         c->work_s += dt;
-        if (c->work_s < c->wait_s) break;
+        if (c->work_s < c->wait_s || c->hold) break;
         c->phase = GC_CHASE;
         c->style = c->forced ? c->forced - 1 : (int)(next(c) & 1);
         c->forced = 0;

@@ -24,5 +24,9 @@ bool bot_view_glint_deg(double t, float *deg);
 void bot_view_label_fx(float opa, int shift_x, int shift_y);
 /* Before bot_view_update each frame; both false restores a wiped label. LVGL task only. */
 void bot_view_chase(bool merge, bool wipe);
+/* LVGL task only: the tool icon of the host label steps aside (off) or returns. a: its screen box, even-aligned; false
+   (a empty) when the label shows no icon. Redraws nothing: bot_view_icon_redraw(a) does. */
+bool bot_view_icon_off(bool off, lv_area_t *a);
+void bot_view_icon_redraw(const lv_area_t *a);
 /* LVGL task only: true drops the background outline job until false, which redoes it. */
 void bot_view_rim_hold(bool hold);

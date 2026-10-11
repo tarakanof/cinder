@@ -94,6 +94,8 @@ void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *
    even while wet; WXF_RAIN shows Rain now, dry (wx_rain_dry) when nothing falls; WXF_CAST the forecast, WXF_WIND the wind and
    WXF_DAYS the next days, WXF_SUN the sun and WXF_AIR the air on any weather; Next days and Sun are never the auto face. */
 void wx_temp_face(const wx_obs_t *obs, const wx_temp_t *shown, int face, wx_temp_t *out);
+/* The sky word of t's look ("Partly cloudy", "Clear", "Rain"), whatever t->sub shows; NULL without data. */
+const char *wx_temp_sky(const wx_obs_t *obs, const wx_temp_t *t);
 /* WX_BAKE_* parts that differ from shown: RING the range (or the forecast dial), HERO the hero sprite, SCENE background
    and clouds (or the rain, forecast, wind, days, sun or air layers); 0 none. A change between the faces is FULL. */
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *shown);
