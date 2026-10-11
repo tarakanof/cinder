@@ -1,6 +1,6 @@
 # Weather and music faces: design and device plan
 
-Status: design only (2026-10-08), nothing built on the device. The faces live on the "Cinder Weather" design canvas (claude.ai artifact, rows "Bot page: weather moments", "Weather faces" and "Music faces"; press Play to see the motion) and are mirrored in [`design/faces/`](../design/faces/README.md). This file records the design system and how to build it within the knob's measured limits ([`features.md`](features.md): bot face rendering, now-playing page, glint).
+Status: design 2026-10-08; the Temperature face is built (0.9.51, [`features.md`](features.md) "Temperature face"), the rest is design only. The faces live on the "Cinder Weather" design canvas (claude.ai artifact, rows "Bot page: weather moments", "Weather faces" and "Music faces"; press Play to see the motion) and are mirrored in [`design/faces/`](../design/faces/README.md). This file records the design system and how to build it within the knob's measured limits ([`features.md`](features.md): bot face rendering, now-playing page, glint).
 
 ## Where things live
 
@@ -73,7 +73,7 @@ Compiled: Montserrat 14/18/24/30/48 (LVGL built-in) plus two generated subsets (
 - `font_digits_96`: big values, glyphs ` %+-0-9:°½−`; line box 107 / base 19 (built-in 36 scaled). Bitmaps 24,923 B.
 - `FONTS` entries are name, size, glyphs, line height, base line, underline position, underline thickness. The 36 px box matches the built-in font so a label keeps its layout if it switches to the full font.
 - The host test checks the glyph sets (U+00B0 degree, U+00BD one half, U+2212 minus), the line boxes against the built-in 36, that end labels 96 px in from the face edge stay clear of the centre column, and that big values stay inside the 300 px middle band.
-- Neither is in `main/CMakeLists.txt` yet (only the host test compiles them); add them to `SRCS` with the first face that uses them. Add a glyph: edit `FONTS` in the script, rerun, run the host tests.
+- Both are in `main/CMakeLists.txt` since the Temperature face (0.9.51). Add a glyph: edit `FONTS` in the script, rerun, run the host tests.
 - Curved labels (title, host) keep using the arc_text path into a cached canvas.
 
 ## Build order
@@ -104,7 +104,7 @@ The BotNext port comes first (see Next session).
 **Next steps, in order**
 1. Port BotNext's changes into `firmware/components/bot/bot_behavior.c` / `firmware/main/bot_view.c` with host tests, one proposal at a time, checking invalidated areas on the device.
 2. Write the Ember weather/music API spec from the data list above.
-3. First device face: Temperature (baked gauge ring image + moving marker + count-up value).
+3. First device face: Temperature (baked gauge ring image + moving marker + count-up value). Done in 0.9.51, not yet checked on the knob.
 4. Then music.
 
 **Remember**

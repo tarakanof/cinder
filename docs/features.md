@@ -747,3 +747,42 @@ The user can turn the knob's image upside down from the Ember app. Contract: Emb
   6. Set 0 again: the image is as before, with no edge line.
 
 Image about 1,555 KB (`cinder.bin`); no new task, NVS key or LVGL object.
+
+## Temperature face (#33, Ember#350, 0.9.51)
+
+The weather page is now the Temperature face (canvases AT4/AT5, [`face-design.md`](face-design.md)), the first device face. It replaces the 200×140 sky canvas (`main/weather_view.c`, removed; `components/weather/weather_scene.c` stays host-tested but is no longer linked by the page). Fixtures synced to Ember v0.50.0 (`view_faces.json`, `view_faces_met.json`, `view_faces_polar_dry.json`, `view_np_cover.json`). **Not checked on the knob yet.**
+
+- **Data** (`parse_detail` in `knob_view.c`): with `wx_faces` in the caps, Ember adds the detail keys to `weather`. The face reads `now.cloud`, `now.uv`, `today.min_c`/`max_c` and `moon.phase`/`illum`/`up`; the rest (wind, rain spells, days, twilight, `aqi`, `utc_offset`) is left for the other faces. A key that is missing, not a number or out of range is "unknown", never 0. A legacy view, the legacy `/v1/weather/state` poller or an Ember before v0.49.0 gives no detail, and the face degrades:
+
+  | Missing | Face |
+  |---|---|
+  | `today` | Gauge on the fixed scale −20..40 °C, no end labels |
+  | `now.cloud` | Cloud cover from the condition: clear 0 %, partly cloudy 55 %, anything else 95 % |
+  | `now.uv` | No advice line; the sky word ("Partly cloudy", "Rain", ...) instead |
+  | `moon` | No moon at night (stars only when clear) |
+  | `moon.up` false | No moon (the open design question, decided as "only when Ember says it is up") |
+  | `temp_c` or the whole block | Grey track, "--°", no marker, no labels |
+
+- **Caps**: `wx_faces` is the sixth feature token. `checkin_req_caps.json` still has 0.9.41's five tokens (Ember keeps it until the firmware sends the token) and `NOT_YET_SENT` cannot exempt one array element, so `test_fixtures.c` has `FEATURES_AHEAD[] = {"wx_faces"}` (see [`workflow.md`](workflow.md)). The worst-case checkin body is 1,763 of 2,048 B.
+- **cJSON on PSRAM**: the hooks were already in place (`json_malloc` prefers PSRAM, set first in `app_main`, commit 03871a4). `run.sh` now checks that wiring, and `test_fixtures.c` checks that every node of `view_faces.json` goes through the hooks and is freed (235 allocations against 78 for the legacy `view_caps_limited.json`).
+- **Selection** (`components/weather/wx_temp.c`, pure, host-tested): value = `temp_c` rounded; gauge `today.min_c..max_c` widened to the value, 1° each side on a flat day; colour scale and gauge points from `design/faces/tools/edit.py`. Cloud bands (< 10, < 40, < 70, < 90, else) pick the canvas cloud layouts (none, one white, two white, four light grey, four dark grey; night tones at night). Hero: sun by day under 40 % cloud (AT4), big moon at night under 70 % (AT5), small moon behind the clouds under 90 % (AT6), stars at night under 40 %. Sub-line: UV advice by day at UV ≥ 3 (3-5 "Sunglasses on", 6-7 "Use sunscreen", 8-10 "Sunscreen & shade", 11+ "Avoid the sun", UV colours), else the sky word; offline: the observation's age, as before. Stale or old data greys the value.
+- **Rendering** (`components/weather/wx_paint.c`, pure, host-tested; `main/temp_face.c`, LVGL):
+  - One 466×466 RGB565 background per data change: ring (per-pixel annulus with round caps and a 541-entry colour LUT along the angle; not `pomo_ring`, which has a fixed start and two colours), the sun's 22 rays (static, rim fade, feathered keep-outs from the canvas), the static stars and the thermometer outline. Only the bake key (range, hero, cloud band, moon phase, stars) re-bakes; a new value only moves the marker and changes the number.
+  - Sprites (RGB565A8, rim fades baked): hero 164² (sun, moon with phase from `phase`/`illum`), cloud layer (one image, its ink box, at most 436×148), mercury box 42×76, marker 36² (drawn once).
+  - Arrival on page show (1.32 s, ease-out cubic): the marker sweeps from the gauge start in one box, the number counts up in `font_digits_96` (one step per degree up to 30, else 23 steps; step k lands at T(1-(1-k/n)^(1/3)) as on the canvas) and colours with it, the mercury rises in its box, hero and clouds fade in at 15 fps, the sub-line fades in over 3 steps after it. Then still, except the cloud drift: ±4 px in 2 px steps over 8 s (one box, 1 step/s). The end labels use `font_face_36`; both face fonts are now linked.
+- **Areas/frame (estimate, not measured)**: arrival ≤ 5 (marker, number, mercury, hero, clouds; the hero and clouds only on 15 fps steps), so at ~4 ms per area about 20 ms per frame, ~25-30 fps for 1.3 s; then the sub-line fade (1 area, 3 steps); steady state 0 areas on a clear face, 1 area per drift step with clouds. The bake (background, hero, clouds) runs on the LVGL task at the first show and after a data change: 1.2 ms on the host (M-series, -O1), estimated 60-120 ms on the S3; the log line `tempface: baked ... in N ms` gives the real figure.
+- **Cost** (`idf.py size`, 0.9.50 at origin/main 62d370f → 0.9.51, same machine, IDF 5.5.5):
+
+  | | 0.9.50 | 0.9.51 | Δ |
+  |---|---|---|---|
+  | Image (`cinder.bin`) | 1,557,216 B | 1,592,496 B | +35,280 (the two face fonts ~28 KB) |
+  | Flash `.text` / `.rodata` | 1,058,384 / 395,348 B | 1,063,496 / 425,532 B | +5,112 / +30,184 |
+  | DIRAM static (`.data` / `.bss`) | 102,791 B (23,480 / 16,088) | 101,519 B (23,464 / 14,832) | −1,272 (the old sky scene state) |
+  | PSRAM `.bss` | 49,180 B | 49,492 B | +312 |
+  | PSRAM heap (weather page) | 164 KB (sprites 80 KB + canvas 84 KB) | 731 KB (background 434 KB, clouds 201 KB, hero 81 KB, mercury, marker, LUT) | about +567 KB |
+  | `stack_walk.py` | `ember` 5,152, `lvgl` 8,592 | same | 0 |
+
+  Internal RAM goes down; no new task, timer or NVS key.
+- **Deviations from the canvas**: the sun's UV pulse and glow pulse, the heat shimmer (AT4), the star twinkle (AT5) and the frost sparkle (AT3) are left out (static); the hero and the clouds fade in instead of sliding in; the clouds drift as one layer, not each on its own period; no face dots (only one weather face exists); the night sub-line is the sky word, not "low 6° by 06:00" (Ember sends no time of the low); the marker sweep uses ease-out cubic, not the canvas bezier (0.2, 0.8, 0.2, 1). The rain, snow and storm animations of the old sky are gone from the page until the Rain face (#34); the sub-line names the condition.
+- **Tests**: `test_temp.c` (colour scale against the canvas colours, UV bands, AT4/AT5/AT6-style selection and the overcast, rain and snow cases, legacy and missing fields, bake key, count-up values and timing against the AT4 strip, gauge and mercury geometry against the canvas, cloud boxes, ring/rays/thermometer/sun/moon phases/clouds/mercury/marker pixels), `test_fixtures.c` (the four new fixtures, legacy views without detail, bad and missing detail keys, the cJSON hooks, `FEATURES_AHEAD`), `test_caps.c` (six features), `run.sh` (hook wiring).
+- **On the knob** (to do, within the live-device rules): open the weather page and compare with AT4/AT5 (snapshot); the bake log line; arrival smoothness and fps in the stats log; internal heap and PSRAM free in the checkin against 0.9.50; Ember's `effective_caps.features` lists `wx_faces` and the view carries the detail keys.
