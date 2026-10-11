@@ -26,6 +26,7 @@ typedef enum { WX_PRECIP_RAIN, WX_PRECIP_SNOW, WX_PRECIP_STORM } wx_precip_t;
 
 typedef struct {
     bool on;
+    bool dry; /* on by the user's pick while nothing falls: the umbrella and today's chance, no drops */
     wx_precip_t kind;
     int intensity; /* 1 light, 2 moderate, 3 heavy */
     bool has_pop;
@@ -37,8 +38,10 @@ typedef struct {
 
 /* The Rain now face: on while it rains, snows or storms now and the data is fresh. */
 void wx_rain_from(const wx_obs_t *o, wx_rain_t *r);
+/* The Rain now face picked while wx_rain_from is off: dry, light, today's chance while the data is fresh. */
+void wx_rain_dry(const wx_obs_t *o, wx_rain_t *r);
 uint32_t wx_rain_rgb(int intensity);
-/* Same pictures: kind, intensity and has_pop (the ring); pop, until and sub only move the marker and the text. */
+/* Same pictures: kind, intensity, dry and has_pop (the ring); pop, until and sub only move the marker and the text. */
 bool wx_rain_same_scene(const wx_rain_t *a, const wx_rain_t *b);
 /* shown: the rain on screen or NULL. While it stays wet with the same kind a lower intensity keeps the shown one (and its word). */
 void wx_rain_keep(wx_rain_t *r, const wx_rain_t *shown);

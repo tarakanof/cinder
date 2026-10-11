@@ -47,6 +47,8 @@ Detent count per turn and double-push timing need tuning on hardware.
 
 The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember instead of BLE: turn = volume (Plex / Apple Music's own level, 2 points per detent), push = play/pause, double push = next, long push = previous; touch only wakes the face. See `features.md` "Now-playing controls".
 
+The **weather** page: turn = next / previous weather face (it opens on the most relevant one); push does nothing. See `features.md` "Weather face switching".
+
 ## Ember (Wi-Fi)
 
 Read, no auth: `GET /state`, `/v1/pomodoro/state`, `/v1/usage`, `/v1/weather/state`, `/v1/meetings/state`, `/v1/clock/health`, `/v1/display/brightness` (every 60 s; panel fades to `level` 0-255, floor 10; failures keep the level).

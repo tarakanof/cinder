@@ -99,14 +99,27 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r)
     }
 }
 
+void wx_rain_dry(const wx_obs_t *o, wx_rain_t *r)
+{
+    memset(r, 0, sizeof *r);
+    r->on = r->dry = true;
+    r->kind = WX_PRECIP_RAIN;
+    r->intensity = 1;
+    if (!o || !o->valid || wx_look_from_obs(o).still) return;
+    r->has_pop = o->has_pop;
+    r->pop = o->has_pop ? (o->pop < 0 ? 0 : o->pop > 100 ? 100 : o->pop) : 0;
+    snprintf(r->sub, sizeof r->sub, "Dry now");
+}
+
 bool wx_rain_same_scene(const wx_rain_t *a, const wx_rain_t *b)
 {
-    return a->on == b->on && (!a->on || (a->kind == b->kind && a->intensity == b->intensity));
+    return a->on == b->on && (!a->on || (a->kind == b->kind && a->intensity == b->intensity && a->dry == b->dry));
 }
 
 void wx_rain_keep(wx_rain_t *r, const wx_rain_t *shown)
 {
-    if (!shown || !r->on || !shown->on || r->kind != shown->kind || r->intensity >= shown->intensity) return;
+    if (!shown || !r->on || !shown->on || r->dry || shown->dry || r->kind != shown->kind || r->intensity >= shown->intensity)
+        return;
     r->intensity = shown->intensity;
     if (!r->has_until) snprintf(r->sub, sizeof r->sub, "%s", word(r->kind, r->intensity));
 }

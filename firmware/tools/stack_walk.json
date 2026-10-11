@@ -465,6 +465,7 @@
   "pages_dispatch": [
    "page_bot_input",
    "page_pomo_input",
+   "page_weather_input",
    "page_np_input"
   ],
   "pages_frame": [

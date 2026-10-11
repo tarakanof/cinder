@@ -11,7 +11,7 @@ void wj_race_point(wx_job_t *j, int at);
 void wx_job_init(wx_job_t *j, wx_job_io_t *io)
 {
     atomic_store(&j->state, WX_JOB_IDLE);
-    j->visible = j->bufs = j->baked = j->held = j->attached = j->out = false;
+    j->visible = j->bufs = j->baked = j->held = j->attached = j->out = j->cut = false;
     j->opa = 255;
     j->retry = j->fade = 0;
     j->io = io;
@@ -31,7 +31,7 @@ int wx_job_show(wx_job_t *j, bool on)
     j->visible = on;
     if (!on) return park(j);
     j->retry = 0;
-    j->out = false;
+    j->out = j->cut = false;
     j->opa = 255;
     return j->bufs || j->held ? 0 : WX_DO_ACQUIRE;
 }
@@ -85,17 +85,21 @@ int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt)
             j->opa = 85;
             j->fade = 0;
         }
+        if (j->cut && (wx_temp_bake_kind(t, &j->io->key) & WX_BAKE_SCENE)) return WX_DO_APPLY;
         return WX_DO_APPLY | WX_DO_PAINT;
     }
     if (s == WX_JOB_IDLE) {
         int k = j->baked ? wx_temp_bake_kind(t, &j->io->key) : WX_BAKE_FULL;
         bool scene = (k & WX_BAKE_SCENE) && j->attached;
-        if (!scene && j->out) {
+        bool cut = j->cut && (k & WX_BAKE_SCENE);
+        j->cut = false;
+        if ((!scene && j->out) || cut) {
             j->out = false;
             j->opa = 255;
         }
-        if (scene && fade_out(j, dt)) return WX_DO_PAINT;
+        if (scene && !cut && fade_out(j, dt)) return WX_DO_PAINT;
         if (k) {
+            int arrive = cut ? WX_DO_ARRIVE : 0;
             j->out = false;
             j->io->in = *t;
             j->io->kind = k;
@@ -104,11 +108,15 @@ int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt)
             WJ_RACE_POINT(j, 2);
             if (!(k & WX_BAKE_SCENE)) return WX_DO_BAKE | fade_in(j, dt);
             j->attached = false;
-            return WX_DO_BAKE | (scene ? WX_DO_DETACH : 0);
+            return WX_DO_BAKE | (scene ? WX_DO_DETACH : 0) | arrive;
         }
     }
     return j->attached ? fade_in(j, dt) : 0;
 }
+
+void wx_job_cut(wx_job_t *j) { j->cut = true; }
+
+int wx_job_face(const wx_job_t *j) { return j->baked ? j->io->key.face : -1; }
 
 void wx_job_acquired(wx_job_t *j, bool ok)
 {

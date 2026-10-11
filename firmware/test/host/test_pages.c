@@ -104,7 +104,8 @@ static void test_route(void)
     const page_input_t in = {.detents = 2, .pushes = 1, .longs = 3, .touches = 4, .wakes = 5};
     CHECK(SAME_IN(pages_route(&PAGES[index_of("bot")], in), .detents = 2, .pushes = 5, .longs = 3), "bot");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("pomodoro")], in), .pushes = 5, .longs = 3), "pomodoro: no detents");
-    CHECK(SAME_IN(pages_route(&PAGES[index_of("weather")], in), 0), "weather drops input");
+    CHECK(SAME_IN(pages_route(&PAGES[index_of("weather")], in), .detents = 2, .pushes = 5, .longs = 3),
+          "weather: turns switch faces; pushes and longs reach it and are ignored there");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("nowplaying")], in), .detents = 2, .pushes = 1, .longs = 3,
                   .touches = 4, .wakes = 5),
           "nowplaying: raw taps");
@@ -139,7 +140,8 @@ static void test_dispatch(void)
           "pomodoro: detents dropped, taps are pushes: %s d %d", page_log, page_stub_in.detents);
     nav = nav_at(index_of("weather"));
     dispatch(&nav, raw);
-    CHECK(page_log[0] == 0 && page_stub_inputs == 0, "weather: no input hook: %s", page_log);
+    CHECK(strcmp(page_log, "weather.in ") == 0 && SAME_IN(page_stub_in, .detents = 2, .pushes = 7, .longs = 1),
+          "weather gets turns (face switch): %s d %d", page_log, page_stub_in.detents);
     nav = nav_at(index_of("nowplaying"));
     dispatch(&nav, raw);
     CHECK(strcmp(page_log, "np.in ") == 0 &&
@@ -256,7 +258,7 @@ static void test_ops(void)
     } WANT[] = {
         {"bot", "bot+ ", "bot.in ", "bot.frame "},
         {"pomodoro", "pomo+ ", "pomo.in ", "pomo.frame "},
-        {"weather", "weather+ ", NULL, NULL},
+        {"weather", "weather+ ", "weather.in ", NULL},
         {"nowplaying", "np+ ", "np.in ", "np.frame "},
     };
     for (int w = 0; w < (int)(sizeof WANT / sizeof WANT[0]); w++) {
