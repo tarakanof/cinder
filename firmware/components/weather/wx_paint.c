@@ -1581,7 +1581,9 @@ typedef struct {
 static float ell_sd(const void *ctx, float x, float y)
 {
     const ell_t *e = ctx;
-    return ellipse_d(x, y, e->cx, e->cy, e->rx, e->ry);
+    float ux = (x - e->cx) / e->rx, uy = (y - e->cy) / e->ry, vx = ux / e->rx, vy = uy / e->ry;
+    float k0 = sqrtf(ux * ux + uy * uy), k1 = sqrtf(vx * vx + vy * vy);
+    return k1 > 1e-6f ? k0 * (k0 - 1) / k1 : -fminf(e->rx, e->ry);
 }
 
 typedef struct {
@@ -1700,8 +1702,7 @@ static void disc_ink(wx_img_t *im, const xf_t *f, int n, float cx, float cy, flo
 
 static uint32_t petal_shade(float x, float y)
 {
-    float g = hypotf(x - 233, y - 112) / 40.0f;
-    return g <= 0.3f ? 0xF59AB0 : lerp_rgb(0xF59AB0, 0xE87A96, (g - 0.3f) / 0.7f);
+    return lerp_rgb(0xF59AB0, 0xE87A96, (hypotf(x - 233, y - 112) / 40.0f - 0.3f) / 0.7f);
 }
 
 #define PETAL_RGB 0xC98A9A
@@ -1802,9 +1803,9 @@ static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     if (!(kind & WX_BAKE_SCENE)) return;
     wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
     wx_paint_clear(&bg);
+    wx_ring_blit(b->ring, b->bg);
     wx_paint_air_scene(&bg, a->wilted);
     wx_paint_face_dots(&bg, t->face, WXF_N);
-    wx_ring_blit(b->ring, b->bg);
     out->still = out->drift = (wx_box_t){0, 0, 0, 0};
     for (int r = 0; a->wilted && r < WX_PETAL_ROTS; r++) {
         uint8_t *m = b->still + r * WX_PETAL_BOX * WX_PETAL_BOX * 3;

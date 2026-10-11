@@ -471,9 +471,12 @@ static uint32_t ref_pink(double x, double y)
     return out;
 }
 
+static void ref_ends(void);
+
 static void ref_healthy(void)
 {
     memset(ref, 0, sizeof ref);
+    ref_ends();
     const double st[4][2] = {{233, 204}, {230, 176}, {237, 150}, {233, 126}};
     ref_stem(ID, st, 0x4E8F45);
     ref_leaf(ID, 233, 188, -22, 40, 20, 0x7BC86C, 0x5FAE55);
@@ -485,6 +488,7 @@ static void ref_healthy(void)
 static void ref_wilted(void)
 {
     memset(ref, 0, sizeof ref);
+    ref_ends();
     ref_line(ID, 178, 206, 292, 206, 2, 0x2E3236);
     static const double FALL[3][3] = {{188, 202, 72}, {266, 203, 104}, {284, 201, 60}};
     for (int i = 0; i < 3; i++)
@@ -509,24 +513,60 @@ static void ref_wilted(void)
     ref_ellipse(ID, 318, 139, 2.5, 2.5, 0xFF5050, true, 0, 0, NULL);
 }
 
-static void compare(const uint16_t *bg, const char *name)
+typedef struct {
+    int ink, off16, off40;
+    double mean;
+} diff_t;
+
+static diff_t diff_in(const uint16_t *bg, int x0, int y0, int x1, int y1)
 {
-    int ink = 0, off = 0;
+    diff_t r = {0};
     double sum = 0;
-    for (int y = 60; y < 216; y++)
-        for (int x = 150; x < 300; x++) {
-            if (x > 290 && y < 150) continue;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
             uint32_t got = rgb_of(bg[y * WX_FACE + x]), want = 0;
             for (int k = 0; k < 3; k++) want |= (uint32_t)lround(ref[y * WX_FACE + x][k]) << (16 - 8 * k);
             if (!got && !want) continue;
-            ink++;
+            r.ink++;
             int d = channel_diff(got, want);
             sum += d;
-            off += d > 40;
+            r.off16 += d > 16;
+            r.off40 += d > 40;
         }
-    CHECK(ink > 2000 && off * 1000 <= ink * 14 && sum / ink <= 8,
-          "%s matches AA's geometry: %d of %d ink px off by more than 40 (at most 1.4 %%), mean %.1f", name, off, ink, sum / ink);
-    printf("air: %s against the reference: %d of %d px off, mean %.2f\n", name, off, ink, sum / ink);
+    r.mean = r.ink ? sum / r.ink : 0;
+    return r;
+}
+
+static void compare(const uint16_t *bg, const char *name, int x0, int y0, int x1, int y1, int min_ink, int max16, int max40, double max_mean)
+{
+    diff_t r = diff_in(bg, x0, y0, x1, y1);
+    CHECK(r.ink >= min_ink && r.off16 <= max16 && r.off40 <= max40 && r.mean <= max_mean,
+          "%s matches AA's geometry: %d ink px, %d off by more than 16 (at most %d), %d by more than 40 (at most %d), mean %.2f (at most %.1f)",
+          name, r.ink, r.off16, max16, r.off40, max40, r.mean, max_mean);
+    printf("air: %s against the reference: %d px, %d off > 16, %d off > 40, mean %.2f\n", name, r.ink, r.off16, r.off40, r.mean);
+}
+
+static void ref_ends(void)
+{
+    mat_t fl = {1.2, 0, 0, 1.2, 116 - 1.2 * 116, 383 - 1.2 * 383};
+    for (int k = 0; k < 5; k++) {
+        mat_t m = mat_mul(fl, rot(72.0 * k, 116, 383));
+        for (int i = 0; i < RP; i++) {
+            double a = 2 * M_PI * i / RP, x = 116 + 3.5 * cos(a), y = 376 + 6 * sin(a);
+            pts[i][0] = m.a * x + m.b * y + m.e;
+            pts[i][1] = m.c * x + m.d * y + m.f;
+        }
+        ref_shape(ID, pts, RP, true, 0, false, 0x4FD6CC, 1.25 * 1.2, NULL);
+    }
+    ref_ellipse(ID, 116, 383, 3.6, 3.6, 0xF0E641, true, 0, 0, NULL);
+    mat_t hz = {1.2, 0, 0, 1.2, 349 - 1.2 * 352, 383 - 1.2 * 386};
+    const double tri[3][2] = {{352, 368}, {370, 399}, {334, 399}}, bar[2][2] = {{352, 378}, {352, 388}};
+    double t[3][2], b[2][2];
+    for (int i = 0; i < 3; i++) t[i][0] = hz.a * tri[i][0] + hz.e, t[i][1] = hz.d * tri[i][1] + hz.f;
+    for (int i = 0; i < 2; i++) b[i][0] = hz.a * bar[i][0] + hz.e, b[i][1] = hz.d * bar[i][1] + hz.f;
+    ref_shape(ID, t, 3, true, 0, false, 0xD03060, 1.75 * 1.2, NULL);
+    ref_shape(ID, b, 2, false, 0, false, 0xD03060, 1.75 * 1.2, NULL);
+    ref_ellipse(ID, 349, 383 + 1.2 * 8, 2.4, 2.4, 0xD03060, true, 0, 0, NULL);
 }
 
 static void test_deg_cs(void)
@@ -576,7 +616,10 @@ static void test_paint(void)
           (unsigned)PX(233 + 20 * lc - 5 * ls, 188 + 20 * ls + 5 * lc));
     CHECK(PX(318, 139) == 0 && PX(166, 128) == 0 && PX(200, 206) == 0, "no hazard sign, dust or ground on a healthy day");
     ref_healthy();
-    compare(bg, "AA2's flower");
+    compare(bg, "AA2's flower", 150, 60, 346, 216, 5000, 170, 75, 7);
+    compare(bg, "AA2's stem", 228, 196, 239, 208, 50, 2, 0, 7);
+    compare(bg, "the flower end icon", 90, 355, 142, 410, 500, 30, 2, 8);
+    compare(bg, "the hazard end icon", 320, 350, 380, 410, 700, 4, 0, 2);
     CHECK(PX(233, 300) == 0 && PX(233, 40) == 0, "black elsewhere");
     float dx, dy;
     wx_face_dot_xy(WXF_AIR, WXF_N, &dx, &dy);
@@ -599,7 +642,8 @@ static void test_paint(void)
           (unsigned)PX(226 + 82 * hs, 204 - 82 * hc));
     CHECK(channel_diff(PX(233, 112), 0xF5C84A) > 40, "not AA2's flower");
     ref_wilted();
-    compare(bg, "AA4's flower");
+    compare(bg, "AA4's flower", 150, 60, 346, 216, 5000, 125, 30, 5.5);
+    compare(bg, "AA4's hazard sign", 290, 100, 346, 152, 600, 4, 0, 7);
     for (int r = 0; r < WX_PETAL_ROTS; r++) {
         const uint8_t *s = m + r * WX_PETAL_BOX * WX_PETAL_BOX * 3, *a = s + WX_PETAL_BOX * WX_PETAL_BOX * 2;
         CHECK(a[10 * WX_PETAL_BOX + 10] == 255 && channel_diff(rgb_of(((const uint16_t *)s)[10 * WX_PETAL_BOX + 10]), 0xC98A9A) <= 8,
