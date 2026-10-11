@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* Legacy poll task: one controller task switches it, the task frees and parks when off, the controller deletes it (no self-delete). */
+/* Legacy poll task: one controller task switches it, the task frees and parks when off, the controller deletes it. */
 
 typedef enum { LT_GONE, LT_RUN, LT_STOP, LT_PARKED } lt_state_t;
 
