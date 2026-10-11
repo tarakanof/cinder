@@ -330,7 +330,7 @@ body "$MAINC" ota_frame | grep -qF 'moment_unact(now_s());' || WIRING="$WIRING o
 fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, pg->frame == page_bot_frame\);/ {m = NR} /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && m < p)}' ||
     WIRING="$WIRING page_tick-runs-moment_tick-before-the-chase-and-the-pose"
 MT="$(fbody "$MAINC" moment_tick)"
-for L in 'if (moment_view_busy() && !bot_page) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
+for L in 'if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();' 'if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
     'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,' \
     '.every_s = s_ks_lv->weather_every_min * 60};' '.bot_mood = (int)s_bot.mood, .shown = bot_page,' 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' 's_moment_mood = s_bot.mood;' \
     'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
@@ -361,7 +361,8 @@ body "$MVC" moment_bake_task | grep -qF 'if (!atomic_compare_exchange_strong(&s_
 body "$MVC" moment_view_poll | grep -qF 'if (s_state == MV_BAKING && atomic_load(&s_bake) == BAKE_DONE && (s_cancel || t >= s_play_at)) {' ||
     WIRING="$WIRING poll-attaches-a-landed-bake-after-the-pre-roll"
 body "$MVC" moment_view_start | grep -qF 's_play_at = t + (m->quiet ? 0 : WXM_PRE_S);' &&
-    body "$MVC" moment_view_start | grep -qF 'if (!s_arena || s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;' ||
+    body "$MVC" moment_view_start | grep -qF 'if (s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;' &&
+    body "$MVC" moment_view_start | grep -qF 'if (s_l.total > WXM_ARENA || !ensure()) return false;' ||
     WIRING="$WIRING start-waits-for-an-idle-bake-and-the-hold"
 body "$MVC" moment_view_abort | grep -qF 'int k = wxm_abort_frame(s_k);' || WIRING="$WIRING abort-before-any-frame-ends-it"
 body "$MVC" moment_view_frame | grep -qF 'int d = wxm_diff(&s_l, s_any ? &s_shown : NULL, &f);' || WIRING="$WIRING frame-diffs-against-the-shown-frame"
@@ -371,7 +372,10 @@ body "$MVC" text | awk '/lv_obj_invalidate_area\(s_parent, &u\);/ {u = NR} /bot_
 body "$MVC" hide_all | grep -qF 'if (s_any && s_shown.icon_off && bot_view_icon_off(false, &a)) bot_view_icon_redraw(&a);' ||
     WIRING="$WIRING hide_all-returns-a-hidden-icon"
 body "$MVC" text | grep -qF 'bool turns = s_m.quiet && (s_any && s_shown.icon_off) != f->icon_off;' || WIRING="$WIRING text-joins-the-icon-only-when-it-turns"
-grep -qF 's_arena = heap_caps_malloc(WXM_ARENA, MALLOC_CAP_SPIRAM);' "$MVC" || WIRING="$WIRING arena-in-PSRAM"
+body "$MVC" ensure | grep -qF 'if (s_task && !s_arena) s_arena = heap_caps_malloc(WXM_ARENA, MALLOC_CAP_SPIRAM);' &&
+    [ "$(grep -c 'heap_caps_malloc(' "$MVC")" -eq 1 ] || WIRING="$WIRING arena-in-PSRAM-only-on-a-start"
+body "$MVC" moment_view_release | grep -qF 'if (!s_arena || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return;' ||
+    WIRING="$WIRING release-only-when-nothing-bakes-or-plays"
 STK=$(grep -o 'moment_bake_task, "moment", [0-9]*' "$MVC" | awk '{print $3}')
 python3 -c "import json,sys; sys.exit(json.load(open('$D/../../tools/stack_walk.json'))['tasks']['moment']['stack'] != int('$STK'))" ||
     WIRING="$WIRING moment-stack-matches-stack_walk.json"

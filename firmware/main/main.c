@@ -793,7 +793,8 @@ static void moment_cue(const wxm_cue_t *c, double t)
 
 static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page)
 {
-    if (moment_view_busy() && !bot_page) {
+    if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();
+    if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {
         moment_view_stop();
         moment_unact(t);
     } else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {

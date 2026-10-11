@@ -7,12 +7,9 @@
 #include "bot_view.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-static const char *TAG = "moment";
 
 enum { MV_IDLE, MV_BAKING, MV_PLAYING };
 enum { BAKE_IDLE, BAKE_QUEUED, BAKE_RUNNING, BAKE_DONE };
@@ -57,13 +54,6 @@ static lv_obj_t *plain(lv_obj_t *parent)
 void moment_view_create(lv_obj_t *parent)
 {
     s_parent = parent;
-    s_arena = heap_caps_malloc(WXM_ARENA, MALLOC_CAP_SPIRAM);
-    if (!s_arena || xTaskCreatePinnedToCoreWithCaps(moment_bake_task, "moment", 4608, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
-        ESP_LOGE(TAG, "no arena or bake task: no weather moments");
-        heap_caps_free(s_arena);
-        s_arena = NULL;
-        return;
-    }
     s_box = plain(parent);
     lv_obj_set_pos(s_box, WXM_BOX_X, WXM_BOX_Y);
     lv_obj_set_size(s_box, WXM_BOX_W, WXM_BOX_H);
@@ -100,12 +90,27 @@ static void hide_all(void)
 
 bool moment_view_busy(void) { return s_state != MV_IDLE; }
 
+static bool ensure(void)
+{
+    if (!s_task && xTaskCreatePinnedToCoreWithCaps(moment_bake_task, "moment", 4608, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)
+        s_task = NULL;
+    if (s_task && !s_arena) s_arena = heap_caps_malloc(WXM_ARENA, MALLOC_CAP_SPIRAM);
+    return s_task && s_arena;
+}
+
+void moment_view_release(void)
+{
+    if (!s_arena || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return;
+    heap_caps_free(s_arena);
+    s_arena = NULL;
+}
+
 bool moment_view_start(const wxm_moment_t *m, double t)
 {
-    if (!s_arena || s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;
+    if (s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;
     s_m = *m;
     wxm_layout(&s_m, &s_l);
-    if (s_l.total > WXM_ARENA) return false;
+    if (s_l.total > WXM_ARENA || !ensure()) return false;
     s_cancel = false;
     s_play_at = t + (m->quiet ? 0 : WXM_PRE_S);
     s_state = MV_BAKING;
