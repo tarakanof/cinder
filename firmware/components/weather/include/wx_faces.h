@@ -21,8 +21,11 @@ typedef struct {
 } wx_faces_t;
 
 void wx_faces_open(wx_faces_t *f);
-/* shown: the face the page shows. True when the turn picked another face. */
-bool wx_faces_turn(wx_faces_t *f, int shown, int detents);
+/* The face a turn steps from: the pick once the user turned; else on_screen (the baked face the canvases show, -1 while
+   none is attached); else requested (the face the page resolved last frame, -1 when unknown); else the first face. */
+int wx_faces_base(const wx_faces_t *f, int on_screen, int requested);
+/* Steps from wx_faces_base and picks the result, even when it is the same face. True when it differs from the base. */
+bool wx_faces_turn(wx_faces_t *f, int on_screen, int requested, int detents);
 
 /* Centre of face dot k of n: on the r WXF_DOT_R arc at the bottom, WXF_DOT_PITCH apart, face coordinates. */
 void wx_face_dot_xy(int k, int n, float *x, float *y);

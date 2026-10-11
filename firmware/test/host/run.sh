@@ -95,8 +95,11 @@ body "$TFC" temp_face_update | grep -qF 'if (!(a & WX_DO_PAINT)) return;' || WIR
 body "$TFC" temp_face_update | grep -qF 'wx_temp_face(obs, s_job.baked ? &s_io.key : NULL, s_faces.pick, &t);' ||
     WIRING="$WIRING update-keeps-the-shown-band-on-the-picked-face"
 body "$TFC" temp_face_update | grep -qxF '        s_face = t.face;' || WIRING="$WIRING update-records-the-shown-face"
-body "$TFC" temp_face_show | grep -qF 'if (on) wx_faces_open(&s_faces);' || WIRING="$WIRING show-opens-on-the-auto-face"
-body "$TFC" temp_face_turn | grep -qF 'wx_faces_turn(&s_faces, s_face, detents)) wx_job_cut(&s_job);' &&
+body "$TFC" temp_face_show | grep -qF 'wx_faces_open(&s_faces);' && body "$TFC" temp_face_show | grep -qxF '        s_face = -1;' ||
+    WIRING="$WIRING show-opens-on-the-auto-face-and-forgets-the-last-face"
+body "$TFC" temp_face_update | grep -qxF '    if (s_job.visible) {' || WIRING="$WIRING update-resolves-the-face-without-buffers-too"
+body "$TFC" temp_face_turn | grep -qF 'int on_screen = s_job.baked && s_job.attached ? s_io.key.face : -1;' &&
+    body "$TFC" temp_face_turn | grep -qF 'if (wx_faces_turn(&s_faces, on_screen, s_face, detents)) wx_job_cut(&s_job);' &&
     [ "$(grep -c 'wx_job_cut(' "$TFC")" -eq 1 ] || WIRING="$WIRING turn-cuts-only-on-a-new-face"
 body "$TFC" act | awk '/if \(a & WX_DO_ARRIVE\) \{/ {on = 1} on && /s_t = 0;/ {t = 1} on && /s_tick = -1;/ {k = 1} END {exit !(t && k)}' ||
     WIRING="$WIRING act-replays-the-arrival"

@@ -13,12 +13,22 @@ int wx_face_step(int face, int steps)
 
 void wx_faces_open(wx_faces_t *f) { f->pick = WXF_AUTO; }
 
-bool wx_faces_turn(wx_faces_t *f, int shown, int detents)
+static bool known(int face) { return face >= 0 && face < WXF_N; }
+
+int wx_faces_base(const wx_faces_t *f, int on_screen, int requested)
+{
+    if (known(f->pick)) return f->pick;
+    if (known(on_screen)) return on_screen;
+    return known(requested) ? requested : WXF_TEMP;
+}
+
+bool wx_faces_turn(wx_faces_t *f, int on_screen, int requested, int detents)
 {
     if (!detents) return false;
-    int next = wx_face_step(shown, detents);
+    int base = wx_faces_base(f, on_screen, requested);
+    int next = wx_face_step(base, detents);
     f->pick = next;
-    return next != shown;
+    return next != base;
 }
 
 void wx_face_dot_xy(int k, int n, float *x, float *y)

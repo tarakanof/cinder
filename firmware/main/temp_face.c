@@ -586,14 +586,19 @@ void temp_face_show(bool on)
     if (!s_root || on == s_job.visible) return;
     s_t = 0;
     s_tick = -1;
-    if (on) wx_faces_open(&s_faces);
+    if (on) {
+        wx_faces_open(&s_faces);
+        s_face = -1;
+    }
     if (!on) show_obj(s_root, false);
     act(wx_job_show(&s_job, on));
 }
 
 void temp_face_turn(int detents)
 {
-    if (s_root && s_job.visible && wx_faces_turn(&s_faces, s_face, detents)) wx_job_cut(&s_job);
+    if (!s_root || !s_job.visible) return;
+    int on_screen = s_job.baked && s_job.attached ? s_io.key.face : -1;
+    if (wx_faces_turn(&s_faces, on_screen, s_face, detents)) wx_job_cut(&s_job);
 }
 
 void temp_face_hold(bool hold)
@@ -606,7 +611,7 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     if (!s_root) return;
     if (!isfinite(dt) || dt < 0) dt = 0;
     wx_temp_t t = {0};
-    if (s_job.visible && s_job.bufs) {
+    if (s_job.visible) {
         wx_temp_face(obs, s_job.baked ? &s_io.key : NULL, s_faces.pick, &t);
         s_face = t.face;
     }

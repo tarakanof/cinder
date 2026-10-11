@@ -53,12 +53,34 @@ static void test_turn(void)
     wx_faces_t f = {.pick = WXF_RAIN};
     wx_faces_open(&f);
     CHECK(f.pick == WXF_AUTO, "a page open forgets the pick: auto face");
-    CHECK(!wx_faces_turn(&f, WXF_TEMP, 0) && f.pick == WXF_AUTO, "no detent: still auto");
-    CHECK(wx_faces_turn(&f, WXF_TEMP, 1) && f.pick == WXF_RAIN, "a turn from Temperature picks Rain now");
-    CHECK(wx_faces_turn(&f, WXF_RAIN, -1) && f.pick == WXF_TEMP, "and back");
-    CHECK(!wx_faces_turn(&f, WXF_TEMP, 2) && f.pick == WXF_TEMP, "a full turn round the list keeps the face, picked");
+    CHECK(!wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 0) && f.pick == WXF_AUTO, "no detent: still auto");
+    CHECK(wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 1) && f.pick == WXF_RAIN, "a turn from Temperature picks Rain now");
+    CHECK(wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, -1) && f.pick == WXF_TEMP, "and back");
+    CHECK(!wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 2) && f.pick == WXF_TEMP, "a full turn round the list keeps the face, picked");
+    wx_faces_open(&f);
+    CHECK(!wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, 2) && f.pick == WXF_RAIN,
+          "a two-detent flick from auto shows no change but pins the face on screen: it stops following the weather");
     wx_faces_open(&f);
     CHECK(f.pick == WXF_AUTO, "the next open is auto again");
+}
+
+static void test_turn_base(void)
+{
+    wx_faces_t f;
+    wx_faces_open(&f);
+    CHECK(wx_faces_base(&f, WXF_TEMP, WXF_RAIN) == WXF_TEMP, "auto: the face on screen, not the one the weather asks for");
+    CHECK(wx_faces_turn(&f, WXF_TEMP, WXF_RAIN, 1) && f.pick == WXF_RAIN,
+          "a turn while Temperature fades out towards Rain now steps from Temperature: Rain now");
+    wx_faces_open(&f);
+    CHECK(wx_faces_base(&f, -1, WXF_RAIN) == WXF_RAIN, "nothing on screen (black while baking): the face the page asks for");
+    CHECK(wx_faces_turn(&f, -1, WXF_TEMP, 1) && f.pick == WXF_RAIN, "no buffers yet: one turn from the resolved face");
+    CHECK(wx_faces_turn(&f, -1, WXF_TEMP, 1) && f.pick == WXF_TEMP,
+          "a second turn before the buffers come steps from the pick, even from a stale resolved face (two detents wrap)");
+    CHECK(wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 1) && f.pick == WXF_RAIN, "the pick, not the old face still on screen");
+    CHECK(wx_faces_turn(&f, WXF_TEMP, WXF_RAIN, 1) && f.pick == WXF_TEMP, "two quick detents while the first bake runs move two faces");
+    wx_faces_open(&f);
+    CHECK(wx_faces_base(&f, -1, -1) == WXF_TEMP, "nothing known (just reopened): the first face");
+    CHECK(wx_faces_base(&f, 9, -1) == WXF_TEMP, "ids outside the list are unknown");
 }
 
 static void test_pick(void)
@@ -210,6 +232,7 @@ int main(void)
 {
     test_step();
     test_turn();
+    test_turn_base();
     test_pick();
     test_bake_kind();
     test_dots();
