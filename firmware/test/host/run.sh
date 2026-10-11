@@ -82,7 +82,7 @@ body "$TFC" temp_face_update | grep -qF 'if (wx_shift_tick(&s_shift, dt)) shift_
 body "$TFC" shift_root | grep -qF 'lv_obj_set_style_translate_y(s_root, dy, 0);' || WIRING="$WIRING shift-moves-the-root"
 [ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(t, s_io.kind, &s_buf, &s_io.out);' ||
     WIRING="$WIRING wx_bake-only-in-bake_task"
-grep -qE 'wx_paint_(clear|ring|ring_rain|rays|stars|thermo|hero|clouds|umbrella|sheet|ramp|drip|splash|bolt|ring_days|day_icon|day_row|ring_sun|sun_scene|sun_rays|sun)\(' "$TFC" &&
+grep -qE 'wx_paint_(clear|ring|ring_rain|rays|stars|thermo|hero|clouds|umbrella|sheet|ramp|drip|splash|bolt|ring_days|day_icon|day_row|ring_sun|sun_scene|sun_rays|sun|ring_air|air_scene|petal)\(' "$TFC" &&
     WIRING="$WIRING no-bake-pass-on-the-LVGL-task"
 body "$TFC" bake_task | grep -qF 'const wx_temp_t *t = wx_job_take(&s_job);' || WIRING="$WIRING bake_task-takes-through-wx_job"
 body "$TFC" bake_task | grep -qF 'if (!t) continue;' || WIRING="$WIRING bake_task-skips-an-empty-take"
@@ -159,7 +159,7 @@ body "$TFC" paint | grep -qF 'const wx_days_t *d = &s_io.key.days;' || WIRING="$
 body "$TFC" face_kind | grep -qxF '    bool rows = s_days && t->days.have;' && body "$TFC" face_kind | grep -qxF '    show_obj(s_value, !rows);' &&
     [ "$(grep -c 'show_obj(s_value, ' "$TFC")" -eq 1 ] || WIRING="$WIRING days-hide-the-value-under-the-rows"
 body "$TFC" face_kind | grep -qxF '    lv_obj_align(s_sub, LV_ALIGN_TOP_MID, 0, rows ? WX_DAYS_SUB_Y : SUB_Y);' || WIRING="$WIRING days-sub-line-under-the-rows"
-body "$TFC" apply | grep -qxF '    if (t->cast.on || t->days.on) {' || WIRING="$WIRING days-hide-the-gauge-end-labels"
+body "$TFC" apply | grep -qxF '    if (t->cast.on || t->days.on || t->air.on) {' || WIRING="$WIRING days-and-air-hide-the-gauge-end-labels"
 body "$TFC" set_days | grep -qxF '    wx_days_frame(d, ta, &f);' && body "$TFC" set_days | grep -qxF '            lv_obj_set_y(s_drow[i], wx_days_row_box(&s_dlay, i, dy).y0);' &&
     body "$TFC" days_attach | grep -qxF '        wx_box_t rb = wx_days_row_box(&s_dlay, i, 0);' &&
     body "$TFC" days_attach | grep -qxF '        lv_obj_set_pos(s_drow[i], rb.x0, rb.y0);' &&
@@ -179,7 +179,8 @@ body "$TFC" sun_create | grep -qxF '    s_ssun = canvas(s_sbox, LV_COLOR_FORMAT_
     WIRING="$WIRING sun-clipped-by-its-box-over-the-rays"
 body "$TFC" face_kind | awk '/^    if \(!s_sun\) \{/ {on = 1} on && /show_obj\(s_srays, false\);/ {r = 1} on && /show_obj\(s_sbox, false\);/ {b = 1} on && /^    \}/ {on = 0} END {exit !(r && b)}' ||
     WIRING="$WIRING sun-layers-hidden-on-other-faces"
-body "$TFC" face_kind | grep -qxF '    show_obj(s_thermo, !s_rain && !s_cast && !s_wind && !s_days && !s_sun);' || WIRING="$WIRING sun-hides-the-thermometer"
+body "$TFC" face_kind | grep -qxF '    show_obj(s_thermo, !s_rain && !s_cast && !s_wind && !s_days && !s_sun && !s_air);' ||
+    WIRING="$WIRING sun-and-air-hide-the-thermometer"
 body "$TFC" paint | grep -qF 'const wx_sun_t *sn = wx_sun_same_scene(&t->sun, &s_io.key.sun) ? &t->sun : &s_io.key.sun;' ||
     WIRING="$WIRING paint-keeps-the-baked-sun-while-fading-out"
 body "$TFC" paint | grep -qxF '        const char *unit = wx_sun_value(sn, wx_count_step(wx_sun_count_n(sn), ta), txt, sizeof txt);' &&
@@ -199,9 +200,9 @@ for LINE in 'lv_obj_set_pos(s_srays, r.x0, r.y0);' 'lv_obj_set_pos(s_sbox, b.x0,
 done
 body "$TFC" paint | grep -qxF '        set_unit_text(unit);' && [ "$(body "$TFC" paint | grep -cxF '        set_unit_text(unit);')" -eq 2 ] ||
     WIRING="$WIRING sun-and-forecast-set-their-unit"
-body "$TFC" face_kind | grep -qxF '    s_unit_on = s_rain || s_cast || s_wind || s_sun;' &&
-    body "$TFC" face_kind | grep -qF 's_rain ? -unit / 2 : s_cast || s_wind || s_days || s_sun ? 0 : deg / 2, VALUE_Y);' ||
-    WIRING="$WIRING sun-value-centred-with-its-unit"
+body "$TFC" face_kind | grep -qxF '    s_unit_on = s_rain || s_cast || s_wind || s_sun || s_air;' &&
+    body "$TFC" face_kind | grep -qF 's_rain ? -unit / 2 : s_cast || s_wind || s_days || s_sun || s_air ? 0 : deg / 2, VALUE_Y);' ||
+    WIRING="$WIRING sun-and-air-value-centred-with-the-unit"
 body "$TFC" apply | grep -qxF '        strlcpy(s_lo_txt, t->sun.rise, sizeof s_lo_txt);' && body "$TFC" apply | grep -qxF '        strlcpy(s_hi_txt, t->sun.set, sizeof s_hi_txt);' ||
     WIRING="$WIRING sun-end-label-texts"
 body "$TFC" temp_face_create | grep -qxF '    sun_create();' || WIRING="$WIRING sun-objects-created"
@@ -209,6 +210,25 @@ body "$TFC" set_sun | grep -qxF '    if (dirty) lv_obj_invalidate(s_sbox);' && [
     WIRING="$WIRING sun-redraws-one-box"
 body "$TFC" apply | grep -qxF '        fixed_label(s_lo, s_lo_txt, t->sun.have, WX_SUN_HZN_RGB);' &&
     body "$TFC" apply | grep -qxF '        fixed_label(s_hi, s_hi_txt, t->sun.have, WX_SUN_HZN_RGB);' || WIRING="$WIRING sun-end-labels-are-the-sun-times"
+body "$TFC" apply | grep -qxF '        if (t->air.on) air_attach(&t->air);' || WIRING="$WIRING air-attaches-on-a-scene-apply"
+body "$TFC" detach | grep -qF 'lv_canvas_set_buffer(s_apetal, s_none, ' || WIRING="$WIRING detach-s_apetal"
+[ "$(grep -c 'lv_canvas_set_buffer(s_apetal, ' "$TFC")" -eq 2 ] &&
+    body "$TFC" set_air | grep -qF 'lv_canvas_set_buffer(s_apetal, s_buf.still + p.rot * WX_PETAL_BOX * WX_PETAL_BOX * 3, ' ||
+    WIRING="$WIRING air-petal-frames-from-the-still-buffer"
+body "$TFC" air_create | grep -qxF '    s_apetal = canvas(s_abox, LV_COLOR_FORMAT_RGB565A8);' || WIRING="$WIRING air-petal-in-its-box"
+body "$TFC" face_kind | grep -qxF '    if (!s_air) show_obj(s_abox, false);' && body "$TFC" air_attach | grep -qxF '    show_obj(s_abox, a->wilted);' ||
+    WIRING="$WIRING air-petal-only-on-the-wilted-flower"
+body "$TFC" set_air | grep -qxF '    wx_air_petal(aq->wilted && fo == 255 ? (int)floor(s_t * WX_AIR_FPS) : -1, &p);' &&
+    body "$TFC" set_air | grep -qxF '            lv_obj_set_pos(s_apetal, p.x - b.x0, p.y - b.y0);' || WIRING="$WIRING air-petal-from-the-host-model"
+body "$TFC" set_air | grep -qxF '    if (dirty) lv_obj_invalidate(s_abox);' && [ "$(grep -c 'lv_obj_invalidate(s_abox);' "$TFC")" -eq 1 ] ||
+    WIRING="$WIRING air-redraws-one-box"
+body "$TFC" paint | grep -qF 'const wx_air_t *aq = wx_air_same_scene(&t->air, &s_io.key.air) ? &t->air : &s_io.key.air;' ||
+    WIRING="$WIRING paint-keeps-the-baked-air-while-fading-out"
+body "$TFC" paint | grep -qxF '            set_value(txt, wx_air_rgb(v));' && body "$TFC" paint | grep -qxF '            set_unit_text("AQI");' &&
+    body "$TFC" paint | grep -qxF '        set_marker(aq->frac * (float)a, aq->have);' && body "$TFC" paint | grep -qxF '        set_air(aq, fo);' ||
+    WIRING="$WIRING air-value-marker-and-petal"
+body "$TFC" paint | grep -qxF '        const char *word = aq->have ? wx_air_word(aq->band) : "";' && body "$TFC" paint | grep -qF 's_air ? wx_air_band_rgb(aq->band) : ' ||
+    WIRING="$WIRING air-band-word-in-its-colour"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
     WIRING="$WIRING rain-layers-live-in-the-still-buffer"
 body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255 && !r->dry);' || WIRING="$WIRING paint-drives-the-rain-frames-not-when-dry"
@@ -282,7 +302,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL temp face wiring:$WIRING" >&2
     exit 1
 fi
-echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold, rain, forecast, wind, days and sun layers, face turns"
+echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold, rain, forecast, wind, days, sun and air layers, face turns"
 WJC="$W/wx_job.c"
 body "$WJC" park | awk '/atomic_compare_exchange_strong\(&j->state, &queued, WX_JOB_IDLE\)/ {cas = NR} /atomic_load\(/ {if (!cas) early = 1; if ($0 ~ /atomic_load\(&j->state\) == WX_JOB_RUNNING/) run = 1} /atomic_store\(/ {st = 1} END {exit !(cas && run && !early && !st)}' ||
     WIRING="$WIRING park-cancels-by-CAS-then-loads-RUNNING"
@@ -306,15 +326,16 @@ cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_be
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
-cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_job.c" \
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
+cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_job.c" \
     "$D/test_wx_job.c" -lm -o "${OUT}_wx_job"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_wind.c" -lm -o "${OUT}_wind"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_days.c" -lm -o "${OUT}_days"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_sun.c" -lm -o "${OUT}_sun"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_wind.c" -lm -o "${OUT}_wind"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_days.c" -lm -o "${OUT}_days"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_sun.c" -lm -o "${OUT}_sun"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
@@ -356,10 +377,13 @@ if [ -d "$LV" ]; then
         "$D/test_wind_label.c" -lm -o "${OUT}_wind_label"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_24.c" "$LV/src/font/lv_font_montserrat_30.c" \
-        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_days_label.c" -lm -o "${OUT}_days_label"
+        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_days_label.c" -lm -o "${OUT}_days_label"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" \
-        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$D/test_sun_label.c" -lm -o "${OUT}_sun_label"
+        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_sun_label.c" -lm -o "${OUT}_sun_label"
+    cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" \
+        "$W/weather_face.c" "$W/wx_air.c" "$D/test_air_label.c" -lm -o "${OUT}_air_label"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -370,6 +394,7 @@ fi
 "${OUT}_wind"
 "${OUT}_days"
 "${OUT}_sun"
+"${OUT}_air"
 "${OUT}_faces"
 "${OUT}_wx_job"
 "${OUT}_ember"
@@ -392,8 +417,9 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_wind_label"
     "${OUT}_days_label"
     "${OUT}_sun_label"
+    "${OUT}_air_label"
 else
-    echo "run.sh: SKIPPED title and face font, forecast, wind, days and sun label tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun and air label tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
@@ -404,7 +430,7 @@ cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/in
 "${OUT}_legacy"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
-    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \

@@ -79,6 +79,8 @@ typedef struct {
     long long sunrise, sunset;       /* Unix s, 0 unknown (Ember sends null without a location and in polar day or night) */
     long long twilight[WX_TWILIGHT]; /* Unix s: dawn, blue_end, golden_end, golden_start, blue_start, dusk; 0 none */
     bool has_sun_down, sun_down;     /* Ember's night flag, read even without sun times */
+    bool has_aqi;
+    int aqi;                         /* European AQI */
 } wx_obs_t;
 
 typedef struct {
