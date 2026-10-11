@@ -3,7 +3,6 @@
 #define LT_BACKOFF_MIN_MS 5000u
 #define LT_BACKOFF_MAX_MS 300000u
 
-/* Host tests only: runs the poller's side between the controller's load and its CAS. */
 #ifdef LT_RACE_POINT
 void lt_race_point(legacy_task_t *t);
 #else
