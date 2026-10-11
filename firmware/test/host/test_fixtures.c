@@ -212,6 +212,12 @@ static void test_view_faces(void)
     CHECK(t.have && t.value == 15 && t.has_range && t.lo == 9 && t.hi == 15 && t.frac == 1, "gauge %d..%d", t.lo, t.hi);
     CHECK(!t.night && t.cloud_band == 4 && t.hero == WX_HERO_NONE && !t.stars, "overcast day");
     CHECK(strcmp(t.sub, "Sunglasses on") == 0 && t.sub_rgb == 0xF0E641, "UV 3 by day: '%s'", t.sub);
+    CHECK(o->has_now_rain && o->now_rain == 1 && o->has_pop && o->pop == 83 && o->has_utc_offset && o->utc_offset == 3600,
+          "now.rain, today.pop, utc_offset");
+    CHECK(o->has_rain && o->rain_until == 1782049500LL && o->rain_n == 2 && o->rain_spell[0].start == 1782042300LL &&
+              o->rain_spell[0].end == 1782049500LL && o->rain_spell[0].intensity == 2 && o->rain_spell[0].kind == 0 &&
+              o->rain_spell[1].intensity == 1 && o->rain_spell[1].kind == 1,
+          "rain block");
 
     if (!view("view_faces_met.json", &v)) return;
     CHECK(o->has_cloud && o->cloud == 70 && o->has_uv && o->uv == 3, "MET now");
@@ -219,9 +225,12 @@ static void test_view_faces(void)
     wx_temp_from(o, &t);
     CHECK(t.value == 14 && t.lo == 14 && t.hi == 17 && t.frac == 0 && t.cloud_band == 3 && t.hero == WX_HERO_NONE,
           "MET gauge and clouds");
+    CHECK(o->has_now_rain && o->now_rain == 0 && !o->has_pop && o->has_rain && o->rain_until == 0 && o->rain_n == 2,
+          "MET dry now, rain later");
 
     if (!view("view_faces_polar_dry.json", &v)) return;
     CHECK(o->has_moon && o->moon_phase == 65 && o->moon_illum == 80 && o->moon_up == 1, "polar moon without set");
+    CHECK(o->has_rain && o->rain_n == 0 && o->has_now_rain && o->now_rain == 0, "polar: dry steps, no spells");
     char *j = load("view_faces.json");
     cJSON *f = j ? cJSON_Parse(j) : NULL;
     free(j);
@@ -231,11 +240,20 @@ static void test_view_faces(void)
     cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "moon"), "illum", cJSON_CreateString("46"));
     cJSON_DeleteItemFromObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "moon"), "up");
     cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "uv", cJSON_CreateNumber(-1));
+    cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "rain", cJSON_CreateNumber(4));
+    cJSON_ReplaceItemInObjectCaseSensitive(w, "utc_offset", cJSON_CreateString("3600"));
+    cJSON *rain = cJSON_GetObjectItemCaseSensitive(w, "rain");
+    cJSON_ReplaceItemInObjectCaseSensitive(rain, "until", cJSON_CreateNumber(-5));
+    cJSON *spells = cJSON_GetObjectItemCaseSensitive(rain, "spells");
+    cJSON_ReplaceItemInArray(cJSON_GetArrayItem(spells, 0), 2, cJSON_CreateNumber(7));
+    cJSON_ReplaceItemInArray(cJSON_GetArrayItem(spells, 1), 0, cJSON_CreateNumber(1782063900));
     j = cJSON_PrintUnformatted(f);
     cJSON_Delete(f);
     bool ok = j && knob_view_parse(j, &v);
     free(j);
     CHECK(ok && !o->has_today && !o->has_cloud && !o->has_uv && !o->has_moon && o->moon_up == -1, "missing or bad keys degrade");
+    CHECK(!o->has_now_rain && !o->has_pop && !o->has_utc_offset && o->has_rain && o->rain_until == 0 && o->rain_n == 0,
+          "bad rain keys are unknown; a bad spell is skipped");
     wx_temp_from(o, &t);
     CHECK(t.have && !t.has_range && t.lo == WX_SCALE_LO && t.cloud_band == 4 && strcmp(t.sub, "Rain") == 0,
           "without detail: fixed scale, cloud from the condition, sky word");
