@@ -42,3 +42,11 @@ STUB_PAGE(pomo, "pomo")
 STUB_PAGE(np, "np")
 
 void page_weather_show(bool on) { note(on ? "weather+" : "weather-"); }
+
+void page_weather_input(const page_input_t *in, double t)
+{
+    (void)t;
+    page_stub_in = *in;
+    page_stub_inputs++;
+    note("weather.in");
+}

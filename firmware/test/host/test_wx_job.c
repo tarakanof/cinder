@@ -145,6 +145,71 @@ static void test_rain_face_switch(void)
     CHECK(fade_out(&a) == (WX_DO_BAKE | WX_DO_DETACH), "rain stops: back to the Temperature face through black");
 }
 
+static wx_temp_t rain_face(wx_temp_t t)
+{
+    t.face = WXF_RAIN;
+    t.rain = (wx_rain_t){.on = true, .dry = true, .kind = WX_PRECIP_RAIN, .intensity = 1, .has_pop = true, .pop = 20};
+    return t;
+}
+
+static void test_user_switch_cuts(void)
+{
+    wx_temp_t a = key(3, 12, 1), r = rain_face(a), b = key(3, 12, 3);
+    baked(a);
+    wx_job_cut(&J);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE) && J.opa == 255,
+          "a turn to another face: detach at once, no fade out, replay the arrival");
+    const wx_temp_t *in = wx_job_take(&J);
+    CHECK(in && in->face == WXF_RAIN && in->rain.dry && IO.kind == WX_BAKE_FULL, "the job is the full picked face");
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == 0, "black while it bakes");
+    wx_job_done(&J, 4);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 255, "lands at full opacity, no fade in");
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == WX_DO_PAINT && J.opa == 255, "then paints");
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "a data change after it fades through black again");
+
+    baked(a);
+    for (int i = 0; i < 2; i++) CHECK(wx_job_step(&J, &b, 1.0 / 30) == WX_DO_PAINT, "a data scene change fades out");
+    CHECK(J.opa < 255 && J.out, "mid fade out (%d)", J.opa);
+    wx_job_cut(&J);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE) && J.opa == 255 && !J.out,
+          "a turn mid fade out cuts the rest");
+    bake();
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 255, "and lands without a fade in");
+
+    baked(a);
+    wx_temp_t c = key(-2, 12, 1);
+    CHECK(wx_job_step(&J, &c, 1.0 / 30) == (WX_DO_BAKE | WX_DO_PAINT), "a ring bake starts");
+    CHECK(wx_job_take(&J) != NULL, "and runs");
+    wx_job_cut(&J);
+    wx_temp_t rc = rain_face(c);
+    CHECK(wx_job_step(&J, &rc, 1.0 / 30) == WX_DO_PAINT, "a turn while it runs waits for it");
+    wx_job_done(&J, 1);
+    CHECK(wx_job_step(&J, &rc, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT), "the ring lands");
+    CHECK(wx_job_step(&J, &rc, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "then the cut");
+
+    shown();
+    CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_BAKE, "page open: the first bake");
+    CHECK(wx_job_take(&J) != NULL, "runs");
+    wx_job_cut(&J);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == 0, "a turn before it lands: still black");
+    wx_job_done(&J, 3);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT), "the first bake lands");
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "then the picked face cuts in");
+
+    baked(a);
+    wx_job_cut(&J);
+    CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_PAINT && !J.cut, "a turn back before the next step: nothing to bake, the cut is dropped");
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "so a later data change still fades");
+
+    baked(a);
+    wx_job_cut(&J);
+    CHECK(wx_job_show(&J, false) == WX_DO_RELEASE, "hide");
+    wx_job_released(&J);
+    CHECK(wx_job_show(&J, true) == WX_DO_ACQUIRE, "show again");
+    wx_job_acquired(&J, true);
+    CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_BAKE, "a page open forgets a pending cut");
+}
+
 static void test_partial_during_fade_in(void)
 {
     wx_temp_t a = key(3, 12, 1), b = key(3, 12, 3), c = key(-2, 12, 3);
@@ -358,6 +423,7 @@ int main(void)
     test_partial_rebake();
     test_partial_during_fade_in();
     test_rain_face_switch();
+    test_user_switch_cuts();
     test_hide_show_drops_a_done_job();
     test_hide_during_bake();
     test_ota_hold();

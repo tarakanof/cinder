@@ -55,6 +55,11 @@ void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c);
 /* Mercury, bulb and ticks into the WX_THERMO_* box; top before WX_THERMO_DY. */
 void wx_paint_mercury(wx_img_t *im, float top, uint32_t rgb);
 void wx_paint_marker(wx_img_t *im);
+#define WX_DOT_R 4.0f
+#define WX_DOT_ON 0xFFFFFF
+#define WX_DOT_OFF 0x4A4A4A
+/* n face dots (wx_face_dot_xy), dot face white, the others grey. */
+void wx_paint_face_dots(wx_img_t *im, int face, int n);
 
 /* drift: the last (front) cloud, the one that moves; still: the others. still under drift = the whole layer. */
 void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift);

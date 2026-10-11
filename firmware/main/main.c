@@ -479,6 +479,13 @@ void page_bot_show(bool on)
 
 void page_pomo_show(bool on) { pomo_view_show(on); }
 void page_weather_show(bool on) { temp_face_show(on); }
+
+void page_weather_input(const page_input_t *in, double t)
+{
+    (void)t;
+    if (in->detents) temp_face_turn(in->detents);
+}
+
 void page_np_show(bool on) { np_view_show(on); }
 
 static bool s_ota_paused;

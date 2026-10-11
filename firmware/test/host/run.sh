@@ -92,8 +92,16 @@ body "$TFC" temp_face_show | grep -qF 'act(wx_job_show(&s_job, on));' || WIRING=
 body "$TFC" temp_face_hold | grep -qF 'act(wx_job_hold(&s_job, hold));' || WIRING="$WIRING hold-through-wx_job"
 body "$TFC" temp_face_update | grep -qF 'int a = wx_job_step(&s_job, &t, dt);' || WIRING="$WIRING update-steps-wx_job"
 body "$TFC" temp_face_update | grep -qF 'if (!(a & WX_DO_PAINT)) return;' || WIRING="$WIRING update-paints-only-on-WX_DO_PAINT"
-body "$TFC" temp_face_update | grep -qF 'wx_temp_from_shown(obs, s_job.baked ? &s_io.key : NULL, &t);' ||
-    WIRING="$WIRING update-keeps-the-shown-band"
+body "$TFC" temp_face_update | grep -qF 'wx_temp_face(obs, s_job.baked ? &s_io.key : NULL, s_faces.pick, &t);' ||
+    WIRING="$WIRING update-keeps-the-shown-band-on-the-picked-face"
+body "$TFC" temp_face_update | grep -qxF '        s_face = t.face;' || WIRING="$WIRING update-records-the-shown-face"
+body "$TFC" temp_face_show | grep -qF 'if (on) wx_faces_open(&s_faces);' || WIRING="$WIRING show-opens-on-the-auto-face"
+body "$TFC" temp_face_turn | grep -qF 'wx_faces_turn(&s_faces, s_face, detents)) wx_job_cut(&s_job);' &&
+    [ "$(grep -c 'wx_job_cut(' "$TFC")" -eq 1 ] || WIRING="$WIRING turn-cuts-only-on-a-new-face"
+body "$TFC" act | awk '/if \(a & WX_DO_ARRIVE\) \{/ {on = 1} on && /s_t = 0;/ {t = 1} on && /s_tick = -1;/ {k = 1} END {exit !(t && k)}' ||
+    WIRING="$WIRING act-replays-the-arrival"
+body "$MAINC" page_weather_input | grep -qF 'if (in->detents) temp_face_turn(in->detents);' ||
+    WIRING="$WIRING weather-page-turns-switch-faces"
 body "$TFC" temp_face_update | grep -qF 'paint(&t, obs, offline, s_job.opa);' || WIRING="$WIRING update-paints-at-the-job-opa"
 for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'if (a & WX_DO_DETACH) detach();' \
     'if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);' 'if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out, s_io.kind);'; do
@@ -112,7 +120,7 @@ RAIN_CV='lv_canvas_set_buffer\(s_(strip|top|bottom|cover|splash|bolt|drip)'
 body "$TFC" apply | grep -qF 'if (t->rain.on) rain_attach(&t->rain);' || WIRING="$WIRING rain-attaches-on-a-scene-apply"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
     WIRING="$WIRING rain-layers-live-in-the-still-buffer"
-body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255);' || WIRING="$WIRING paint-drives-the-rain-frames"
+body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255 && !r->dry);' || WIRING="$WIRING paint-drives-the-rain-frames-not-when-dry"
 body "$TFC" paint | grep -qF 'const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;' ||
     WIRING="$WIRING paint-keeps-the-baked-rain-while-fading-out"
 body "$TFC" paint | grep -qF 'set_unit(r->has_pop ? wx_rain_rgb(r->intensity) : GREY_RGB);' || WIRING="$WIRING paint-colours-the-unit-like-the-value"
@@ -183,7 +191,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL temp face wiring:$WIRING" >&2
     exit 1
 fi
-echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold, rain layers"
+echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold, rain layers, face turns"
 WJC="$W/wx_job.c"
 body "$WJC" park | awk '/atomic_compare_exchange_strong\(&j->state, &queued, WX_JOB_IDLE\)/ {cas = NR} /atomic_load\(/ {if (!cas) early = 1; if ($0 ~ /atomic_load\(&j->state\) == WX_JOB_RUNNING/) run = 1} /atomic_store\(/ {st = 1} END {exit !(cas && run && !early && !st)}' ||
     WIRING="$WIRING park-cancels-by-CAS-then-loads-RUNNING"
@@ -207,8 +215,9 @@ cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_be
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
 cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_job.c" \
     "$D/test_wx_job.c" -lm -o "${OUT}_wx_job"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
@@ -250,6 +259,7 @@ fi
 "${OUT}_weather"
 "${OUT}_temp"
 "${OUT}_rain"
+"${OUT}_faces"
 "${OUT}_wx_job"
 "${OUT}_ember"
 "${OUT}_cfg"

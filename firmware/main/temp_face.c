@@ -10,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "wx_faces.h"
 #include "wx_job.h"
 #include "wx_paint.h"
 #include "wx_temp.h"
@@ -56,6 +57,8 @@ static wx_job_t s_job;
 static TaskHandle_t s_task;
 static EXT_RAM_BSS_ATTR double s_t;
 static EXT_RAM_BSS_ATTR int s_tick;
+static EXT_RAM_BSS_ATTR wx_faces_t s_faces;
+static EXT_RAM_BSS_ATTR int s_face;
 
 typedef struct {
     char value[20], sub[24];
@@ -363,8 +366,8 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
     s_out = *o;
     s_tick = -1;
     s_shown.drift = 0x7FFFFFFF;
-    ESP_LOGI(TAG, "baked parts %d (1 ring, 2 hero, 7 scene) %d..%d hero %d clouds %d in %d ms", kind, t->lo, t->hi,
-             (int)t->hero, t->cloud_band, s_io.ms);
+    ESP_LOGI(TAG, "baked parts %d (1 ring, 2 hero, 7 scene) face %d %d..%d hero %d clouds %d in %d ms", kind, t->face,
+             t->lo, t->hi, (int)t->hero, t->cloud_band, s_io.ms);
 }
 
 static void shift_root(void)
@@ -535,7 +538,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         }
         set_marker(r->pop / 100.0f * (float)a, r->has_pop);
         set_unit(r->has_pop ? wx_rain_rgb(r->intensity) : GREY_RGB);
-        set_rain(r, sprite_opa, fo == 255);
+        set_rain(r, sprite_opa, fo == 255 && !r->dry);
     } else if (t->have) {
         int k = wx_count_step(wx_count_n(t->value), ta);
         int v = wx_count_value(t->value, k);
@@ -572,6 +575,10 @@ static void act(int a)
     if (a & WX_DO_DETACH) detach();
     if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);
     if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out, s_io.kind);
+    if (a & WX_DO_ARRIVE) {
+        s_t = 0;
+        s_tick = -1;
+    }
 }
 
 void temp_face_show(bool on)
@@ -579,8 +586,14 @@ void temp_face_show(bool on)
     if (!s_root || on == s_job.visible) return;
     s_t = 0;
     s_tick = -1;
+    if (on) wx_faces_open(&s_faces);
     if (!on) show_obj(s_root, false);
     act(wx_job_show(&s_job, on));
+}
+
+void temp_face_turn(int detents)
+{
+    if (s_root && s_job.visible && wx_faces_turn(&s_faces, s_face, detents)) wx_job_cut(&s_job);
 }
 
 void temp_face_hold(bool hold)
@@ -593,7 +606,10 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     if (!s_root) return;
     if (!isfinite(dt) || dt < 0) dt = 0;
     wx_temp_t t = {0};
-    if (s_job.visible && s_job.bufs) wx_temp_from_shown(obs, s_job.baked ? &s_io.key : NULL, &t);
+    if (s_job.visible && s_job.bufs) {
+        wx_temp_face(obs, s_job.baked ? &s_io.key : NULL, s_faces.pick, &t);
+        s_face = t.face;
+    }
     int a = wx_job_step(&s_job, &t, dt);
     act(a);
     if (!(a & WX_DO_PAINT)) return;

@@ -12,6 +12,9 @@ void temp_face_create(lv_obj_t *parent);
 /* Showing allocates the images and replays the arrival; hiding frees them. No PSRAM: black, retried every 5 s. */
 void temp_face_show(bool on);
 
+/* Plain knob detents on the weather page: the next or previous face, kept until the page shows again. */
+void temp_face_turn(int detents);
+
 /* OTA face: call with true on every OTA frame (parks a queued bake, frees the hidden face once a running one ends). */
 void temp_face_hold(bool hold);
 

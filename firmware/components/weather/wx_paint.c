@@ -243,6 +243,15 @@ static void disc(wx_img_t *im, float cx, float cy, float r, uint16_t c, float al
         }
 }
 
+void wx_paint_face_dots(wx_img_t *im, int face, int n)
+{
+    for (int k = 0; k < n; k++) {
+        float x, y;
+        wx_face_dot_xy(k, n, &x, &y);
+        disc(im, x, y, WX_DOT_R, wx_rgb565(k == face ? WX_DOT_ON : WX_DOT_OFF), 1, 0);
+    }
+}
+
 void wx_paint_stars(wx_img_t *im)
 {
     for (int i = 0; i < 10; i++) disc(im, STARS[i][0], STARS[i][1], STARS[i][2], wx_rgb565(0xDDE6F0), 0.35f, HERO_FADE);
@@ -492,6 +501,7 @@ static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
     wx_paint_clear(&bg);
     wx_paint_umbrella(&bg);
+    wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
     out->still = out->drift = (wx_box_t){0, 0, 0, 0};
     wx_rain_layout_t l;
@@ -527,6 +537,7 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
         if (t->hero == WX_HERO_SUN) wx_paint_rays(&bg);
         if (t->stars) wx_paint_stars(&bg);
         wx_paint_thermo(&bg);
+        wx_paint_face_dots(&bg, t->face, WXF_N);
         wx_ring_blit(b->ring, b->bg);
         wx_clouds_t all, still, drift;
         wx_clouds_for(t->cloud_band, t->night, &all);
