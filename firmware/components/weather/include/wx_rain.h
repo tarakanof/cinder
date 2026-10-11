@@ -80,15 +80,20 @@ typedef struct {
 int wx_sheet_frames(const wx_rain_t *r, int s);
 /* Frame k (WX_RAIN_FPS, from the face's show) of the rain layers. */
 void wx_rain_frame(const wx_rain_t *r, int k, wx_rain_frame_t *f);
-/* The LVGL calls from shown frame p to f. After an attach p is all 0xFF: every object hidden at an unknown place, so
-   one that appears gets its buffer, y and opacity whatever p holds. opa: every layer's opacity changes (a fade step). */
+/* The LVGL calls from frame p shown at p_opa to frame f at opa, and the values they pass. After an attach p is all 0xFF
+   and p_opa -1: every object hidden at an unknown place, so one that appears gets its buffer, y and opacity whatever p
+   holds. y: in the object's sheet; pose: index into the layout's drip buffers. */
 typedef struct {
     bool strip_y[WX_SHEETS], opa;
     bool drip_buf[WX_DRIPS], drip_y[WX_DRIPS], drip_opa[WX_DRIPS];
     bool splash_y[WX_SPLASHES], splash_opa[WX_SPLASHES];
+    int strip_top[WX_SHEETS][2], layer_opa;
+    int drip_pose[WX_DRIPS], drip_top[WX_DRIPS], drip_alpha[WX_DRIPS];
+    int splash_top[WX_SPLASHES], splash_alpha[WX_SPLASHES];
+    bool drip_on[WX_DRIPS], splash_on[WX_SPLASHES], bolt_on;
 } wx_rain_ops_t;
 
-void wx_rain_ops(const wx_rain_frame_t *p, const wx_rain_frame_t *f, bool fade, wx_rain_ops_t *ops);
+void wx_rain_ops(const wx_rain_frame_t *p, int p_opa, const wx_rain_frame_t *f, int opa, wx_rain_ops_t *ops);
 
 #ifdef __cplusplus
 }

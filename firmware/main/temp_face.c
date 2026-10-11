@@ -481,36 +481,32 @@ static void set_rain(const wx_rain_t *r, int opa, bool shown)
     wx_rain_frame_t f;
     wx_rain_frame(r, (int)floor(s_t * WX_RAIN_FPS), &f);
     wx_rain_ops_t op;
-    wx_rain_ops(&s_shown.rain, &f, opa != s_shown.rain_opa, &op);
+    wx_rain_ops(&s_shown.rain, s_shown.rain_opa, &f, opa, &op);
     s_shown.rain_opa = opa;
     for (int s = 0; s < WX_SHEETS; s++) {
         if (op.strip_y[s]) {
-            lv_obj_set_y(s_strip[s][0], f.off[s] - WX_SHEET_PERIOD);
-            lv_obj_set_y(s_strip[s][1], f.off[s]);
+            lv_obj_set_y(s_strip[s][0], op.strip_top[s][0]);
+            lv_obj_set_y(s_strip[s][1], op.strip_top[s][1]);
         }
         if (op.opa) {
-            lv_obj_set_style_image_opa(s_strip[s][0], (lv_opa_t)opa, 0);
-            lv_obj_set_style_image_opa(s_strip[s][1], (lv_opa_t)opa, 0);
+            lv_obj_set_style_image_opa(s_strip[s][0], (lv_opa_t)op.layer_opa, 0);
+            lv_obj_set_style_image_opa(s_strip[s][1], (lv_opa_t)op.layer_opa, 0);
         }
     }
     for (int i = 0; i < WX_DRIPS; i++) {
         if (op.drip_buf[i])
-            lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[f.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
-        if (op.drip_y[i]) lv_obj_set_y(s_drip[i], WX_DRIP_Y + f.drip_dy[i] - wx_sheet(i)->box.y0);
-        if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)(f.drip_opa[i] * opa / 255), 0);
-        show_obj(s_drip[i], f.drip_pose[i] >= 0);
+            lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[op.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
+        if (op.drip_y[i]) lv_obj_set_y(s_drip[i], op.drip_top[i]);
+        if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)op.drip_alpha[i], 0);
+        show_obj(s_drip[i], op.drip_on[i]);
     }
     for (int n = 0; n < WX_SPLASHES; n++) {
-        if (op.splash_y[n]) {
-            wx_splash_at_t at;
-            wx_splash_at(n, &at);
-            lv_obj_set_y(s_splash[n], at.y + f.splash_dy[n] - wx_sheet(WX_SHEETS - 1)->box.y0);
-        }
-        if (op.splash_opa[n]) lv_obj_set_style_image_opa(s_splash[n], (lv_opa_t)(f.splash_opa[n] * opa / 255), 0);
-        show_obj(s_splash[n], f.splash_opa[n] > 0);
+        if (op.splash_y[n]) lv_obj_set_y(s_splash[n], op.splash_top[n]);
+        if (op.splash_opa[n]) lv_obj_set_style_image_opa(s_splash[n], (lv_opa_t)op.splash_alpha[n], 0);
+        show_obj(s_splash[n], op.splash_on[n]);
     }
-    if (op.opa) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)opa, 0);
-    show_obj(s_bolt, f.bolt);
+    if (op.opa) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)op.layer_opa, 0);
+    show_obj(s_bolt, op.bolt_on);
     s_shown.rain = f;
 }
 

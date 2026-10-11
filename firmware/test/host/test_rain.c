@@ -441,14 +441,12 @@ static void a8_over(uint16_t *fb, wx_box_t clip, const uint8_t *a8, int w, int h
 }
 
 typedef struct {
-    int pose, y, opa; /* y: face coordinates */
+    int pose, y, opa;
     bool on;
 } sim_obj_t;
 
-/* The rain objects as set_rain leaves them: it replays wx_rain_ops the way temp_face.c does, and records the areas LVGL
-   invalidates (an object's old and new area while it is visible, clipped to its sheet). */
 typedef struct {
-    int strip_off[WX_SHEETS], strip_opa, bolt_opa;
+    int strip_y[WX_SHEETS][2], strip_opa, bolt_opa;
     sim_obj_t drip[WX_DRIPS], splash[WX_SPLASHES];
     bool bolt;
     wx_rain_frame_t shown;
@@ -474,7 +472,7 @@ static void sim_box(sim_t *v, int s)
 static void sim_init(sim_t *v)
 {
     memset(v, 0, sizeof *v);
-    for (int s = 0; s < WX_SHEETS; s++) v->strip_off[s] = 0;
+    for (int s = 0; s < WX_SHEETS; s++) v->strip_y[s][0] = v->strip_y[s][1] = wx_sheet(s)->box.y0;
     for (int i = 0; i < WX_DRIPS; i++) v->drip[i] = (sim_obj_t){0, wx_sheet(i)->box.y0, 255, false};
     for (int n = 0; n < WX_SPLASHES; n++) v->splash[n] = (sim_obj_t){0, wx_sheet(2)->box.y0, 255, false};
     v->strip_opa = v->bolt_opa = 255;
@@ -494,7 +492,12 @@ static void sim_attach(sim_t *v)
 static void sim_move(sim_t *v, int s, sim_obj_t *o, int x, int w, int h, int y)
 {
     if (o->on) sim_inv(v, s, x, o->y, w, h);
-    o->y = y;
+    o->y = wx_sheet(s)->box.y0 + y;
+    if (o->on) sim_inv(v, s, x, o->y, w, h);
+}
+
+static void sim_touch(sim_t *v, int s, const sim_obj_t *o, int x, int w, int h)
+{
     if (o->on) sim_inv(v, s, x, o->y, w, h);
 }
 
@@ -510,15 +513,15 @@ static void sim_frame(sim_t *v, const wx_rain_t *r, int k, int opa)
     wx_rain_frame_t f;
     wx_rain_frame(r, k, &f);
     wx_rain_ops_t op;
-    wx_rain_ops(&v->shown, &f, opa != v->shown_opa, &op);
+    wx_rain_ops(&v->shown, v->shown_opa, &f, opa, &op);
     v->shown_opa = opa;
     for (int s = 0; s < WX_SHEETS; s++) {
-        if (op.strip_y[s]) {
-            v->strip_off[s] = f.off[s];
+        for (int c = 0; c < 2 && op.strip_y[s]; c++) {
+            v->strip_y[s][c] = wx_sheet(s)->box.y0 + op.strip_top[s][c];
             sim_box(v, s);
         }
         if (op.opa) {
-            v->strip_opa = opa;
+            v->strip_opa = op.layer_opa;
             sim_box(v, s);
         }
     }
@@ -526,41 +529,43 @@ static void sim_frame(sim_t *v, const wx_rain_t *r, int k, int opa)
         sim_obj_t *o = &v->drip[i];
         int x = wx_drip_x(i);
         if (op.drip_buf[i]) {
-            o->pose = f.drip_pose[i];
-            if (o->on) sim_inv(v, i, x, o->y, WX_DRIP_W, WX_DRIP_H);
+            o->pose = op.drip_pose[i];
+            sim_touch(v, i, o, x, WX_DRIP_W, WX_DRIP_H);
         }
-        if (op.drip_y[i]) sim_move(v, i, o, x, WX_DRIP_W, WX_DRIP_H, WX_DRIP_Y + f.drip_dy[i]);
+        if (op.drip_y[i]) sim_move(v, i, o, x, WX_DRIP_W, WX_DRIP_H, op.drip_top[i]);
         if (op.drip_opa[i]) {
-            o->opa = f.drip_opa[i] * opa / 255;
-            if (o->on) sim_inv(v, i, x, o->y, WX_DRIP_W, WX_DRIP_H);
+            o->opa = op.drip_alpha[i];
+            sim_touch(v, i, o, x, WX_DRIP_W, WX_DRIP_H);
         }
-        sim_show(v, i, o, x, WX_DRIP_W, WX_DRIP_H, f.drip_pose[i] >= 0);
+        sim_show(v, i, o, x, WX_DRIP_W, WX_DRIP_H, op.drip_on[i]);
     }
     for (int n = 0; n < WX_SPLASHES; n++) {
         sim_obj_t *o = &v->splash[n];
         wx_splash_at_t at;
         wx_splash_at(n, &at);
-        if (op.splash_y[n]) sim_move(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H, at.y + f.splash_dy[n]);
+        if (op.splash_y[n]) sim_move(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H, op.splash_top[n]);
         if (op.splash_opa[n]) {
-            o->opa = f.splash_opa[n] * opa / 255;
-            if (o->on) sim_inv(v, 2, at.x, o->y, WX_SPLASH_W, WX_SPLASH_H);
+            o->opa = op.splash_alpha[n];
+            sim_touch(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H);
         }
-        sim_show(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H, f.splash_opa[n] > 0);
+        sim_show(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H, op.splash_on[n]);
     }
     if (op.opa) {
-        v->bolt_opa = opa;
+        v->bolt_opa = op.layer_opa;
         if (v->bolt) sim_inv(v, 2, WX_BOLT_X, WX_BOLT_Y, WX_BOLT_W, WX_BOLT_H);
     }
-    if (f.bolt != v->bolt) sim_inv(v, 2, WX_BOLT_X, WX_BOLT_Y, WX_BOLT_W, WX_BOLT_H);
-    v->bolt = f.bolt;
+    if (op.bolt_on != v->bolt) sim_inv(v, 2, WX_BOLT_X, WX_BOLT_Y, WX_BOLT_W, WX_BOLT_H);
+    v->bolt = op.bolt_on;
     v->shown = f;
 }
 
-/* What frame f at opacity opa should show: the objects set straight from f. */
 static void sim_ideal(sim_t *v, const wx_rain_frame_t *f, int opa)
 {
     sim_init(v);
-    for (int s = 0; s < WX_SHEETS; s++) v->strip_off[s] = f->off[s];
+    for (int s = 0; s < WX_SHEETS; s++) {
+        v->strip_y[s][0] = wx_sheet(s)->box.y0 + f->off[s] - WX_SHEET_PERIOD;
+        v->strip_y[s][1] = wx_sheet(s)->box.y0 + f->off[s];
+    }
     v->strip_opa = v->bolt_opa = opa;
     for (int i = 0; i < WX_DRIPS; i++)
         v->drip[i] = (sim_obj_t){f->drip_pose[i], WX_DRIP_Y + f->drip_dy[i], f->drip_opa[i] * opa / 255, f->drip_pose[i] >= 0};
@@ -575,9 +580,9 @@ static void sim_ideal(sim_t *v, const wx_rain_frame_t *f, int opa)
 static bool sim_same(const sim_t *a, const sim_t *b, char *why, size_t n)
 {
     for (int s = 0; s < WX_SHEETS; s++)
-        if (a->strip_off[s] != b->strip_off[s] || a->strip_opa != b->strip_opa) {
-            snprintf(why, n, "sheet %d strip at %d opa %d, want %d opa %d", s, a->strip_off[s], a->strip_opa, b->strip_off[s],
-                     b->strip_opa);
+        if (a->strip_y[s][0] != b->strip_y[s][0] || a->strip_y[s][1] != b->strip_y[s][1] || a->strip_opa != b->strip_opa) {
+            snprintf(why, n, "sheet %d strips at %d %d opa %d, want %d %d opa %d", s, a->strip_y[s][0], a->strip_y[s][1],
+                     a->strip_opa, b->strip_y[s][0], b->strip_y[s][1], b->strip_opa);
             return false;
         }
     for (int i = 0; i < WX_DRIPS; i++) {
@@ -610,9 +615,7 @@ static void compose(uint16_t *fb, const uint16_t *bg, const uint8_t *m, const wx
     for (int s = 0; s < WX_SHEETS; s++) {
         wx_box_t b = wx_sheet(s)->box;
         int w = b.x1 - b.x0;
-        for (int c = -1; c <= 0; c++)
-            a8_over(fb, b, m + l->tile[s], w, WX_SHEET_PERIOD, b.x0, b.y0 + v->strip_off[s] + c * WX_SHEET_PERIOD, col,
-                    v->strip_opa);
+        for (int c = 0; c < 2; c++) a8_over(fb, b, m + l->tile[s], w, WX_SHEET_PERIOD, b.x0, v->strip_y[s][c], col, v->strip_opa);
         if (s < WX_DRIPS && v->drip[s].on)
             a8_over(fb, b, m + l->drip[v->drip[s].pose], WX_DRIP_W, WX_DRIP_H, wx_drip_x(s), v->drip[s].y, col, v->drip[s].opa);
         if (s == 2)
@@ -639,7 +642,6 @@ static void compose(uint16_t *fb, const uint16_t *bg, const uint8_t *m, const wx
 
 static long box_px(wx_box_t b) { return (long)(b.x1 - b.x0) * (b.y1 - b.y0); }
 
-/* LVGL's area join (lv_refr_join_area): two overlapping areas merge when their bounding box is smaller than both. */
 static int join_areas(wx_box_t *a, int n)
 {
     for (bool again = true; again;) {
@@ -690,14 +692,43 @@ static void test_ops(void)
     f.drip_opa[0] = f.drip_opa[1] = 255;
     f.splash_opa[0] = 255;
     wx_rain_ops_t op;
-    wx_rain_ops(&p, &f, false, &op);
-    CHECK(op.drip_buf[0] && op.drip_y[0] && op.drip_opa[0] && op.splash_y[0] && op.splash_opa[0] && !op.splash_y[1],
+    wx_rain_ops(&p, 255, &f, 255, &op);
+    CHECK(op.drip_buf[0] && op.drip_y[0] && op.drip_opa[0] && op.splash_y[0] && op.splash_opa[0] && !op.splash_y[1] && !op.opa,
           "a drip or splash appearing at dy 0 over a hidden one cached at dy 0 gets its buffer, y and opacity");
     p = f;
     f.drip_pose[0] = 1;
-    wx_rain_ops(&p, &f, false, &op);
+    wx_rain_ops(&p, 255, &f, 255, &op);
     CHECK(op.drip_buf[0] && op.drip_y[0] && !op.drip_buf[1] && !op.drip_y[1] && !op.drip_opa[1] && !op.splash_y[0],
           "a pose change sets the y too; nothing else moves");
+
+    memset(&p, 0xFF, sizeof p);
+    f = (wx_rain_frame_t){.off = {10, 120, 299}, .drip_pose = {2, -1}, .drip_dy = {14, 0}, .drip_opa = {230, 0},
+                          .splash_dy = {-2, 1, 0}, .splash_opa = {153, 0, 179}, .bolt = true};
+    wx_rain_ops(&p, -1, &f, 170, &op);
+    wx_splash_at_t at0, at2;
+    wx_splash_at(0, &at0);
+    wx_splash_at(2, &at2);
+    CHECK(op.opa && op.layer_opa == 170, "after an attach: every layer gets the opacity");
+    for (int s = 0; s < WX_SHEETS; s++)
+        CHECK(op.strip_y[s] && op.strip_top[s][0] == f.off[s] - 300 && op.strip_top[s][1] == f.off[s],
+              "sheet %d: strips at %d and %d", s, op.strip_top[s][0], op.strip_top[s][1]);
+    CHECK(op.drip_on[0] && op.drip_buf[0] && op.drip_pose[0] == 2 && op.drip_top[0] == WX_DRIP_Y + 14 - wx_sheet(0)->box.y0 &&
+              op.drip_alpha[0] == 230 * 170 / 255,
+          "drip 0: pose 2, y %d, alpha %d", op.drip_top[0], op.drip_alpha[0]);
+    CHECK(!op.drip_on[1] && !op.drip_buf[1] && !op.drip_y[1] && !op.drip_opa[1], "drip 1 hidden, untouched");
+    CHECK(op.splash_on[0] && op.splash_top[0] == at0.y - 2 - wx_sheet(2)->box.y0 && op.splash_alpha[0] == 153 * 170 / 255,
+          "splash 0: y %d, alpha %d", op.splash_top[0], op.splash_alpha[0]);
+    CHECK(op.splash_on[2] && op.splash_top[2] == at2.y - wx_sheet(2)->box.y0 && op.splash_alpha[2] == 179 * 170 / 255,
+          "splash 2: y %d, alpha %d", op.splash_top[2], op.splash_alpha[2]);
+    CHECK(!op.splash_on[1] && !op.splash_y[1] && !op.splash_opa[1] && op.bolt_on, "splash 1 hidden; bolt lit");
+    p = f;
+    f.splash_dy[0] = 0;
+    f.splash_opa[0] = 255;
+    wx_rain_ops(&p, 170, &f, 255, &op);
+    CHECK(op.opa && op.layer_opa == 255 && op.splash_y[0] && op.splash_top[0] == at0.y - wx_sheet(2)->box.y0 &&
+              op.splash_alpha[0] == 255 && op.drip_opa[0] && op.drip_alpha[0] == 230 && op.splash_opa[2] &&
+              op.splash_alpha[2] == 179 && !op.drip_y[0] && !op.strip_y[0],
+          "a fade step: every visible object's alpha scales, only the moved splash gets a y");
 }
 
 static void dump(const char *dir, const char *name, const uint16_t *fb)

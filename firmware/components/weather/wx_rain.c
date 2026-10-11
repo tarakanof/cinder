@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "wx_paint.h"
+
 static const wx_drop_t LEFT[] = {
     {70, 12, 16, 0.9f, 3, 0, 1},   {92, 70, 12, 0.6f, 3, 0, 2},  {64, 118, 18, 0.8f, 5, 0, 1},
     {86, 30, 14, 0.75f, 3, 1, 1},  {66, 88, 16, 1.0f, 3, 1, 2},  {96, 128, 12, 0.55f, 4, 1, 1},
@@ -183,22 +185,37 @@ void wx_rain_frame(const wx_rain_t *r, int k, wx_rain_frame_t *f)
         for (int i = 0; i < 6; i++) f->bolt |= k % WX_STORM_FRAMES == FLASH[i];
 }
 
-void wx_rain_ops(const wx_rain_frame_t *p, const wx_rain_frame_t *f, bool fade, wx_rain_ops_t *ops)
+void wx_rain_ops(const wx_rain_frame_t *p, int p_opa, const wx_rain_frame_t *f, int opa, wx_rain_ops_t *ops)
 {
     memset(ops, 0, sizeof *ops);
-    ops->opa = fade;
-    for (int s = 0; s < WX_SHEETS; s++) ops->strip_y[s] = f->off[s] != p->off[s];
+    ops->opa = opa != p_opa;
+    ops->layer_opa = opa;
+    for (int s = 0; s < WX_SHEETS; s++) {
+        ops->strip_y[s] = f->off[s] != p->off[s];
+        ops->strip_top[s][0] = f->off[s] - WX_SHEET_PERIOD;
+        ops->strip_top[s][1] = f->off[s];
+    }
     for (int i = 0; i < WX_DRIPS; i++) {
-        if (f->drip_pose[i] < 0) continue;
+        ops->drip_pose[i] = f->drip_pose[i];
+        ops->drip_on[i] = f->drip_pose[i] >= 0;
+        if (!ops->drip_on[i]) continue;
+        ops->drip_top[i] = WX_DRIP_Y + f->drip_dy[i] - SHEETS[i].box.y0;
+        ops->drip_alpha[i] = f->drip_opa[i] * opa / 255;
         bool pose = f->drip_pose[i] != p->drip_pose[i];
         ops->drip_buf[i] = pose;
         ops->drip_y[i] = pose || f->drip_dy[i] != p->drip_dy[i];
-        ops->drip_opa[i] = fade || pose || f->drip_opa[i] != p->drip_opa[i];
+        ops->drip_opa[i] = ops->opa || pose || f->drip_opa[i] != p->drip_opa[i];
     }
     for (int n = 0; n < WX_SPLASHES; n++) {
-        if (f->splash_opa[n] <= 0) continue;
+        ops->splash_on[n] = f->splash_opa[n] > 0;
+        if (!ops->splash_on[n]) continue;
+        wx_splash_at_t at;
+        wx_splash_at(n, &at);
+        ops->splash_top[n] = at.y + f->splash_dy[n] - SHEETS[at.sheet].box.y0;
+        ops->splash_alpha[n] = f->splash_opa[n] * opa / 255;
         bool appear = p->splash_opa[n] <= 0;
         ops->splash_y[n] = appear || f->splash_dy[n] != p->splash_dy[n];
-        ops->splash_opa[n] = fade || appear || f->splash_opa[n] != p->splash_opa[n];
+        ops->splash_opa[n] = ops->opa || appear || f->splash_opa[n] != p->splash_opa[n];
     }
+    ops->bolt_on = f->bolt;
 }

@@ -116,16 +116,51 @@ body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255);' || WIRING="$W
 body "$TFC" paint | grep -qF 'const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;' ||
     WIRING="$WIRING paint-keeps-the-baked-rain-while-fading-out"
 body "$TFC" paint | grep -qF 'set_unit(r->has_pop ? UNIT_RGB : GREY_RGB);' || WIRING="$WIRING paint-greys-the-unit-without-pop"
-for OP in 'for (int s = 0; s < WX_SHEETS; s++) show_obj(s_sheet[s], shown);' 'if (!shown) return;' \
-    'wx_rain_ops(&s_shown.rain, &f, opa != s_shown.rain_opa, &op);' 'if (op.strip_y[s]) {' 'if (op.opa) {' \
-    'if (op.drip_buf[i])' 'if (op.drip_y[i]) lv_obj_set_y(s_drip[i], ' 'if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], ' \
-    'show_obj(s_drip[i], f.drip_pose[i] >= 0);' 'if (op.splash_y[n]) {' 'if (op.splash_opa[n]) lv_obj_set_style_image_opa(s_splash[n], ' \
-    'show_obj(s_splash[n], f.splash_opa[n] > 0);' 'if (op.opa) lv_obj_set_style_image_opa(s_bolt, ' 'show_obj(s_bolt, f.bolt);' \
-    's_shown.rain = f;'; do
-    body "$TFC" set_rain | grep -qF "$OP" || WIRING="$WIRING set_rain:$OP"
+SET_RAIN=$(cat <<'END'
+static void set_rain(const wx_rain_t *r, int opa, bool shown)
+{
+for (int s = 0; s < WX_SHEETS; s++) show_obj(s_sheet[s], shown);
+if (!shown) return;
+wx_rain_frame_t f;
+wx_rain_frame(r, (int)floor(s_t * WX_RAIN_FPS), &f);
+wx_rain_ops_t op;
+wx_rain_ops(&s_shown.rain, s_shown.rain_opa, &f, opa, &op);
+s_shown.rain_opa = opa;
+for (int s = 0; s < WX_SHEETS; s++) {
+if (op.strip_y[s]) {
+lv_obj_set_y(s_strip[s][0], op.strip_top[s][0]);
+lv_obj_set_y(s_strip[s][1], op.strip_top[s][1]);
+}
+if (op.opa) {
+lv_obj_set_style_image_opa(s_strip[s][0], (lv_opa_t)op.layer_opa, 0);
+lv_obj_set_style_image_opa(s_strip[s][1], (lv_opa_t)op.layer_opa, 0);
+}
+}
+for (int i = 0; i < WX_DRIPS; i++) {
+if (op.drip_buf[i])
+lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[op.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
+if (op.drip_y[i]) lv_obj_set_y(s_drip[i], op.drip_top[i]);
+if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)op.drip_alpha[i], 0);
+show_obj(s_drip[i], op.drip_on[i]);
+}
+for (int n = 0; n < WX_SPLASHES; n++) {
+if (op.splash_y[n]) lv_obj_set_y(s_splash[n], op.splash_top[n]);
+if (op.splash_opa[n]) lv_obj_set_style_image_opa(s_splash[n], (lv_opa_t)op.splash_alpha[n], 0);
+show_obj(s_splash[n], op.splash_on[n]);
+}
+if (op.opa) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)op.layer_opa, 0);
+show_obj(s_bolt, op.bolt_on);
+s_shown.rain = f;
+}
+END
+)
+[ "$(body "$TFC" set_rain | sed 's/^[[:space:]]*//')" = "$SET_RAIN" ] || WIRING="$WIRING set_rain-passes-wx_rain_ops-values-verbatim"
+for LINE in 'memset(&s_shown.rain, 0xFF, sizeof s_shown.rain);' 's_shown.rain_opa = -1;'; do
+    body "$TFC" rain_attach | grep -qxF "    $LINE" || WIRING="$WIRING rain_attach-resets:$LINE"
 done
-[ "$(body "$TFC" set_rain | grep -c 'lv_obj_set_y(\|lv_obj_set_style_image_opa(\|lv_canvas_set_buffer(')" -eq 10 ] ||
-    WIRING="$WIRING set_rain-calls-only-behind-wx_rain_ops"
+body "$TFC" face_kind | grep -qxF '    s_shown.value_w = -1;' || WIRING="$WIRING face_kind-resets-the-text-measure"
+body "$TFC" set_value | grep -qxF '        if (s_rain && sz.x != s_shown.value_w) {' &&
+    body "$TFC" set_value | grep -qxF '            s_shown.value_w = sz.x;' || WIRING="$WIRING set_value-aligns-the-unit-on-a-width-change"
 [ "$(grep -c 'show_obj(s_sheet\[s\], ' "$TFC")" -eq 2 ] && body "$TFC" face_kind | grep -qF 'show_obj(s_sheet[s], false);' ||
     WIRING="$WIRING sheets-shown-only-by-set_rain"
 body "$TFC" set_rain | grep -qF 'wx_rain_frame(r, (int)floor(s_t * WX_RAIN_FPS), &f);' || WIRING="$WIRING rain-frames-at-15-fps"
