@@ -25,6 +25,7 @@ typedef enum { WX_INT_NONE, WX_INT_LIGHT, WX_INT_MODERATE, WX_INT_HEAVY } wx_int
 #define WX_SPELLS 4
 #define WX_DAYS 3
 #define WX_DAY_MAX_S 90000
+#define WX_TWILIGHT 6
 
 typedef struct {
     long long start, end; /* Unix s */
@@ -75,6 +76,9 @@ typedef struct {
     wx_spell_t rain_spell[WX_SPELLS];
     int day_n;
     wx_day_t day[WX_DAYS]; /* Ember's next days after today, t rising */
+    long long sunrise, sunset;       /* Unix s, 0 unknown (Ember sends null without a location and in polar day or night) */
+    long long twilight[WX_TWILIGHT]; /* Unix s: dawn, blue_end, golden_end, golden_start, blue_start, dusk; 0 none */
+    bool has_sun_down, sun_down;     /* Ember's night flag, read even without sun times */
 } wx_obs_t;
 
 typedef struct {

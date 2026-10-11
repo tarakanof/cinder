@@ -156,6 +156,15 @@ void wx_paint_day_icon(wx_img_t *im, int icon, float x, float y);
 /* Row i's sprite (im at the row's rest position, l's sprite box): the icon, the grey track and the coloured span. */
 void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_layout_t *l);
 
+/* Sun: the gauge from the first crossing to the last in wx_sun_rgb's colours (grey without sun times). */
+void wx_paint_ring_sun(wx_ring_t *r, const wx_sun_t *s, uint16_t lut[WX_RING_LUT]);
+/* The horizon, its two dashes and (with sun times) the sunrise and sunset ticks on the ring. */
+void wx_paint_sun_scene(wx_img_t *im, const wx_sun_t *s);
+/* The ray fan's A8 alpha over box (wx_sun_layout's rays), rim fade and horizon cut baked. */
+void wx_paint_sun_rays(uint8_t *a8, wx_box_t box);
+/* The sun and its glow at rest into im (wx_sun_layout's sun box), nothing below WX_SUN_CLIP_Y. */
+void wx_paint_sun(wx_img_t *im);
+
 typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
     uint16_t *lut; /* WX_RING_LUT */

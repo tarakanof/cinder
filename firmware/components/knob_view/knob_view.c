@@ -129,6 +129,12 @@ static void parse_days(const cJSON *d, wx_obs_t *o)
     }
 }
 
+static void parse_twilight(const cJSON *t, wx_obs_t *o)
+{
+    static const char *const KEY[WX_TWILIGHT] = {"dawn", "blue_end", "golden_end", "golden_start", "blue_start", "dusk"};
+    for (int i = 0; i < WX_TWILIGHT; i++) unix_in(item(t, KEY[i]), &o->twilight[i]);
+}
+
 static void parse_detail(const cJSON *w, wx_obs_t *o)
 {
     const cJSON *now = item(w, "now"), *today = item(w, "today"), *moon = item(w, "moon");
@@ -147,6 +153,7 @@ static void parse_detail(const cJSON *w, wx_obs_t *o)
     o->has_utc_offset = int_in(w, "utc_offset", -50400, 50400, &o->utc_offset);
     parse_rain(item(w, "rain"), o);
     parse_days(item(w, "days"), o);
+    parse_twilight(item(w, "twilight"), o);
 }
 
 static void parse_weather(const cJSON *w, knob_view_t *out)
@@ -172,6 +179,10 @@ static void parse_weather(const cJSON *w, knob_view_t *out)
         o->has_night = true;
         o->night = cJSON_IsTrue(item(w, "night"));
     }
+    if (!unix_in(item(w, "sunrise"), &o->sunrise) || !unix_in(item(w, "sunset"), &o->sunset)) o->sunrise = o->sunset = 0;
+    const cJSON *night = item(w, "night");
+    o->has_sun_down = cJSON_IsBool(night);
+    o->sun_down = cJSON_IsTrue(night);
     const cJSON *at = item(w, "observed_at");
     if (cJSON_IsNumber(at) && at->valuedouble >= 1577836800.0 && at->valuedouble < 1e13 &&
         at->valuedouble == (double)(long long)at->valuedouble)

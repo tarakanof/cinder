@@ -521,7 +521,7 @@
   "wxbake": {
    "entry": "bake_task",
    "file": "main/temp_face.c",
-   "stack": 4096
+   "stack": 5120
   },
   "stats": {
    "entry": "stats_task",
