@@ -284,6 +284,18 @@ static void test_rain_rises(void)
     CHECK(b.rain.intensity == 3 && !strcmp(b.rain.sub, "Heavy rain") && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL,
           "no spell, now.rain 1 -> 3: re-bake as heavy '%s'", b.rain.sub);
 
+    o = obs("rain", "61");
+    detail(&o, 0, 0, 0);
+    o.rain_n = 0;
+    o.has_rain = true;
+    wx_temp_from(&o, &a);
+    CHECK(!a.rain.on, "dry fixture is dry");
+    detail(&o, 1, 0, 0);
+    o.rain_spell[0].intensity = 1;
+    wx_temp_from_shown(&o, &a, &b);
+    CHECK(b.rain.on && b.rain.intensity == 1 && !strcmp(b.rain.sub, "Light rain"),
+          "dry, then wet with peak 1: light, not the dry default '%s'", b.rain.sub);
+
     o = obs("rain", "51");
     wx_temp_from(&o, &a);
     CHECK(a.rain.on && a.rain.intensity == 1, "legacy: drizzle, light");
