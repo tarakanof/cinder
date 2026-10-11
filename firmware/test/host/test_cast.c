@@ -360,9 +360,34 @@ static void test_dry_horizon(void)
     late.obs_age_s += 120;
     wx_cast_t e;
     wx_cast_from(&late, NULL, &e);
-    float past = fmodf((float)(e.arc[0].a + e.arc[0].n) * 0.5f - e.now_deg + 720.0f, 360.0f);
-    CHECK(e.narc == 1 && e.arc[0].a == 150 && (past <= 2.5f || past >= 180.0f),
-          "its far end stops at most 2.5 degrees past the marker (%.2f)", past);
+    CHECK(d.arc[0].n == 25 && e.narc == 1 && e.arc[0].a == 150 && e.arc[0].a + e.arc[0].n == 175,
+          "its far end is the 5-min step after now + 12 h: 02:55 at 14:50 and 14:52 (%d+%d)", e.arc[0].a, e.arc[0].n);
+    wx_obs_t step = obs_at(LOCAL(14, 50));
+    step.rain_n = 1;
+    step.rain_spell[0] = (wx_spell_t){LOCAL(2, 0) + 86400, LOCAL(3, 0) + 86400, 2, 0};
+    wx_cast_from(&step, NULL, &d);
+    CHECK(d.narc == 1 && d.arc[0].a == 120 && d.arc[0].n == 55, "a spell starting exactly on the hour step keeps its arc (%d arcs)", d.narc);
+    wx_obs_t win = late;
+    win.obs_age_s = 300;
+    wx_cast_t w0;
+    wx_cast_from(&win, NULL, &w0);
+    bool cadence = true;
+    for (int m = 1; m <= 4; m++) {
+        win.obs_age_s = 300 + m * 60;
+        wx_cast_from(&win, NULL, &e);
+        cadence &= wx_cast_same_ring(&w0, &e);
+    }
+    win.obs_age_s = 300 + 5 * 60;
+    wx_cast_from(&win, NULL, &e);
+    CHECK(cadence && !wx_cast_same_ring(&w0, &e), "in the last-hour window the dial bakes every 5 min, not every minute");
+    wx_obs_t two = obs_at(LOCAL(14, 50));
+    two.rain_n = 2;
+    two.rain_spell[0] = (wx_spell_t){LOCAL(1, 0) + 86400, LOCAL(2, 10) + 86400, 1, 0};
+    two.rain_spell[1] = (wx_spell_t){LOCAL(2, 45) + 86400, LOCAL(4, 0) + 86400, 3, 0};
+    wx_cast_from(&two, NULL, &d);
+    CHECK(d.narc == 2 && d.arc[0].a == 60 && d.arc[0].n == 70 && d.arc[1].a == 165 && d.arc[1].n == 10,
+          "a spell crossing the hour step keeps its rain past the hour while a later one runs to the marker (%d+%d, %d+%d)",
+          d.arc[0].a, d.arc[0].n, d.arc[1].a, d.arc[1].n);
     CHECK(c.narc == 1 && c.arc[0].a == 180 && c.arc[0].n == 660, "the far end stops at the hour of now + 12 h (%d+%d)", c.arc[0].a,
           c.arc[0].n);
 }

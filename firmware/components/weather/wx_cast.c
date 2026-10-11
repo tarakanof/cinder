@@ -55,10 +55,11 @@ void wx_cast_from(const wx_obs_t *o, const wx_cast_t *shown, wx_cast_t *c)
     long long off = o->utc_offset, q = s.now - fmod_ll(s.now, WX_CAST_STEP_S);
     long long end = s.now - fmod_ll(s.now, 3600) + WX_CAST_SPAN_S;
     c->now_deg = dial_deg(s.now + off);
+    for (int i = 0; i < o->rain_n && i < WX_SPELLS; i++)
+        if (o->rain_spell[i].start >= end) end = q + WX_CAST_STEP_S + WX_CAST_SPAN_S;
     for (int i = 0; i < o->rain_n && i < WX_SPELLS; i++) {
         const wx_spell_t *p = &o->rain_spell[i];
-        long long a = p->start > q ? p->start : q, e = p->start >= end ? q + WX_CAST_STEP_S + WX_CAST_SPAN_S : end,
-                  b = p->end < e ? p->end : e;
+        long long a = p->start > q ? p->start : q, b = p->end < end ? p->end : end;
         if (b - a < 60) continue;
         c->arc[c->narc++] = (wx_arc_t){(int)fmod_ll(floor_div(a + off, 60), 720), (int)((b - a) / 60), clamp_in(p->intensity)};
     }
