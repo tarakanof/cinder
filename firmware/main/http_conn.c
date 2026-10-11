@@ -228,6 +228,7 @@ static bool conn_prepare(http_conn_t *c, const char *url)
             .user_agent = "cinder",
             .event_handler = on_event,
             .user_data = c,
+            .buffer_size = c->rx_buf,
         };
         c->h = esp_http_client_init(&cfg);
         if (!c->h) return false;
@@ -448,4 +449,11 @@ void http_conn_free(http_conn_t *c)
     esp_http_client_cleanup(c->h);
     c->h = NULL;
     c->warm = false;
+}
+
+void http_conn_set_rx_buf(http_conn_t *c, int bytes)
+{
+    if (c->rx_buf == bytes) return;
+    http_conn_free(c);
+    c->rx_buf = bytes;
 }

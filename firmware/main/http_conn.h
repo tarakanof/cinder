@@ -26,6 +26,7 @@ typedef struct {
     void *hdr_ctx;
     fail_streak_t streak;
     uint32_t cut_path;
+    int rx_buf;
     /* Owner task, at the start of every request. */
     void (*on_request)(void);
 } http_conn_t;
@@ -90,6 +91,9 @@ int http_conn_stream(http_conn_t *c, const char *url, const http_stream_opts_t *
 
 /* Owner task only. */
 void http_conn_free(http_conn_t *c);
+
+/* Owner task: esp_http_client rx buffer for the next handle, 0 for IDF's 512 B; a change frees the current handle and socket. */
+void http_conn_set_rx_buf(http_conn_t *c, int bytes);
 
 /* Safe from any task. */
 void http_conn_link_down(void);

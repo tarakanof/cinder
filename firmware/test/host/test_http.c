@@ -38,6 +38,8 @@ static struct {
     bool write_fail;
     int opens;
     int closes;
+    int inits;
+    int buffer_size;
     int requests_ok;
     int requests_failed;
     int warns;
@@ -78,6 +80,8 @@ void config_store_token(char *out, size_t cap)
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *config)
 {
     memset(&F.client, 0, sizeof F.client);
+    F.inits++;
+    F.buffer_size = config->buffer_size;
     F.client.on_event = config->event_handler;
     F.client.user_data = config->user_data;
     return &F.client;
@@ -556,8 +560,45 @@ static void test_state_answer(void)
           "checkin 5xx and no answer");
 }
 
+static bool sink_all(void *ctx, const uint8_t *p, int n)
+{
+    (void)p;
+    *(int *)ctx += n;
+    return true;
+}
+
+static void test_rx_buf(void)
+{
+    http_conn_t c;
+    http_conn_init(&c, "test");
+    int len;
+    char *body = state_body(9000, &len);
+    server(200, body, len);
+    F.chunk = 4096;
+    int inits = F.inits;
+    poll_t p = poll_state(&c, LINK_ONLINE);
+    CHECK(p.status == 200 && F.inits == inits + 1 && F.buffer_size == 0, "default rx buffer: %d", F.buffer_size);
+    http_conn_set_rx_buf(&c, 4096);
+    CHECK(c.h == NULL, "a new rx size frees the handle");
+    uint8_t piece[4096];
+    int got = 0, status = 0;
+    const http_stream_opts_t o = {.sink = sink_all, .sink_ctx = &got, .piece = piece, .piece_cap = 4096, .status = &status};
+    server(200, body, len);
+    CHECK(http_conn_stream(&c, URL, &o) == 200 && got == len, "stream with 4 KB rx: %d B", got);
+    CHECK(F.inits == inits + 2 && F.buffer_size == 4096, "stream handle built with 4 KB rx: %d", F.buffer_size);
+    http_conn_set_rx_buf(&c, 4096);
+    CHECK(c.h != NULL, "the same size keeps the handle");
+    http_conn_set_rx_buf(&c, 0);
+    server(200, body, len);
+    p = poll_state(&c, LINK_ONLINE);
+    CHECK(p.status == 200 && F.inits == inits + 3 && F.buffer_size == 0, "back to the default: %d", F.buffer_size);
+    http_conn_free(&c);
+    free(body);
+}
+
 int main(void)
 {
+    test_rx_buf();
     test_state_answer();
     http_conn_t c;
     for (int chunk = 512; chunk <= 4096; chunk *= 8) {

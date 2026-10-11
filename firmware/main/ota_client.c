@@ -32,7 +32,6 @@ static const char *TAG = "ota";
 
 #define NS "ota"
 #define PIECE 4096
-#define YIELD_EVERY (64 * 1024)
 
 #if CONFIG_CINDER_OTA_TEST
 #define ROLLBACK_LIMIT_MS (2 * 60 * 1000)
@@ -422,7 +421,8 @@ typedef struct {
     esp_ota_handle_t h;
     bool open;
     mbedtls_sha256_context sha;
-    uint32_t written, from, next_yield;
+    uint32_t written, from;
+    int64_t yield_ms;
     uint8_t hdr[OTA_HEADER_LEN];
     uint32_t hdr_have;
     bool hdr_ok;
@@ -442,7 +442,7 @@ static bool dl_begin(dl_t *d)
     mbedtls_sha256_starts(&d->sha, 0);
     d->written = d->hdr_have = 0;
     d->hdr_ok = false;
-    d->next_yield = YIELD_EVERY;
+    d->yield_ms = uptime_ms();
     esp_err_t err = esp_ota_begin(d->part, OTA_WITH_SEQUENTIAL_WRITES, &d->h);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_begin: %s", esp_err_to_name(err));
@@ -460,12 +460,27 @@ static void dl_abort(dl_t *d)
     mbedtls_sha256_free(&d->sha);
 }
 
-static bool dl_write(dl_t *d, const uint8_t *p, int n)
+static int64_t io_now(void *ctx)
 {
-    if (d->written + (uint32_t)n > d->offer->size) {
-        strcpy(d->err, "size");
-        return false;
-    }
+    (void)ctx;
+    return uptime_ms();
+}
+
+static uint64_t io_idle(void *ctx)
+{
+    (void)ctx;
+    return (uint64_t)ulTaskGetIdleRunTimeCounterForCore(xPortGetCoreID());
+}
+
+static void io_delay(void *ctx, int ticks)
+{
+    (void)ctx;
+    vTaskDelay(ticks);
+}
+
+static bool io_write(void *ctx, const uint8_t *p, int n)
+{
+    dl_t *d = ctx;
     mbedtls_sha256_update(&d->sha, p, (size_t)n);
     esp_err_t err = esp_ota_write(d->h, p, (size_t)n);
     if (err != ESP_OK) {
@@ -473,12 +488,21 @@ static bool dl_write(dl_t *d, const uint8_t *p, int n)
         strcpy(d->err, "flash");
         return false;
     }
+    return true;
+}
+
+static const ota_piece_io_t YIELD_IO = {.now_ms = io_now, .idle = io_idle, .delay = io_delay};
+
+static bool dl_write(dl_t *d, const uint8_t *p, int n)
+{
+    if (d->written + (uint32_t)n > d->offer->size) {
+        strcpy(d->err, "size");
+        return false;
+    }
+    const ota_piece_io_t io = {.now_ms = io_now, .idle = io_idle, .delay = io_delay, .write = io_write, .ctx = d};
+    if (!ota_piece_write(&io, &d->yield_ms, p, n)) return false;
     d->written += (uint32_t)n;
     ota_face_pct(ota_pct(d->written, d->offer->size));
-    if (d->written >= d->next_yield) {
-        d->next_yield += YIELD_EVERY;
-        vTaskDelay(1);
-    }
     return true;
 }
 
@@ -650,7 +674,11 @@ static void run_update(const ota_ctx_t *ctx)
     ctx->alive();
     bool ok = d->part && offer->size <= d->part->size;
     if (!ok) strcpy(d->err, d->part ? "size" : "flash");
-    if (ok) ok = dl_begin(d) && download(d, piece);
+    if (ok) {
+        http_conn_set_rx_buf(ctx->conn, OTA_RX_BUF);
+        ok = dl_begin(d) && download(d, piece);
+        http_conn_set_rx_buf(ctx->conn, 0);
+    }
     free(piece);
     bool bad = false;
     if (ok && d->written != offer->size) {
@@ -665,6 +693,7 @@ static void run_update(const ota_ctx_t *ctx)
     if (ok) {
         d->open = false;
         mbedtls_sha256_free(&d->sha);
+        ota_yield(&YIELD_IO);
         ctx->alive();
         esp_err_t err = esp_ota_end(d->h);
         ctx->alive();
@@ -708,6 +737,7 @@ static void finish(const ota_ctx_t *ctx)
     }
     ota_rec_rebooting(&O->rec);
     rec_save();
+    ota_yield(&YIELD_IO);
     esp_err_t err = esp_ota_set_boot_partition(O->ready);
     ctx->alive();
     if (err != ESP_OK) {
