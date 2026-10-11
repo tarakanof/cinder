@@ -188,7 +188,7 @@ bool wx_cast_label_place(float deg, int w, int h, wx_box_t avoid, int *x, int *y
 
 wx_box_t wx_cast_sub_box(int w, int h)
 {
-    int x0 = 233 - (w + 1) / 2;
+    int x0 = 233 - w / 2;
     return (wx_box_t){x0, WX_SUB_Y, x0 + w, WX_SUB_Y + h};
 }
 

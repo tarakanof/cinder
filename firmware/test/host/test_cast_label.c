@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "lvgl.h"
+#include "src/core/lv_global.h"
 #include "weather_face.h"
 #include "wx_cast.h"
 
@@ -10,6 +11,7 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 const lv_font_t lv_font_montserrat_14;
+lv_global_t lv_global;
 void lv_memset(void *dst, uint8_t v, size_t len) { memset(dst, v, len); }
 void *lv_memcpy(void *dst, const void *src, size_t len) { return memcpy(dst, src, len); }
 int lv_strcmp(const char *a, const char *b) { return strcmp(a, b); }
@@ -76,6 +78,10 @@ int main(void)
                     cases++;
                     int lw = text_w(f24, c.label), lh = f24->line_height, x, y;
                     wx_box_t sub = wx_cast_sub_box(text_w(f30, c.sub), f30->line_height);
+                    lv_area_t face = {0, 0, 465, 465}, sa = {0, 0, sub.x1 - sub.x0 - 1, sub.y1 - sub.y0 - 1};
+                    lv_area_align(&face, &sa, LV_ALIGN_TOP_MID, 0, WX_SUB_Y);
+                    CHECK(sa.x1 == sub.x0 && sa.y1 == sub.y0, "minute %d: the sub box is where LVGL's TOP_MID puts a %d px label (%d, not %d)",
+                          m, sub.x1 - sub.x0, (int)sa.x1, sub.x0);
                     float ax, ay;
                     int al;
                     wx_cast_label_at(c.label_deg, &ax, &ay, &al);

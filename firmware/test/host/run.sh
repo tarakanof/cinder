@@ -271,7 +271,7 @@ if [ -d "$LV" ]; then
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_36.c" "$D/test_face_fonts.c" \
         -o "${OUT}_face_fonts"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
-        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_24.c" "$LV/src/font/lv_font_montserrat_30.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_24.c" "$LV/src/font/lv_font_montserrat_30.c" "$LV/src/misc/lv_area.c" "$LV/src/misc/lv_math.c" \
         "$W/weather_face.c" "$W/wx_rain.c" "$W/wx_cast.c" "$D/test_cast_label.c" -lm -o "${OUT}_cast_label"
 fi
 "${OUT}_bot"
