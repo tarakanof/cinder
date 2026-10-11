@@ -605,7 +605,7 @@ static void set_cast(const wx_cast_t *c, int fo, int sprite_opa)
 {
     int k = (int)floor(s_t * WX_CAST_FPS);
     int gate = wx_cast_gate_opa((double)k / WX_CAST_FPS);
-    bool rain = fo == 255 && gate > 0;
+    bool rain = fo == 255 && gate > 0 && !c->dry;
     for (int s = 0; s < s_clay.sides; s++) {
         const wx_cast_sheet_t *sh = wx_cast_sheet(c->variant, s);
         int dx = wx_cast_breathe(c->variant, s, k), opa = sprite_opa * wx_cast_gloom(c->variant, k) / 255;
@@ -728,15 +728,11 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
     const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;
     char txt[20];
     if (s_cast) {
-        if (c->has_count) {
-            set_unit_text(c->hours ? "h" : "min");
-            wx_cast_step_text(c, wx_count_step(wx_cast_count_n(c), ta), txt, sizeof txt);
-            set_value(txt, WX_CAST_RGB);
-            set_unit(WX_CAST_RGB);
-        } else {
-            set_unit_text(NULL);
-            set_value("--", GREY_RGB);
-        }
+        uint32_t rgb;
+        const char *unit = wx_cast_value(c, wx_count_step(wx_cast_count_n(c), ta), txt, sizeof txt, &rgb);
+        set_unit_text(unit);
+        set_value(txt, rgb);
+        set_unit(rgb);
         float mx = 0, my = 0;
         wx_cast_ring_xy(c->now_deg, &mx, &my);
         place_marker(mx, my, c->have);

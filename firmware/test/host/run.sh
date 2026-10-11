@@ -129,7 +129,9 @@ CAST_CV='lv_canvas_set_buffer\(s_(cloud|cstrip|ctop|cbottom)'
     body "$TFC" cast_attach | grep -qF 'uint8_t *m = s_buf.still;' || WIRING="$WIRING forecast-layers-attach-only-in-cast_attach-from-the-still-buffer"
 body "$TFC" paint | grep -qF 'const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;' ||
     WIRING="$WIRING paint-keeps-the-baked-forecast-while-fading-out"
-body "$TFC" set_cast | grep -qF 'bool rain = fo == 255 && gate > 0;' || WIRING="$WIRING forecast-sheets-hidden-while-fading"
+body "$TFC" paint | grep -qF 'const char *unit = wx_cast_value(c, wx_count_step(wx_cast_count_n(c), ta), txt, sizeof txt, &rgb);' &&
+    body "$TFC" paint | grep -qF 'set_unit_text(unit);' || WIRING="$WIRING forecast-value-and-unit-from-wx_cast_value"
+body "$TFC" set_cast | grep -qF 'bool rain = fo == 255 && gate > 0 && !c->dry;' || WIRING="$WIRING forecast-sheets-hidden-while-fading-and-when-dry"
 body "$TFC" set_cast | grep -qF 'if (cloud) lv_obj_invalidate(s_cbox[s]);' || WIRING="$WIRING forecast-cloud-and-sheet-in-one-area"
 body "$TFC" set_label | grep -qF 'lv_text_get_size(&sub, c->sub, &lv_font_montserrat_30, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_RECOLOR);' &&
     body "$TFC" set_label | grep -qF 's_shown.label_clear = wx_cast_label_place(c->label_deg, sz.x, sz.y, wx_cast_sub_box(sub.x, sub.y), &x, &y);' &&

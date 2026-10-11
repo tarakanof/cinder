@@ -75,9 +75,16 @@ void wx_cast_from(const wx_obs_t *o, const wx_cast_t *shown, wx_cast_t *c)
         c->variant = clamp_in(s.next->intensity);
         c->snow = s.next->kind == 1;
         at = s.next->start;
+    } else {
+        c->dry = true;
+        c->variant = 1;
+        c->hours = true;
+        c->count = WX_CAST_SPAN_S / 1800;
+        snprintf(c->sub, sizeof c->sub, "No rain for 12 h");
+        return;
     }
     if (!at) {
-        snprintf(c->sub, sizeof c->sub, "%s", s.wet ? word(c->snow, c->variant, true) : "Dry for 12 h");
+        snprintf(c->sub, sizeof c->sub, "%s", word(c->snow, c->variant, true));
         return;
     }
     c->has_count = true;
@@ -106,7 +113,7 @@ bool wx_cast_soon(const wx_obs_t *o, bool shown)
 
 bool wx_cast_same_scene(const wx_cast_t *a, const wx_cast_t *b)
 {
-    return a->on == b->on && (!a->on || (a->variant == b->variant && a->snow == b->snow));
+    return a->on == b->on && (!a->on || (a->variant == b->variant && a->snow == b->snow && a->dry == b->dry));
 }
 
 bool wx_cast_same_ring(const wx_cast_t *a, const wx_cast_t *b)
@@ -144,12 +151,25 @@ void wx_cast_count_text(bool hours, int count, char *buf, size_t n)
     else snprintf(buf, n, "\xC2\xBD");
 }
 
-int wx_cast_count_n(const wx_cast_t *c) { return c->has_count ? c->count : 0; }
+int wx_cast_count_n(const wx_cast_t *c) { return c->has_count || c->dry ? c->count : 0; }
 
 void wx_cast_step_text(const wx_cast_t *c, int k, char *buf, size_t n)
 {
     int v = k < 0 ? 0 : k > c->count ? c->count : k;
-    wx_cast_count_text(c->hours, v, buf, n);
+    if (c->dry && v == c->count) snprintf(buf, n, "%d+", c->count / 2);
+    else wx_cast_count_text(c->hours, v, buf, n);
+}
+
+const char *wx_cast_value(const wx_cast_t *c, int k, char *buf, size_t n, uint32_t *rgb)
+{
+    if (!c->has_count && !c->dry) {
+        snprintf(buf, n, "--");
+        *rgb = WX_CAST_GREY_RGB;
+        return NULL;
+    }
+    wx_cast_step_text(c, k, buf, n);
+    *rgb = c->dry ? WX_CAST_DRY_RGB : WX_CAST_RGB;
+    return c->hours ? "h" : "min";
 }
 
 void wx_cast_ring_xy(float deg, float *x, float *y)

@@ -169,11 +169,13 @@ static void test_states(void)
 
     o = obs_at(NOW);
     wx_cast_from(&o, NULL, &c);
-    CHECK(c.on && c.have && !c.has_count && c.variant == 0 && c.narc == 0 && !strcmp(c.sub, "Dry for 12 h"),
-          "spells []: dry for 12 h ('%s')", c.sub);
+    CHECK(c.on && c.have && c.dry && !c.wet && !c.has_count && c.variant == 1 && !c.snow && c.narc == 0 &&
+              !strcmp(c.sub, "No rain for 12 h") && !c.label[0],
+          "spells []: dry for 12 h, the light cloud ('%s')", c.sub);
     o.has_rain = false;
     wx_cast_from(&o, NULL, &c);
-    CHECK(c.on && !c.have && !c.has_count && !strcmp(c.sub, "No forecast"), "no rain block: no forecast");
+    CHECK(c.on && !c.have && !c.dry && !c.has_count && c.variant == 0 && !strcmp(c.sub, "No forecast"),
+          "no rain block: no forecast");
     o = obs_at(NOW);
     o.has_utc_offset = false;
     wx_cast_from(&o, NULL, &c);
@@ -181,7 +183,7 @@ static void test_states(void)
     o = obs_at(NOW);
     o.stale = true;
     wx_cast_from(&o, NULL, &c);
-    CHECK(c.on && !c.have && !c.sub[0], "stale: grey, no sub-line");
+    CHECK(c.on && !c.have && !c.dry && c.variant == 0 && !c.sub[0], "stale: grey, no sub-line");
     o = obs_at(NOW);
     o.age_s = 7200;
     wx_cast_from(&o, NULL, &c);
@@ -191,7 +193,7 @@ static void test_states(void)
     wx_cast_from(&o, NULL, &c);
     CHECK(!c.have, "no knob clock");
     wx_cast_from(NULL, NULL, &c);
-    CHECK(c.on && !c.have && !c.has_count, "no data");
+    CHECK(c.on && !c.have && !c.has_count && !c.dry, "no data");
 
     o = dry_with(LOCAL(18, 0), LOCAL(19, 0), 3, 1);
     wx_cast_from(&o, NULL, &c);
@@ -426,7 +428,7 @@ static void test_auto(void)
     CHECK(t.face == WXF_CAST && t.cast.on && !t.rain.on && t.cast.wet, "picked while wet: the countdown to the stop");
     o = obs_at(NOW);
     wx_temp_face(&o, NULL, WXF_CAST, &t);
-    CHECK(t.face == WXF_CAST && t.cast.have && !t.cast.has_count, "picked while dry for 12 h");
+    CHECK(t.face == WXF_CAST && t.cast.have && t.cast.dry && !t.cast.has_count, "picked while dry for 12 h");
     o = dry_with(LOCAL(15, 15), LOCAL(16, 0), 2, 0);
     wx_temp_face(&o, NULL, WXF_TEMP, &t);
     CHECK(t.face == WXF_TEMP && !t.cast.on, "Temperature picked over an auto forecast carries no forecast");
@@ -457,7 +459,69 @@ static void test_bake_kind(void)
     CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "snow: a full scene");
     later = obs_at(NOW);
     wx_temp_face(&later, &a, WXF_CAST, &b);
-    CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "the rain leaves the 12 h: no clouds, a full scene");
+    CHECK(b.cast.dry && b.cast.variant == a.cast.variant && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL &&
+              wx_temp_bake_kind(&a, &b) == WX_BAKE_FULL,
+          "the rain leaves the 12 h, or comes back light: the same cloud, the drops go or come in a full scene");
+    later.obs_age_s += 900;
+    wx_temp_face(&later, &b, WXF_CAST, &a);
+    CHECK(wx_temp_bake_kind(&a, &b) == 0, "dry for 12 h as time passes: no bake");
+}
+
+static void test_dry(void)
+{
+    char buf[12];
+    uint32_t rgb = 0;
+    wx_obs_t o = obs_at(NOW);
+    wx_cast_t c;
+    wx_cast_from(&o, NULL, &c);
+    CHECK(wx_cast_count_n(&c) == 24, "dry counts up in half hours to 12: %d", wx_cast_count_n(&c));
+    const char *u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(u && !strcmp(u, "h") && !strcmp(buf, "12+") && rgb == WX_CAST_DRY_RGB, "dry: '%s' %s #%06X", buf, u ? u : "-",
+          (unsigned)rgb);
+    wx_cast_value(&c, 24, buf, sizeof buf, &rgb);
+    CHECK(!strcmp(buf, "12+"), "the last step is 12+: '%s'", buf);
+    wx_cast_value(&c, 23, buf, sizeof buf, &rgb);
+    CHECK(!strcmp(buf, "11\xC2\xBD") && rgb == WX_CAST_DRY_RGB, "the step before: '%s'", buf);
+    wx_cast_value(&c, 0, buf, sizeof buf, &rgb);
+    CHECK(!strcmp(buf, "0"), "the count-up starts at 0: '%s'", buf);
+    CHECK(wx_cast_sides(c.variant) == 1 && wx_cast_sheet(c.variant, 0), "dry: the light cloud's layout");
+    CHECK(!wx_cast_soon(&o, false) && !wx_cast_soon(&o, true), "dry for 12 h is never the auto face");
+
+    o.rain_n = 1;
+    o.rain_spell[0] = (wx_spell_t){LOCAL(12, 0), LOCAL(14, 0), 2, 0};
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.dry && c.narc == 0 && !strcmp(c.sub, "No rain for 12 h"), "a spell that ended: dry, unlit dial");
+    o.rain_spell[0] = (wx_spell_t){LOCAL(12, 0), NOW, 2, 0};
+    wx_cast_from(&o, NULL, &c);
+    CHECK(c.dry && !c.wet, "a spell ending exactly now: dry");
+
+    o = dry_with(LOCAL(17, 0), LOCAL(19, 0), 2, 0);
+    wx_cast_from(&o, NULL, &c);
+    u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(!c.dry && u && !strcmp(u, "h") && !strcmp(buf, "2\xC2\xBD") && rgb == WX_CAST_RGB, "a spell due: the countdown in blue");
+    o = dry_with(LOCAL(15, 15), LOCAL(16, 0), 2, 0);
+    wx_cast_from(&o, NULL, &c);
+    u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(u && !strcmp(u, "min") && !strcmp(buf, "45") && rgb == WX_CAST_RGB, "minutes: '%s'", buf);
+
+    o = wet_until(LOCAL(15, 40));
+    o.rain_until = 0;
+    wx_cast_from(&o, NULL, &c);
+    u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(!c.dry && !u && !strcmp(buf, "--") && rgb == WX_CAST_GREY_RGB, "wet without a stop: '--' grey");
+    o = obs_at(NOW);
+    o.has_rain = false;
+    wx_cast_from(&o, NULL, &c);
+    u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(!c.dry && !u && !strcmp(buf, "--") && rgb == WX_CAST_GREY_RGB && wx_cast_count_n(&c) == 0, "no forecast: '--' grey");
+    o = obs_at(NOW);
+    o.stale = true;
+    wx_cast_from(&o, NULL, &c);
+    u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(!u && !strcmp(buf, "--") && rgb == WX_CAST_GREY_RGB, "stale: '--' grey");
+    wx_cast_from(NULL, NULL, &c);
+    u = wx_cast_value(&c, 99, buf, sizeof buf, &rgb);
+    CHECK(!u && !strcmp(buf, "--") && rgb == WX_CAST_GREY_RGB, "no data: '--' grey");
 }
 
 static void test_motion(void)
@@ -731,6 +795,7 @@ int main(void)
     test_dry_horizon();
     test_auto();
     test_bake_kind();
+    test_dry();
     test_motion();
     test_labels();
     test_layout();
