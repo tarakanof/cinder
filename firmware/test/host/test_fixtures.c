@@ -308,6 +308,13 @@ static void test_view_rain_keys(void)
         bool ok = faces_parse(root, &v);
         CHECK(ok && !o->has_now_rain && !o->has_pop && o->rain_until == 0 && o->has_today, "%s: unknown", BAD[i].what);
     }
+    static const double OFFSET[] = {3600.5, -1800.5};
+    for (size_t i = 0; i < sizeof OFFSET / sizeof OFFSET[0]; i++) {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "utc_offset", cJSON_CreateNumber(OFFSET[i]));
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->has_utc_offset && o->has_now_rain, "utc_offset %.1f: not an integer, unknown", OFFSET[i]);
+    }
 
     cJSON *root, *w = faces_weather(&root);
     cJSON *sp = cJSON_CreateArray();
