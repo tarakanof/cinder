@@ -451,11 +451,16 @@ void bot_act_begin(bot_t *b, double t)
 {
     b->acting = true;
     start_saccade_to(b, t, true, VIEWER_X, VIEWER_Y);
+    b->lean_x = tween(tween_value(&b->lean_x, t), VIEWER_X * 0.045, t, 0.42, EASE_IN_OUT);
+    b->lean_y = tween(tween_value(&b->lean_y, t), VIEWER_Y * 0.03, t, 0.42, EASE_IN_OUT);
 }
 
 void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t)
 {
+    bot_tween_t lx = b->lean_x, ly = b->lean_y;
     start_saccade_to(b, t, glide, x, y);
+    b->lean_x = lx;
+    b->lean_y = ly;
 }
 
 void bot_act_lid(bot_t *b, double lid, double dur, double t)

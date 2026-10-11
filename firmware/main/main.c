@@ -754,7 +754,7 @@ void page_bot_frame(const page_frame_t *f)
     bot_view_set_offline(f->offline);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps)) pose = false;
-    bot_view_chase(chase->chasing, chase->chasing && chase->label_opa > 0);
+    bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);
     if (pose) s_pose_drawn_at = t;
     if (pose) {
         bot_view_update(p);

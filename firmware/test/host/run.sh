@@ -348,6 +348,8 @@ done
 body "$MAINC" moment_unact | grep -qF 'if (s_acting) bot_act_end(&s_bot, true, 0.3, t);' && body "$MAINC" moment_unact | grep -qF 's_cue = s_cue_n;' ||
     WIRING="$WIRING moment_unact-ends-the-act-and-the-cues"
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
+body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);' ||
+    WIRING="$WIRING page_bot_frame-merges-the-eyes-into-one-area-during-a-moment"
 body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
     WIRING="$WIRING app_main-creates-the-moments"
 grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MAINC" || WIRING="$WIRING trigger-in-PSRAM"

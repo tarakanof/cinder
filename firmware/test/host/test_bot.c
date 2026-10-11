@@ -873,13 +873,17 @@ static void test_act(void)
     bot_init(&b, 24, 0);
     for (t = 0; t < 2; t += 0.016) bot_pose(&b, t);
     bot_act_begin(&b, t);
-    double gx = b.gaze_to_x, gy = b.gaze_to_y;
+    CHECK(b.gaze_to_x == 0 && fabs(b.gaze_to_y - 0.1) < 1e-9 && b.gaze_dur == 0.42, "begin glides to the viewer");
+    bot_pose_t settled = bot_pose(&b, t + 0.5);
+    CHECK(fabs(settled.offset_x) < 1e-9 && fabs(settled.offset_y - 0.003) < 1e-9, "and leans as for the viewer within the pre-roll: %g %g",
+          settled.offset_x, settled.offset_y);
     bot_act_gaze(&b, 0.3, 0.2, true, t + 1);
     CHECK(b.gaze_to_x == 0.3 && b.gaze_to_y == 0.2 && b.gaze_dur == 0.42, "a glide: 0.42 s");
     bot_act_gaze(&b, -0.3, 0.1, false, t + 2);
     CHECK(b.gaze_dur < 0.1, "a saccade: fast (%g)", b.gaze_dur);
-    (void)gx;
-    (void)gy;
+    bot_pose_t held = bot_pose(&b, t + 2.6);
+    CHECK(held.offset_x == settled.offset_x && held.offset_y == settled.offset_y, "acting gazes keep the body lean: %g %g", held.offset_x,
+          held.offset_y);
 }
 
 int main(void)

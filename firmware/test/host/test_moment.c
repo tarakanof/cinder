@@ -847,6 +847,8 @@ static fbox_t eye_box(const bot_pose_t *p)
     return b;
 }
 
+static int rim_dy_of(const bot_pose_t *p) { return ((int)lround(-BODY_R * p->offset_y * HOP_SCALE)) & ~1; }
+
 static int cue_eyes(wxm_eyes_t e) { return e == WXM_EYES_ROUND ? BOT_EYES_ROUND : e == WXM_EYES_HAPPY ? BOT_EYES_HAPPY : -1; }
 
 static void cue(bot_t *b, const wxm_cue_t *c, double t)
@@ -885,13 +887,39 @@ static void test_acting(void)
                 bot_mood_t mood = b.mood;
                 if (!quiet) bot_act_begin(&b, t);
                 double t0 = t + (quiet ? 0 : WXM_PRE_S);
-                int i = 0;
+                int i = 0, rim_dy = 0, last_k = -1;
+                bool have_rim = false, have_pose = false, any = false;
+                bot_pose_t last;
+                wxm_frame_t shown;
                 for (; t < t0 + (WXM_FRAMES + 30) * F; t += 1.0 / 60) {
                     while (i < n && t - t0 >= c[i].t) cue(&b, &c[i++], t);
                     bot_pose_t p = bot_pose(&b, t);
                     int k = (int)floor((t - t0) * WXM_FPS);
                     wxm_frame_t f;
                     wxm_frame(&m, &l, k, &f);
+                    int dy = rim_dy_of(&p);
+                    bool squashed = fabs(p.scale_y / p.scale_x - 1) >= 0.015;
+                    bool hop = m.kind == WXM_AFTERRAIN && t - t0 >= 1.2 && t - t0 < 1.2 + BOT_HOP_DURATION_S + 0.05;
+                    int areas = 0;
+                    if (k >= 0 && k < WXM_FRAMES) {
+                        bool rim = (have_rim && dy != rim_dy) || squashed;
+                        CHECK(!rim || hop, "%s in mood %d, seed %d, frame %d: the outline moves (dy %d -> %d, %s)", KIND[m.kind], mood, seed, k,
+                              rim_dy, dy, squashed ? "squashed" : "lean");
+                        areas += rim;
+                        areas += have_pose && !bot_pose_same(&p, &last, BODY_R);
+                        if (k != last_k) {
+                            areas += wxm_diff(&l, any ? &shown : NULL, &f) != 0;
+                            areas += quiet;
+                            shown = f;
+                            any = true;
+                            last_k = k;
+                        }
+                        CHECK(areas <= (quiet ? 3 : 2) || hop, "%s in mood %d, seed %d, frame %d: %d redraw areas", KIND[m.kind], mood, seed, k, areas);
+                    }
+                    rim_dy = dy;
+                    have_rim = true;
+                    last = p;
+                    have_pose = true;
                     fbox_t e = eye_box(&p);
                     if (f.opa > 0) {
                         top = fmin(top, e.y0);
