@@ -632,7 +632,7 @@ static void test_areas(void)
 
 static void test_abort(void)
 {
-    static const int WANT[WXM_FRAMES] = {67, 66, 64, 63, 62, 61, 60, 59, [8 ... 57] = 58, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67};
+    static const int WANT[WXM_FRAMES] = {66, 65, 64, 63, 62, 61, 60, 59, [8 ... 57] = 58, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67};
     for (int k = 0; k < WXM_FRAMES; k++) CHECK(wxm_abort_frame(k) == WANT[k], "abort at %d: %d, want %d", k, wxm_abort_frame(k), WANT[k]);
     CHECK(wxm_abort_frame(-1) == WXM_FRAMES - 1, "before the first frame");
     wxm_moment_t m = variant(WXM_GLANCE, 1);
@@ -642,7 +642,7 @@ static void test_abort(void)
         wxm_frame_t a, b;
         wxm_frame(&m, &l, k, &a);
         wxm_frame(&m, &l, wxm_abort_frame(k), &b);
-        CHECK(a.opa == b.opa && a.dy == b.dy && (k < WXM_TEXT_IN ? b.text_opa < a.text_opa || !b.text_opa : b.text_opa == a.text_opa),
+        CHECK(a.opa == b.opa && a.dy == b.dy && b.text_opa == a.text_opa,
               "abort at %d keeps the sprite where it is (%d/%d -> %d/%d, text %d -> %d)", k, a.opa, a.dy, b.opa, b.dy, a.text_opa, b.text_opa);
     }
 }

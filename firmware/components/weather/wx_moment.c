@@ -344,7 +344,7 @@ int wxm_diff(const wxm_layout_t *l, const wxm_frame_t *a, const wxm_frame_t *b)
 int wxm_abort_frame(int k)
 {
     if (k < 0) return WXM_FRAMES - 1;
-    if (k < WXM_TEXT_IN) return WXM_FRAMES - 1 - k;
+    if (k < WXM_TEXT_IN) return WXM_FRAMES - 2 - k;
     if (k <= WXM_SPRITE_FROM) return WXM_SPRITE_OUT;
     if (k < WXM_SPRITE_IN) return WXM_SPRITE_OUT + WXM_SPRITE_FROM - k;
     if (k < WXM_HOLD_END) return WXM_HOLD_END;

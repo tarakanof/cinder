@@ -363,6 +363,7 @@ body "$MVC" moment_view_poll | grep -qF 'if (s_state == MV_BAKING && atomic_load
 body "$MVC" moment_view_start | grep -qF 's_play_at = t + (m->quiet ? 0 : WXM_PRE_S);' &&
     body "$MVC" moment_view_start | grep -qF 'if (!s_arena || s_held || s_state != MV_IDLE || atomic_load(&s_bake) != BAKE_IDLE) return false;' ||
     WIRING="$WIRING start-waits-for-an-idle-bake-and-the-hold"
+body "$MVC" moment_view_abort | grep -qF 'int k = wxm_abort_frame(s_k);' || WIRING="$WIRING abort-before-any-frame-ends-it"
 body "$MVC" moment_view_frame | grep -qF 'int d = wxm_diff(&s_l, s_any ? &s_shown : NULL, &f);' || WIRING="$WIRING frame-diffs-against-the-shown-frame"
 body "$MVC" sprite | sed -n 2,4p | grep -qF 'lv_obj_invalidate_area(s_parent, &box);' || WIRING="$WIRING sprite-invalidates-its-box-first"
 body "$MVC" text | awk '/lv_obj_invalidate_area\(s_parent, &u\);/ {u = NR} /bot_view_icon_redraw\(&icon\);/ {i = NR} /lv_obj_set_style_opa\(s_text/ {o = NR} END {exit !(u && u < i && u < o)}' ||

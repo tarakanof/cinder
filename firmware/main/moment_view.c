@@ -204,7 +204,7 @@ void moment_view_abort(double t)
         return;
     }
     if (s_state != MV_PLAYING) return;
-    int k = wxm_abort_frame(s_k < 0 ? 0 : s_k);
+    int k = wxm_abort_frame(s_k);
     if (k != s_k) s_t0 = t - (k + 0.5) / WXM_FPS;
 }
 

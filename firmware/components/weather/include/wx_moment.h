@@ -162,7 +162,8 @@ enum { WXM_DIRTY_SPRITE = 1, WXM_DIRTY_TEXT = 2 };
 /* What b changes against the frame on screen a (NULL: nothing shown): the sprite box, the text line (with the tool icon
    in the quiet variant). Frames in order, or cut short by wxm_abort_frame, never change both. */
 int wxm_diff(const wxm_layout_t *l, const wxm_frame_t *a, const wxm_frame_t *b);
-/* Where a moment cut short at frame k goes on: the same opacity on the way out. */
+/* Where a moment cut short at frame k goes on: the sprite's and the text's opacity unchanged, on the way out; k < 0
+   (nothing shown yet): the last frame. */
 int wxm_abort_frame(int k);
 
 typedef enum { WXM_GLIDE, WXM_SACCADE, WXM_LID, WXM_BLINK, WXM_EYES, WXM_HOP, WXM_END } wxm_op_t;
