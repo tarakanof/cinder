@@ -62,12 +62,12 @@ wx_look_t wx_look_from_obs(const wx_obs_t *obs);
 
 bool wx_look_equal(const wx_look_t *a, const wx_look_t *b);
 
-/* Seconds since the observation was last confirmed by Ember -> "2 h ago". */
+/* An age in seconds -> "2 h ago"; under 60 s or NaN -> "just now". */
 int wx_age_text(double age_s, char *buf, size_t n);
 /* observed_at and server_now in Unix seconds; false when either is unknown. Clamped at 0. */
 bool wx_obs_age(long long observed_at, double server_now, double *age_s);
-/* Offline label: the observation's own age (obs_age_s + age_s) when known, else "stale" when Ember flagged it stale,
-   else the time since Ember last confirmed it (age_s). */
+/* Offline label: the observation's own age (obs_age_s + age_s) when known, but "stale" when Ember flagged it stale
+   and that age is under WX_MAX_AGE_S; without it "stale" when flagged, else the time since Ember confirmed it. */
 int wx_age_label(const wx_obs_t *o, char *buf, size_t n);
 const char *wx_face_name(wx_face_t f);
 

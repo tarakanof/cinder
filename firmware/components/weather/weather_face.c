@@ -158,7 +158,11 @@ bool wx_obs_age(long long observed_at, double server_now, double *age_s)
 
 int wx_age_label(const wx_obs_t *o, char *buf, size_t n)
 {
-    if (o->has_obs_age) return wx_age_text(o->obs_age_s + (o->age_s > 0 ? o->age_s : 0), buf, n);
+    if (o->has_obs_age) {
+        double total = o->obs_age_s + (o->age_s > 0 ? o->age_s : 0);
+        if (o->stale && !(total >= WX_MAX_AGE_S)) return snprintf(buf, n, "stale");
+        return wx_age_text(total, buf, n);
+    }
     if (o->stale) return snprintf(buf, n, "stale");
     return wx_age_text(o->age_s, buf, n);
 }

@@ -359,6 +359,19 @@ static void test_obs_age(void)
     o.obs_age_s = 3 * 3600;
     wx_age_label(&o, lb, sizeof lb);
     CHECK(strcmp(lb, "3 h ago") == 0, "label: a known age wins over 'stale', got '%s'", lb);
+    static const struct {
+        double obs_age_s, age_s;
+        const char *want;
+    } S[] = {
+        {0, 0, "stale"}, {0, 30, "stale"}, {1700, 99.9, "stale"}, {1700, 100, "30 min ago"}, {1800, -5, "30 min ago"},
+    };
+    for (size_t i = 0; i < sizeof S / sizeof S[0]; i++) {
+        o.obs_age_s = S[i].obs_age_s;
+        o.age_s = S[i].age_s;
+        wx_age_label(&o, lb, sizeof lb);
+        CHECK(strcmp(lb, S[i].want) == 0, "stale with a known age %.1f + %.1f -> '%s', want '%s'", S[i].obs_age_s,
+              S[i].age_s, lb, S[i].want);
+    }
     o.stale = false;
     o.obs_age_s = 0;
     o.age_s = 30;
