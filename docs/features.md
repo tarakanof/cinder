@@ -827,11 +827,11 @@ While it rains, snows or storms now, the weather page shows the Rain now face (c
 
   | | #68 head | Rain now | Δ |
   |---|---|---|---|
-  | Image (`cinder.bin`) | 1,595,248 B | 1,609,184 B | +13,936 |
-  | Flash `.text` / `.rodata` | 1,066,092 / 425,676 B | 1,078,872 / 426,844 B | +12,780 / +1,168 (`wx_paint.c` +5.2 KB, `temp_face.c` +3.4 KB, `wx_rain.c` 3.3 KB, `lv_obj_align_to` 1.6 KB) |
+  | Image (`cinder.bin`) | 1,595,248 B | 1,609,856 B | +14,608 (+672 after review: `wx_rain_ops`, the text measure) |
+  | Flash `.text` / `.rodata` | 1,066,092 / 425,676 B | 1,079,544 / 426,844 B | +13,452 / +1,168 (`wx_paint.c` +5.2 KB, `temp_face.c` +3.4 KB, `wx_rain.c` 3.3 KB, `lv_obj_align_to` 1.6 KB) |
   | IRAM `.text` | 15,356 B | 15,356 B | 0 |
   | DIRAM static (`.data` / `.bss`) | 101,575 B (23,464 / 14,888) | 101,935 B (23,464 / 15,248) | +360 (the larger `wx_obs_t` copies in `weather_client.c`, 24 object pointers) |
-  | PSRAM `.bss` | 49,636 B | 49,956 B | +320 (`shown_t`, layout) |
+  | PSRAM `.bss` | 49,636 B | 49,964 B | +328 (`shown_t`, layout) |
   | PSRAM heap, weather page shown | 903,330 B | 903,330 B | 0 (the rain layers live in the still-cloud buffer) |
   | Internal heap (LVGL objects, for life) | | 25 more objects (3 containers, 21 canvases, the "%" label) | estimate ~5-7 KB, not measured |
   | `stack_walk.py` | `lvgl` 8,592, `wxbake` 2,496, `ember` 5,152 | same | 0 |
