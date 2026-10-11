@@ -243,6 +243,10 @@ static void test_bake_key(void)
     o.max_c = 7;
     wx_temp_from(&o, &t);
     CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_RING, "a range: ring only");
+    wx_temp_t r = t;
+    r.has_range = !t.has_range;
+    CHECK(r.lo == t.lo && r.hi == t.hi && wx_temp_bake_kind(&r, &t) == WX_BAKE_RING,
+          "the range comes or goes with the same lo and hi: ring only");
     o.moon_illum = 60;
     wx_temp_from(&o, &t);
     CHECK(wx_temp_bake_kind(&t, &shown) == (WX_BAKE_RING | WX_BAKE_HERO), "range and moon: ring and hero");
