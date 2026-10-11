@@ -109,6 +109,13 @@ static void parse_rain(const cJSON *r, wx_obs_t *o)
         if (spell_in(s, &o->rain_spell[o->rain_n])) o->rain_n++;
 }
 
+static long long day_end(const cJSON *e, long long t)
+{
+    long long end, next;
+    if (unix_in(item(e, "end"), &end) && end >= t + WX_DAY_END_MIN_S && end <= t + WX_DAY_END_MAX_S) return end;
+    return e->next && unix_in(item(e->next, "t"), &next) && next > t && next <= t + WX_DAY_MAX_S ? next : 0;
+}
+
 static void parse_days(const cJSON *d, wx_obs_t *o)
 {
     for (const cJSON *e = cJSON_IsArray(d) ? d->child : NULL; e && o->day_n < WX_DAYS; e = e->next) {
@@ -124,8 +131,7 @@ static void parse_days(const cJSON *d, wx_obs_t *o)
         day.pop = (signed char)(int_in(e, "pop", 0, 100, &pop) ? pop : -1);
         day.min_c = (short)lo;
         day.max_c = (short)hi;
-        long long next;
-        day.end = e->next && unix_in(item(e->next, "t"), &next) && next > day.t && next <= day.t + WX_DAY_MAX_S ? next : 0;
+        day.end = day_end(e, day.t);
         o->day[o->day_n++] = day;
     }
 }

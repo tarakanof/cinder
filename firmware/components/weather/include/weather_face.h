@@ -25,6 +25,8 @@ typedef enum { WX_INT_NONE, WX_INT_LIGHT, WX_INT_MODERATE, WX_INT_HEAVY } wx_int
 #define WX_SPELLS 4
 #define WX_DAYS 3
 #define WX_DAY_MAX_S 90000
+#define WX_DAY_END_MIN_S 79200
+#define WX_DAY_END_MAX_S 93600
 #define WX_TWILIGHT 6
 
 typedef struct {
@@ -35,7 +37,7 @@ typedef struct {
 
 typedef struct {
     long long t;          /* Unix s of the day's local midnight */
-    long long end;        /* Unix s of the next local midnight (Ember's next day's t), 0 unknown */
+    long long end;        /* Unix s of the next local midnight (Ember's end, else the next day's t), 0 unknown */
     signed char face;     /* wx_face_t of the day's condition, never night */
     signed char pop;      /* chance of precipitation, %, -1 unknown */
     short min_c, max_c;   /* whole degrees, min_c <= max_c */
