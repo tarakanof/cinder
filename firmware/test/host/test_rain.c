@@ -683,6 +683,21 @@ static void test_ops(void)
                 }
             }
     CHECK(bad == 0, "the replayed LVGL calls draw every frame as wx_rain_frame says (%d frames off)", bad);
+
+    wx_rain_frame_t p = {0}, f = {0};
+    for (int i = 0; i < WX_DRIPS; i++) p.drip_pose[i] = -1;
+    f.drip_pose[0] = f.drip_pose[1] = 0;
+    f.drip_opa[0] = f.drip_opa[1] = 255;
+    f.splash_opa[0] = 255;
+    wx_rain_ops_t op;
+    wx_rain_ops(&p, &f, false, &op);
+    CHECK(op.drip_buf[0] && op.drip_y[0] && op.drip_opa[0] && op.splash_y[0] && op.splash_opa[0] && !op.splash_y[1],
+          "a drip or splash appearing at dy 0 over a hidden one cached at dy 0 gets its buffer, y and opacity");
+    p = f;
+    f.drip_pose[0] = 1;
+    wx_rain_ops(&p, &f, false, &op);
+    CHECK(op.drip_buf[0] && op.drip_y[0] && !op.drip_buf[1] && !op.drip_y[1] && !op.drip_opa[1] && !op.splash_y[0],
+          "a pose change sets the y too; nothing else moves");
 }
 
 static void dump(const char *dir, const char *name, const uint16_t *fb)
