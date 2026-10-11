@@ -116,6 +116,12 @@ void pomo_srv_clock_note(pomo_srv_clock_t *c, long long server_now, double sent,
 
 double pomo_srv_clock_offset(const pomo_srv_clock_t *c) { return c->valid ? (c->lo + c->hi) / 2 : 0; }
 
+double pomo_srv_clock_feed(pomo_srv_clock_t *c, long long server_now, double sent, double received)
+{
+    if (server_now > 0) pomo_srv_clock_note(c, server_now, sent, received);
+    return c->valid ? received + pomo_srv_clock_offset(c) : 0;
+}
+
 double pomo_secs_left(long long ends_at, double offset, double now) { return (double)ends_at + 0.5 - (now + offset); }
 
 void pomo_clock_sync_end(pomo_clock_t *c, const pomo_state_t *polled, long long ends_at, double offset, double now)

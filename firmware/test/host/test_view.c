@@ -35,6 +35,7 @@ static void test_parse(void)
           "weather strings");
     CHECK(v.weather.has_temp && fabsf(v.weather.temp_c - 12.5f) < 1e-4, "temp");
     CHECK(v.weather.has_night && !v.weather.night, "Ember's day");
+    CHECK(v.weather.observed_at == 0 && !v.weather.has_obs_age, "no observed_at: unknown");
     CHECK(v.has_brightness && v.level == 255 && !v.bright_night, "brightness");
     char key[32];
     knob_view_epoch_key(&v, key, sizeof key);
@@ -109,6 +110,30 @@ static void test_parse(void)
           "level out of range ignored");
     CHECK(knob_view_mood_from(0, 3, 1, 1) == BOT_ERROR && knob_view_mood_from(0, 0, 1, 1) == BOT_WORKING,
           "priority");
+}
+
+static void test_observed_at(void)
+{
+    static const struct {
+        const char *val;
+        long long want;
+    } C[] = {
+        {"1782041400", 1782041400LL}, {"1", 0}, {"1577836799", 0}, {"1577836800", 1577836800LL},
+        {"9999999999999", 9999999999999LL}, {"10000000000000", 0}, {"1e15", 0}, {"0", 0}, {"-1782041400", 0}, {"1782041400.5", 0},
+        {"\"1782041400\"", 0}, {"null", 0}, {"true", 0}, {"1e300", 0}, {"-1e300", 0}, {"{}", 0},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        char json[256];
+        snprintf(json, sizeof json,
+                 "{\"v\":1,\"weather\":{\"provider\":\"open-meteo\",\"cond\":\"rain\",\"code\":\"61\","
+                 "\"observed_at\":%s}}",
+                 C[i].val);
+        knob_view_t v;
+        CHECK(knob_view_parse(json, &v) && v.has_weather, "%s: weather parses", C[i].val);
+        CHECK(v.weather.observed_at == C[i].want, "observed_at %s -> %lld, want %lld", C[i].val, v.weather.observed_at,
+              C[i].want);
+        CHECK(strcmp(v.weather.condition, "rain") == 0, "%s: the rest of the block still parses", C[i].val);
+    }
 }
 
 static void test_major(void)
@@ -392,6 +417,7 @@ static void test_etag(void)
 int main(void)
 {
     test_parse();
+    test_observed_at();
     test_major();
     test_step();
     test_quiet();

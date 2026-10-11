@@ -25,9 +25,7 @@ static const char *TAG = "weather";
 #define RESP_MAX (16 * 1024)
 
 static SemaphoreHandle_t s_lock;
-static wx_obs_t s_obs;
-static bool s_have;
-static int64_t s_obs_us;
+static wx_store_t s_store;
 static legacy_task_t s_lt;
 typedef struct {
     char *buf;
@@ -37,12 +35,11 @@ typedef struct {
 static TaskHandle_t s_task;
 static poll_ctx_t *s_ctx;
 
-static void publish(const wx_obs_t *obs)
+static void publish(const wx_obs_t *obs, double server_now)
 {
+    double now_s = esp_timer_get_time() / 1e6;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (obs) s_obs = *obs;
-    s_have = obs != NULL;
-    s_obs_us = esp_timer_get_time();
+    wx_store_put(&s_store, obs, server_now, now_s);
     xSemaphoreGive(s_lock);
 }
 
@@ -112,7 +109,7 @@ static void poll_task(void *arg)
             ok = wx_legacy_parse(buf, &obs);
         }
         if (ok) {
-            publish(&obs);
+            publish(&obs, 0);
             wx_look_t l = wx_look_from_obs(&obs);
             ESP_LOGI(TAG, "%s %s/%s %.1f C -> %s int %d%s%s", obs.provider, obs.condition, obs.code, obs.temp_c,
                      wx_face_name(l.face), l.intensity, l.night ? " night" : "", l.still ? " still" : "");
@@ -159,12 +156,12 @@ void weather_client_legacy(bool on)
     if (!ok) ESP_LOGE(TAG, "no memory for the weather poll task; retry in %u s", (unsigned)(retry_ms / 1000));
 }
 
-void weather_client_feed(const wx_obs_t *obs)
+void weather_client_feed(const wx_obs_t *obs, double server_now)
 {
     static wx_look_t last;
     static bool logged, had;
     if (!s_lock) return;
-    publish(obs);
+    publish(obs, server_now);
     if (!obs) {
         if (had || !logged) ESP_LOGI(TAG, "view: no weather (off or not fetched yet)");
         had = false;
@@ -182,12 +179,9 @@ void weather_client_feed(const wx_obs_t *obs)
 bool weather_client_get(wx_obs_t *out)
 {
     if (!s_lock) return false;
+    double now_s = esp_timer_get_time() / 1e6;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool have = s_have;
-    if (have) {
-        *out = s_obs;
-        out->age_s = (esp_timer_get_time() - s_obs_us) / 1e6;
-    }
+    bool have = wx_store_get(&s_store, now_s, out);
     xSemaphoreGive(s_lock);
     return have;
 }

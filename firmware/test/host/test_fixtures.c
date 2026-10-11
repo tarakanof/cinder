@@ -108,6 +108,7 @@ static void test_view_full(void)
           "weather strings");
     CHECK(v.weather.has_temp && fabsf(v.weather.temp_c - 12.5f) < 1e-4f, "temp %.2f", (double)v.weather.temp_c);
     CHECK(v.weather.has_night && !v.weather.night, "sun times: Ember's day/night is used");
+    CHECK(v.weather.observed_at == 1782041400LL, "observed_at %lld", v.weather.observed_at);
     CHECK(v.has_brightness && v.level == 255 && !v.bright_night, "brightness");
     CHECK(v.has_np && v.np.state == NP_PLAYING, "playing");
     CHECK(strcmp(v.np.source, "plex") == 0 && strcmp(v.np.title, "Example Song") == 0 &&
@@ -160,6 +161,10 @@ static void test_view_single_host_paused(void)
     CHECK(v.has_weather && v.weather.stale && strcmp(v.weather.condition, "clear") == 0, "stale weather");
     CHECK(v.weather.has_temp && fabsf(v.weather.temp_c + 3.0f) < 1e-4f, "temp %.2f", (double)v.weather.temp_c);
     CHECK(!v.weather.has_night && v.weather.rise_min == -1 && v.weather.set_min == -1, "null sun times: night unknown");
+    CHECK(v.weather.observed_at == 0, "no observed_at: unknown");
+    char lb[16];
+    wx_age_label(&v.weather, lb, sizeof lb);
+    CHECK(strcmp(lb, "stale") == 0, "no observed_at: the label works as before, got '%s'", lb);
 }
 
 static void test_view_quiet(void)
@@ -186,7 +191,73 @@ static void test_view_caps_limited(void)
     CHECK(v.v == 1 && v.has_mood && knob_view_mood(&v) == BOT_WAITING && strcmp(v.lead, "STUDIO") == 0, "mood");
     CHECK(!v.has_pomo && !v.pomo_counting, "absent pomo = null");
     CHECK(v.has_weather && strcmp(v.weather.condition, "rain") == 0, "weather");
+    CHECK(v.weather.observed_at == 1782041400LL, "observed_at %lld", v.weather.observed_at);
     CHECK(!v.has_np && v.has_brightness && v.diag_live_until == 1782043500LL, "no nowplaying, brightness, live");
+}
+
+static void apply(pomo_srv_clock_t *clk, wx_store_t *st, const knob_view_t *v, long long srv_now, double sent,
+                  double received)
+{
+    wx_store_put(st, v->has_weather ? &v->weather : NULL, pomo_srv_clock_feed(clk, srv_now, sent, received), received);
+}
+
+static void label_at(const wx_store_t *st, double now, char *lb, size_t n)
+{
+    wx_obs_t o;
+    if (wx_store_get(st, now, &o)) wx_age_label(&o, lb, n);
+    else snprintf(lb, n, "-");
+}
+
+static void test_obs_age_wiring(void)
+{
+    knob_view_t v;
+    if (!view("view_caps_limited.json", &v)) return;
+    char lb[16];
+    pomo_srv_clock_t clk;
+    wx_store_t st = {0};
+
+    pomo_srv_clock_init(&clk);
+    apply(&clk, &st, &v, 0, 100, 100.2);
+    label_at(&st, 100.2 + 90, lb, sizeof lb);
+    CHECK(strcmp(lb, "1 min ago") == 0, "first view, no server clock yet: the confirm age, got '%s'", lb);
+    apply(&clk, &st, &v, 1782043200LL, 200, 200);
+    label_at(&st, 200 + 60, lb, sizeof lb);
+    CHECK(strcmp(lb, "31 min ago") == 0, "a later answer with X-Ember-Now: the observation age, got '%s'", lb);
+
+    pomo_srv_clock_init(&clk);
+    st = (wx_store_t){0};
+    apply(&clk, &st, &v, 1782043200LL, 100, 100);
+    wx_obs_t o;
+    CHECK(wx_store_get(&st, 100, &o) && o.has_obs_age && fabs(o.obs_age_s - 1800.5) < 0.01,
+          "first view: this answer's own X-Ember-Now sets the age, %.2f", o.obs_age_s);
+    label_at(&st, 100 + 60, lb, sizeof lb);
+    CHECK(strcmp(lb, "31 min ago") == 0, "first view: label '%s'", lb);
+
+    apply(&clk, &st, &v, 1782043800LL, 700, 700);
+    CHECK(wx_store_get(&st, 700, &o) && o.age_s == 0 && fabs(o.obs_age_s - 2400.5) < 0.01,
+          "304 re-apply: confirm age restarts, observation age %.2f", o.obs_age_s);
+    label_at(&st, 700 + 5, lb, sizeof lb);
+    CHECK(strcmp(lb, "40 min ago") == 0, "304 re-apply: label '%s'", lb);
+    apply(&clk, &st, &v, 0, 1300, 1300);
+    CHECK(wx_store_get(&st, 1300, &o) && o.has_obs_age && fabs(o.obs_age_s - 3000.5) < 0.01,
+          "304 without a clock sample: the kept offset, %.2f", o.obs_age_s);
+
+    label_at(&st, 1300 + 600, lb, sizeof lb);
+    CHECK(strcmp(lb, "1 h ago") == 0, "offline 10 min: '%s'", lb);
+    label_at(&st, 1300 + 3 * 3600, lb, sizeof lb);
+    CHECK(strcmp(lb, "3 h ago") == 0, "offline 3 h: '%s'", lb);
+    label_at(&st, 1300 + 2 * 86400, lb, sizeof lb);
+    CHECK(strcmp(lb, "2 d ago") == 0, "offline 2 d: '%s'", lb);
+
+    v.weather.stale = true;
+    v.weather.observed_at = 1782045000LL;
+    apply(&clk, &st, &v, 0, 1400, 1400);
+    label_at(&st, 1400 + 60, lb, sizeof lb);
+    CHECK(strcmp(lb, "stale") == 0, "stale with a provider clock ahead: '%s'", lb);
+
+    knob_view_t none = {0};
+    apply(&clk, &st, &none, 0, 1500, 1500);
+    CHECK(!wx_store_get(&st, 1500, &o), "a view without weather clears it");
 }
 
 static char *edited_view(const char *name, const char *drop, int v)
@@ -557,6 +628,7 @@ int main(int argc, char **argv)
     test_view_single_host_paused();
     test_view_quiet();
     test_view_caps_limited();
+    test_obs_age_wiring();
     test_view_without_blocks();
     test_view_major_99();
     test_checkin_replies();

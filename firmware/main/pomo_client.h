@@ -22,9 +22,10 @@ void pomo_client_init(void);
 /* Ember task, every legacy round. */
 void pomo_client_legacy(bool on);
 
-/* Ember task only. s NULL: Ember's Pomodoro is off. server_now: X-Ember-Now (0 none); sent/received: pomo_client_now() times. */
-void pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, long long server_now, double sent,
-                      double received);
+/* Ember task only. s NULL: Ember's Pomodoro is off. server_now: X-Ember-Now (0 none); sent/received: pomo_client_now() times.
+   Returns the server's Unix s at received, this sample included; 0 while unknown. */
+double pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, long long server_now, double sent,
+                        double received);
 /* Ember task only. */
 void pomo_client_note_clock(long long server_now, double sent, double received);
 /* server = local + offset, seconds, pomo_client_now() clock. False before the first X-Ember-Now. Ember task only. */

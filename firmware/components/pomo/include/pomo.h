@@ -70,6 +70,8 @@ typedef struct {
 void pomo_srv_clock_init(pomo_srv_clock_t *c);
 void pomo_srv_clock_note(pomo_srv_clock_t *c, long long server_now, double sent, double received);
 double pomo_srv_clock_offset(const pomo_srv_clock_t *c);
+/* Notes server_now (0: no sample) first, then returns the server's Unix s at received; 0 while unknown. */
+double pomo_srv_clock_feed(pomo_srv_clock_t *c, long long server_now, double sent, double received);
 double pomo_secs_left(long long ends_at, double offset, double now);
 
 void pomo_clock_init(pomo_clock_t *c);

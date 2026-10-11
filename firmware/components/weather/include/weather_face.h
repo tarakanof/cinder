@@ -38,6 +38,9 @@ typedef struct {
     bool has_night;
     bool night;
     double age_s;
+    long long observed_at; /* Unix s from the view, 0 unknown */
+    bool has_obs_age;
+    double obs_age_s;      /* the observation's age when the knob received it */
 } wx_obs_t;
 
 typedef struct {
@@ -59,11 +62,24 @@ wx_look_t wx_look_from_obs(const wx_obs_t *obs);
 
 bool wx_look_equal(const wx_look_t *a, const wx_look_t *b);
 
-/* Seconds since the observation was last confirmed by Ember -> "2 h ago". */
+/* An age in seconds -> "2 h ago"; under 60 s or NaN -> "just now". */
 int wx_age_text(double age_s, char *buf, size_t n);
-/* Offline label: "stale" when Ember flagged the observation stale, else its age. The view carries no observation
-   time, so the age is the time since Ember last confirmed it (age_s). */
+/* observed_at and server_now in Unix seconds; false when either is unknown. Clamped at 0. */
+bool wx_obs_age(long long observed_at, double server_now, double *age_s);
+/* Offline label: the observation's own age (obs_age_s + age_s) when known, but "stale" when Ember flagged it stale
+   and that age is under WX_MAX_AGE_S; without it "stale" when flagged, else the time since Ember confirmed it. */
 int wx_age_label(const wx_obs_t *o, char *buf, size_t n);
+
+typedef struct {
+    bool have;
+    wx_obs_t obs;
+    double at_s;
+} wx_store_t;
+
+/* obs NULL clears. server_now: Unix s at receipt, 0 unknown. now_s: the knob's monotonic s. */
+void wx_store_put(wx_store_t *s, const wx_obs_t *obs, double server_now, double now_s);
+/* Fills age_s with now_s minus the last put. */
+bool wx_store_get(const wx_store_t *s, double now_s, wx_obs_t *out);
 const char *wx_face_name(wx_face_t f);
 
 #ifdef __cplusplus
