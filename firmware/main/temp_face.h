@@ -6,10 +6,10 @@
 #include "lvgl.h"
 #include "weather_face.h"
 
-/* Allocates the face images in PSRAM (~0.7 MB); without them the page stays black. */
+/* Starts the bake task; the face images live in PSRAM only while the page shows (allocated by temp_face_show). */
 void temp_face_create(lv_obj_t *parent);
 
-/* Showing replays the arrival. */
+/* Showing allocates the images and replays the arrival; hiding frees them. No PSRAM: black until the next show. */
 void temp_face_show(bool on);
 
 /* dt in seconds; obs may be NULL (no data yet). offline: Ember is OFFLINE, show the observation's age. */

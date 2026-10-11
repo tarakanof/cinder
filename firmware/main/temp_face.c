@@ -1,6 +1,7 @@
 #include "temp_face.h"
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -8,6 +9,8 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "wx_paint.h"
 #include "wx_temp.h"
 
@@ -28,15 +31,23 @@ static const char *TAG = "tempface";
 #define DRIFT_PERIOD_S 8.0
 #define GREY_RGB 0x5A5A5A
 
-static lv_obj_t *s_root, *s_bg, *s_hero, *s_clouds, *s_thermo, *s_marker, *s_value, *s_lo, *s_hi, *s_sub;
-static EXT_RAM_BSS_ATTR wx_img_t s_bg_img, s_hero_img, s_cloud_img, s_thermo_img;
-static uint8_t *s_cloud_buf;
-static uint16_t *s_lut;
-static EXT_RAM_BSS_ATTR wx_temp_t s_cur;
-static EXT_RAM_BSS_ATTR wx_box_t s_cloud_box;
+#define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)
+
+enum { JOB_IDLE, JOB_BUSY, JOB_DONE };
+
+static lv_obj_t *s_root, *s_bg, *s_hero, *s_still, *s_drift, *s_thermo, *s_marker, *s_value, *s_lo, *s_hi, *s_sub;
+static EXT_RAM_BSS_ATTR wx_bake_buf_t s_buf;
+static uint8_t *s_thermo_buf, *s_marker_buf;
+static uint8_t s_none[2 * 2 * 3];
+static EXT_RAM_BSS_ATTR wx_img_t s_thermo_img;
+static EXT_RAM_BSS_ATTR wx_temp_t s_key, s_job_in;
+static EXT_RAM_BSS_ATTR wx_bake_out_t s_job_out, s_out;
+static EXT_RAM_BSS_ATTR wx_shift_t s_shift;
+static atomic_int s_job;
+static TaskHandle_t s_task;
 static bool s_baked, s_visible;
 static EXT_RAM_BSS_ATTR double s_t;
-static EXT_RAM_BSS_ATTR int s_tick;
+static EXT_RAM_BSS_ATTR int s_tick, s_job_ms;
 
 typedef struct {
     char value[20], sub[24];
@@ -48,18 +59,13 @@ typedef struct {
 static EXT_RAM_BSS_ATTR shown_t s_shown;
 static EXT_RAM_BSS_ATTR char s_lo_txt[20], s_hi_txt[20];
 
-static uint8_t *alloc3(int px) { return heap_caps_calloc((size_t)px, 3, MALLOC_CAP_SPIRAM); }
+static void *psram(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
 
-static void sprite_img(wx_img_t *im, uint8_t *buf, int w, int h)
-{
-    *im = (wx_img_t){.px = (uint16_t *)buf, .a = buf + (size_t)w * h * 2, .w = w, .h = h};
-}
-
-static lv_obj_t *canvas(lv_obj_t *parent, void *buf, int w, int h, lv_color_format_t cf)
+static lv_obj_t *canvas(lv_obj_t *parent, lv_color_format_t cf)
 {
     lv_obj_t *c = lv_canvas_create(parent);
     lv_obj_remove_flag(c, LV_OBJ_FLAG_CLICKABLE);
-    lv_canvas_set_buffer(c, buf, w, h, cf);
+    lv_canvas_set_buffer(c, s_none, 2, 2, cf);
     return c;
 }
 
@@ -73,36 +79,24 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, lv_align_t align
     return l;
 }
 
-static int max_cloud_px(void)
+static void bake_task(void *arg)
 {
-    int m = 0;
-    for (int b = 1; b <= 4; b++) {
-        wx_clouds_t c;
-        wx_clouds_for(b, false, &c);
-        wx_box_t x = wx_clouds_box(&c);
-        int px = (x.x1 - x.x0) * (x.y1 - x.y0);
-        if (px > m) m = px;
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (atomic_load(&s_job) != JOB_BUSY) continue;
+        int64_t t0 = esp_timer_get_time();
+        wx_bake(&s_job_in, &s_buf, &s_job_out);
+        s_job_ms = (int)((esp_timer_get_time() - t0) / 1000);
+        atomic_store(&s_job, JOB_DONE);
     }
-    return m;
 }
 
 void temp_face_create(lv_obj_t *parent)
 {
     if (s_root) return;
-    s_bg_img = (wx_img_t){.px = heap_caps_calloc(WX_FACE * WX_FACE, 2, MALLOC_CAP_SPIRAM), .w = WX_FACE, .h = WX_FACE};
-    s_lut = heap_caps_malloc(WX_RING_LUT * sizeof *s_lut, MALLOC_CAP_SPIRAM);
-    uint8_t *hero = alloc3(WX_HERO_BOX * WX_HERO_BOX), *thermo = alloc3(WX_THERMO_W * WX_THERMO_H),
-            *marker = alloc3(WX_MARKER * WX_MARKER);
-    s_cloud_buf = alloc3(max_cloud_px());
-    if (!s_bg_img.px || !s_lut || !hero || !thermo || !marker || !s_cloud_buf) {
-        ESP_LOGE(TAG, "no PSRAM for the face (%u KB free): the weather page stays black",
-                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
-        heap_caps_free(s_bg_img.px);
-        heap_caps_free(s_lut);
-        heap_caps_free(hero);
-        heap_caps_free(thermo);
-        heap_caps_free(marker);
-        heap_caps_free(s_cloud_buf);
+    if (xTaskCreatePinnedToCoreWithCaps(bake_task, "wxbake", 4096, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+        ESP_LOGE(TAG, "bake task not created: the weather page stays black");
         return;
     }
     s_root = lv_obj_create(parent);
@@ -111,19 +105,15 @@ void temp_face_create(lv_obj_t *parent)
     lv_obj_set_pos(s_root, FACE_X, 0);
     lv_obj_remove_flag(s_root, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
-    sprite_img(&s_hero_img, hero, WX_HERO_BOX, WX_HERO_BOX);
-    sprite_img(&s_thermo_img, thermo, WX_THERMO_W, WX_THERMO_H);
-    wx_img_t mk;
-    sprite_img(&mk, marker, WX_MARKER, WX_MARKER);
-    wx_paint_marker(&mk);
-
-    s_bg = canvas(s_root, s_bg_img.px, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
-    s_hero = canvas(s_root, hero, WX_HERO_BOX, WX_HERO_BOX, LV_COLOR_FORMAT_RGB565A8);
-    s_clouds = canvas(s_root, s_cloud_buf, 2, 2, LV_COLOR_FORMAT_RGB565A8);
-    s_thermo = canvas(s_root, thermo, WX_THERMO_W, WX_THERMO_H, LV_COLOR_FORMAT_RGB565A8);
+    s_bg = canvas(s_root, LV_COLOR_FORMAT_RGB565);
+    s_hero = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
+    s_still = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
+    s_drift = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
+    s_thermo = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     lv_obj_set_pos(s_thermo, WX_THERMO_X, WX_THERMO_Y);
     lv_obj_add_flag(s_hero, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_clouds, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_still, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_drift, LV_OBJ_FLAG_HIDDEN);
 
     int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
     s_value = label(s_root, &font_digits_96, LV_ALIGN_TOP_MID, deg / 2, VALUE_Y);
@@ -131,9 +121,55 @@ void temp_face_create(lv_obj_t *parent)
     s_lo = label(s_root, &font_face_36, LV_ALIGN_TOP_LEFT, END_X, END_Y);
     s_hi = label(s_root, &font_face_36, LV_ALIGN_TOP_RIGHT, -END_X, END_Y);
     s_sub = label(s_root, &lv_font_montserrat_30, LV_ALIGN_TOP_MID, 0, SUB_Y);
-    s_marker = canvas(s_root, marker, WX_MARKER, WX_MARKER, LV_COLOR_FORMAT_RGB565A8);
+    s_marker = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
+}
+
+static void release(void)
+{
+    lv_canvas_set_buffer(s_bg, s_none, 2, 2, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(s_hero, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    lv_canvas_set_buffer(s_still, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    lv_canvas_set_buffer(s_drift, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    lv_canvas_set_buffer(s_thermo, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    lv_canvas_set_buffer(s_marker, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    DROP(s_buf.bg);
+    DROP(s_buf.lut);
+    DROP(s_buf.hero);
+    DROP(s_buf.still);
+    DROP(s_buf.drift);
+    DROP(s_thermo_buf);
+    DROP(s_marker_buf);
+    s_baked = false;
+    atomic_store(&s_job, JOB_IDLE);
+}
+
+static bool acquire(void)
+{
+    s_buf.bg = psram((size_t)WX_FACE * WX_FACE * 2);
+    s_buf.lut = psram(WX_RING_LUT * sizeof *s_buf.lut);
+    s_buf.hero = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
+    s_buf.still = psram((size_t)wx_clouds_max_px(false) * 3);
+    s_buf.drift = psram((size_t)wx_clouds_max_px(true) * 3);
+    s_thermo_buf = psram(WX_THERMO_W * WX_THERMO_H * 3);
+    s_marker_buf = psram(WX_MARKER * WX_MARKER * 3);
+    if (!s_buf.bg || !s_buf.lut || !s_buf.hero || !s_buf.still || !s_buf.drift || !s_thermo_buf || !s_marker_buf) {
+        ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black until the next show",
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
+                 (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
+        release();
+        return false;
+    }
+    s_thermo_img = (wx_img_t){.px = (uint16_t *)s_thermo_buf, .a = s_thermo_buf + WX_THERMO_W * WX_THERMO_H * 2,
+                              .w = WX_THERMO_W, .h = WX_THERMO_H};
+    wx_img_t mk = {.px = (uint16_t *)s_marker_buf, .a = s_marker_buf + WX_MARKER * WX_MARKER * 2, .w = WX_MARKER,
+                   .h = WX_MARKER};
+    wx_paint_marker(&mk);
+    lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(s_thermo, s_thermo_buf, WX_THERMO_W, WX_THERMO_H, LV_COLOR_FORMAT_RGB565A8);
+    lv_canvas_set_buffer(s_marker, s_marker_buf, WX_MARKER, WX_MARKER, LV_COLOR_FORMAT_RGB565A8);
     memset(&s_shown, 0xFF, sizeof s_shown);
     s_shown.value[0] = s_shown.sub[0] = 0;
+    return true;
 }
 
 static void deg_text(char *buf, size_t n, int v)
@@ -158,43 +194,35 @@ static void end_label(lv_obj_t *l, char *buf, size_t n, bool on, int v)
     lv_obj_set_style_text_color(l, lv_color_hex(wx_temp_rgb((float)v)), 0);
 }
 
-static void bake(const wx_temp_t *t)
+static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
 {
-    int64_t t0 = esp_timer_get_time();
-    wx_paint_clear(&s_bg_img);
-    if (t->hero == WX_HERO_SUN) wx_paint_rays(&s_bg_img);
-    if (t->stars) wx_paint_stars(&s_bg_img);
-    wx_paint_thermo(&s_bg_img);
-    wx_paint_ring(&s_bg_img, t->lo, t->hi, !t->have, s_lut);
+    int w = b.x1 - b.x0, h = b.y1 - b.y0;
+    show_obj(c, w > 0 && h > 0);
+    if (w <= 0 || h <= 0) return;
+    lv_canvas_set_buffer(c, buf, w, h, LV_COLOR_FORMAT_RGB565A8);
+    lv_obj_set_pos(c, b.x0, b.y0);
+    lv_obj_invalidate(c);
+}
+
+static void apply(const wx_temp_t *t, const wx_bake_out_t *o)
+{
     lv_obj_invalidate(s_bg);
-
-    if (t->hero != WX_HERO_NONE) {
-        wx_box_t b = wx_paint_hero(&s_hero_img, t->hero, t->moon_phase, t->moon_illum);
-        lv_obj_set_pos(s_hero, b.x0, b.y0);
-        lv_obj_invalidate(s_hero);
-    }
-    show_obj(s_hero, t->hero != WX_HERO_NONE);
-
-    wx_clouds_t c;
-    wx_clouds_for(t->cloud_band, t->night, &c);
-    s_cloud_box = wx_clouds_box(&c);
-    int w = s_cloud_box.x1 - s_cloud_box.x0, h = s_cloud_box.y1 - s_cloud_box.y0;
-    if (c.n && w > 0 && h > 0) {
-        sprite_img(&s_cloud_img, s_cloud_buf, w, h);
-        s_cloud_img.x0 = s_cloud_box.x0;
-        s_cloud_img.y0 = s_cloud_box.y0;
-        wx_paint_clouds(&s_cloud_img, &c);
-        lv_canvas_set_buffer(s_clouds, s_cloud_buf, w, h, LV_COLOR_FORMAT_RGB565A8);
-        lv_obj_set_pos(s_clouds, s_cloud_box.x0, s_cloud_box.y0);
-        lv_obj_invalidate(s_clouds);
-    }
-    show_obj(s_clouds, c.n > 0);
-
+    sprite(s_hero, s_buf.hero, o->hero);
+    sprite(s_still, s_buf.still, o->still);
+    sprite(s_drift, s_buf.drift, o->drift);
     end_label(s_lo, s_lo_txt, sizeof s_lo_txt, t->have && t->has_range, t->lo);
     end_label(s_hi, s_hi_txt, sizeof s_hi_txt, t->have && t->has_range, t->hi);
+    s_out = *o;
     s_shown.drift = 0x7FFFFFFF;
-    ESP_LOGI(TAG, "baked %d..%d hero %d clouds %d in %d ms", t->lo, t->hi, (int)t->hero, t->cloud_band,
-             (int)((esp_timer_get_time() - t0) / 1000));
+    ESP_LOGI(TAG, "baked %d..%d hero %d clouds %d in %d ms", t->lo, t->hi, (int)t->hero, t->cloud_band, s_job_ms);
+}
+
+static void shift_root(void)
+{
+    int dx, dy;
+    wx_shift_xy(&s_shift, &dx, &dy);
+    lv_obj_set_style_translate_x(s_root, dx, 0);
+    lv_obj_set_style_translate_y(s_root, dy, 0);
 }
 
 static void set_value(const char *txt, uint32_t rgb)
@@ -253,11 +281,12 @@ static void set_sprites(int opa, int drift)
     if (opa != s_shown.sprite_opa) {
         s_shown.sprite_opa = opa;
         lv_obj_set_style_image_opa(s_hero, (lv_opa_t)opa, 0);
-        lv_obj_set_style_image_opa(s_clouds, (lv_opa_t)opa, 0);
+        lv_obj_set_style_image_opa(s_still, (lv_opa_t)opa, 0);
+        lv_obj_set_style_image_opa(s_drift, (lv_opa_t)opa, 0);
     }
     if (drift != s_shown.drift) {
         s_shown.drift = drift;
-        lv_obj_set_x(s_clouds, s_cloud_box.x0 + drift);
+        lv_obj_set_x(s_drift, s_out.drift.x0 + drift);
     }
 }
 
@@ -303,21 +332,40 @@ void temp_face_show(bool on)
 {
     if (!s_root || on == s_visible) return;
     s_visible = on;
-    if (!on) show_obj(s_root, false);
     s_t = 0;
     s_tick = -1;
+    if (!on) {
+        show_obj(s_root, false);
+        if (atomic_load(&s_job) != JOB_BUSY) release();
+        return;
+    }
+    if (!s_buf.bg && acquire()) shift_root();
 }
 
 void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
 {
-    if (!s_root || !s_visible) return;
+    if (!s_root) return;
+    int job = atomic_load(&s_job);
+    if (!s_visible) {
+        if (s_buf.bg && job != JOB_BUSY) release();
+        return;
+    }
+    if (!s_buf.bg) return;
     wx_temp_t t;
     wx_temp_from(obs, &t);
-    if (!s_baked || !wx_temp_same_bake(&t, &s_cur)) {
-        bake(&t);
+    if (job == JOB_DONE) {
+        apply(&s_job_in, &s_job_out);
+        s_key = s_job_in;
         s_baked = true;
+        atomic_store(&s_job, job = JOB_IDLE);
     }
-    s_cur = t;
+    if (job == JOB_IDLE && (!s_baked || !wx_temp_same_bake(&t, &s_key))) {
+        s_job_in = t;
+        atomic_store(&s_job, job = JOB_BUSY);
+        xTaskNotifyGive(s_task);
+    }
+    if (!s_baked || job == JOB_BUSY) return;
+    if (wx_shift_tick(&s_shift, dt)) shift_root();
     s_t += dt;
     int tick = (int)floor(s_t * ARRIVE_FPS);
     if (s_t < WX_ARRIVE_S + SUB_FADE_S && tick == s_tick) return;

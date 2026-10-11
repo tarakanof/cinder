@@ -75,6 +75,23 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "cJSON hook wiring: app_main sets PSRAM-first hooks before anything parses"
+TFC="$D/../../main/temp_face.c"
+body "$TFC" temp_face_update | grep -qF 'if (wx_shift_tick(&s_shift, dt)) shift_root();' || WIRING="$WIRING update-steps-the-burn-in-shift"
+body "$TFC" shift_root | grep -qF 'lv_obj_set_style_translate_y(s_root, dy, 0);' || WIRING="$WIRING shift-moves-the-root"
+[ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(&s_job_in, &s_buf, &s_job_out);' ||
+    WIRING="$WIRING wx_bake-only-in-bake_task"
+grep -qE 'wx_paint_(clear|ring|rays|stars|thermo|hero|clouds)\(' "$TFC" && WIRING="$WIRING no-bake-pass-on-the-LVGL-task"
+body "$TFC" bake_task | grep -qF 'atomic_store(&s_job, JOB_DONE);' || WIRING="$WIRING bake_task-publishes-DONE"
+body "$TFC" temp_face_show | grep -qF 'if (atomic_load(&s_job) != JOB_BUSY) release();' || WIRING="$WIRING hide-frees"
+body "$TFC" temp_face_update | grep -qF 'if (s_buf.bg && job != JOB_BUSY) release();' || WIRING="$WIRING hidden-frees-after-a-bake"
+[ "$(grep -c 'heap_caps_free(' "$TFC")" -eq 1 ] && grep -qF '#define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)' "$TFC" ||
+    WIRING="$WIRING free-only-through-DROP"
+[ "$(body "$TFC" acquire | grep -c 'psram(')" -eq "$(body "$TFC" release | grep -c 'DROP(')" ] || WIRING="$WIRING release-drops-every-buffer"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL temp face wiring:$WIRING" >&2
+    exit 1
+fi
+echo "temp face wiring: burn-in shift on the root, bake on its task, buffers freed on hide"
 BVC="$D/../../main/bot_view.c"
 body "$BVC" rim_task | grep -q 'if (!rim_job_take(&s_rim, .*)) continue;' || WIRING="$WIRING rim_task-skips-a-held-take"
 body "$BVC" rim_task | grep -qF 'if (!rim_job_live(&s_rim, gen)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
