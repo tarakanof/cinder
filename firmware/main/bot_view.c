@@ -9,6 +9,7 @@
 #include "label_wipe.h"
 #include "bot_raster.h"
 #include "bot_shape.h"
+#include "rim_job.h"
 #include "ring_glint.h"
 #include "tool_marks.h"
 #include "esp_attr.h"
@@ -62,7 +63,7 @@ static SemaphoreHandle_t s_eye_go, s_eye_done;
 static void eye_task(void *arg);
 static lv_obj_t *s_rim_canvas;
 static uint16_t *s_rim_buf[RIM_VARIANTS];
-static atomic_uint s_rim_gen;
+static rim_job_t s_rim;
 static atomic_uint s_var_ready_gen[RIM_VARIANTS];
 static atomic_int s_job_shape, s_job_mood;
 static TaskHandle_t s_rim_task;
@@ -199,11 +200,12 @@ static void rim_task(void *arg)
     static EXT_RAM_BSS_ATTR rim_work_t work;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        unsigned gen = atomic_load(&s_rim_gen);
+        unsigned gen;
+        if (!rim_job_take(&s_rim, &gen)) continue;
         int shape = atomic_load(&s_job_shape);
         bot_mood_t mood = (bot_mood_t)atomic_load(&s_job_mood);
         for (int k = 0; k < RIM_VARIANTS - 1; k++) {
-            if (atomic_load(&s_rim_gen) != gen) break;
+            if (!rim_job_live(&s_rim, gen)) break;
             int v = VAR_ORDER[k];
             rim_raster(s_rim_buf[v], shape, mood, VAR_SX[v], VAR_SY[v], &work);
             atomic_store(&s_var_ready_gen[v], gen);
@@ -598,7 +600,7 @@ static int rim_variant_for(const bot_pose_t *p)
 {
     float ratio = (float)(p->scale_y / p->scale_x);
     if (fabsf(ratio - 1.0f) < 0.015f) return RIM_BASE;
-    unsigned gen = atomic_load(&s_rim_gen);
+    unsigned gen = rim_job_gen(&s_rim);
     int best = RIM_BASE;
     float best_d = fabsf(ratio - 1.0f);
     for (int v = 0; v < RIM_VARIANTS; v++) {
@@ -743,7 +745,7 @@ void bot_view_update(const bot_pose_t *p)
     if (shape != s_rim_shape || p->mood != s_rim_mood) {
         s_rim_shape = shape;
         s_rim_mood = p->mood;
-        atomic_fetch_add(&s_rim_gen, 1);
+        rim_job_new(&s_rim);
         rim_raster(s_rim_buf[RIM_BASE], shape, p->mood, 1.0f, 1.0f, &work);
         rim_show(RIM_BASE);
         lv_obj_set_pos(s_rim_canvas, 0, s_rim_dy);
@@ -789,4 +791,11 @@ void bot_view_update(const bot_pose_t *p)
         lv_obj_add_flag(s_badge_gap, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(s_badge_dot, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+void bot_view_rim_hold(bool hold)
+{
+    if (!s_rim_task) return;
+    if (hold) rim_job_hold(&s_rim);
+    else if (rim_job_release(&s_rim) && s_rim_shape >= 0) xTaskNotifyGive(s_rim_task);
 }
