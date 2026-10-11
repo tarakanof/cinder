@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-/* The weather page's faces in turn order; a new face goes before WXF_N. */
+/* The weather page's faces in turn order; a new face goes before WXF_N and needs its case in wx_temp_face (-Wswitch). */
 typedef enum { WXF_TEMP, WXF_RAIN, WXF_N } wx_face_id_t;
 
 #define WXF_AUTO (-1)

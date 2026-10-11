@@ -143,9 +143,18 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
 {
     wx_temp_from_shown(o, shown, t);
     if (face < 0 || face >= WXF_N || face == t->face) return;
-    t->face = face == WXF_RAIN ? WXF_RAIN : WXF_TEMP;
-    if (t->face == WXF_TEMP) wx_rain_from(NULL, &t->rain);
-    else wx_rain_dry(o, &t->rain);
+    switch ((wx_face_id_t)face) {
+    case WXF_TEMP:
+        t->face = WXF_TEMP;
+        wx_rain_from(NULL, &t->rain);
+        break;
+    case WXF_RAIN:
+        t->face = WXF_RAIN;
+        wx_rain_dry(o, &t->rain);
+        break;
+    case WXF_N:
+        break;
+    }
 }
 
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
