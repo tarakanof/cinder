@@ -221,6 +221,14 @@ static void test_view_faces(void)
     CHECK(t.rain.on && t.rain.kind == WX_PRECIP_RAIN && t.rain.intensity == 2 && t.rain.has_pop && t.rain.pop == 83 &&
               !strcmp(t.rain.sub, "until 14:45"),
           "raining now: the Rain now face, the moderate spell's peak, 83 %%, '%s'", t.rain.sub);
+    wx_obs_t at = *o;
+    at.has_obs_age = true;
+    wx_cast_t c;
+    wx_cast_from(&at, NULL, &c);
+    CHECK(c.have && c.wet && c.has_count && c.hours && c.count == 4 && c.variant == 2 && !strcmp(c.sub, "#5C9CE0 rain# until 14:45"),
+          "forecast while wet: 2 h to the stop, '%s'", c.sub);
+    CHECK(c.narc == 2 && c.arc[0].a == 60 && c.arc[0].n == 105 && c.arc[1].a == 345 && c.arc[1].n == 60 && c.arc[1].intensity == 1,
+          "forecast arcs from now, then the light snow spell");
 
     if (!view("view_faces_met.json", &v)) return;
     CHECK(o->has_cloud && o->cloud == 70 && o->has_uv && o->uv == 3, "MET now");
@@ -230,12 +238,23 @@ static void test_view_faces(void)
           "MET gauge and clouds");
     CHECK(o->has_now_rain && o->now_rain == 0 && !o->has_pop && o->has_rain && o->rain_until == 0 && o->rain_n == 2 && !t.rain.on,
           "MET dry now, rain later: Temperature face");
+    CHECK(t.face == WXF_TEMP, "rain in 2 h is not the auto forecast");
+    at = *o;
+    at.has_obs_age = true;
+    wx_cast_from(&at, NULL, &c);
+    CHECK(!c.wet && c.has_count && c.hours && c.count == 4 && c.variant == 2 && !strcmp(c.label, "14") &&
+              !strcmp(c.sub, "#5C9CE0 rain# at 14:00"),
+          "MET forecast: 2 h to the moderate spell, '%s'", c.sub);
 
     if (!view("view_faces_polar_dry.json", &v)) return;
     CHECK(o->has_moon && o->moon_phase == 65 && o->moon_illum == 80 && o->moon_up == 1, "polar moon without set");
     wx_temp_from(o, &t);
     CHECK(o->has_rain && o->rain_n == 0 && o->has_now_rain && o->now_rain == 0 && !t.rain.on,
           "condition rain but dry steps and no spells: Temperature face");
+    at = *o;
+    at.has_obs_age = true;
+    wx_cast_from(&at, NULL, &c);
+    CHECK(c.have && !c.has_count && c.variant == 0 && !strcmp(c.sub, "Dry for 12 h"), "polar forecast: '%s'", c.sub);
     char *j = load("view_faces.json");
     cJSON *f = j ? cJSON_Parse(j) : NULL;
     free(j);

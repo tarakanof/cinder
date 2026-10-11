@@ -110,11 +110,10 @@ void wx_paint_ring_rain(wx_ring_t *r, int intensity, bool grey, uint16_t lut[WX_
     ring_raster(r, lut);
 }
 
-static void ring_raster(wx_ring_t *r, const uint16_t lut[WX_RING_LUT])
+typedef float (*ring_px_fn)(const void *ctx, float fx, float fy, float r2, uint16_t *col);
+
+static void annulus(wx_ring_t *r, ring_px_fn fn, const void *ctx)
 {
-    float sx, sy, ex, ey;
-    wx_gauge_xy(0, &sx, &sy);
-    wx_gauge_xy(1, &ex, &ey);
     const float r_in = WX_RING_R - WX_RING_HW - 1, r_out = WX_RING_R + WX_RING_HW + 1;
     wx_img_t face = {.w = WX_FACE, .h = WX_FACE};
     int x0, y0, x1, y1;
@@ -136,27 +135,80 @@ static void ring_raster(wx_ring_t *r, const uint16_t lut[WX_RING_LUT])
                 in = true;
             }
             if (r->npx == WX_RING_PX) return;
-            float th = atan2f(dx, -dy) / DEG;
-            float s = th - 225.0f;
-            while (s < 0) s += 360.0f;
-            float d;
-            int li;
-            if (s <= 270.0f) {
-                d = fabsf(sqrtf(r2) - WX_RING_R) - WX_RING_HW;
-                li = (int)lroundf(s * RING_STEPS / 270.0f);
-            } else {
-                float ds = hypotf(fx - sx, fy - sy), de = hypotf(fx - ex, fy - ey);
-                d = (ds < de ? ds : de) - WX_RING_HW;
-                li = ds < de ? 0 : RING_STEPS;
-            }
-            uint16_t px = 0;
+            uint16_t col = 0, px = 0;
+            float a = fn(ctx, fx, fy, r2, &col);
             wx_img_t one = {.px = &px, .w = 1, .h = 1};
-            put(&one, 0, lut[li], cov(d));
+            put(&one, 0, col, a);
             r->px[r->npx++] = px;
             r->run[r->nrun - 1].n++;
         }
     }
 }
+
+typedef struct {
+    const uint16_t *lut;
+    float sx, sy, ex, ey;
+} gauge_t;
+
+static float gauge_px(const void *ctx, float fx, float fy, float r2, uint16_t *col)
+{
+    const gauge_t *g = ctx;
+    float th = atan2f(fx - WX_FACE_C, -(fy - WX_FACE_C)) / DEG;
+    float s = th - 225.0f;
+    while (s < 0) s += 360.0f;
+    float d;
+    int li;
+    if (s <= 270.0f) {
+        d = fabsf(sqrtf(r2) - WX_RING_R) - WX_RING_HW;
+        li = (int)lroundf(s * RING_STEPS / 270.0f);
+    } else {
+        float ds = hypotf(fx - g->sx, fy - g->sy), de = hypotf(fx - g->ex, fy - g->ey);
+        d = (ds < de ? ds : de) - WX_RING_HW;
+        li = ds < de ? 0 : RING_STEPS;
+    }
+    *col = g->lut[li];
+    return cov(d);
+}
+
+static void ring_raster(wx_ring_t *r, const uint16_t lut[WX_RING_LUT])
+{
+    gauge_t g = {.lut = lut};
+    wx_gauge_xy(0, &g.sx, &g.sy);
+    wx_gauge_xy(1, &g.ex, &g.ey);
+    annulus(r, gauge_px, &g);
+}
+
+#define CELL_GREY 0x262626
+
+static float dial_px(const void *ctx, float fx, float fy, float r2, uint16_t *col)
+{
+    const wx_cast_t *c = ctx;
+    float rr = sqrtf(r2), th = atan2f(fx - WX_FACE_C, -(fy - WX_FACE_C)) / DEG;
+    if (th < 0) th += 360.0f;
+    int k = (int)(th / 30.0f);
+    if (k > 11) k = 11;
+    float lo = 30.0f * (float)k + 1.5f, hi = lo + 27.0f, px = DEG * rr;
+    float cell = clamp01(fminf(th - lo, hi - th) * px + 0.5f);
+    float lit = 0;
+    int in = 0;
+    for (int i = 0; i < c->narc; i++) {
+        float a0 = (float)c->arc[i].a * 0.5f, a1 = a0 + (float)c->arc[i].n * 0.5f;
+        for (int w = 0; w <= 1; w++) {
+            float t = th + 360.0f * (float)w, s0 = fmaxf(a0, lo + 360.0f * (float)w), s1 = fminf(a1, hi + 360.0f * (float)w);
+            if (s1 - s0 <= 0.2f) continue;
+            float l = clamp01(fminf(t - s0, s1 - t) * px + 0.5f);
+            if (l > lit) {
+                lit = l;
+                in = c->arc[i].intensity;
+            }
+        }
+    }
+    uint16_t grey = wx_rgb565(CELL_GREY);
+    *col = lit > 0 ? mix(grey, wx_rgb565(wx_rain_rgb(in)), lit) : grey;
+    return cov(fabsf(rr - WX_RING_R) - WX_RING_HW) * cell;
+}
+
+void wx_paint_ring_cast(wx_ring_t *r, const wx_cast_t *c) { annulus(r, dial_px, c); }
 
 void wx_ring_blit(const wx_ring_t *r, uint16_t *bg)
 {
@@ -523,9 +575,41 @@ static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     wx_paint_bolt(m + l.bolt);
 }
 
+static void bake_cast(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    const wx_cast_t *c = &t->cast;
+    if (kind & WX_BAKE_RING) wx_paint_ring_cast(b->ring, c);
+    if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
+    if (!(kind & WX_BAKE_SCENE)) return;
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    wx_paint_face_dots(&bg, t->face, WXF_N);
+    wx_ring_blit(b->ring, b->bg);
+    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    wx_cast_layout_t l;
+    wx_cast_layout(c->variant, &l);
+    for (int s = 0; s < l.sides; s++) {
+        wx_clouds_t cl;
+        wx_cast_clouds(c->variant, s, &cl);
+        wx_box_t cb = l.cloud[s];
+        int w = cb.x1 - cb.x0, h = cb.y1 - cb.y0;
+        uint8_t *m = b->still + l.cloud_at[s];
+        wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = cb.x0, .y0 = cb.y0};
+        wx_paint_clouds(&im, &cl);
+        const wx_cast_sheet_t *sh = wx_cast_sheet(c->variant, s);
+        wx_paint_cast_sheet(b->still + l.strip[s], sh, c->snow);
+        wx_paint_cast_ramp(b->still + l.top[s], sh, false, l.ramp_h[s]);
+        wx_paint_cast_ramp(b->still + l.bottom[s], sh, true, l.ramp_h[s]);
+    }
+}
+
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
+    if (t->cast.on) {
+        bake_cast(t, kind, b, out);
+        return;
+    }
     if (t->rain.on) {
         bake_rain(t, kind, b, out);
         return;
@@ -774,4 +858,163 @@ void wx_paint_bolt(uint8_t *a8)
             }
             a8[y * WX_BOLT_W + x] = (uint8_t)lroundf(cov((in ? -d : d) - 0.8f) * 255.0f);
         }
+}
+
+typedef struct {
+    int n;
+    wx_tone_t tone;
+    float fade_from;
+    struct {
+        bool back;
+        float base;
+        int n;
+        float c[4][3];
+    } cl[2];
+} cast_clouds_t;
+
+static const cast_clouds_t CAST_CLOUDS[3][WX_CAST_SIDES] = {
+    {{1, WX_TONE_WHITE, 195, {{0, 170, 4, {{168.5f, 156.5f, 19.5f}, {203, 140, 27}, {245, 134, 28.5f}, {291.5f, 152, 22.5f}}}}}},
+    {{1, WX_TONE_LIGHT, 180, {{0, 180, 3, {{63.5f, 161.1f, 29.7f}, {114.8f, 144.9f, 35.1f}, {160.7f, 163.8f, 21.6f}}}}},
+     {1, WX_TONE_LIGHT, 180, {{0, 172, 3, {{305.3f, 155.8f, 21.6f}, {351.2f, 136.9f, 35.1f}, {402.5f, 153.1f, 29.7f}}}}}},
+    {{2, WX_TONE_DARK, 160,
+      {{1, 132, 4, {{20, 116, 28}, {66, 96, 32}, {118, 102, 30}, {166, 118, 22}}},
+       {0, 172, 4, {{30, 154, 30}, {80, 138, 34}, {134, 144, 30}, {186, 158, 24}}}}},
+     {2, WX_TONE_DARK, 160,
+      {{1, 122, 4, {{300, 108, 22}, {348, 92, 30}, {400, 86, 32}, {446, 106, 28}}},
+       {0, 162, 4, {{264, 148, 24}, {314, 134, 30}, {368, 128, 34}, {420, 144, 30}}}}}},
+};
+
+void wx_cast_clouds(int variant, int side, wx_clouds_t *out)
+{
+    memset(out, 0, sizeof *out);
+    if (side < 0 || side >= wx_cast_sides(variant)) return;
+    const cast_clouds_t *src = &CAST_CLOUDS[variant - 1][side];
+    out->n = src->n;
+    out->tone = src->tone;
+    out->fade_from = src->fade_from;
+    for (int i = 0; i < src->n; i++) {
+        out->cl[i].back = src->cl[i].back;
+        out->cl[i].base = src->cl[i].base;
+        out->cl[i].n = src->cl[i].n;
+        for (int k = 0; k < src->cl[i].n; k++)
+            out->cl[i].c[k] = (wx_circle_t){src->cl[i].c[k][0], src->cl[i].c[k][1], src->cl[i].c[k][2]};
+    }
+}
+
+static wx_box_t box_union(wx_box_t a, wx_box_t b)
+{
+    return (wx_box_t){a.x0 < b.x0 ? a.x0 : b.x0, a.y0 < b.y0 ? a.y0 : b.y0, a.x1 > b.x1 ? a.x1 : b.x1, a.y1 > b.y1 ? a.y1 : b.y1};
+}
+
+void wx_cast_layout(int variant, wx_cast_layout_t *l)
+{
+    memset(l, 0, sizeof *l);
+    l->sides = wx_cast_sides(variant);
+    const int lo = (int)(WX_FACE_C - RIM_R) & ~1, hi = ((int)(WX_FACE_C + RIM_R) + 1) & ~1;
+    int o = 0;
+    for (int s = 0; s < l->sides; s++) {
+        wx_clouds_t cl;
+        wx_cast_clouds(variant, s, &cl);
+        wx_box_t b = wx_clouds_box(&cl);
+        b = (wx_box_t){b.x0 < lo ? lo : b.x0, b.y0 < lo ? lo : b.y0, b.x1 > hi ? hi : b.x1, b.y1 > hi ? hi : b.y1};
+        const wx_cast_sheet_t *sh = wx_cast_sheet(variant, s);
+        l->cloud[s] = b;
+        l->box[s] = box_union((wx_box_t){b.x0 - WX_CAST_BREATHE_PX, b.y0, b.x1 + WX_CAST_BREATHE_PX, b.y1}, sh->box);
+        int w = box_w(sh->box);
+        l->ramp_h[s] = (int)ceilf(WX_CAST_RAMP * (float)box_h(sh->box));
+        l->cloud_at[s] = o;
+        o += box_w(b) * box_h(b) * 3;
+        l->strip[s] = o;
+        o += w * 2 * sh->h;
+        l->top[s] = o;
+        o += w * l->ramp_h[s];
+        l->bottom[s] = o;
+        o += w * l->ramp_h[s];
+    }
+    l->total = o;
+}
+
+void wx_paint_cast_sheet(uint8_t *a8, const wx_cast_sheet_t *sh, bool snow)
+{
+    const int w = box_w(sh->box), period = 2 * sh->h;
+    memset(a8, 0, (size_t)w * period);
+    for (int t = 0; t < 2; t++)
+        for (int n = 0; n < sh->n; n++) {
+            const wx_streak_t *d = t ? &sh->b[n] : &sh->a[n];
+            float ax = d->x - (float)sh->box.x0, ay = d->y + (float)(t * sh->h);
+            float bx = ax - d->slant, by = ay + d->len;
+            float cx = (ax + bx) / 2, cy = (ay + by) / 2, dr = sh->w * 0.75f, hw = sh->w / 2;
+            float ext = (snow ? dr : hw) + 2;
+            float lo_y = snow ? cy - ext : ay - ext, hi_y = snow ? cy + ext : by + ext;
+            float lo_x = (snow ? cx : fminf(ax, bx)) - ext, hi_x = (snow ? cx : fmaxf(ax, bx)) + ext;
+            for (int wrap = -1; wrap <= 1; wrap++) {
+                float oy = (float)(wrap * period);
+                int ys = (int)floorf(lo_y + oy), ye = (int)ceilf(hi_y + oy), xs = (int)floorf(lo_x), xe = (int)ceilf(hi_x);
+                if (ys < 0) ys = 0;
+                if (ye > period) ye = period;
+                if (xs < 0) xs = 0;
+                if (xe > w) xe = w;
+                for (int y = ys; y < ye; y++)
+                    for (int x = xs; x < xe; x++) {
+                        float px = (float)x + 0.5f, py = (float)y + 0.5f - oy;
+                        float c = snow ? cov(hypotf(px - cx, py - cy) - dr) : cov(seg_d(px, py, ax, ay, bx, by) - hw);
+                        put_a(&a8[y * w + x], c * d->op);
+                    }
+            }
+        }
+}
+
+void wx_paint_cast_ramp(uint8_t *a8, const wx_cast_sheet_t *sh, bool bottom, int ramp_h)
+{
+    int w = box_w(sh->box), h = box_h(sh->box);
+    for (int k = 0; k < ramp_h; k++) {
+        int row = bottom ? h - ramp_h + k : k;
+        float t = ((float)row + 0.5f) / (float)h;
+        float m = t < WX_CAST_RAMP ? t / WX_CAST_RAMP : t > 1 - WX_CAST_RAMP ? (1 - t) / WX_CAST_RAMP : 1;
+        memset(a8 + (size_t)k * w, (int)lroundf((1 - clamp01(m)) * 255.0f), (size_t)w);
+    }
+}
+
+#define DROP_TAIL 15.0f
+#define DROP_HEAD 7.0f
+
+const float wx_drop_hw[WX_DROP_HW_N] = {
+    0.0000f, 0.0653f, 0.1364f, 0.2133f, 0.2960f, 0.3847f, 0.4794f, 0.5801f, 0.6868f, 0.7995f, 0.9183f, 1.0429f,
+    1.1734f, 1.3096f, 1.4513f, 1.5984f, 1.7507f, 1.9078f, 2.0695f, 2.2353f, 2.4050f, 2.5780f, 2.7538f, 2.9320f,
+    3.1120f, 3.2932f, 3.4750f, 3.6568f, 3.8379f, 4.0178f, 4.1958f, 4.3714f, 4.5439f, 4.7128f, 4.8777f, 5.0379f,
+    5.1932f, 5.3431f, 5.4873f, 5.6255f, 5.7574f, 5.8828f, 6.0017f, 6.1138f, 6.2191f, 6.3175f, 6.4090f, 6.4936f,
+    6.5713f, 6.6422f, 6.7064f, 6.7639f, 6.8149f, 6.8593f, 6.8975f, 6.9294f, 6.9551f, 6.9750f, 6.9890f, 6.9973f,
+    7.0000f
+};
+
+static float drop_hw_at(float x)
+{
+    float f = (x + DROP_TAIL) / DROP_TAIL * (float)(WX_DROP_HW_N - 1);
+    if (f <= 0) return wx_drop_hw[0];
+    if (f >= WX_DROP_HW_N - 1) return wx_drop_hw[WX_DROP_HW_N - 1];
+    int i = (int)f;
+    return wx_drop_hw[i] + (wx_drop_hw[i + 1] - wx_drop_hw[i]) * (f - (float)i);
+}
+
+wx_box_t wx_paint_drop(wx_img_t *im, float deg)
+{
+    float hx, hy;
+    wx_cast_ring_xy(deg, &hx, &hy);
+    im->x0 = (int)floorf(hx) - WX_DROP_BOX / 2;
+    im->y0 = (int)floorf(hy) - WX_DROP_BOX / 2;
+    wx_paint_clear(im);
+    const float a = deg * DEG, ca = cosf(a), sa = sinf(a);
+    const uint16_t blue = wx_rgb565(WX_CAST_RGB);
+    for (int y = 0; y < im->h; y++)
+        for (int x = 0; x < im->w; x++) {
+            float dx = (float)(im->x0 + x) + 0.5f - hx, dy = (float)(im->y0 + y) + 0.5f - hy;
+            float lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+            float d = hypotf(lx, ly) - DROP_HEAD;
+            if (lx < -DROP_TAIL) d = fminf(d, hypotf(lx + DROP_TAIL, ly));
+            else if (lx <= 0) d = fminf(d, fabsf(ly) - drop_hw_at(lx));
+            int i = y * im->w + x;
+            put(im, i, 0, cov(d - 1));
+            put(im, i, blue, cov(d + 1));
+        }
+    return (wx_box_t){im->x0, im->y0, im->x0 + im->w, im->y0 + im->h};
 }

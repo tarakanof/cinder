@@ -101,6 +101,30 @@ void wx_paint_drip(uint8_t *a8, int pose);
 void wx_paint_splash(uint8_t *a8, int n);
 void wx_paint_bolt(uint8_t *a8);
 
+/* The forecast variant's clouds on one side (wx_cast_sheet's side); none outside the variant. */
+void wx_cast_clouds(int variant, int side, wx_clouds_t *out);
+
+/* Forecast layers, carved out of the still-cloud buffer like the rain layers. Byte offsets; clouds RGB565A8 at cloud,
+   strips (2 h rows) and ramps A8. box: the cloud over its breathe range and its sheet, one redraw area. */
+typedef struct {
+    int sides;
+    wx_box_t cloud[WX_CAST_SIDES], box[WX_CAST_SIDES];
+    int cloud_at[WX_CAST_SIDES], strip[WX_CAST_SIDES], top[WX_CAST_SIDES], bottom[WX_CAST_SIDES], ramp_h[WX_CAST_SIDES];
+    int total;
+} wx_cast_layout_t;
+
+void wx_cast_layout(int variant, wx_cast_layout_t *l);
+/* The 12 h dial into the ring strip: grey hour cells, the arcs lit in their intensity colour. */
+void wx_paint_ring_cast(wx_ring_t *r, const wx_cast_t *c);
+void wx_paint_cast_sheet(uint8_t *a8, const wx_cast_sheet_t *s, bool snow);
+/* Overlay alpha of the sheet's fade (WX_CAST_RAMP of its height): the top or the bottom ramp_h rows. */
+void wx_paint_cast_ramp(uint8_t *a8, const wx_cast_sheet_t *s, bool bottom, int ramp_h);
+#define WX_DROP_HW_N 61
+/* The drop tail's half-width in px at x = -15 + 15 i / (WX_DROP_HW_N - 1) from the head's centre (the canvas's bezier). */
+extern const float wx_drop_hw[WX_DROP_HW_N];
+/* The forecast drop with its head on the ring at deg into a WX_DROP_BOX square RGB565A8 im; sets and returns its box. */
+wx_box_t wx_paint_drop(wx_img_t *im, float deg);
+
 typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
     uint16_t *lut; /* WX_RING_LUT */
