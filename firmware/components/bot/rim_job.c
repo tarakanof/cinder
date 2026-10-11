@@ -27,9 +27,13 @@ bool rim_job_release(rim_job_t *j) { return atomic_exchange(&j->held, false); }
 bool rim_job_take(rim_job_t *j, unsigned *gen, int *shape, int *mood)
 {
     if (atomic_load(&j->held)) return false;
+    RJ_RACE_POINT(j, 4);
     *gen = atomic_load(&j->gen);
+    RJ_RACE_POINT(j, 5);
     *shape = atomic_load(&j->shape);
+    RJ_RACE_POINT(j, 6);
     *mood = atomic_load(&j->mood);
+    RJ_RACE_POINT(j, 7);
     return true;
 }
 

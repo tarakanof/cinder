@@ -706,8 +706,8 @@ static void test_rim_job(void)
 
 static int s_race_at, s_race_fired, s_race_done;
 static bool s_race_took;
-static unsigned s_race_gen, s_race_base_gen;
-static int s_race_shape, s_race_mood;
+static unsigned s_race_gen, s_race_base_gen, *s_take_gen;
+static int s_race_shape, s_race_mood, *s_take_shape, *s_take_mood;
 
 void rj_race_point(rim_job_t *j, int at);
 void rj_race_point(rim_job_t *j, int at)
@@ -715,9 +715,14 @@ void rj_race_point(rim_job_t *j, int at)
     if (at != s_race_at) return;
     s_race_at = 0;
     s_race_fired = at;
-    s_race_done = (atomic_load(&j->shape) == 1) + (atomic_load(&j->mood) == BOT_ERROR) +
-                  (atomic_load(&j->gen) != s_race_base_gen);
-    s_race_took = rim_job_take(j, &s_race_gen, &s_race_shape, &s_race_mood);
+    if (at <= 3) {
+        s_race_done = (atomic_load(&j->shape) == 1) + (atomic_load(&j->mood) == BOT_ERROR) +
+                      (atomic_load(&j->gen) != s_race_base_gen);
+        s_race_took = rim_job_take(j, &s_race_gen, &s_race_shape, &s_race_mood);
+    } else {
+        s_race_done = (*s_take_gen != ~0u) + (*s_take_shape != -1) + (*s_take_mood != -1);
+        rim_job_new(j, 1, BOT_ERROR);
+    }
 }
 
 static void test_rim_job_order(void)
@@ -738,6 +743,23 @@ static void test_rim_job_order(void)
         int shape, mood;
         CHECK(rim_job_take(&j, &gen, &shape, &mood) && gen == rim_job_gen(&j) && shape == 1 && mood == BOT_ERROR,
               "after race point %d the next take gets the new outline under the current generation", at);
+    }
+    for (int at = 4; at <= 7; at++) {
+        rim_job_t j = {0};
+        rim_job_new(&j, 0, BOT_IDLE);
+        unsigned gen = ~0u;
+        int shape = -1, mood = -1;
+        s_take_gen = &gen;
+        s_take_shape = &shape;
+        s_take_mood = &mood;
+        s_race_at = at;
+        s_race_fired = 0;
+        bool took = rim_job_take(&j, &gen, &shape, &mood);
+        CHECK(s_race_fired == at && took, "rim_job_new runs at rim_job_take's race point %d", at);
+        CHECK(s_race_done == at - 4, "rim_job_take's race point %d follows its load %d (%d done)", at, at - 4, s_race_done);
+        CHECK(gen != rim_job_gen(&j) || (shape == 1 && mood == BOT_ERROR),
+              "a job taken around a new outline at race point %d is stale or for the new outline (shape %d, mood %d)", at,
+              shape, mood);
     }
 }
 
