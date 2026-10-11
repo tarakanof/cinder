@@ -69,6 +69,17 @@ bool wx_obs_age(long long observed_at, double server_now, double *age_s);
 /* Offline label: the observation's own age (obs_age_s + age_s) when known, but "stale" when Ember flagged it stale
    and that age is under WX_MAX_AGE_S; without it "stale" when flagged, else the time since Ember confirmed it. */
 int wx_age_label(const wx_obs_t *o, char *buf, size_t n);
+
+typedef struct {
+    bool have;
+    wx_obs_t obs;
+    double at_s;
+} wx_store_t;
+
+/* obs NULL clears. server_now: Unix s at receipt, 0 unknown. now_s: the knob's monotonic s. */
+void wx_store_put(wx_store_t *s, const wx_obs_t *obs, double server_now, double now_s);
+/* Fills age_s with now_s minus the last put. */
+bool wx_store_get(const wx_store_t *s, double now_s, wx_obs_t *out);
 const char *wx_face_name(wx_face_t f);
 
 #ifdef __cplusplus

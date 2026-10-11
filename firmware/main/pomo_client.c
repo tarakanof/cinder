@@ -274,13 +274,13 @@ bool pomo_client_next_action(uint32_t wait_ms, pomo_press_t *in)
     return xQueueReceive(s_queue, in, pdMS_TO_TICKS(wait_ms)) == pdTRUE;
 }
 
-void pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, long long server_now, double sent,
-                      double received)
+double pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, long long server_now, double sent,
+                        double received)
 {
-    if (server_now > 0) pomo_srv_clock_note(&s_srv, server_now, sent, received);
+    double srv_est = pomo_srv_clock_feed(&s_srv, server_now, sent, received);
     if (!s) {
         publish_disabled();
-        return;
+        return srv_est;
     }
     double now = pomo_client_now();
     taskENTER_CRITICAL(&s_lock);
@@ -288,6 +288,7 @@ void pomo_client_feed(const pomo_state_t *s, bool counting, long long ends_at, l
     else if (!counting) pomo_clock_sync(&s_snap.clock, s, now);
     s_snap.disabled = false;
     taskEXIT_CRITICAL(&s_lock);
+    return srv_est;
 }
 
 bool pomo_client_srv_offset(double *offset)

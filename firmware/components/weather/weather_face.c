@@ -166,3 +166,21 @@ int wx_age_label(const wx_obs_t *o, char *buf, size_t n)
     if (o->stale) return snprintf(buf, n, "stale");
     return wx_age_text(o->age_s, buf, n);
 }
+
+void wx_store_put(wx_store_t *s, const wx_obs_t *obs, double server_now, double now_s)
+{
+    if (obs) {
+        s->obs = *obs;
+        s->obs.has_obs_age = wx_obs_age(obs->observed_at, server_now, &s->obs.obs_age_s);
+    }
+    s->have = obs != NULL;
+    s->at_s = now_s;
+}
+
+bool wx_store_get(const wx_store_t *s, double now_s, wx_obs_t *out)
+{
+    if (!s->have) return false;
+    *out = s->obs;
+    out->age_s = now_s - s->at_s;
+    return true;
+}
