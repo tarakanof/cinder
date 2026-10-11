@@ -62,6 +62,15 @@ static bool num_in(const cJSON *o, const char *k, int lo, int hi, int *out)
     return true;
 }
 
+static bool int_in(const cJSON *o, const char *k, int lo, int hi, int *out)
+{
+    const cJSON *v = cJSON_IsObject(o) ? item(o, k) : NULL;
+    if (!cJSON_IsNumber(v) || !(v->valuedouble >= lo && v->valuedouble <= hi) || v->valuedouble != (int)v->valuedouble)
+        return false;
+    *out = (int)v->valuedouble;
+    return true;
+}
+
 static bool unix_in(const cJSON *v, long long *out)
 {
     if (!cJSON_IsNumber(v) || !(v->valuedouble > 0 && v->valuedouble < 1e13) ||
@@ -108,9 +117,9 @@ static void parse_detail(const cJSON *w, wx_obs_t *o)
     o->has_moon = num_in(moon, "phase", 0, 99, &o->moon_phase) && num_in(moon, "illum", 0, 100, &o->moon_illum);
     const cJSON *up = cJSON_IsObject(moon) ? item(moon, "up") : NULL;
     o->moon_up = cJSON_IsBool(up) ? cJSON_IsTrue(up) : -1;
-    o->has_now_rain = num_in(now, "rain", 0, 3, &o->now_rain);
-    o->has_pop = num_in(today, "pop", 0, 100, &o->pop);
-    o->has_utc_offset = num_in(w, "utc_offset", -50400, 50400, &o->utc_offset);
+    o->has_now_rain = int_in(now, "rain", 0, 3, &o->now_rain);
+    o->has_pop = int_in(today, "pop", 0, 100, &o->pop);
+    o->has_utc_offset = int_in(w, "utc_offset", -50400, 50400, &o->utc_offset);
     parse_rain(item(w, "rain"), o);
 }
 

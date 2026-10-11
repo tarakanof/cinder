@@ -265,6 +265,69 @@ static void test_view_faces(void)
           "without detail: fixed scale, cloud from the condition, sky word");
 }
 
+static cJSON *faces_weather(cJSON **root)
+{
+    char *j = load("view_faces.json");
+    *root = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    return cJSON_GetObjectItemCaseSensitive(*root, "weather");
+}
+
+static bool faces_parse(cJSON *root, knob_view_t *v)
+{
+    char *j = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    bool ok = j && knob_view_parse(j, v);
+    free(j);
+    return ok;
+}
+
+static cJSON *spell(double start, double end, double in, double kind)
+{
+    double a[4] = {start, end, in, kind};
+    return cJSON_CreateDoubleArray(a, 4);
+}
+
+static void test_view_rain_keys(void)
+{
+    static const struct {
+        const char *what;
+        double now_rain, pop, until;
+        bool pop_str;
+    } BAD[] = {{"now.rain 0.49, pop 101, until x.5", 0.49, 101, 1782049500.5, false},
+               {"now.rain 0.5, pop \"83\"", 0.5, 83, 1782049500.5, true},
+               {"now.rain 1.5, pop 83.5", 1.5, 83.5, 1782049500.5, false}};
+    knob_view_t v;
+    const wx_obs_t *o = &v.weather;
+    for (size_t i = 0; i < sizeof BAD / sizeof BAD[0]; i++) {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "now"), "rain", cJSON_CreateNumber(BAD[i].now_rain));
+        cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "today"), "pop",
+                                               BAD[i].pop_str ? cJSON_CreateString("83") : cJSON_CreateNumber(BAD[i].pop));
+        cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "rain"), "until", cJSON_CreateNumber(BAD[i].until));
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && !o->has_now_rain && !o->has_pop && o->rain_until == 0 && o->has_today, "%s: unknown", BAD[i].what);
+    }
+
+    cJSON *root, *w = faces_weather(&root);
+    cJSON *sp = cJSON_CreateArray();
+    cJSON_AddItemToArray(sp, spell(1782049500, 1782049500, 2, 0));
+    cJSON_AddItemToArray(sp, spell(1782042300, 1782049500, 2, 0));
+    cJSON_AddItemToArray(sp, spell(1782050000.5, 1782051000, 1, 0));
+    cJSON_AddItemToArray(sp, spell(1782052000, 1782053000, 3, 1));
+    cJSON_AddItemToArray(sp, spell(1782054000, 1782055000, 2.5, 0));
+    cJSON_AddItemToArray(sp, spell(1782056000, 1782057000, 1, 0));
+    cJSON_AddItemToArray(sp, spell(1782058000, 1782059000, 2, 1));
+    cJSON_AddItemToArray(sp, spell(1782060000, 1782061000, 3, 0));
+    cJSON_AddItemToArray(sp, spell(1782062000, 1782063000, 1, 1));
+    cJSON_ReplaceItemInObjectCaseSensitive(cJSON_GetObjectItemCaseSensitive(w, "rain"), "spells", sp);
+    bool ok = faces_parse(root, &v);
+    CHECK(ok && o->rain_n == WX_SPELLS, "9 spells, 3 bad: the first 4 valid kept, %d", o->rain_n);
+    static const long long START[WX_SPELLS] = {1782042300, 1782052000, 1782056000, 1782058000};
+    for (int i = 0; ok && i < WX_SPELLS; i++)
+        CHECK(o->rain_spell[i].start == START[i], "spell %d starts %lld, want %lld", i, o->rain_spell[i].start, START[i]);
+}
+
 static void test_view_legacy_weather(void)
 {
     const char *names[] = {"view_full.json", "view_caps_limited.json"};
@@ -795,6 +858,7 @@ int main(int argc, char **argv)
     test_view_quiet();
     test_view_caps_limited();
     test_view_faces();
+    test_view_rain_keys();
     test_view_legacy_weather();
     test_view_np_cover();
     test_json_hooks();
