@@ -136,6 +136,20 @@ body "$TFC" set_cast | grep -qF 'if (cloud) lv_obj_invalidate(s_cbox[s]);' || WI
 body "$TFC" set_label | grep -qF 'lv_text_get_size(&sub, c->sub, &lv_font_montserrat_30, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_RECOLOR);' &&
     body "$TFC" set_label | grep -qF 's_shown.label_clear = wx_cast_label_place(c->label_deg, sz.x, sz.y, wx_cast_sub_box(sub.x, sub.y), &x, &y);' &&
     body "$TFC" set_label | grep -qF 'bool on = c->has_count && opa > 0 && s_shown.label_clear;' || WIRING="$WIRING forecast-label-clears-the-sub-line"
+body "$TFC" apply | grep -qF 'if (t->wind.on) wind_attach(&t->wind);' || WIRING="$WIRING wind-attaches-on-a-scene-apply"
+for CV in s_wsock s_wdark 's_wstreak[r]' 's_wleaf[i]'; do
+    body "$TFC" detach | grep -qF "lv_canvas_set_buffer($CV, s_none, " || WIRING="$WIRING detach-$CV"
+done
+WIND_CV='lv_canvas_set_buffer\(s_w(sock|dark|streak|leaf)'
+[ "$(grep -cE "$WIND_CV" "$TFC")" -eq $(( $(body "$TFC" detach | grep -cE "$WIND_CV") + $(body "$TFC" wind_attach | grep -cE "$WIND_CV") +
+    $(body "$TFC" set_wind | grep -cE "$WIND_CV") )) ] && body "$TFC" wind_attach | grep -qF 'uint8_t *m = s_buf.still;' &&
+    [ "$(body "$TFC" set_wind | grep -cF 's_buf.still + s_wlay.')" -eq 3 ] || WIRING="$WIRING wind-layers-attach-only-from-the-still-buffer"
+body "$TFC" paint | grep -qF 'const wx_wind_t *w = wx_wind_same_scene(&t->wind, &s_io.key.wind) ? &t->wind : &s_io.key.wind;' ||
+    WIRING="$WIRING paint-keeps-the-baked-wind-while-fading-out"
+body "$TFC" set_wind | grep -qF 'wx_wind_frame(w->level, w->have && fo == 255 ? (int)floor(s_t * WX_WIND_FPS) : -1, &f);' ||
+    WIRING="$WIRING wind-moves-only-with-data-at-full-opacity"
+body "$TFC" set_wind | grep -qF 'if (dirty) lv_obj_invalidate(s_wbox);' && [ "$(grep -c 'lv_obj_invalidate(s_wbox);' "$TFC")" -eq 2 ] ||
+    WIRING="$WIRING wind-redraws-one-box"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
     WIRING="$WIRING rain-layers-live-in-the-still-buffer"
 body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255 && !r->dry);' || WIRING="$WIRING paint-drives-the-rain-frames-not-when-dry"
@@ -209,7 +223,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL temp face wiring:$WIRING" >&2
     exit 1
 fi
-echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold, rain layers, face turns"
+echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, detach on re-bake, OTA hold, rain, forecast and wind layers, face turns"
 WJC="$W/wx_job.c"
 body "$WJC" park | awk '/atomic_compare_exchange_strong\(&j->state, &queued, WX_JOB_IDLE\)/ {cas = NR} /atomic_load\(/ {if (!cas) early = 1; if ($0 ~ /atomic_load\(&j->state\) == WX_JOB_RUNNING/) run = 1} /atomic_store\(/ {st = 1} END {exit !(cas && run && !early && !st)}' ||
     WIRING="$WIRING park-cancels-by-CAS-then-loads-RUNNING"
@@ -233,12 +247,13 @@ cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_be
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
-cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_job.c" \
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
+cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_job.c" \
     "$D/test_wx_job.c" -lm -o "${OUT}_wx_job"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$D/test_wind.c" -lm -o "${OUT}_wind"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
@@ -275,6 +290,9 @@ if [ -d "$LV" ]; then
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_24.c" "$LV/src/font/lv_font_montserrat_30.c" "$LV/src/misc/lv_area.c" "$LV/src/misc/lv_math.c" \
         "$W/weather_face.c" "$W/wx_rain.c" "$W/wx_cast.c" "$D/test_cast_label.c" -lm -o "${OUT}_cast_label"
+    cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" "$W/weather_face.c" "$W/wx_wind.c" \
+        "$D/test_wind_label.c" -lm -o "${OUT}_wind_label"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -282,6 +300,7 @@ fi
 "${OUT}_temp"
 "${OUT}_rain"
 "${OUT}_cast"
+"${OUT}_wind"
 "${OUT}_faces"
 "${OUT}_wx_job"
 "${OUT}_ember"
@@ -301,8 +320,9 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_title_font"
     "${OUT}_face_fonts"
     "${OUT}_cast_label"
+    "${OUT}_wind_label"
 else
-    echo "run.sh: SKIPPED title and face font and forecast label tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast and wind label tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
@@ -313,7 +333,7 @@ cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/in
 "${OUT}_legacy"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
-    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \

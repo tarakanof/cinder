@@ -57,6 +57,9 @@ typedef struct {
     int now_rain;          /* wx_intensity_t of the step containing now */
     int pop;               /* today's chance of precipitation, % */
     int utc_offset;        /* s */
+    bool has_wind, has_wind_dir;
+    int wind_kmh;          /* now.wind_kmh */
+    int wind_dir;          /* now.wind_dir, 0..359, where the wind comes from */
     long long rain_until;  /* Unix s, 0 unknown */
     int rain_n;
     wx_spell_t rain_spell[WX_SPELLS];

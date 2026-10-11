@@ -603,9 +603,36 @@ static void bake_cast(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     }
 }
 
+static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    const wx_wind_t *w = &t->wind;
+    if (kind & WX_BAKE_RING) wx_paint_ring_wind(b->ring, !w->have, b->lut);
+    if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
+    if (!(kind & WX_BAKE_SCENE)) return;
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    wx_paint_pole(&bg, w->level);
+    wx_paint_face_dots(&bg, t->face, WXF_N);
+    wx_ring_blit(b->ring, b->bg);
+    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    wx_wind_layout_t l;
+    wx_wind_layout(w->level, &l);
+    for (int p = 0; p < WX_WIND_POSES; p++) {
+        wx_pt_t q[WX_WIND_QUADS][4];
+        for (int k = 0; k < WX_WIND_QUADS; k++) wx_wind_quad(w->level, p, k, q[k]);
+        wx_paint_sock(b->still + l.fill[p], b->still + l.dark[p], l.sock, q);
+    }
+    for (int r = 0; r < l.nrows; r++) wx_paint_streak(b->still + l.streak[r], w->level, r, l.streak_w[r]);
+    for (int k = 0; l.nleaves && k < WX_LEAF_ROTS; k++) wx_paint_leaf(b->still + l.leaf[k], k);
+}
+
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
+    if (t->wind.on) {
+        bake_wind(t, kind, b, out);
+        return;
+    }
     if (t->cast.on) {
         bake_cast(t, kind, b, out);
         return;
@@ -1017,4 +1044,186 @@ wx_box_t wx_paint_drop(wx_img_t *im, float deg)
             put(im, i, blue, cov(d + 1));
         }
     return (wx_box_t){im->x0, im->y0, im->x0 + im->w, im->y0 + im->h};
+}
+
+void wx_paint_ring_wind(wx_ring_t *r, bool grey, uint16_t lut[WX_RING_LUT])
+{
+    for (int i = 0; i <= RING_STEPS; i++)
+        lut[i] = wx_rgb565(grey ? 0x262626 : wx_wind_rgb((int)lroundf((float)WX_WIND_GAUGE_KMH * (float)i / RING_STEPS)));
+    ring_raster(r, lut);
+}
+
+void wx_paint_pole(wx_img_t *im, int level)
+{
+    const wx_wind_geo_t *g = wx_wind_geo(level);
+    const float px = g->mount.x - WX_WIND_ARM, top = g->mount.y - WX_WIND_POLE_TOP, base = WX_WIND_BASE_Y;
+    const float B[4][5] = {
+        {px - 3.5f, top, px + 3.5f, base - 6, 3.5f},
+        {px, g->mount.y - 3, px + WX_WIND_ARM, g->mount.y + 3, 3},
+        {px - 24, base - 7, px + 24, base, 3.5f},
+        {px - 5.5f, top - 5.5f, px + 5.5f, top + 5.5f, 5.5f},
+    };
+    const uint16_t col = wx_rgb565(WX_WIND_POLE_RGB);
+    int x0, y0, x1, y1;
+    clip(im, px - 26, top - 7, px + WX_WIND_ARM + 2, base + 1, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f, d = 1e9f;
+            for (int k = 0; k < 4; k++) d = fminf(d, rbox(fx, fy, B[k]));
+            put(im, y * im->w + x, col, cov(d));
+        }
+}
+
+#define SOCK_PAD 2
+#define SOCK_SS 4
+
+static wx_box_t even_box(float x0, float y0, float x1, float y1)
+{
+    wx_box_t b = {((int)floorf(x0)) & ~1, ((int)floorf(y0)) & ~1, (int)ceilf(x1), (int)ceilf(y1)};
+    b.x1 += b.x1 & 1;
+    b.y1 += b.y1 & 1;
+    return b;
+}
+
+void wx_wind_layout(int level, wx_wind_layout_t *l)
+{
+    memset(l, 0, sizeof *l);
+    const wx_wind_geo_t *g = wx_wind_geo(level);
+    float x0 = WX_FACE, y0 = WX_FACE, x1 = 0, y1 = 0;
+    for (int p = 0; p < WX_WIND_POSES; p++)
+        for (int q = 0; q < WX_WIND_QUADS; q++) {
+            wx_pt_t pt[4];
+            wx_wind_quad(level, p, q, pt);
+            for (int i = 0; i < 4; i++) {
+                x0 = fminf(x0, pt[i].x);
+                x1 = fmaxf(x1, pt[i].x);
+                y0 = fminf(y0, pt[i].y);
+                y1 = fmaxf(y1, pt[i].y);
+            }
+        }
+    l->sock = even_box(x0 - SOCK_PAD, y0 - SOCK_PAD, x1 + SOCK_PAD, y1 + SOCK_PAD);
+    float ax0 = (float)l->sock.x0, ay0 = (float)l->sock.y0, ax1 = (float)l->sock.x1, ay1 = (float)l->sock.y1;
+    int o = 0, sock = box_w(l->sock) * box_h(l->sock);
+    for (int p = 0; p < WX_WIND_POSES; p++) {
+        l->fill[p] = o;
+        o += sock;
+        l->dark[p] = o;
+        o += sock;
+    }
+    l->nrows = g->nrows;
+    for (int r = 0; r < g->nrows; r++) {
+        int sx = wx_wind_streak_x(level, r), sy = wx_wind_streak_y(level, r);
+        l->streak_w[r] = (int)ceilf(g->row[r].len) + 2 * WX_STREAK_PAD + 1;
+        l->streak[r] = o;
+        o += l->streak_w[r] * WX_STREAK_H;
+        ax0 = fminf(ax0, (float)(sx - 24));
+        ax1 = fmaxf(ax1, (float)(sx + l->streak_w[r] + 56));
+        ay0 = fminf(ay0, (float)sy);
+        ay1 = fmaxf(ay1, (float)(sy + WX_STREAK_H));
+    }
+    l->nleaves = g->nleaves;
+    for (int k = 0; g->nleaves && k < WX_LEAF_ROTS; k++) {
+        l->leaf[k] = o;
+        o += WX_LEAF_BOX * WX_LEAF_BOX;
+    }
+    for (int i = 0; i < g->nleaves; i++) {
+        float cx = g->mount.x + 2, cy = g->mount.y + g->leaf[i].dy, h = WX_LEAF_BOX / 2 + 1;
+        ax0 = fminf(ax0, cx - h);
+        ax1 = fmaxf(ax1, cx + 140 + h);
+        ay0 = fminf(ay0, cy - 10 - h);
+        ay1 = fmaxf(ay1, cy + 6 + h);
+    }
+    l->area = even_box(ax0, ay0, ax1, ay1);
+    l->total = o;
+}
+
+static bool in_quad(const wx_pt_t *p, float x, float y)
+{
+    bool in = false;
+    for (int i = 0, j = 3; i < 4; j = i++)
+        if ((p[i].y > y) != (p[j].y > y) && x < (p[j].x - p[i].x) * (y - p[i].y) / (p[j].y - p[i].y) + p[i].x) in = !in;
+    return in;
+}
+
+void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4])
+{
+    float qb[WX_WIND_QUADS][4];
+    for (int k = 0; k < WX_WIND_QUADS; k++) {
+        qb[k][0] = qb[k][2] = q[k][0].x;
+        qb[k][1] = qb[k][3] = q[k][0].y;
+        for (int i = 1; i < 4; i++) {
+            qb[k][0] = fminf(qb[k][0], q[k][i].x);
+            qb[k][1] = fminf(qb[k][1], q[k][i].y);
+            qb[k][2] = fmaxf(qb[k][2], q[k][i].x);
+            qb[k][3] = fmaxf(qb[k][3], q[k][i].y);
+        }
+    }
+    const int w = box_w(box), h = box_h(box);
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            float fx = (float)(box.x0 + x), fy = (float)(box.y0 + y);
+            int any = 0, odd = 0, near = 0;
+            for (int k = 0; k < WX_WIND_QUADS; k++)
+                if (fx + 1 >= qb[k][0] && fx <= qb[k][2] && fy + 1 >= qb[k][1] && fy <= qb[k][3]) near |= 1 << k;
+            for (int s = 0; near && s < SOCK_SS * SOCK_SS; s++) {
+                float sx = fx + ((float)(s % SOCK_SS) + 0.5f) / SOCK_SS, sy = fy + ((float)(s / SOCK_SS) + 0.5f) / SOCK_SS;
+                for (int k = 0; k < WX_WIND_QUADS; k++) {
+                    if (!(near >> k & 1) || !in_quad(q[k], sx, sy)) continue;
+                    any++;
+                    odd += k & 1;
+                    break;
+                }
+            }
+            int n = SOCK_SS * SOCK_SS;
+            fill[y * w + x] = (uint8_t)(odd == n ? 0 : (any - odd) * 255 / (n - odd));
+            dark[y * w + x] = (uint8_t)(odd * 255 / (SOCK_SS * SOCK_SS));
+        }
+}
+
+void wx_paint_streak(uint8_t *a8, int level, int r, int w)
+{
+    const wx_wind_geo_t *g = wx_wind_geo(level);
+    float ax = g->mount.x + g->row[r].x0 - (float)wx_wind_streak_x(level, r);
+    float ay = g->mount.y + g->row[r].dy - (float)wx_wind_streak_y(level, r);
+    memset(a8, 0, (size_t)w * WX_STREAK_H);
+    for (int y = 0; y < WX_STREAK_H; y++)
+        for (int x = 0; x < w; x++)
+            a8[y * w + x] = (uint8_t)lroundf(cov(seg_d((float)x + 0.5f, (float)y + 0.5f, ax, ay, ax + g->row[r].len, ay) - 2) * 255);
+}
+
+#define LEAF_HW_N 33
+
+static float leaf_hw(const float *hw, float u)
+{
+    if (u <= 0 || u >= 16) return 0;
+    float f = u / 16 * (LEAF_HW_N - 1);
+    int i = (int)f;
+    return hw[i] + (hw[i + 1] - hw[i]) * (f - (float)i);
+}
+
+void wx_paint_leaf(uint8_t *a8, int rot)
+{
+    float hw[LEAF_HW_N];
+    for (int i = 0; i < LEAF_HW_N; i++) {
+        float u = 16.0f * (float)i / (LEAF_HW_N - 1), lo = 0, hi = 1;
+        for (int it = 0; it < 24; it++) {
+            float t = (lo + hi) / 2;
+            if (12 * t + 12 * t * t - 8 * t * t * t < u) lo = t;
+            else hi = t;
+        }
+        float t = (lo + hi) / 2;
+        hw[i] = 15 * t * (1 - t);
+    }
+    const float a = (float)rot * (180.0f / WX_LEAF_ROTS) * DEG, c = cosf(a), s = sinf(a), m = WX_LEAF_BOX / 2.0f;
+    for (int y = 0; y < WX_LEAF_BOX; y++)
+        for (int x = 0; x < WX_LEAF_BOX; x++) {
+            int hit = 0;
+            for (int k = 0; k < SOCK_SS * SOCK_SS; k++) {
+                float dx = (float)x + ((float)(k % SOCK_SS) + 0.5f) / SOCK_SS - m;
+                float dy = (float)y + ((float)(k / SOCK_SS) + 0.5f) / SOCK_SS - m;
+                float u = dx * c + dy * s + 8, v = -dx * s + dy * c;
+                hit += fabsf(v) <= leaf_hw(hw, u);
+            }
+            a8[y * WX_LEAF_BOX + x] = (uint8_t)(hit * 255 / (SOCK_SS * SOCK_SS));
+        }
 }

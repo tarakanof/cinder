@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "wx_wind.h"
 
 static const cJSON *item(const cJSON *o, const char *k) { return cJSON_GetObjectItemCaseSensitive(o, k); }
 
@@ -118,6 +119,9 @@ static void parse_detail(const cJSON *w, wx_obs_t *o)
     const cJSON *up = cJSON_IsObject(moon) ? item(moon, "up") : NULL;
     o->moon_up = cJSON_IsBool(up) ? cJSON_IsTrue(up) : -1;
     o->has_now_rain = int_in(now, "rain", 0, 3, &o->now_rain);
+    o->has_wind = num_in(now, "wind_kmh", 0, WX_WIND_MAX_KMH, &o->wind_kmh);
+    o->has_wind_dir = num_in(now, "wind_dir", 0, 360, &o->wind_dir);
+    if (o->has_wind_dir) o->wind_dir %= 360;
     o->has_pop = int_in(today, "pop", 0, 100, &o->pop);
     o->has_utc_offset = int_in(w, "utc_offset", -50400, 50400, &o->utc_offset);
     parse_rain(item(w, "rain"), o);

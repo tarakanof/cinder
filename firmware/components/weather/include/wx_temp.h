@@ -7,6 +7,7 @@
 #include "wx_cast.h"
 #include "wx_faces.h"
 #include "wx_rain.h"
+#include "wx_wind.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,7 +65,8 @@ typedef struct {
     uint32_t sub_rgb;
     wx_rain_t rain; /* rain.on: the Rain now face instead */
     wx_cast_t cast; /* cast.on: the Rain forecast face */
-    int face;       /* WXF_*: rain.on exactly when WXF_RAIN, cast.on exactly when WXF_CAST */
+    wx_wind_t wind; /* wind.on: the Wind face */
+    int face;       /* WXF_*: rain.on exactly when WXF_RAIN, cast.on when WXF_CAST, wind.on when WXF_WIND */
 } wx_temp_t;
 
 uint32_t wx_temp_rgb(float c);
@@ -76,15 +78,16 @@ enum { WX_BAKE_RING = 1, WX_BAKE_HERO = 2, WX_BAKE_SCENE = 4, WX_BAKE_FULL = 7 }
 
 /* obs NULL or without a temperature: have false. */
 void wx_temp_from(const wx_obs_t *obs, wx_temp_t *out);
-/* The auto face (face: Rain now while wet, else Rain forecast when wx_cast_soon, else Temperature). shown: the face on
-   screen or NULL; a cloud cover within WX_BAND_HYST % of its band keeps that band, a wet face its rain intensity
-   (wx_rain_keep, wx_cast_from). */
+/* The auto face (face: Rain now while wet, else Rain forecast when wx_cast_soon, else Wind when wx_wind_strong, else
+   Temperature). shown: the face on screen or NULL; a cloud cover within WX_BAND_HYST % of its band keeps that band, a
+   wet face its rain intensity (wx_rain_keep, wx_cast_from), the Wind face its level (wx_wind_level_keep). */
 void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *out);
 /* wx_temp_from_shown for a face: WXF_AUTO (or any id outside the list) is the auto face; WXF_TEMP shows the temperature
-   even while wet; WXF_RAIN shows Rain now, dry (wx_rain_dry) when nothing falls; WXF_CAST the forecast on any weather. */
+   even while wet; WXF_RAIN shows Rain now, dry (wx_rain_dry) when nothing falls; WXF_CAST the forecast and WXF_WIND the
+   wind on any weather. */
 void wx_temp_face(const wx_obs_t *obs, const wx_temp_t *shown, int face, wx_temp_t *out);
 /* WX_BAKE_* parts that differ from shown: RING the range (or the forecast dial), HERO the hero sprite, SCENE background
-   and clouds (or the rain or forecast layers); 0 none. A change between the faces is FULL. */
+   and clouds (or the rain, forecast or wind layers); 0 none. A change between the faces is FULL. */
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *shown);
 bool wx_temp_same_bake(const wx_temp_t *a, const wx_temp_t *b);
 
