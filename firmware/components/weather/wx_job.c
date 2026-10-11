@@ -81,7 +81,7 @@ int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt)
         j->io->key = j->io->in;
         j->baked = j->attached = true;
         atomic_store(&j->state, WX_JOB_IDLE);
-        if (j->opa < 255) {
+        if ((j->io->kind & WX_BAKE_SCENE) && j->opa < 255) {
             j->opa = 85;
             j->fade = 0;
         }

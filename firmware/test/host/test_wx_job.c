@@ -123,6 +123,26 @@ static void test_rebake_detaches(void)
     CHECK(up && J.opa == 255 && frames >= 3 && frames <= 5, "fade in over 3 steps (%d frames)", frames);
 }
 
+static void test_partial_during_fade_in(void)
+{
+    wx_temp_t a = key(3, 12, 1), b = key(3, 12, 3), c = key(-2, 12, 3);
+    baked(a);
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "a scene re-bake fades out and detaches");
+    bake();
+    CHECK(wx_job_step(&J, &b, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 85, "the scene lands at 85");
+    int f = 0;
+    while (J.opa == 85 && f++ < 20) wx_job_step(&J, &b, 1.0 / 30);
+    CHECK(J.opa == 170, "one fade-in step (%d)", J.opa);
+    CHECK((wx_job_step(&J, &c, 1.0 / 30) & ~WX_DO_PAINT) == WX_DO_BAKE && IO.kind == WX_BAKE_RING, "a range change mid fade-in bakes the ring");
+    int before = J.opa;
+    bake();
+    CHECK(wx_job_step(&J, &c, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa >= before,
+          "the ring lands without dimming the fade-in (%d -> %d)", before, J.opa);
+    f = 0;
+    while (J.opa < 255 && f++ < 20) wx_job_step(&J, &c, 1.0 / 30);
+    CHECK(J.opa == 255 && f <= 3, "and the fade-in finishes on time (%d more frames)", f);
+}
+
 static void test_partial_rebake(void)
 {
     wx_temp_t a = key(3, 12, 1), c = key(-2, 12, 1);
@@ -314,6 +334,7 @@ int main(void)
     test_first_bake();
     test_rebake_detaches();
     test_partial_rebake();
+    test_partial_during_fade_in();
     test_hide_show_drops_a_done_job();
     test_hide_during_bake();
     test_ota_hold();
