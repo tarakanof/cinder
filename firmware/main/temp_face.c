@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "wx_cast.h"
+#include "wx_days.h"
 #include "wx_faces.h"
 #include "wx_job.h"
 #include "wx_paint.h"
@@ -48,6 +49,10 @@ static lv_obj_t *s_drip[WX_DRIPS], *s_splash[WX_SPLASHES], *s_bolt;
 static lv_obj_t *s_cbox[WX_CAST_SIDES], *s_cloud[WX_CAST_SIDES], *s_csheet[WX_CAST_SIDES], *s_cstrip[WX_CAST_SIDES][2];
 static lv_obj_t *s_ctop[WX_CAST_SIDES], *s_cbottom[WX_CAST_SIDES], *s_drop, *s_clabel;
 static lv_obj_t *s_wbox, *s_wsock, *s_wdark, *s_wstreak[WX_WIND_ROWS], *s_wleaf[WX_WIND_LEAVES];
+static lv_obj_t *s_dbox, *s_drow[WX_DAYS], *s_dicon[WX_DAYS], *s_dday[WX_DAYS], *s_dlo[WX_DAYS], *s_dhi[WX_DAYS], *s_dpop[WX_DAYS];
+static EXT_RAM_BSS_ATTR wx_days_layout_t s_dlay;
+static EXT_RAM_BSS_ATTR bool s_days;
+static EXT_RAM_BSS_ATTR char s_dlo_txt[WX_DAYS][12], s_dhi_txt[WX_DAYS][12], s_dpop_txt[WX_DAYS][8];
 static EXT_RAM_BSS_ATTR wx_wind_layout_t s_wlay;
 static EXT_RAM_BSS_ATTR bool s_wind;
 static EXT_RAM_BSS_ATTR wx_cast_layout_t s_clay;
@@ -84,6 +89,7 @@ typedef struct {
     int wind_pose, sock_opa, streak_dx[WX_WIND_ROWS], streak_opa[WX_WIND_ROWS];
     int leaf_x[WX_WIND_LEAVES], leaf_y[WX_WIND_LEAVES], leaf_rot[WX_WIND_LEAVES], leaf_opa[WX_WIND_LEAVES];
     uint32_t sock_rgb;
+    int day_opa[WX_DAYS], day_dy[WX_DAYS], day_lo[WX_DAYS], day_hi[WX_DAYS];
 } shown_t;
 
 static EXT_RAM_BSS_ATTR shown_t s_shown;
@@ -200,6 +206,23 @@ static void wind_create(void)
     }
 }
 
+static void days_create(void)
+{
+    s_dbox = box_obj(s_root);
+    for (int i = 0; i < WX_DAYS; i++) {
+        lv_obj_t *r = s_drow[i] = box_obj(s_root);
+        lv_obj_set_size(r, WX_FACE, WX_DAYS_ROW_H);
+        s_dicon[i] = canvas(r, LV_COLOR_FORMAT_RGB565A8);
+        s_dday[i] = label(r, &lv_font_montserrat_30, LV_ALIGN_TOP_LEFT, 0, 0);
+        lv_obj_set_style_text_color(s_dday[i], lv_color_hex(WX_DAYS_NAME_RGB), 0);
+        s_dlo[i] = label(r, &font_face_36, LV_ALIGN_TOP_RIGHT, 0, 0);
+        lv_obj_set_style_text_opa(s_dlo[i], WX_DAYS_LO_OPA, 0);
+        s_dhi[i] = label(r, &font_face_36, LV_ALIGN_TOP_LEFT, 0, 0);
+        s_dpop[i] = label(r, &lv_font_montserrat_24, LV_ALIGN_TOP_MID, 0, 0);
+        lv_obj_set_style_text_color(s_dpop[i], lv_color_hex(WX_DAYS_POP_RGB), 0);
+    }
+}
+
 static void bake_task(void *arg)
 {
     (void)arg;
@@ -234,6 +257,7 @@ void temp_face_create(lv_obj_t *parent)
     rain_create();
     cast_create();
     wind_create();
+    days_create();
     s_thermo = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     lv_obj_set_pos(s_thermo, WX_THERMO_X, WX_THERMO_Y);
     lv_obj_add_flag(s_hero, LV_OBJ_FLAG_HIDDEN);
@@ -285,6 +309,7 @@ static void detach(void)
     lv_canvas_set_buffer(s_wdark, s_none, 2, 2, LV_COLOR_FORMAT_A8);
     for (int r = 0; r < WX_WIND_ROWS; r++) lv_canvas_set_buffer(s_wstreak[r], s_none, 2, 2, LV_COLOR_FORMAT_A8);
     for (int i = 0; i < WX_WIND_LEAVES; i++) lv_canvas_set_buffer(s_wleaf[i], s_none, 2, 2, LV_COLOR_FORMAT_A8);
+    for (int i = 0; i < WX_DAYS; i++) lv_canvas_set_buffer(s_dicon[i], s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
 }
 
 static void release(void)
@@ -484,13 +509,45 @@ static void wind_attach(const wx_wind_t *w)
     lv_obj_invalidate(s_wbox);
 }
 
+static void days_attach(const wx_days_t *d)
+{
+    uint8_t *m = s_buf.still;
+    wx_days_layout(d, &s_dlay);
+    const wx_days_cols_t *c = &s_dlay.c;
+    wx_box_t a = s_dlay.area, sp = s_dlay.sprite;
+    lv_obj_set_pos(s_dbox, a.x0, a.y0);
+    lv_obj_set_size(s_dbox, a.x1 - a.x0, a.y1 - a.y0);
+    show_obj(s_dbox, s_dlay.n > 0);
+    int temp_y = WX_DAYS_ROW_UP - font_face_36.line_height / 2;
+    for (int i = 0; i < WX_DAYS; i++) {
+        bool on = i < s_dlay.n;
+        show_obj(s_drow[i], on);
+        s_shown.day_opa[i] = s_shown.day_dy[i] = s_shown.day_lo[i] = s_shown.day_hi[i] = INT_MIN;
+        if (!on) continue;
+        const wx_days_row_t *r = &d->row[i];
+        lv_canvas_set_buffer(s_dicon[i], m + s_dlay.at[i], sp.x1 - sp.x0, sp.y1 - sp.y0, LV_COLOR_FORMAT_RGB565A8);
+        lv_obj_set_pos(s_dicon[i], sp.x0, sp.y0);
+        lv_label_set_text_static(s_dday[i], wx_weekday_name(r->wday));
+        lv_obj_align(s_dday[i], LV_ALIGN_TOP_LEFT, c->day_x, WX_DAYS_ROW_UP - lv_font_montserrat_30.line_height / 2);
+        lv_obj_align(s_dlo[i], LV_ALIGN_TOP_RIGHT, c->lo_x + c->lo_w - WX_FACE, temp_y);
+        lv_obj_align(s_dhi[i], LV_ALIGN_TOP_LEFT, c->hi_x, temp_y);
+        show_obj(s_dpop[i], r->pop >= 0);
+        if (r->pop < 0) continue;
+        snprintf(s_dpop_txt[i], sizeof s_dpop_txt[i], "%d%%", r->pop);
+        lv_label_set_text_static(s_dpop[i], s_dpop_txt[i]);
+        lv_obj_align(s_dpop[i], LV_ALIGN_TOP_MID, c->icon_x + WX_DAYS_ICON / 2 - WX_FACE / 2, WX_DAYS_ROW_UP + WX_DAYS_POP_DY);
+    }
+    lv_obj_invalidate(s_dbox);
+}
+
 static void face_kind(const wx_temp_t *t)
 {
     s_rain = t->rain.on;
     s_cast = t->cast.on;
     s_wind = t->wind.on;
+    s_days = t->days.on;
     s_unit_on = s_rain || s_cast || s_wind;
-    show_obj(s_thermo, !s_rain && !s_cast && !s_wind);
+    show_obj(s_thermo, !s_rain && !s_cast && !s_wind && !s_days);
     show_obj(s_unit, s_rain);
     lv_label_set_text_static(s_unit, "%");
     s_shown.unit = NULL;
@@ -507,12 +564,19 @@ static void face_kind(const wx_temp_t *t)
         for (int r = 0; r < WX_WIND_ROWS; r++) show_obj(s_wstreak[r], false);
         for (int i = 0; i < WX_WIND_LEAVES; i++) show_obj(s_wleaf[i], false);
     }
+    if (!s_days) {
+        show_obj(s_dbox, false);
+        for (int i = 0; i < WX_DAYS; i++) show_obj(s_drow[i], false);
+    }
+    bool rows = s_days && t->days.have;
+    show_obj(s_value, !rows);
+    lv_obj_align(s_sub, LV_ALIGN_TOP_MID, 0, rows ? WX_DAYS_SUB_Y : SUB_Y);
     show_obj(s_drop, false);
     show_obj(s_clabel, false);
     lv_label_set_recolor(s_sub, s_cast || s_wind);
     int unit = lv_font_get_glyph_width(&lv_font_montserrat_30, '%', 0) + UNIT_GAP;
     int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
-    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : s_cast || s_wind ? 0 : deg / 2, VALUE_Y);
+    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : s_cast || s_wind || s_days ? 0 : deg / 2, VALUE_Y);
     s_shown.value[0] = 0;
     s_shown.value_w = -1;
 }
@@ -527,6 +591,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
         if (t->rain.on) rain_attach(&t->rain);
         if (t->cast.on) cast_attach(&t->cast);
         if (t->wind.on) wind_attach(&t->wind);
+        if (t->days.on) days_attach(&t->days);
     } else if (kind & WX_BAKE_RING) {
         wx_ring_blit(s_buf.ring, s_buf.bg);
     }
@@ -536,7 +601,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
         sprite(s_hero, s_hero_buf[s_front], o->hero);
         s_buf.hero = s_hero_buf[!s_front];
     }
-    if (t->cast.on) {
+    if (t->cast.on || t->days.on) {
         show_obj(s_lo, false);
         show_obj(s_hi, false);
     } else if (t->wind.on) {
@@ -786,6 +851,40 @@ static void set_wind(const wx_wind_t *w, uint32_t rgb, int fo, int opa)
     if (dirty) lv_obj_invalidate(s_wbox);
 }
 
+static void set_days(const wx_days_t *d, double ta, int fo)
+{
+    bool dirty = false;
+    for (int i = 0; i < s_dlay.n; i++) {
+        const wx_days_row_t *r = &d->row[i];
+        int opa, dy;
+        wx_days_arrive(i, ta, &opa, &dy);
+        opa = opa * fo / 255;
+        if (opa != s_shown.day_opa[i]) {
+            s_shown.day_opa[i] = opa;
+            lv_obj_set_style_opa(s_drow[i], (lv_opa_t)opa, 0);
+            dirty = true;
+        }
+        if (dy != s_shown.day_dy[i]) {
+            s_shown.day_dy[i] = dy;
+            lv_obj_set_y(s_drow[i], s_dlay.y[i] - WX_DAYS_ROW_UP + dy);
+            dirty = true;
+        }
+        int lo = wx_count_value(r->lo, wx_count_step(wx_count_n(r->lo), ta));
+        int hi = wx_count_value(r->hi, wx_count_step(wx_count_n(r->hi), ta));
+        if (lo != s_shown.day_lo[i]) {
+            s_shown.day_lo[i] = lo;
+            end_label(s_dlo[i], s_dlo_txt[i], sizeof s_dlo_txt[i], true, lo);
+            dirty = true;
+        }
+        if (hi != s_shown.day_hi[i]) {
+            s_shown.day_hi[i] = hi;
+            end_label(s_dhi[i], s_dhi_txt[i], sizeof s_dhi_txt[i], true, hi);
+            dirty = true;
+        }
+    }
+    if (dirty) lv_obj_invalidate(s_dbox);
+}
+
 static void set_mercury(float top, uint32_t rgb)
 {
     int q = (int)lroundf(top * 2);
@@ -882,7 +981,12 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
     const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;
     const wx_wind_t *w = wx_wind_same_scene(&t->wind, &s_io.key.wind) ? &t->wind : &s_io.key.wind;
     char txt[20];
-    if (s_wind) {
+    if (s_days) {
+        const wx_days_t *d = &s_io.key.days;
+        if (d->have) set_days(d, ta, fo);
+        else set_value("--", GREY_RGB);
+        place_marker(0, 0, false);
+    } else if (s_wind) {
         uint32_t rgb = GREY_RGB;
         if (w->have) {
             int v = wx_count_value(w->kmh, wx_count_step(wx_count_n(w->kmh), ta));
@@ -933,8 +1037,8 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         set_value("--\xC2\xB0", GREY_RGB);
         set_mercury(WX_MERC_BOTTOM, GREY_RGB);
     }
-    if (!s_rain && !s_cast && !s_wind) set_marker(t->frac * (float)a, t->have);
-    set_sprites(sprite_opa, !s_rain && !s_cast && !s_wind && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
+    if (!s_rain && !s_cast && !s_wind && !s_days) set_marker(t->frac * (float)a, t->have);
+    set_sprites(sprite_opa, !s_rain && !s_cast && !s_wind && !s_days && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
     double sf = (s_t - WX_ARRIVE_S) / SUB_FADE_S;
     int sub_opa = (sf <= 0 ? 0 : sf >= 1 ? 255 : 85 * (1 + (int)(sf * 3))) * fo / 255;
     char age[24];
@@ -942,8 +1046,8 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         wx_age_label(obs, age, sizeof age);
         set_sub(age, GREY_RGB, sub_opa);
     } else {
-        set_sub(s_wind ? w->sub : s_cast ? c->sub : s_rain ? r->sub : t->have ? t->sub : "",
-                s_wind || s_cast || s_rain ? SUB_RGB : t->sub_rgb, sub_opa);
+        set_sub(s_days ? "" : s_wind ? w->sub : s_cast ? c->sub : s_rain ? r->sub : t->have ? t->sub : "",
+                s_days || s_wind || s_cast || s_rain ? SUB_RGB : t->sub_rgb, sub_opa);
     }
 }
 

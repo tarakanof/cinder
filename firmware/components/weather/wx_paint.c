@@ -544,6 +544,8 @@ static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
     return b;
 }
 
+static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
+
 static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
     const wx_rain_t *r = &t->rain;
@@ -629,6 +631,10 @@ static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
+    if (t->days.on) {
+        bake_days(t, kind, b, out);
+        return;
+    }
     if (t->wind.on) {
         bake_wind(t, kind, b, out);
         return;
@@ -1226,4 +1232,141 @@ void wx_paint_leaf(uint8_t *a8, int rot)
             }
             a8[y * WX_LEAF_BOX + x] = (uint8_t)(hit * 255 / (SOCK_SS * SOCK_SS));
         }
+}
+
+static float ring_days_px(const void *ctx, float fx, float fy, float r2, uint16_t *col)
+{
+    (void)ctx;
+    (void)fx;
+    (void)fy;
+    *col = wx_rgb565(WX_DAYS_TRACK_RGB);
+    return cov(fabsf(sqrtf(r2) - WX_RING_R) - WX_DAYS_RING_HW);
+}
+
+void wx_paint_ring_days(wx_ring_t *r) { annulus(r, ring_days_px, NULL); }
+
+typedef struct {
+    float c[3][3], base;
+    uint32_t fill, line;
+} day_cloud_t;
+
+static const day_cloud_t CLOUD_WHITE = {{{13, 28, 7}, {21, 23, 8.5f}, {30, 28, 7}}, 33, 0xE6ECF2, 0xC4CCD4};
+static const day_cloud_t CLOUD_GREY = {{{10, 19, 7}, {19, 14, 9}, {29, 19, 7}}, 24, 0x8E96A0, 0xA8B0BA};
+static const day_cloud_t CLOUD_LOW = {{{10, 25, 7}, {19, 20, 9}, {29, 25, 7}}, 30, 0x8E96A0, 0xA8B0BA};
+static const day_cloud_t CLOUD_DARK = {{{10, 19, 7}, {19, 14, 9}, {29, 19, 7}}, 24, 0x555D68, 0x6A7480};
+static const float BOLT[7][2] = {{21, 24}, {15, 32}, {19.5f, 32}, {17, 39}, {25, 30}, {20.5f, 30}, {23, 24}};
+
+static uint32_t sun_rgb(float f)
+{
+    return f <= 0.6f ? lerp_rgb(0xFFE07A, 0xFFB547, f / 0.6f) : lerp_rgb(0xFFB547, 0xF08A3A, (f - 0.6f) / 0.4f);
+}
+
+static bool in_poly(const float (*p)[2], int n, float x, float y)
+{
+    bool in = false;
+    for (int i = 0, j = n - 1; i < n; j = i++)
+        if ((p[i][1] > y) != (p[j][1] > y) && x < (p[j][0] - p[i][0]) * (y - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0]) in = !in;
+    return in;
+}
+
+static void icon_px(wx_img_t *im, int idx, int icon, float x, float y)
+{
+    const uint16_t ray = wx_rgb565(0xFFB547);
+    if (icon == WX_ICON_SUN) {
+        for (int k = 0; k < 8; k++) {
+            float a = (float)k * 45.0f * DEG, s = sinf(a), c = cosf(a);
+            put(im, idx, ray, cov(seg_d(x, y, 20 + 14.5f * s, 20 - 14.5f * c, 20 + 18 * s, 20 - 18 * c) - 1.25f));
+        }
+        float d = hypotf(x - 20, y - 20);
+        put(im, idx, wx_rgb565(sun_rgb(d / 11)), cov(d - 11));
+        return;
+    }
+    if (icon == WX_ICON_PARTLY) {
+        float d = hypotf(x - 14, y - 14);
+        put(im, idx, wx_rgb565(sun_rgb(d / 9)), cov(d - 9));
+    }
+    if (icon == WX_ICON_RAIN)
+        for (int k = 0; k < 3; k++)
+            put(im, idx, wx_rgb565(WX_DAYS_POP_RGB), cov(seg_d(x, y, 13 + 7 * k, 28, 11 + 7 * k, 34) - 1.25f));
+    const day_cloud_t *cl = icon == WX_ICON_PARTLY ? &CLOUD_WHITE : icon == WX_ICON_CLOUD ? &CLOUD_LOW
+                            : icon == WX_ICON_STORM                                     ? &CLOUD_DARK
+                                                                                        : &CLOUD_GREY;
+    float d = 1e9f;
+    for (int k = 0; k < 3; k++) d = fminf(d, hypotf(x - cl->c[k][0], y - cl->c[k][1]) - cl->c[k][2]);
+    d = fmaxf(d, y - cl->base);
+    put(im, idx, wx_rgb565(cl->fill), cov(d));
+    put(im, idx, wx_rgb565(cl->line), cov(fabsf(d) - 1));
+    if (icon == WX_ICON_FOG) {
+        const uint16_t mist = wx_rgb565(0x9AA4B0);
+        put(im, idx, mist, cov(seg_d(x, y, 9, 29, 31, 29) - 1.25f));
+        put(im, idx, mist, cov(seg_d(x, y, 13, 34, 27, 34) - 1.25f));
+    } else if (icon == WX_ICON_SNOW) {
+        for (int k = 0; k < 3; k++) put(im, idx, wx_rgb565(0xD0DCE8), cov(hypotf(x - (13 + 7 * k), y - (k == 1 ? 34 : 30)) - 2));
+    }
+}
+
+void wx_paint_day_icon(wx_img_t *im, int icon, float ox, float oy)
+{
+    int x0, y0, x1, y1;
+    clip(im, ox - 1, oy - 1, ox + WX_DAYS_ICON + 1, oy + WX_DAYS_ICON + 1, &x0, &y0, &x1, &y1);
+    const uint16_t bolt = wx_rgb565(0xF0D040);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f - ox, fy = (float)(im->y0 + y) + 0.5f - oy;
+            int idx = y * im->w + x;
+            icon_px(im, idx, icon, fx, fy);
+            if (icon != WX_ICON_STORM) continue;
+            int in = 0;
+            for (int sy = 0; sy < 4; sy++)
+                for (int sx = 0; sx < 4; sx++) in += in_poly(BOLT, 7, fx - 0.375f + 0.25f * sx, fy - 0.375f + 0.25f * sy);
+            put(im, idx, bolt, in / 16.0f);
+        }
+}
+
+void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_layout_t *l)
+{
+    wx_paint_clear(im);
+    const wx_days_cols_t *c = &l->c;
+    const float cy = (float)l->y[i], hw = WX_DAYS_BAR_H / 2.0f, bx = (float)c->bar_x, bw = (float)c->bar_w;
+    float s0, s1;
+    wx_days_span(d, i, c->bar_w, &s0, &s1);
+    s0 += bx;
+    s1 += bx;
+    const wx_days_row_t *r = &d->row[i];
+    const uint16_t track = wx_rgb565(WX_DAYS_TRACK_RGB);
+    int x0, y0, x1, y1;
+    clip(im, bx - 1, cy - hw - 1, bx + bw + 1, cy + hw + 1, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
+            int idx = y * im->w + x;
+            put(im, idx, track, cov(seg_d(fx, fy, bx + hw, cy, bx + bw - hw, cy) - hw));
+            float a = cov(seg_d(fx, fy, s0 + hw, cy, s1 - hw, cy) - hw);
+            if (a <= 0) continue;
+            float f = clamp01((fx - s0) / (s1 - s0));
+            put(im, idx, wx_rgb565(wx_temp_rgb((float)r->lo + (float)(r->hi - r->lo) * f)), a);
+        }
+    wx_paint_day_icon(im, r->icon, (float)c->icon_x, cy - WX_DAYS_ICON / 2.0f);
+}
+
+static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    const wx_days_t *d = &t->days;
+    if (kind & WX_BAKE_RING) wx_paint_ring_days(b->ring);
+    if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
+    if (!(kind & WX_BAKE_SCENE)) return;
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    wx_paint_face_dots(&bg, t->face, WXF_N);
+    wx_ring_blit(b->ring, b->bg);
+    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    wx_days_layout_t l;
+    wx_days_layout(d, &l);
+    int w = l.sprite.x1 - l.sprite.x0, h = l.sprite.y1 - l.sprite.y0;
+    for (int i = 0; i < l.n; i++) {
+        uint8_t *m = b->still + l.at[i];
+        wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sprite.x0,
+                       .y0 = l.y[i] - WX_DAYS_ROW_UP};
+        wx_paint_day_row(&im, d, i, &l);
+    }
 }

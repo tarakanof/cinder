@@ -108,6 +108,25 @@ static void parse_rain(const cJSON *r, wx_obs_t *o)
         if (spell_in(s, &o->rain_spell[o->rain_n])) o->rain_n++;
 }
 
+static void parse_days(const cJSON *d, wx_obs_t *o)
+{
+    for (const cJSON *e = cJSON_IsArray(d) ? d->child : NULL; e && o->day_n < WX_DAYS; e = e->next) {
+        wx_day_t day;
+        int lo, hi, pop;
+        if (!unix_in(item(e, "t"), &day.t) || !num_in(e, "min_c", -99, 99, &lo) ||
+            !num_in(e, "max_c", -99, 99, &hi) || lo > hi || (o->day_n && day.t <= o->day[o->day_n - 1].t))
+            continue;
+        char cond[12], code[40];
+        str_copy(cond, sizeof cond, e, "cond");
+        str_copy(code, sizeof code, e, "code");
+        day.face = (signed char)wx_look_from(o->provider, cond, code, 0).face;
+        day.pop = (signed char)(int_in(e, "pop", 0, 100, &pop) ? pop : -1);
+        day.min_c = (short)lo;
+        day.max_c = (short)hi;
+        o->day[o->day_n++] = day;
+    }
+}
+
 static void parse_detail(const cJSON *w, wx_obs_t *o)
 {
     const cJSON *now = item(w, "now"), *today = item(w, "today"), *moon = item(w, "moon");
@@ -125,6 +144,7 @@ static void parse_detail(const cJSON *w, wx_obs_t *o)
     o->has_pop = int_in(today, "pop", 0, 100, &o->pop);
     o->has_utc_offset = int_in(w, "utc_offset", -50400, 50400, &o->utc_offset);
     parse_rain(item(w, "rain"), o);
+    parse_days(item(w, "days"), o);
 }
 
 static void parse_weather(const cJSON *w, knob_view_t *out)
