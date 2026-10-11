@@ -704,33 +704,41 @@ static void test_rim_job(void)
     CHECK(!rim_job_release(&j), "release without a hold asks nothing");
 }
 
-static bool s_take_in_race, s_race_took;
-static unsigned s_race_gen;
+static int s_race_at, s_race_fired, s_race_done;
+static bool s_race_took;
+static unsigned s_race_gen, s_race_base_gen;
 static int s_race_shape, s_race_mood;
 
-void rj_race_point(rim_job_t *j);
-void rj_race_point(rim_job_t *j)
+void rj_race_point(rim_job_t *j, int at);
+void rj_race_point(rim_job_t *j, int at)
 {
-    if (!s_take_in_race) return;
-    s_take_in_race = false;
+    if (at != s_race_at) return;
+    s_race_at = 0;
+    s_race_fired = at;
+    s_race_done = (atomic_load(&j->shape) == 1) + (atomic_load(&j->mood) == BOT_ERROR) +
+                  (atomic_load(&j->gen) != s_race_base_gen);
     s_race_took = rim_job_take(j, &s_race_gen, &s_race_shape, &s_race_mood);
 }
 
 static void test_rim_job_order(void)
 {
-    rim_job_t j = {0};
-    rim_job_new(&j, 0, BOT_IDLE);
-    s_take_in_race = true;
-    rim_job_new(&j, 1, BOT_ERROR);
-    CHECK(s_race_took, "a pending notify takes a job inside rim_job_new");
-    bool current = s_race_gen == rim_job_gen(&j);
-    CHECK(!current || (s_race_shape == 1 && s_race_mood == BOT_ERROR),
-          "variants stamped current were built from the new outline, not the old one (shape %d, mood %d)", s_race_shape, s_race_mood);
-    CHECK(!current || rim_job_live(&j, s_race_gen), "a job taken mid-update is either stale or for the new outline");
-    unsigned gen;
-    int shape, mood;
-    CHECK(rim_job_take(&j, &gen, &shape, &mood) && gen == rim_job_gen(&j) && shape == 1 && mood == BOT_ERROR,
-          "the next take gets the new outline under the current generation");
+    for (int at = 1; at <= 3; at++) {
+        rim_job_t j = {0};
+        rim_job_new(&j, 0, BOT_IDLE);
+        s_race_base_gen = rim_job_gen(&j);
+        s_race_at = at;
+        s_race_fired = 0;
+        rim_job_new(&j, 1, BOT_ERROR);
+        CHECK(s_race_fired == at && s_race_took, "a pending notify takes a job at rim_job_new's race point %d", at);
+        CHECK(s_race_done == at, "rim_job_new's race point %d follows its atomic step %d (%d done)", at, at, s_race_done);
+        CHECK(s_race_gen != rim_job_gen(&j) || (s_race_shape == 1 && s_race_mood == BOT_ERROR),
+              "a job taken at rim_job_new's race point %d is stale or for the new outline (shape %d, mood %d)", at,
+              s_race_shape, s_race_mood);
+        unsigned gen;
+        int shape, mood;
+        CHECK(rim_job_take(&j, &gen, &shape, &mood) && gen == rim_job_gen(&j) && shape == 1 && mood == BOT_ERROR,
+              "after race point %d the next take gets the new outline under the current generation", at);
+    }
 }
 
 int main(void)

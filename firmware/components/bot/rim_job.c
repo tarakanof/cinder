@@ -1,17 +1,19 @@
 #include "rim_job.h"
 
 #ifdef RJ_RACE_POINT
-void rj_race_point(rim_job_t *j);
+void rj_race_point(rim_job_t *j, int at);
 #else
-#define RJ_RACE_POINT(j)
+#define RJ_RACE_POINT(j, at)
 #endif
 
 void rim_job_new(rim_job_t *j, int shape, int mood)
 {
     atomic_store(&j->shape, shape);
+    RJ_RACE_POINT(j, 1);
     atomic_store(&j->mood, mood);
-    RJ_RACE_POINT(j);
+    RJ_RACE_POINT(j, 2);
     atomic_fetch_add(&j->gen, 1);
+    RJ_RACE_POINT(j, 3);
 }
 
 void rim_job_hold(rim_job_t *j)
