@@ -364,7 +364,7 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     if (!s_root) return;
     if (!isfinite(dt) || dt < 0) dt = 0;
     wx_temp_t t = {0};
-    if (s_job.visible && s_job.bufs) wx_temp_from(obs, &t);
+    if (s_job.visible && s_job.bufs) wx_temp_from_shown(obs, s_job.baked ? &s_io.key : NULL, &t);
     int a = wx_job_step(&s_job, &t, dt);
     act(a);
     if (!(a & WX_DO_PAINT)) return;

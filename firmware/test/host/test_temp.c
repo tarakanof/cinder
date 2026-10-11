@@ -172,6 +172,95 @@ static void test_same_bake(void)
     CHECK(!wx_temp_same_bake(&a, &b), "range");
 }
 
+static void test_bake_key(void)
+{
+    static const int KEEP[][3] = {
+        {72, -1, 3}, {72, 2, 2}, {74, 2, 2}, {75, 2, 3}, {36, 2, 2}, {35, 2, 2}, {34, 2, 1}, {14, 0, 0},
+        {15, 0, 1}, {85, 4, 4}, {84, 4, 3}, {5, 1, 1}, {4, 1, 0}, {94, 3, 3}, {95, 3, 4}, {44, 1, 1}, {45, 1, 2},
+    };
+    for (size_t i = 0; i < sizeof KEEP / sizeof KEEP[0]; i++)
+        CHECK(wx_cloud_band_keep(KEEP[i][0], KEEP[i][1]) == KEEP[i][2], "cloud %d%% shown band %d: band %d, want %d",
+              KEEP[i][0], KEEP[i][1], wx_cloud_band_keep(KEEP[i][0], KEEP[i][1]), KEEP[i][2]);
+
+    wx_obs_t o = obs("clouds", "2", 12, 0);
+    o.has_cloud = true;
+    o.cloud = 38;
+    wx_temp_t shown, t;
+    wx_temp_from(&o, &shown);
+    CHECK(shown.cloud_band == 1 && shown.hero == WX_HERO_SUN, "38 %%: one cloud, sun");
+    for (int c = 38; c <= 44; c++) {
+        o.cloud = c;
+        wx_temp_from_shown(&o, &shown, &t);
+        CHECK(t.cloud_band == 1 && t.hero == WX_HERO_SUN && !strcmp(t.sub, "Mostly sunny") && wx_temp_bake_kind(&t, &shown) == 0,
+              "cloud %d%% next to the 40 %% edge keeps the shown band: no re-bake ('%s')", c, t.sub);
+    }
+    o.cloud = 45;
+    wx_temp_from_shown(&o, &shown, &t);
+    CHECK(t.cloud_band == 2 && wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL, "45 %%: the band moves, full re-bake");
+    wx_temp_from(&o, &shown);
+    o.cloud = 36;
+    wx_temp_from_shown(&o, &shown, &t);
+    CHECK(t.cloud_band == 2, "and stays down to 35 %%");
+    o.cloud = 42;
+    wx_temp_from_shown(&o, NULL, &t);
+    CHECK(t.cloud_band == 2, "nothing shown: plain bands");
+    shown.have = false;
+    o.cloud = 38;
+    wx_temp_from_shown(&o, &shown, &t);
+    CHECK(t.cloud_band == 1, "a shown face without data keeps no band");
+
+    o = obs("clear", "0", 8, 1);
+    o.has_moon = true;
+    o.moon_up = 1;
+    o.moon_phase = 24;
+    static const int ILLUM[][2] = {{0, 0}, {2, 0}, {3, 5}, {46, 45}, {47, 45}, {48, 50}, {98, 100}, {100, 100}, {130, 100}, {-4, 0}};
+    for (size_t i = 0; i < sizeof ILLUM / sizeof ILLUM[0]; i++) {
+        o.moon_illum = ILLUM[i][0];
+        wx_temp_from(&o, &t);
+        CHECK(t.moon_illum == ILLUM[i][1], "illum %d%% -> %d, want %d", ILLUM[i][0], t.moon_illum, ILLUM[i][1]);
+    }
+    o.moon_illum = 46;
+    wx_temp_from(&o, &shown);
+    o.moon_illum = 47;
+    o.moon_phase = 30;
+    o.temp_c = 9;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == 0, "illum 46 -> 47, phase 24 -> 30 (still waxing), a new value: no re-bake");
+    o.moon_illum = 48;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_HERO, "illum to the next 5 %% step: hero only");
+    o.moon_illum = 46;
+    o.moon_phase = 60;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_HERO, "waxing to waning: hero only");
+    o.moon_phase = 24;
+    o.moon_up = 0;
+    wx_temp_from(&o, &t);
+    CHECK(t.hero == WX_HERO_NONE && wx_temp_bake_kind(&t, &shown) == WX_BAKE_HERO, "moonset: hero only");
+    o.moon_up = 1;
+    o.has_today = true;
+    o.min_c = 2;
+    o.max_c = 7;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_RING, "a range: ring only");
+    o.moon_illum = 60;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == (WX_BAKE_RING | WX_BAKE_HERO), "range and moon: ring and hero");
+    o.has_today = false;
+    o.moon_illum = 46;
+    o.night = false;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL, "dawn: full");
+    o.night = true;
+    o.has_cloud = true;
+    o.cloud = 50;
+    wx_temp_from(&o, &t);
+    CHECK(!t.stars && wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL, "clouds at night (stars off): full");
+    o.has_temp = false;
+    wx_temp_from(&o, &t);
+    CHECK(wx_temp_bake_kind(&t, &shown) == WX_BAKE_FULL, "data lost: full");
+}
+
 static void test_count(void)
 {
     CHECK(wx_count_n(30) == 30 && wx_count_n(-6) == 6 && wx_count_n(0) == 0 && wx_count_n(31) == 23 && wx_count_n(-45) == 23,
@@ -472,6 +561,7 @@ int main(void)
     test_uv();
     test_face_from();
     test_same_bake();
+    test_bake_key();
     test_count();
     test_geometry();
     test_clouds();

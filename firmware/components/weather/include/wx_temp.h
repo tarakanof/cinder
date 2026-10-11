@@ -21,6 +21,8 @@ extern "C" {
 #define WX_THERMO_DY (-14.0f)
 #define WX_SHIFT_S 120.0
 #define WX_SHIFT_PX 2
+#define WX_BAND_HYST 5
+#define WX_ILLUM_STEP 5
 
 typedef enum { WX_HERO_NONE, WX_HERO_SUN, WX_HERO_MOON, WX_HERO_MOON_SMALL } wx_hero_t;
 typedef enum { WX_TONE_WHITE, WX_TONE_LIGHT, WX_TONE_DARK, WX_TONE_NIGHT } wx_tone_t;
@@ -64,9 +66,14 @@ uint32_t wx_uv_rgb(int uv);
 /* NULL below UV 3. */
 const char *wx_uv_advice(int uv);
 
+enum { WX_BAKE_RING = 1, WX_BAKE_HERO = 2, WX_BAKE_SCENE = 4, WX_BAKE_FULL = 7 };
+
 /* obs NULL or without a temperature: have false. */
 void wx_temp_from(const wx_obs_t *obs, wx_temp_t *out);
-/* Same ring, hero, clouds and stars: no new bake. */
+/* shown: the face on screen or NULL; a cloud cover within WX_BAND_HYST % of its band keeps that band. */
+void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *out);
+/* WX_BAKE_* parts that differ from shown: RING the range, HERO the hero sprite, SCENE background and clouds; 0 none. */
+int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *shown);
 bool wx_temp_same_bake(const wx_temp_t *a, const wx_temp_t *b);
 
 /* Count-up: n steps (0..n), value of step k, step shown t s after the page showed. */
@@ -83,6 +90,8 @@ float wx_merc_top(float c);
 
 void wx_clouds_for(int band, bool night, wx_clouds_t *out);
 int wx_cloud_band(int cloud);
+/* shown: the band on screen or -1. */
+int wx_cloud_band_keep(int cloud, int shown);
 
 typedef struct {
     double t;

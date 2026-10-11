@@ -43,7 +43,23 @@ const char *wx_uv_advice(int uv)
     return uv <= 5 ? "Sunglasses on" : uv <= 7 ? "Use sunscreen" : uv <= 10 ? "Sunscreen & shade" : "Avoid the sun";
 }
 
-int wx_cloud_band(int cloud) { return cloud < 10 ? 0 : cloud < 40 ? 1 : cloud < 70 ? 2 : cloud < 90 ? 3 : 4; }
+static const int BAND_EDGE[4] = {10, 40, 70, 90};
+
+int wx_cloud_band(int cloud)
+{
+    int b = 0;
+    while (b < 4 && cloud >= BAND_EDGE[b]) b++;
+    return b;
+}
+
+int wx_cloud_band_keep(int cloud, int shown)
+{
+    int b = wx_cloud_band(cloud);
+    if (shown < 0 || shown > 4 || b == shown) return b;
+    bool above = shown == 0 || cloud >= BAND_EDGE[shown - 1] - WX_BAND_HYST;
+    bool below = shown == 4 || cloud < BAND_EDGE[shown] + WX_BAND_HYST;
+    return above && below ? shown : b;
+}
 
 static int cloud_of(const wx_obs_t *o, const wx_look_t *l)
 {
@@ -56,7 +72,7 @@ static int cloud_of(const wx_obs_t *o, const wx_look_t *l)
     }
 }
 
-static const char *sky_word(const wx_look_t *l, int cloud, bool has_cloud, bool night)
+static const char *sky_word(const wx_look_t *l, int band, bool has_cloud, bool night)
 {
     static const char *const BANDS[2][5] = {
         {"Sunny", "Mostly sunny", "Partly cloudy", "Cloudy", "Overcast"},
@@ -69,13 +85,15 @@ static const char *sky_word(const wx_look_t *l, int cloud, bool has_cloud, bool 
     case WX_STORM: return "Storm";
     default: break;
     }
-    if (has_cloud) return BANDS[night][wx_cloud_band(cloud)];
+    if (has_cloud) return BANDS[night][band];
     if (l->face == WX_PARTLY_CLOUDY) return "Partly cloudy";
     if (l->face == WX_OVERCAST) return "Overcast";
     return BANDS[night][0];
 }
 
-void wx_temp_from(const wx_obs_t *o, wx_temp_t *t)
+void wx_temp_from(const wx_obs_t *o, wx_temp_t *t) { wx_temp_from_shown(o, NULL, t); }
+
+void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
 {
     memset(t, 0, sizeof *t);
     t->lo = WX_SCALE_LO;
@@ -99,13 +117,14 @@ void wx_temp_from(const wx_obs_t *o, wx_temp_t *t)
     t->frac = f < 0 ? 0 : f > 1 ? 1 : f;
     t->night = l.night;
     int cloud = cloud_of(o, &l);
-    t->cloud_band = wx_cloud_band(cloud);
+    t->cloud_band = wx_cloud_band_keep(cloud, shown && shown->have ? shown->cloud_band : -1);
     if (!t->night) {
         if (t->cloud_band <= 1) t->hero = WX_HERO_SUN;
     } else if (o->has_moon && o->moon_up == 1 && t->cloud_band < 4) {
         t->hero = t->cloud_band < 3 ? WX_HERO_MOON : WX_HERO_MOON_SMALL;
         t->moon_phase = o->moon_phase;
-        t->moon_illum = o->moon_illum;
+        int il = o->moon_illum < 0 ? 0 : o->moon_illum > 100 ? 100 : o->moon_illum;
+        t->moon_illum = (il + WX_ILLUM_STEP / 2) / WX_ILLUM_STEP * WX_ILLUM_STEP;
     }
     t->stars = t->night && t->cloud_band <= 1;
     const char *adv = !t->night && o->has_uv ? wx_uv_advice(o->uv) : NULL;
@@ -113,16 +132,23 @@ void wx_temp_from(const wx_obs_t *o, wx_temp_t *t)
         snprintf(t->sub, sizeof t->sub, "%s", adv);
         t->sub_rgb = wx_uv_rgb(o->uv);
     } else {
-        snprintf(t->sub, sizeof t->sub, "%s", sky_word(&l, cloud, o->has_cloud, t->night));
+        snprintf(t->sub, sizeof t->sub, "%s", sky_word(&l, t->cloud_band, o->has_cloud, t->night));
     }
 }
 
-bool wx_temp_same_bake(const wx_temp_t *a, const wx_temp_t *b)
+int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
 {
-    return a->have == b->have && a->lo == b->lo && a->hi == b->hi && a->night == b->night &&
-           a->cloud_band == b->cloud_band && a->hero == b->hero && a->moon_phase == b->moon_phase &&
-           a->moon_illum == b->moon_illum && a->stars == b->stars;
+    if (t->have != s->have || t->night != s->night || t->cloud_band != s->cloud_band || t->stars != s->stars ||
+        (t->hero == WX_HERO_SUN) != (s->hero == WX_HERO_SUN))
+        return WX_BAKE_FULL;
+    int k = 0;
+    if (t->has_range != s->has_range || t->lo != s->lo || t->hi != s->hi) k |= WX_BAKE_RING;
+    if (t->hero != s->hero || (t->moon_phase < 50) != (s->moon_phase < 50) || t->moon_illum != s->moon_illum)
+        k |= WX_BAKE_HERO;
+    return k;
 }
+
+bool wx_temp_same_bake(const wx_temp_t *a, const wx_temp_t *b) { return wx_temp_bake_kind(a, b) == 0; }
 
 int wx_count_n(int v)
 {
