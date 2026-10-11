@@ -979,30 +979,26 @@ void wx_paint_cast_ramp(uint8_t *a8, const wx_cast_sheet_t *sh, bool bottom, int
 #define DROP_HEAD 7.0f
 #define DROP_HW_N 61
 
-static float drop_hw_at(const float *tab, float x)
+static const float DROP_HW[DROP_HW_N] = {
+    0.0000f, 0.0653f, 0.1364f, 0.2133f, 0.2960f, 0.3847f, 0.4794f, 0.5801f, 0.6868f, 0.7995f, 0.9183f, 1.0429f,
+    1.1734f, 1.3096f, 1.4513f, 1.5984f, 1.7507f, 1.9078f, 2.0695f, 2.2353f, 2.4050f, 2.5780f, 2.7538f, 2.9320f,
+    3.1120f, 3.2932f, 3.4750f, 3.6568f, 3.8379f, 4.0178f, 4.1958f, 4.3714f, 4.5439f, 4.7128f, 4.8777f, 5.0379f,
+    5.1932f, 5.3431f, 5.4873f, 5.6255f, 5.7574f, 5.8828f, 6.0017f, 6.1138f, 6.2191f, 6.3175f, 6.4090f, 6.4936f,
+    6.5713f, 6.6422f, 6.7064f, 6.7639f, 6.8149f, 6.8593f, 6.8975f, 6.9294f, 6.9551f, 6.9750f, 6.9890f, 6.9973f,
+    7.0000f
+};
+
+static float drop_hw_at(float x)
 {
     float f = (x + DROP_TAIL) / DROP_TAIL * (float)(DROP_HW_N - 1);
-    if (f <= 0) return tab[0];
-    if (f >= DROP_HW_N - 1) return tab[DROP_HW_N - 1];
+    if (f <= 0) return DROP_HW[0];
+    if (f >= DROP_HW_N - 1) return DROP_HW[DROP_HW_N - 1];
     int i = (int)f;
-    return tab[i] + (tab[i + 1] - tab[i]) * (f - (float)i);
+    return DROP_HW[i] + (DROP_HW[i + 1] - DROP_HW[i]) * (f - (float)i);
 }
 
 wx_box_t wx_paint_drop(wx_img_t *im, float deg)
 {
-    static const float P[4][2] = {{-15, 0}, {-9, 1.5f}, {-6.5f, 7}, {0, 7}};
-    float tab[DROP_HW_N];
-    for (int i = 0; i < DROP_HW_N; i++) {
-        float x = -DROP_TAIL + DROP_TAIL * (float)i / (DROP_HW_N - 1), lo = 0, hi = 1;
-        for (int it = 0; it < 24; it++) {
-            float u = (lo + hi) / 2, v = 1 - u;
-            float bx = v * v * v * P[0][0] + 3 * v * v * u * P[1][0] + 3 * v * u * u * P[2][0] + u * u * u * P[3][0];
-            if (bx < x) lo = u;
-            else hi = u;
-        }
-        float u = (lo + hi) / 2, v = 1 - u;
-        tab[i] = v * v * v * P[0][1] + 3 * v * v * u * P[1][1] + 3 * v * u * u * P[2][1] + u * u * u * P[3][1];
-    }
     float hx, hy;
     wx_cast_ring_xy(deg, &hx, &hy);
     im->x0 = (int)floorf(hx) - WX_DROP_BOX / 2;
@@ -1016,7 +1012,7 @@ wx_box_t wx_paint_drop(wx_img_t *im, float deg)
             float lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
             float d = hypotf(lx, ly) - DROP_HEAD;
             if (lx < -DROP_TAIL) d = fminf(d, hypotf(lx + DROP_TAIL, ly));
-            else if (lx <= 0) d = fminf(d, fabsf(ly) - drop_hw_at(tab, lx));
+            else if (lx <= 0) d = fminf(d, fabsf(ly) - drop_hw_at(lx));
             int i = y * im->w + x;
             put(im, i, 0, cov(d - 1));
             put(im, i, blue, cov(d + 1));
