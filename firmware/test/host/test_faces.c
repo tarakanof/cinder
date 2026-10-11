@@ -39,19 +39,21 @@ static wx_obs_t wet(void)
 
 static void test_step(void)
 {
-    CHECK(WXF_N == 6 && WXF_TEMP == 0 && WXF_RAIN == 1 && WXF_CAST == 2 && WXF_WIND == 3 && WXF_DAYS == 4 && WXF_SUN == 5,
-          "the list: Temperature, Rain now, Rain forecast, Wind, Next days, Sun");
+    CHECK(WXF_N == 7 && WXF_TEMP == 0 && WXF_RAIN == 1 && WXF_CAST == 2 && WXF_WIND == 3 && WXF_DAYS == 4 && WXF_SUN == 5 && WXF_AIR == 6,
+          "the list: Temperature, Rain now, Rain forecast, Wind, Next days, Sun, Air");
     CHECK(wx_face_step(WXF_TEMP, 1) == WXF_RAIN && wx_face_step(WXF_RAIN, 1) == WXF_CAST && wx_face_step(WXF_CAST, 1) == WXF_WIND &&
-              wx_face_step(WXF_WIND, 1) == WXF_DAYS && wx_face_step(WXF_DAYS, 1) == WXF_SUN && wx_face_step(WXF_SUN, 1) == WXF_TEMP,
+              wx_face_step(WXF_WIND, 1) == WXF_DAYS && wx_face_step(WXF_DAYS, 1) == WXF_SUN && wx_face_step(WXF_SUN, 1) == WXF_AIR &&
+              wx_face_step(WXF_AIR, 1) == WXF_TEMP,
           "next wraps");
-    CHECK(wx_face_step(WXF_TEMP, -1) == WXF_SUN && wx_face_step(WXF_SUN, -1) == WXF_DAYS && wx_face_step(WXF_DAYS, -1) == WXF_WIND &&
-              wx_face_step(WXF_WIND, -1) == WXF_CAST && wx_face_step(WXF_CAST, -1) == WXF_RAIN && wx_face_step(WXF_RAIN, -1) == WXF_TEMP,
+    CHECK(wx_face_step(WXF_TEMP, -1) == WXF_AIR && wx_face_step(WXF_AIR, -1) == WXF_SUN && wx_face_step(WXF_SUN, -1) == WXF_DAYS &&
+              wx_face_step(WXF_DAYS, -1) == WXF_WIND && wx_face_step(WXF_WIND, -1) == WXF_CAST && wx_face_step(WXF_CAST, -1) == WXF_RAIN &&
+              wx_face_step(WXF_RAIN, -1) == WXF_TEMP,
           "previous wraps");
-    CHECK(wx_face_step(WXF_TEMP, 2) == WXF_CAST && wx_face_step(WXF_RAIN, -5) == WXF_CAST && wx_face_step(WXF_CAST, 4) == WXF_TEMP &&
-              wx_face_step(WXF_WIND, -6) == WXF_WIND && wx_face_step(WXF_DAYS, 2) == WXF_TEMP && wx_face_step(WXF_SUN, -7) == WXF_DAYS,
+    CHECK(wx_face_step(WXF_TEMP, 2) == WXF_CAST && wx_face_step(WXF_RAIN, -5) == WXF_WIND && wx_face_step(WXF_CAST, 4) == WXF_AIR &&
+              wx_face_step(WXF_WIND, -6) == WXF_DAYS && wx_face_step(WXF_DAYS, 2) == WXF_AIR && wx_face_step(WXF_SUN, -7) == WXF_SUN,
           "several detents in one frame");
     CHECK(wx_face_step(WXF_RAIN, 0) == WXF_RAIN, "no detent: same face");
-    CHECK(wx_face_step(WXF_TEMP, -2147483647) == WXF_SUN && wx_face_step(WXF_TEMP, 2147483647) == WXF_RAIN, "a huge count does not overflow");
+    CHECK(wx_face_step(WXF_TEMP, -2147483647) == WXF_AIR && wx_face_step(WXF_TEMP, 2147483647) == WXF_RAIN, "a huge count does not overflow");
     CHECK(wx_face_step(7, 1) == WXF_RAIN && wx_face_step(-1, 0) == WXF_TEMP, "a face outside the list steps from the first");
 }
 
@@ -66,11 +68,12 @@ static void test_turn(void)
     CHECK(wx_faces_turn(&f, WXF_CAST, WXF_CAST, 1) && f.pick == WXF_WIND, "then Wind");
     CHECK(wx_faces_turn(&f, WXF_WIND, WXF_WIND, 1) && f.pick == WXF_DAYS, "then Next days");
     CHECK(wx_faces_turn(&f, WXF_DAYS, WXF_DAYS, 1) && f.pick == WXF_SUN, "then Sun");
-    CHECK(wx_faces_turn(&f, WXF_SUN, WXF_SUN, -5) && f.pick == WXF_TEMP, "and back");
-    CHECK(!wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 6) && f.pick == WXF_TEMP, "a full turn round the list keeps the face, picked");
+    CHECK(wx_faces_turn(&f, WXF_SUN, WXF_SUN, 1) && f.pick == WXF_AIR, "then Air");
+    CHECK(wx_faces_turn(&f, WXF_AIR, WXF_AIR, -6) && f.pick == WXF_TEMP, "and back");
+    CHECK(!wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 7) && f.pick == WXF_TEMP, "a full turn round the list keeps the face, picked");
     wx_faces_open(&f);
-    CHECK(!wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, 6) && f.pick == WXF_RAIN,
-          "a six-detent flick from auto shows no change but pins the face on screen: it stops following the weather");
+    CHECK(!wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, 7) && f.pick == WXF_RAIN,
+          "a seven-detent flick from auto shows no change but pins the face on screen: it stops following the weather");
     wx_faces_open(&f);
     CHECK(f.pick == WXF_AUTO, "the next open is auto again");
 }

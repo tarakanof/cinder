@@ -613,6 +613,53 @@ static void test_view_sun(void)
     }
 }
 
+static void test_view_air(void)
+{
+    knob_view_t v;
+    const wx_obs_t *o = &v.weather;
+    if (!view("view_faces.json", &v)) return;
+    CHECK(o->has_aqi && o->aqi == 42, "aqi 42");
+    wx_air_t a;
+    wx_air_from(o, NULL, &a);
+    CHECK(a.have && a.aqi == 42 && a.band == 2 && !a.wilted && !strcmp(wx_air_word(a.band), "Moderate"), "Air: 42 Moderate, healthy");
+    wx_temp_t t;
+    wx_temp_from(o, &t);
+    CHECK(t.face == WXF_RAIN && !t.air.on, "raining: Rain now, not Air");
+    if (!view("view_faces_met.json", &v)) return;
+    CHECK(!o->has_aqi, "MET with the air tile off: no aqi");
+    wx_air_from(o, NULL, &a);
+    CHECK(a.on && !a.have, "Air without aqi: grey");
+    if (!view("view_faces_polar_dry.json", &v)) return;
+    CHECK(!o->has_aqi, "polar: no aqi");
+    if (!view("view_full.json", &v)) return;
+    CHECK(!o->has_aqi, "a legacy block: no aqi");
+    static const struct {
+        double v;
+        bool str, has;
+        int want;
+    } C[] = {{68, false, true, 68}, {42.6, false, true, 43}, {0, false, true, 0}, {999, false, true, 999},
+             {999.6, false, false, 0}, {-1, false, false, 0}, {1000, false, false, 0}, {42, true, false, 0}};
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "aqi", C[i].str ? cJSON_CreateString("42") : cJSON_CreateNumber(C[i].v));
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->has_aqi == C[i].has && (!C[i].has || o->aqi == C[i].want), "aqi %s%g: %s %d", C[i].str ? "string " : "", C[i].v,
+              o->has_aqi ? "kept" : "unknown", o->aqi);
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "aqi", cJSON_CreateNumber(75));
+        cJSON *now = cJSON_GetObjectItemCaseSensitive(w, "now");
+        cJSON_ReplaceItemInObjectCaseSensitive(now, "rain", cJSON_CreateNumber(0));
+        cJSON_DeleteItemFromObjectCaseSensitive(w, "rain");
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "cond", cJSON_CreateString("clouds"));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "code", cJSON_CreateString("3"));
+        bool ok = faces_parse(root, &v);
+        wx_temp_from(o, &t);
+        CHECK(ok && t.face == WXF_AIR && t.air.wilted && t.air.band == 3, "dry, calm and 75: the Air face, wilted");
+    }
+}
+
 static void test_view_legacy_weather(void)
 {
     const char *names[] = {"view_full.json", "view_caps_limited.json"};
@@ -1147,6 +1194,7 @@ int main(int argc, char **argv)
     test_view_rain_keys();
     test_view_days();
     test_view_sun();
+    test_view_air();
     test_view_legacy_weather();
     test_view_np_cover();
     test_json_hooks();

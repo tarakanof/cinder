@@ -104,9 +104,11 @@ void wx_temp_from_shown(const wx_obs_t *o, const wx_temp_t *shown, wx_temp_t *t)
     t->face = t->rain.on                                           ? WXF_RAIN
               : wx_cast_soon(o, shown && shown->face == WXF_CAST)  ? WXF_CAST
               : wx_wind_strong(o, shown && shown->face == WXF_WIND) ? WXF_WIND
+              : wx_air_poor(o, shown && shown->face == WXF_AIR)     ? WXF_AIR
                                                                    : WXF_TEMP;
     if (t->face == WXF_CAST) wx_cast_from(o, shown ? &shown->cast : NULL, &t->cast);
     if (t->face == WXF_WIND) wx_wind_from(o, shown ? &shown->wind : NULL, &t->wind);
+    if (t->face == WXF_AIR) wx_air_from(o, shown ? &shown->air : NULL, &t->air);
     if (!o || !o->valid || !o->has_temp || !isfinite(o->temp_c)) return;
     wx_look_t l = wx_look_from_obs(o);
     t->have = true;
@@ -150,6 +152,7 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
     if (face < 0 || face >= WXF_N || face == t->face) return;
     memset(&t->cast, 0, sizeof t->cast);
     memset(&t->wind, 0, sizeof t->wind);
+    memset(&t->air, 0, sizeof t->air);
     switch ((wx_face_id_t)face) {
     case WXF_TEMP:
         t->face = WXF_TEMP;
@@ -179,6 +182,11 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
         wx_rain_from(NULL, &t->rain);
         wx_sun_from(o, &t->sun);
         break;
+    case WXF_AIR:
+        t->face = WXF_AIR;
+        wx_rain_from(NULL, &t->rain);
+        wx_air_from(o, shown && shown->face == WXF_AIR ? &shown->air : NULL, &t->air);
+        break;
     case WXF_N:
         break;
     }
@@ -187,6 +195,7 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
 {
     if (t->face != s->face) return WX_BAKE_FULL;
+    if (t->air.on || s->air.on) return wx_air_same_scene(&t->air, &s->air) ? 0 : WX_BAKE_FULL;
     if (t->sun.on || s->sun.on) return wx_sun_same_scene(&t->sun, &s->sun) ? 0 : WX_BAKE_FULL;
     if (t->days.on || s->days.on) return wx_days_same(&t->days, &s->days) ? 0 : WX_BAKE_FULL;
     if (t->wind.on || s->wind.on) return wx_wind_same_scene(&t->wind, &s->wind) ? 0 : WX_BAKE_FULL;

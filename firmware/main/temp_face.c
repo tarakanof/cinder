@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "wx_air.h"
 #include "wx_cast.h"
 #include "wx_days.h"
 #include "wx_faces.h"
@@ -51,7 +52,8 @@ static lv_obj_t *s_cbox[WX_CAST_SIDES], *s_cloud[WX_CAST_SIDES], *s_csheet[WX_CA
 static lv_obj_t *s_ctop[WX_CAST_SIDES], *s_cbottom[WX_CAST_SIDES], *s_drop, *s_clabel;
 static lv_obj_t *s_wbox, *s_wsock, *s_wdark, *s_wstreak[WX_WIND_ROWS], *s_wleaf[WX_WIND_LEAVES];
 static lv_obj_t *s_dbox, *s_drow[WX_DAYS], *s_dicon[WX_DAYS], *s_dday[WX_DAYS], *s_dlo[WX_DAYS], *s_dhi[WX_DAYS], *s_dpop[WX_DAYS];
-static lv_obj_t *s_srays, *s_sbox, *s_ssun;
+static lv_obj_t *s_srays, *s_sbox, *s_ssun, *s_abox, *s_apetal;
+static EXT_RAM_BSS_ATTR bool s_air;
 static EXT_RAM_BSS_ATTR wx_sun_layout_t s_slay;
 static EXT_RAM_BSS_ATTR bool s_sun;
 static EXT_RAM_BSS_ATTR wx_days_layout_t s_dlay;
@@ -95,6 +97,7 @@ typedef struct {
     uint32_t sock_rgb;
     int day_opa[WX_DAYS], day_dy[WX_DAYS], day_lo[WX_DAYS], day_hi[WX_DAYS];
     int sun_dy, sun_opa, rays_opa;
+    int petal_x, petal_y, petal_rot, petal_opa;
 } shown_t;
 
 static EXT_RAM_BSS_ATTR shown_t s_shown;
@@ -235,6 +238,12 @@ static void sun_create(void)
     s_ssun = canvas(s_sbox, LV_COLOR_FORMAT_RGB565A8);
 }
 
+static void air_create(void)
+{
+    s_abox = box_obj(s_root);
+    s_apetal = canvas(s_abox, LV_COLOR_FORMAT_RGB565A8);
+}
+
 static void bake_task(void *arg)
 {
     (void)arg;
@@ -271,6 +280,7 @@ void temp_face_create(lv_obj_t *parent)
     wind_create();
     days_create();
     sun_create();
+    air_create();
     s_thermo = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     lv_obj_set_pos(s_thermo, WX_THERMO_X, WX_THERMO_Y);
     lv_obj_add_flag(s_hero, LV_OBJ_FLAG_HIDDEN);
@@ -325,6 +335,7 @@ static void detach(void)
     for (int i = 0; i < WX_DAYS; i++) lv_canvas_set_buffer(s_dicon[i], s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_srays, s_none, 2, 2, LV_COLOR_FORMAT_A8);
     lv_canvas_set_buffer(s_ssun, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    lv_canvas_set_buffer(s_apetal, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
 }
 
 static void release(void)
@@ -575,6 +586,16 @@ static void sun_attach(void)
     lv_obj_invalidate(s_sbox);
 }
 
+static void air_attach(const wx_air_t *a)
+{
+    wx_box_t b = wx_air_petal_box();
+    lv_obj_set_pos(s_abox, b.x0, b.y0);
+    lv_obj_set_size(s_abox, b.x1 - b.x0, b.y1 - b.y0);
+    show_obj(s_abox, a->wilted);
+    show_obj(s_apetal, false);
+    s_shown.petal_x = s_shown.petal_y = s_shown.petal_rot = s_shown.petal_opa = INT_MIN;
+}
+
 static void face_kind(const wx_temp_t *t)
 {
     s_rain = t->rain.on;
@@ -582,8 +603,9 @@ static void face_kind(const wx_temp_t *t)
     s_wind = t->wind.on;
     s_days = t->days.on;
     s_sun = t->sun.on;
-    s_unit_on = s_rain || s_cast || s_wind || s_sun;
-    show_obj(s_thermo, !s_rain && !s_cast && !s_wind && !s_days && !s_sun);
+    s_air = t->air.on;
+    s_unit_on = s_rain || s_cast || s_wind || s_sun || s_air;
+    show_obj(s_thermo, !s_rain && !s_cast && !s_wind && !s_days && !s_sun && !s_air);
     show_obj(s_unit, s_rain);
     lv_label_set_text_static(s_unit, "%");
     s_shown.unit = NULL;
@@ -608,6 +630,7 @@ static void face_kind(const wx_temp_t *t)
         show_obj(s_srays, false);
         show_obj(s_sbox, false);
     }
+    if (!s_air) show_obj(s_abox, false);
     bool rows = s_days && t->days.have;
     show_obj(s_value, !rows);
     lv_obj_align(s_sub, LV_ALIGN_TOP_MID, 0, rows ? WX_DAYS_SUB_Y : SUB_Y);
@@ -616,7 +639,7 @@ static void face_kind(const wx_temp_t *t)
     lv_label_set_recolor(s_sub, s_cast || s_wind);
     int unit = lv_font_get_glyph_width(&lv_font_montserrat_30, '%', 0) + UNIT_GAP;
     int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
-    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : s_cast || s_wind || s_days || s_sun ? 0 : deg / 2, VALUE_Y);
+    lv_obj_align(s_value, LV_ALIGN_TOP_MID, s_rain ? -unit / 2 : s_cast || s_wind || s_days || s_sun || s_air ? 0 : deg / 2, VALUE_Y);
     s_shown.value[0] = 0;
     s_shown.value_w = -1;
 }
@@ -633,6 +656,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
         if (t->wind.on) wind_attach(&t->wind);
         if (t->days.on) days_attach(&t->days);
         if (t->sun.on) sun_attach();
+        if (t->air.on) air_attach(&t->air);
     } else if (kind & WX_BAKE_RING) {
         wx_ring_blit(s_buf.ring, s_buf.bg);
     }
@@ -642,7 +666,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
         sprite(s_hero, s_hero_buf[s_front], o->hero);
         s_buf.hero = s_hero_buf[!s_front];
     }
-    if (t->cast.on || t->days.on) {
+    if (t->cast.on || t->days.on || t->air.on) {
         show_obj(s_lo, false);
         show_obj(s_hi, false);
     } else if (t->sun.on) {
@@ -953,6 +977,37 @@ static void set_sun(const wx_sun_t *sn, double ta, int fo)
     if (dirty) lv_obj_invalidate(s_sbox);
 }
 
+static void set_air(const wx_air_t *aq, int fo)
+{
+    wx_petal_t p;
+    wx_air_petal(aq->wilted && fo == 255 ? (int)floor(s_t * WX_AIR_FPS) : -1, &p);
+    wx_box_t b = wx_air_petal_box();
+    bool on = p.opa > 0, dirty = on != (s_shown.petal_opa > 0);
+    show_obj(s_apetal, on);
+    if (!on) {
+        s_shown.petal_opa = 0;
+    } else {
+        if (p.rot != s_shown.petal_rot) {
+            s_shown.petal_rot = p.rot;
+            lv_canvas_set_buffer(s_apetal, s_buf.still + p.rot * WX_PETAL_BOX * WX_PETAL_BOX * 3, WX_PETAL_BOX, WX_PETAL_BOX,
+                                 LV_COLOR_FORMAT_RGB565A8);
+            dirty = true;
+        }
+        if (p.x != s_shown.petal_x || p.y != s_shown.petal_y) {
+            s_shown.petal_x = p.x;
+            s_shown.petal_y = p.y;
+            lv_obj_set_pos(s_apetal, p.x - b.x0, p.y - b.y0);
+            dirty = true;
+        }
+        if (p.opa != s_shown.petal_opa) {
+            s_shown.petal_opa = p.opa;
+            lv_obj_set_style_image_opa(s_apetal, (lv_opa_t)p.opa, 0);
+            dirty = true;
+        }
+    }
+    if (dirty) lv_obj_invalidate(s_abox);
+}
+
 static void set_mercury(float top, uint32_t rgb)
 {
     int q = (int)lroundf(top * 2);
@@ -1049,8 +1104,22 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
     const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;
     const wx_wind_t *w = wx_wind_same_scene(&t->wind, &s_io.key.wind) ? &t->wind : &s_io.key.wind;
     const wx_sun_t *sn = wx_sun_same_scene(&t->sun, &s_io.key.sun) ? &t->sun : &s_io.key.sun;
+    const wx_air_t *aq = wx_air_same_scene(&t->air, &s_io.key.air) ? &t->air : &s_io.key.air;
     char txt[20];
-    if (s_sun) {
+    if (s_air) {
+        if (aq->have) {
+            int v = wx_count_value(aq->aqi, wx_count_step(wx_count_n(aq->aqi), ta));
+            set_unit_text("AQI");
+            snprintf(txt, sizeof txt, "%d", v);
+            set_value(txt, wx_air_rgb(v));
+            set_unit(WX_AIR_UNIT_RGB);
+        } else {
+            set_unit_text(NULL);
+            set_value("--", GREY_RGB);
+        }
+        set_marker(aq->frac * (float)a, aq->have);
+        set_air(aq, fo);
+    } else if (s_sun) {
         const char *unit = wx_sun_value(sn, wx_count_step(wx_sun_count_n(sn), ta), txt, sizeof txt);
         set_unit_text(unit);
         set_value(txt, unit ? WX_SUN_VALUE_RGB : GREY_RGB);
@@ -1113,7 +1182,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         set_value("--\xC2\xB0", GREY_RGB);
         set_mercury(WX_MERC_BOTTOM, GREY_RGB);
     }
-    bool temp = !s_rain && !s_cast && !s_wind && !s_days && !s_sun;
+    bool temp = !s_rain && !s_cast && !s_wind && !s_days && !s_sun && !s_air;
     if (temp) set_marker(t->frac * (float)a, t->have);
     set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
     double sf = (s_t - WX_ARRIVE_S) / SUB_FADE_S;
@@ -1123,8 +1192,10 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
         wx_age_label(obs, age, sizeof age);
         set_sub(age, GREY_RGB, sub_opa);
     } else {
-        set_sub(s_days ? "" : s_sun ? sn->sub : s_wind ? w->sub : s_cast ? c->sub : s_rain ? r->sub : t->have ? t->sub : "",
-                s_sun ? sn->sub_rgb : s_days || s_wind || s_cast || s_rain ? SUB_RGB : t->sub_rgb, sub_opa);
+        const char *word = aq->have ? wx_air_word(aq->band) : "";
+        set_sub(s_days ? "" : s_air ? word : s_sun ? sn->sub : s_wind ? w->sub : s_cast ? c->sub : s_rain ? r->sub : t->have ? t->sub : "",
+                s_air ? wx_air_band_rgb(aq->band) : s_sun ? sn->sub_rgb : s_days || s_wind || s_cast || s_rain ? SUB_RGB : t->sub_rgb,
+                sub_opa);
     }
 }
 

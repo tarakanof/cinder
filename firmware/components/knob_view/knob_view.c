@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "wx_air.h"
 #include "wx_wind.h"
 
 static const cJSON *item(const cJSON *o, const char *k) { return cJSON_GetObjectItemCaseSensitive(o, k); }
@@ -154,6 +155,7 @@ static void parse_detail(const cJSON *w, wx_obs_t *o)
     parse_rain(item(w, "rain"), o);
     parse_days(item(w, "days"), o);
     parse_twilight(item(w, "twilight"), o);
+    o->has_aqi = num_in(w, "aqi", 0, WX_AIR_MAX, &o->aqi);
 }
 
 static void parse_weather(const cJSON *w, knob_view_t *out)

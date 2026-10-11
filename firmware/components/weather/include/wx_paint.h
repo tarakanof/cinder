@@ -165,6 +165,15 @@ void wx_paint_sun_rays(uint8_t *a8, wx_box_t box);
 /* The sun and its glow at rest into im (wx_sun_layout's sun box), nothing below WX_SUN_CLIP_Y. */
 void wx_paint_sun(wx_img_t *im);
 
+/* cos and sin of an angle in degrees, any finite value, without libm's large-argument reduction (its stack). */
+void wx_deg_cs(float deg, float *c, float *s);
+/* Air: AA2's gauge 0..WX_AIR_GAUGE in wx_air_rgb (grey: no data). */
+void wx_paint_ring_air(wx_ring_t *r, bool grey, uint16_t lut[WX_RING_LUT]);
+/* The end icons (a flower at the clean end, a hazard sign at the other) and AA2's healthy or AA4's wilted flower. */
+void wx_paint_air_scene(wx_img_t *im, bool wilted);
+/* AA4's falling petal at rotation step rot (wx_petal_t) into a WX_PETAL_BOX square RGB565A8 im; sets im's x0/y0 to its rest. */
+void wx_paint_petal(wx_img_t *im, int rot);
+
 typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
     uint16_t *lut; /* WX_RING_LUT */

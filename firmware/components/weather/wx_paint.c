@@ -546,6 +546,7 @@ static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
 
 static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
 static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
+static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
 
 static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
@@ -634,6 +635,10 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
     if (t->sun.on) {
         bake_sun(t, kind, b, out);
+        return;
+    }
+    if (t->air.on) {
+        bake_air(t, kind, b, out);
         return;
     }
     if (t->days.on) {
@@ -1483,4 +1488,327 @@ static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     uint8_t *m = b->still + l.sun_at;
     wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sun.x0, .y0 = l.sun.y0};
     wx_paint_sun(&im);
+}
+
+typedef struct {
+    float px, py, tx, ty, c, s, k;
+} xf_t;
+
+void wx_deg_cs(float deg, float *c, float *s)
+{
+    float d = fmodf(deg, 360.0f);
+    if (d < 0) d += 360.0f;
+    int k = (int)((d + 45.0f) / 90.0f), q = k & 3;
+    float x = (d - 90.0f * (float)k) * DEG, x2 = x * x;
+    float sn = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72))));
+    float cn = 1 - x2 / 2 * (1 - x2 / 12 * (1 - x2 / 30 * (1 - x2 / 56)));
+    *c = q == 0 ? cn : q == 1 ? -sn : q == 2 ? -cn : sn;
+    *s = q == 0 ? sn : q == 1 ? cn : q == 2 ? -sn : -cn;
+}
+
+static xf_t xf_rot(float px, float py, float deg)
+{
+    xf_t f = {px, py, px, py, 1, 0, 1};
+    wx_deg_cs(deg, &f.c, &f.s);
+    return f;
+}
+
+static void xf_in(const xf_t *f, int n, float *x, float *y)
+{
+    for (int i = 0; i < n; i++) {
+        float dx = (*x - f[i].tx) / f[i].k, dy = (*y - f[i].ty) / f[i].k;
+        *x = f[i].px + dx * f[i].c + dy * f[i].s;
+        *y = f[i].py - dx * f[i].s + dy * f[i].c;
+    }
+}
+
+static void xf_out(const xf_t *f, int n, float *x, float *y)
+{
+    for (int i = n - 1; i >= 0; i--) {
+        float dx = *x - f[i].px, dy = *y - f[i].py;
+        *x = f[i].tx + f[i].k * (dx * f[i].c - dy * f[i].s);
+        *y = f[i].ty + f[i].k * (dx * f[i].s + dy * f[i].c);
+    }
+}
+
+static float xf_k(const xf_t *f, int n)
+{
+    float k = 1;
+    for (int i = 0; i < n; i++) k *= f[i].k;
+    return k;
+}
+
+typedef float (*sd_fn)(const void *ctx, float x, float y);
+
+typedef struct {
+    uint32_t fill, line;
+    bool has_fill, has_line;
+    float hw, alpha;
+    uint32_t (*shade)(float x, float y);
+} ink_t;
+
+static void shape(wx_img_t *im, const xf_t *f, int n, float x0, float y0, float x1, float y1, sd_fn sd, const void *ctx,
+                  const ink_t *ink)
+{
+    float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+    for (int i = 0; i < 4; i++) {
+        float x = i & 1 ? x1 : x0, y = i & 2 ? y1 : y0;
+        xf_out(f, n, &x, &y);
+        bx0 = fminf(bx0, x);
+        by0 = fminf(by0, y);
+        bx1 = fmaxf(bx1, x);
+        by1 = fmaxf(by1, y);
+    }
+    const float k = xf_k(f, n), pad = (ink->has_line ? ink->hw : 0) * k + 1;
+    int cx0, cy0, cx1, cy1;
+    clip(im, bx0 - pad, by0 - pad, bx1 + pad, by1 + pad, &cx0, &cy0, &cx1, &cy1);
+    const uint16_t fill = wx_rgb565(ink->fill), line = wx_rgb565(ink->line);
+    for (int y = cy0; y < cy1; y++)
+        for (int x = cx0; x < cx1; x++) {
+            float lx = (float)(im->x0 + x) + 0.5f, ly = (float)(im->y0 + y) + 0.5f;
+            xf_in(f, n, &lx, &ly);
+            float d = sd(ctx, lx, ly) * k;
+            int i = y * im->w + x;
+            if (ink->has_fill) put(im, i, ink->shade ? wx_rgb565(ink->shade(lx, ly)) : fill, ink->alpha * cov(d));
+            if (ink->has_line) put(im, i, line, ink->alpha * cov(fabsf(d) - ink->hw * k));
+        }
+}
+
+typedef struct {
+    float cx, cy, rx, ry;
+} ell_t;
+
+static float ell_sd(const void *ctx, float x, float y)
+{
+    const ell_t *e = ctx;
+    return ellipse_d(x, y, e->cx, e->cy, e->rx, e->ry);
+}
+
+typedef struct {
+    int n;
+    const float (*p)[2];
+    bool closed;
+} poly_t;
+
+static float poly_sd(const void *ctx, float x, float y)
+{
+    const poly_t *q = ctx;
+    float d = 1e9f;
+    bool in = false;
+    for (int i = 0, j = q->n - 1; i < q->n; j = i++) {
+        if (i || q->closed) d = fminf(d, seg_d(x, y, q->p[j][0], q->p[j][1], q->p[i][0], q->p[i][1]));
+        if (q->closed && (q->p[i][1] > y) != (q->p[j][1] > y) &&
+            x < (q->p[j][0] - q->p[i][0]) * (y - q->p[i][1]) / (q->p[j][1] - q->p[i][1]) + q->p[i][0])
+            in = !in;
+    }
+    return in ? -d : d;
+}
+
+static void box_of(const float (*p)[2], int n, float *x0, float *y0, float *x1, float *y1)
+{
+    *x0 = *y0 = 1e9f;
+    *x1 = *y1 = -1e9f;
+    for (int i = 0; i < n; i++) {
+        *x0 = fminf(*x0, p[i][0]);
+        *y0 = fminf(*y0, p[i][1]);
+        *x1 = fmaxf(*x1, p[i][0]);
+        *y1 = fmaxf(*y1, p[i][1]);
+    }
+}
+
+static void paint_poly(wx_img_t *im, const xf_t *f, int n, const poly_t *q, const ink_t *ink)
+{
+    float x0, y0, x1, y1;
+    box_of(q->p, q->n, &x0, &y0, &x1, &y1);
+    shape(im, f, n, x0, y0, x1, y1, poly_sd, q, ink);
+}
+
+#define BEZ_STEPS 24
+
+static void bez_at(const float (*b)[2], float t, float *x, float *y)
+{
+    float u = 1 - t, w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+    *x = w0 * b[0][0] + w1 * b[1][0] + w2 * b[2][0] + w3 * b[3][0];
+    *y = w0 * b[0][1] + w1 * b[1][1] + w2 * b[2][1] + w3 * b[3][1];
+}
+
+static float bez_sd(const void *ctx, float x, float y)
+{
+    const float (*b)[2] = ctx;
+    float px = b[0][0], py = b[0][1], d = 1e9f;
+    for (int i = 1; i <= BEZ_STEPS; i++) {
+        float nx, ny;
+        bez_at(b, (float)i / BEZ_STEPS, &nx, &ny);
+        d = fminf(d, seg_d(x, y, px, py, nx, ny));
+        px = nx;
+        py = ny;
+    }
+    return d;
+}
+
+typedef struct {
+    float len, wid;
+} lens_t;
+
+static float lens_sd(const void *ctx, float x, float y)
+{
+    const lens_t *l = ctx;
+    float s = x / l->len, dh = 1.5f * l->wid * (1 - 2 * s) / l->len;
+    return (fabsf(y) - 1.5f * l->wid * s * (1 - s)) / sqrtf(1 + dh * dh);
+}
+
+static void paint_ellipse(wx_img_t *im, const xf_t *f, int n, float cx, float cy, float rx, float ry, const ink_t *ink)
+{
+    ell_t e = {cx, cy, rx, ry};
+    shape(im, f, n, cx - rx, cy - ry, cx + rx, cy + ry, ell_sd, &e, ink);
+}
+
+static void stroke(wx_img_t *im, const xf_t *f, int n, float ax, float ay, float bx, float by, float w, uint32_t rgb)
+{
+    const float p[2][2] = {{ax, ay}, {bx, by}};
+    poly_t q = {2, p, false};
+    ink_t ink = {.line = rgb, .has_line = true, .hw = w / 2, .alpha = 1};
+    paint_poly(im, f, n, &q, &ink);
+}
+
+static void stem(wx_img_t *im, const xf_t *f, int n, const float b[4][2], uint32_t rgb)
+{
+    float x0, y0, x1, y1;
+    box_of(b, 4, &x0, &y0, &x1, &y1);
+    ink_t ink = {.line = rgb, .has_line = true, .hw = 2.5f, .alpha = 1};
+    shape(im, f, n, x0, y0, x1, y1, bez_sd, b, &ink);
+}
+
+static void leaf(wx_img_t *im, const xf_t *f, int n, float x, float y, float deg, float len, float wid, uint32_t fill, uint32_t line,
+                 bool rib)
+{
+    xf_t g[3];
+    for (int i = 0; i < n; i++) g[i] = f[i];
+    g[n] = (xf_t){0, 0, x, y, 1, 0, 1};
+    wx_deg_cs(deg, &g[n].c, &g[n].s);
+    lens_t l = {len, wid};
+    ink_t ink = {.fill = fill, .line = line, .has_fill = true, .has_line = true, .hw = 1.5f, .alpha = 1};
+    shape(im, g, n + 1, 0, -0.375f * wid, len, 0.375f * wid, lens_sd, &l, &ink);
+    if (rib) stroke(im, g, n + 1, 4, 0, len - 6, 0, 2, line);
+}
+
+static void disc_ink(wx_img_t *im, const xf_t *f, int n, float cx, float cy, float r, uint32_t fill, uint32_t line, float lw)
+{
+    ink_t ink = {.fill = fill, .line = line, .has_fill = true, .has_line = lw > 0, .hw = lw / 2, .alpha = 1};
+    paint_ellipse(im, f, n, cx, cy, r, r, &ink);
+}
+
+static uint32_t petal_shade(float x, float y)
+{
+    float g = hypotf(x - 233, y - 112) / 40.0f;
+    return g <= 0.3f ? 0xF59AB0 : lerp_rgb(0xF59AB0, 0xE87A96, (g - 0.3f) / 0.7f);
+}
+
+#define PETAL_RGB 0xC98A9A
+#define PETAL_LINE 0xD9A9B4
+
+static void petal(wx_img_t *im, const xf_t *f, int n, float cx, float cy, float rx, float ry, float deg, float px, float py,
+                  const ink_t *ink)
+{
+    xf_t g[3];
+    for (int i = 0; i < n; i++) g[i] = f[i];
+    g[n] = xf_rot(px, py, deg);
+    paint_ellipse(im, g, n + 1, cx, cy, rx, ry, ink);
+}
+
+static void flower_healthy(wx_img_t *im)
+{
+    const float st[4][2] = {{233, 204}, {230, 176}, {237, 150}, {233, 126}};
+    stem(im, NULL, 0, st, 0x4E8F45);
+    leaf(im, NULL, 0, 233, 188, -22, 40, 20, 0x7BC86C, 0x5FAE55, true);
+    leaf(im, NULL, 0, 233, 170, -158, 34, 18, 0x7BC86C, 0x5FAE55, true);
+    ink_t ink = {.line = 0xF4B6C6, .has_fill = true, .has_line = true, .hw = 1.25f, .alpha = 1, .shade = petal_shade};
+    for (int k = 0; k < 6; k++) petal(im, NULL, 0, 233, 93, 12.5f, 20, 60.0f * k, 233, 112, &ink);
+    disc_ink(im, NULL, 0, 233, 112, 11, 0xF5C84A, 0xE3AE36, 2);
+}
+
+static const float DUST[6][3] = {{166, 128, 3}, {182, 166, 3.5f}, {196, 108, 2.5f}, {302, 176, 3}, {276, 90, 2.5f}, {156, 188, 2.5f}};
+static const float FALLEN[3][3] = {{188, 202, 72}, {266, 203, 104}, {284, 201, 60}};
+
+static void flower_wilted(wx_img_t *im)
+{
+    stroke(im, NULL, 0, 178, 206, 292, 206, 2, 0x2E3236);
+    ink_t pe = {.fill = PETAL_RGB, .line = PETAL_LINE, .has_fill = true, .has_line = true, .hw = 0.75f, .alpha = 1};
+    for (int i = 0; i < 3; i++) petal(im, NULL, 0, FALLEN[i][0], FALLEN[i][1], 4.5f, 8, FALLEN[i][2], FALLEN[i][0], FALLEN[i][1], &pe);
+    xf_t g[2] = {xf_rot(226, 204, 18), xf_rot(226, 122, 32)};
+    const float st[4][2] = {{226, 204}, {222, 176}, {230, 150}, {226, 132}};
+    stem(im, g, 1, st, 0x7C8A50);
+    leaf(im, g, 1, 226, 188, 20, 36, 17, 0x9CA35A, 0x7F8646, true);
+    leaf(im, g, 1, 226, 172, 165, 30, 15, 0x9CA35A, 0x7F8646, true);
+    ink_t head = {.fill = PETAL_RGB, .line = PETAL_LINE, .has_fill = true, .has_line = true, .hw = 1.25f, .alpha = 1};
+    static const int KEPT[4] = {0, 2, 3, 5};
+    for (int k = 0; k < 4; k++) petal(im, g, 2, 226, 104, 11.5f, 18, 60.0f * KEPT[k], 226, 122, &head);
+    disc_ink(im, g, 2, 226, 122, 10, 0xC9A84A, 0xA98A3A, 2);
+    for (int i = 0; i < 6; i++) {
+        ink_t dust = {.fill = 0x8A8A8A, .has_fill = true, .alpha = 0.6f};
+        paint_ellipse(im, NULL, 0, DUST[i][0], DUST[i][1], DUST[i][2], DUST[i][2], &dust);
+    }
+    static const float SIGN[3][2] = {{318, 108}, {340, 146}, {296, 146}};
+    poly_t tri = {3, SIGN, true};
+    ink_t sign = {.fill = 0, .line = 0xFF5050, .has_fill = true, .has_line = true, .hw = 2, .alpha = 1};
+    paint_poly(im, NULL, 0, &tri, &sign);
+    stroke(im, NULL, 0, 318, 121, 318, 133, 4, 0xFF5050);
+    disc_ink(im, NULL, 0, 318, 139, 2.5f, 0xFF5050, 0, 0);
+}
+
+static void air_ends(wx_img_t *im)
+{
+    xf_t fl = {116, 383, 116, 383, 1, 0, 1.2f};
+    ink_t outline = {.line = 0x4FD6CC, .has_line = true, .hw = 1.25f, .alpha = 1};
+    for (int k = 0; k < 5; k++) petal(im, &fl, 1, 116, 376, 3.5f, 6, 72.0f * k, 116, 383, &outline);
+    disc_ink(im, &fl, 1, 116, 383, 3, 0xF0E641, 0, 0);
+    xf_t hz = {352, 386, 349, 383, 1, 0, 1.2f};
+    static const float HAZARD[3][2] = {{352, 368}, {370, 399}, {334, 399}};
+    poly_t tri = {3, HAZARD, true};
+    ink_t edge = {.line = 0xD03060, .has_line = true, .hw = 1.75f, .alpha = 1};
+    paint_poly(im, &hz, 1, &tri, &edge);
+    stroke(im, &hz, 1, 352, 378, 352, 388, 3.5f, 0xD03060);
+    disc_ink(im, &hz, 1, 352, 394, 2, 0xD03060, 0, 0);
+}
+
+void wx_paint_ring_air(wx_ring_t *r, bool grey, uint16_t lut[WX_RING_LUT])
+{
+    for (int i = 0; i <= RING_STEPS; i++)
+        lut[i] = wx_rgb565(grey ? 0x262626 : wx_air_rgb((int)lroundf((float)WX_AIR_GAUGE * (float)i / RING_STEPS)));
+    ring_raster(r, lut);
+}
+
+void wx_paint_air_scene(wx_img_t *im, bool wilted)
+{
+    air_ends(im);
+    if (wilted) flower_wilted(im);
+    else flower_healthy(im);
+}
+
+void wx_paint_petal(wx_img_t *im, int rot)
+{
+    wx_paint_clear(im);
+    im->x0 = WX_PETAL_X - WX_PETAL_BOX / 2;
+    im->y0 = WX_PETAL_Y - WX_PETAL_BOX / 2;
+    ink_t pe = {.fill = PETAL_RGB, .line = PETAL_LINE, .has_fill = true, .has_line = true, .hw = 0.75f, .alpha = 1};
+    petal(im, NULL, 0, WX_PETAL_X, WX_PETAL_Y, 4.5f, 8, 86.0f - 50.0f + 10.0f * (float)rot, WX_PETAL_X, WX_PETAL_Y, &pe);
+}
+
+static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
+{
+    const wx_air_t *a = &t->air;
+    if (kind & WX_BAKE_RING) wx_paint_ring_air(b->ring, !a->have, b->lut);
+    if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
+    if (!(kind & WX_BAKE_SCENE)) return;
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_paint_clear(&bg);
+    wx_paint_air_scene(&bg, a->wilted);
+    wx_paint_face_dots(&bg, t->face, WXF_N);
+    wx_ring_blit(b->ring, b->bg);
+    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    for (int r = 0; a->wilted && r < WX_PETAL_ROTS; r++) {
+        uint8_t *m = b->still + r * WX_PETAL_BOX * WX_PETAL_BOX * 3;
+        wx_img_t im = {.px = (uint16_t *)m, .a = m + WX_PETAL_BOX * WX_PETAL_BOX * 2, .w = WX_PETAL_BOX, .h = WX_PETAL_BOX};
+        wx_paint_petal(&im, r);
+    }
 }
