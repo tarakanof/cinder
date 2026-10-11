@@ -91,6 +91,9 @@ body "$TFC" temp_face_show | grep -qF 'act(wx_job_show(&s_job, on));' || WIRING=
 body "$TFC" temp_face_hold | grep -qF 'act(wx_job_hold(&s_job, hold));' || WIRING="$WIRING hold-through-wx_job"
 body "$TFC" temp_face_update | grep -qF 'int a = wx_job_step(&s_job, &t, dt);' || WIRING="$WIRING update-steps-wx_job"
 body "$TFC" temp_face_update | grep -qF 'if (!(a & WX_DO_PAINT)) return;' || WIRING="$WIRING update-paints-only-on-WX_DO_PAINT"
+body "$TFC" temp_face_update | grep -qF 'wx_temp_from_shown(obs, s_job.baked ? &s_io.key : NULL, &t);' ||
+    WIRING="$WIRING update-keeps-the-shown-band"
+body "$TFC" temp_face_update | grep -qF 'paint(&t, obs, offline, s_job.opa);' || WIRING="$WIRING update-paints-at-the-job-opa"
 for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'if (a & WX_DO_DETACH) detach();' \
     'if (a & WX_DO_BAKE) xTaskNotifyGive(s_task);' 'if (a & WX_DO_APPLY) apply(&s_io.key, &s_io.out, s_io.kind);'; do
     body "$TFC" act | grep -qF "$ACT" || WIRING="$WIRING act:$ACT"
