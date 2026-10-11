@@ -80,8 +80,15 @@ typedef struct {
 int wx_sheet_frames(const wx_rain_t *r, int s);
 /* Frame k (WX_RAIN_FPS, from the face's show) of the rain layers. */
 void wx_rain_frame(const wx_rain_t *r, int k, wx_rain_frame_t *f);
-/* Bit s set when sheet s's box has to redraw going from a to b. */
-int wx_rain_dirty(const wx_rain_frame_t *a, const wx_rain_frame_t *b);
+/* The LVGL calls from shown frame p to f. After an attach p is all 0xFF: every object hidden at an unknown place, so
+   one that appears gets its buffer, y and opacity whatever p holds. opa: every layer's opacity changes (a fade step). */
+typedef struct {
+    bool strip_y[WX_SHEETS], opa;
+    bool drip_buf[WX_DRIPS], drip_y[WX_DRIPS], drip_opa[WX_DRIPS];
+    bool splash_y[WX_SPLASHES], splash_opa[WX_SPLASHES];
+} wx_rain_ops_t;
+
+void wx_rain_ops(const wx_rain_frame_t *p, const wx_rain_frame_t *f, bool fade, wx_rain_ops_t *ops);
 
 #ifdef __cplusplus
 }

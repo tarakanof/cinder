@@ -183,16 +183,22 @@ void wx_rain_frame(const wx_rain_t *r, int k, wx_rain_frame_t *f)
         for (int i = 0; i < 6; i++) f->bolt |= k % WX_STORM_FRAMES == FLASH[i];
 }
 
-int wx_rain_dirty(const wx_rain_frame_t *a, const wx_rain_frame_t *b)
+void wx_rain_ops(const wx_rain_frame_t *p, const wx_rain_frame_t *f, bool fade, wx_rain_ops_t *ops)
 {
-    int m = 0;
-    for (int s = 0; s < WX_SHEETS; s++)
-        if (a->off[s] != b->off[s]) m |= 1 << s;
-    for (int i = 0; i < WX_DRIPS; i++)
-        if (a->drip_pose[i] != b->drip_pose[i] || a->drip_dy[i] != b->drip_dy[i] || a->drip_opa[i] != b->drip_opa[i])
-            m |= 1 << i;
-    for (int n = 0; n < WX_SPLASHES; n++)
-        if (a->splash_dy[n] != b->splash_dy[n] || a->splash_opa[n] != b->splash_opa[n]) m |= 1 << 2;
-    if (a->bolt != b->bolt) m |= 1 << 2;
-    return m;
+    memset(ops, 0, sizeof *ops);
+    ops->opa = fade;
+    for (int s = 0; s < WX_SHEETS; s++) ops->strip_y[s] = f->off[s] != p->off[s];
+    for (int i = 0; i < WX_DRIPS; i++) {
+        if (f->drip_pose[i] < 0) continue;
+        bool pose = f->drip_pose[i] != p->drip_pose[i];
+        ops->drip_buf[i] = pose;
+        ops->drip_y[i] = pose || f->drip_dy[i] != p->drip_dy[i];
+        ops->drip_opa[i] = fade || pose || f->drip_opa[i] != p->drip_opa[i];
+    }
+    for (int n = 0; n < WX_SPLASHES; n++) {
+        if (f->splash_opa[n] <= 0) continue;
+        bool appear = p->splash_opa[n] <= 0;
+        ops->splash_y[n] = appear || f->splash_dy[n] != p->splash_dy[n];
+        ops->splash_opa[n] = fade || appear || f->splash_opa[n] != p->splash_opa[n];
+    }
 }

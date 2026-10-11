@@ -112,7 +112,21 @@ RAIN_CV='lv_canvas_set_buffer\(s_(strip|top|bottom|cover|splash|bolt|drip)'
 body "$TFC" apply | grep -qF 'if (t->rain.on) rain_attach(&t->rain);' || WIRING="$WIRING rain-attaches-on-a-scene-apply"
 body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
     WIRING="$WIRING rain-layers-live-in-the-still-buffer"
-body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa);' || WIRING="$WIRING paint-drives-the-rain-frames"
+body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255);' || WIRING="$WIRING paint-drives-the-rain-frames"
+body "$TFC" paint | grep -qF 'const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;' ||
+    WIRING="$WIRING paint-keeps-the-baked-rain-while-fading-out"
+for OP in 'for (int s = 0; s < WX_SHEETS; s++) show_obj(s_sheet[s], shown);' 'if (!shown) return;' \
+    'wx_rain_ops(&s_shown.rain, &f, opa != s_shown.rain_opa, &op);' 'if (op.strip_y[s]) {' 'if (op.opa) {' \
+    'if (op.drip_buf[i])' 'if (op.drip_y[i]) lv_obj_set_y(s_drip[i], ' 'if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], ' \
+    'show_obj(s_drip[i], f.drip_pose[i] >= 0);' 'if (op.splash_y[n]) {' 'if (op.splash_opa[n]) lv_obj_set_style_image_opa(s_splash[n], ' \
+    'show_obj(s_splash[n], f.splash_opa[n] > 0);' 'if (op.opa) lv_obj_set_style_image_opa(s_bolt, ' 'show_obj(s_bolt, f.bolt);' \
+    's_shown.rain = f;'; do
+    body "$TFC" set_rain | grep -qF "$OP" || WIRING="$WIRING set_rain:$OP"
+done
+[ "$(body "$TFC" set_rain | grep -c 'lv_obj_set_y(\|lv_obj_set_style_image_opa(\|lv_canvas_set_buffer(')" -eq 10 ] ||
+    WIRING="$WIRING set_rain-calls-only-behind-wx_rain_ops"
+[ "$(grep -c 'show_obj(s_sheet\[s\], ' "$TFC")" -eq 2 ] && body "$TFC" face_kind | grep -qF 'show_obj(s_sheet[s], false);' ||
+    WIRING="$WIRING sheets-shown-only-by-set_rain"
 body "$TFC" set_rain | grep -qF 'wx_rain_frame(r, (int)floor(s_t * WX_RAIN_FPS), &f);' || WIRING="$WIRING rain-frames-at-15-fps"
 body "$TFC" release | grep -qF 'detach();' && body "$TFC" release | grep -qF 'wx_job_released(&s_job);' ||
     WIRING="$WIRING release-detaches-and-tells-wx_job"

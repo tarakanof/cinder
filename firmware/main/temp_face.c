@@ -308,7 +308,6 @@ static void rain_attach(const wx_rain_t *r)
         lv_canvas_set_buffer(s_top[s], m + s_lay.top[s], w, s_lay.ramp_h[s], LV_COLOR_FORMAT_A8);
         lv_canvas_set_buffer(s_bottom[s], m + s_lay.bottom[s], w, s_lay.ramp_h[s], LV_COLOR_FORMAT_A8);
         lv_canvas_set_buffer(s_cover[s], m + s_lay.cover[s], c.x1 - c.x0, c.y1 - c.y0, LV_COLOR_FORMAT_RGB565A8);
-        show_obj(s_sheet[s], true);
         lv_obj_invalidate(s_sheet[s]);
     }
     for (int i = 0; i < WX_DRIPS; i++) {
@@ -465,46 +464,44 @@ static void set_sprites(int opa, int drift)
     }
 }
 
-static void set_rain(const wx_rain_t *r, int opa)
+static void set_rain(const wx_rain_t *r, int opa, bool shown)
 {
+    for (int s = 0; s < WX_SHEETS; s++) show_obj(s_sheet[s], shown);
+    if (!shown) return;
     wx_rain_frame_t f;
     wx_rain_frame(r, (int)floor(s_t * WX_RAIN_FPS), &f);
-    wx_rain_frame_t *p = &s_shown.rain;
-    bool fade = opa != s_shown.rain_opa;
+    wx_rain_ops_t op;
+    wx_rain_ops(&s_shown.rain, &f, opa != s_shown.rain_opa, &op);
     s_shown.rain_opa = opa;
     for (int s = 0; s < WX_SHEETS; s++) {
-        if (f.off[s] != p->off[s]) {
+        if (op.strip_y[s]) {
             lv_obj_set_y(s_strip[s][0], f.off[s] - WX_SHEET_PERIOD);
             lv_obj_set_y(s_strip[s][1], f.off[s]);
         }
-        if (fade) {
+        if (op.opa) {
             lv_obj_set_style_image_opa(s_strip[s][0], (lv_opa_t)opa, 0);
             lv_obj_set_style_image_opa(s_strip[s][1], (lv_opa_t)opa, 0);
         }
     }
     for (int i = 0; i < WX_DRIPS; i++) {
-        bool on = f.drip_pose[i] >= 0;
-        if (on && f.drip_pose[i] != p->drip_pose[i])
+        if (op.drip_buf[i])
             lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[f.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
-        if (on && f.drip_dy[i] != p->drip_dy[i]) lv_obj_set_y(s_drip[i], WX_DRIP_Y + f.drip_dy[i] - wx_sheet(i)->box.y0);
-        if (on && (fade || f.drip_opa[i] != p->drip_opa[i]))
-            lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)(f.drip_opa[i] * opa / 255), 0);
-        show_obj(s_drip[i], on);
+        if (op.drip_y[i]) lv_obj_set_y(s_drip[i], WX_DRIP_Y + f.drip_dy[i] - wx_sheet(i)->box.y0);
+        if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)(f.drip_opa[i] * opa / 255), 0);
+        show_obj(s_drip[i], f.drip_pose[i] >= 0);
     }
     for (int n = 0; n < WX_SPLASHES; n++) {
-        bool on = f.splash_opa[n] > 0;
-        if (on && f.splash_dy[n] != p->splash_dy[n]) {
+        if (op.splash_y[n]) {
             wx_splash_at_t at;
             wx_splash_at(n, &at);
             lv_obj_set_y(s_splash[n], at.y + f.splash_dy[n] - wx_sheet(WX_SHEETS - 1)->box.y0);
         }
-        if (on && (fade || f.splash_opa[n] != p->splash_opa[n]))
-            lv_obj_set_style_image_opa(s_splash[n], (lv_opa_t)(f.splash_opa[n] * opa / 255), 0);
-        show_obj(s_splash[n], on);
+        if (op.splash_opa[n]) lv_obj_set_style_image_opa(s_splash[n], (lv_opa_t)(f.splash_opa[n] * opa / 255), 0);
+        show_obj(s_splash[n], f.splash_opa[n] > 0);
     }
-    if (fade) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)opa, 0);
+    if (op.opa) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)opa, 0);
     show_obj(s_bolt, f.bolt);
-    *p = f;
+    s_shown.rain = f;
 }
 
 static int drift_px(double t)
@@ -532,7 +529,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
             set_value("--", GREY_RGB);
         }
         set_marker(r->pop / 100.0f * (float)a, r->has_pop);
-        set_rain(r, sprite_opa);
+        set_rain(r, sprite_opa, fo == 255);
     } else if (t->have) {
         int k = wx_count_step(wx_count_n(t->value), ta);
         int v = wx_count_value(t->value, k);

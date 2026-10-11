@@ -429,8 +429,170 @@ static void a8_over(uint16_t *fb, wx_box_t clip, const uint8_t *a8, int w, int h
         }
 }
 
+typedef struct {
+    int pose, y, opa; /* y: face coordinates */
+    bool on;
+} sim_obj_t;
+
+/* The rain objects as set_rain leaves them: it replays wx_rain_ops the way temp_face.c does, and records the areas LVGL
+   invalidates (an object's old and new area while it is visible, clipped to its sheet). */
+typedef struct {
+    int strip_off[WX_SHEETS], strip_opa, bolt_opa;
+    sim_obj_t drip[WX_DRIPS], splash[WX_SPLASHES];
+    bool bolt;
+    wx_rain_frame_t shown;
+    int shown_opa;
+    wx_box_t inv[64];
+    int n_inv;
+} sim_t;
+
+static void sim_inv(sim_t *v, int s, int x, int y, int w, int h)
+{
+    wx_box_t b = wx_sheet(s)->box;
+    wx_box_t a = {x > b.x0 ? x : b.x0, y > b.y0 ? y : b.y0, x + w < b.x1 ? x + w : b.x1, y + h < b.y1 ? y + h : b.y1};
+    if (a.x0 >= a.x1 || a.y0 >= a.y1 || v->n_inv >= 64) return;
+    v->inv[v->n_inv++] = a;
+}
+
+static void sim_box(sim_t *v, int s)
+{
+    wx_box_t b = wx_sheet(s)->box;
+    sim_inv(v, s, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+}
+
+static void sim_init(sim_t *v)
+{
+    memset(v, 0, sizeof *v);
+    for (int s = 0; s < WX_SHEETS; s++) v->strip_off[s] = 0;
+    for (int i = 0; i < WX_DRIPS; i++) v->drip[i] = (sim_obj_t){0, wx_sheet(i)->box.y0, 255, false};
+    for (int n = 0; n < WX_SPLASHES; n++) v->splash[n] = (sim_obj_t){0, wx_sheet(2)->box.y0, 255, false};
+    v->strip_opa = v->bolt_opa = 255;
+}
+
+static void sim_attach(sim_t *v)
+{
+    v->n_inv = 0;
+    for (int s = 0; s < WX_SHEETS; s++) sim_box(v, s);
+    for (int i = 0; i < WX_DRIPS; i++) v->drip[i].on = false;
+    for (int n = 0; n < WX_SPLASHES; n++) v->splash[n].on = false;
+    v->bolt = false;
+    memset(&v->shown, 0xFF, sizeof v->shown);
+    v->shown_opa = -1;
+}
+
+static void sim_move(sim_t *v, int s, sim_obj_t *o, int x, int w, int h, int y)
+{
+    if (o->on) sim_inv(v, s, x, o->y, w, h);
+    o->y = y;
+    if (o->on) sim_inv(v, s, x, o->y, w, h);
+}
+
+static void sim_show(sim_t *v, int s, sim_obj_t *o, int x, int w, int h, bool on)
+{
+    if (on != o->on) sim_inv(v, s, x, o->y, w, h);
+    o->on = on;
+}
+
+static void sim_frame(sim_t *v, const wx_rain_t *r, int k, int opa)
+{
+    v->n_inv = 0;
+    wx_rain_frame_t f;
+    wx_rain_frame(r, k, &f);
+    wx_rain_ops_t op;
+    wx_rain_ops(&v->shown, &f, opa != v->shown_opa, &op);
+    v->shown_opa = opa;
+    for (int s = 0; s < WX_SHEETS; s++) {
+        if (op.strip_y[s]) {
+            v->strip_off[s] = f.off[s];
+            sim_box(v, s);
+        }
+        if (op.opa) {
+            v->strip_opa = opa;
+            sim_box(v, s);
+        }
+    }
+    for (int i = 0; i < WX_DRIPS; i++) {
+        sim_obj_t *o = &v->drip[i];
+        int x = wx_drip_x(i);
+        if (op.drip_buf[i]) {
+            o->pose = f.drip_pose[i];
+            if (o->on) sim_inv(v, i, x, o->y, WX_DRIP_W, WX_DRIP_H);
+        }
+        if (op.drip_y[i]) sim_move(v, i, o, x, WX_DRIP_W, WX_DRIP_H, WX_DRIP_Y + f.drip_dy[i]);
+        if (op.drip_opa[i]) {
+            o->opa = f.drip_opa[i] * opa / 255;
+            if (o->on) sim_inv(v, i, x, o->y, WX_DRIP_W, WX_DRIP_H);
+        }
+        sim_show(v, i, o, x, WX_DRIP_W, WX_DRIP_H, f.drip_pose[i] >= 0);
+    }
+    for (int n = 0; n < WX_SPLASHES; n++) {
+        sim_obj_t *o = &v->splash[n];
+        wx_splash_at_t at;
+        wx_splash_at(n, &at);
+        if (op.splash_y[n]) sim_move(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H, at.y + f.splash_dy[n]);
+        if (op.splash_opa[n]) {
+            o->opa = f.splash_opa[n] * opa / 255;
+            if (o->on) sim_inv(v, 2, at.x, o->y, WX_SPLASH_W, WX_SPLASH_H);
+        }
+        sim_show(v, 2, o, at.x, WX_SPLASH_W, WX_SPLASH_H, f.splash_opa[n] > 0);
+    }
+    if (op.opa) {
+        v->bolt_opa = opa;
+        if (v->bolt) sim_inv(v, 2, WX_BOLT_X, WX_BOLT_Y, WX_BOLT_W, WX_BOLT_H);
+    }
+    if (f.bolt != v->bolt) sim_inv(v, 2, WX_BOLT_X, WX_BOLT_Y, WX_BOLT_W, WX_BOLT_H);
+    v->bolt = f.bolt;
+    v->shown = f;
+}
+
+/* What frame f at opacity opa should show: the objects set straight from f. */
+static void sim_ideal(sim_t *v, const wx_rain_frame_t *f, int opa)
+{
+    sim_init(v);
+    for (int s = 0; s < WX_SHEETS; s++) v->strip_off[s] = f->off[s];
+    v->strip_opa = v->bolt_opa = opa;
+    for (int i = 0; i < WX_DRIPS; i++)
+        v->drip[i] = (sim_obj_t){f->drip_pose[i], WX_DRIP_Y + f->drip_dy[i], f->drip_opa[i] * opa / 255, f->drip_pose[i] >= 0};
+    for (int n = 0; n < WX_SPLASHES; n++) {
+        wx_splash_at_t at;
+        wx_splash_at(n, &at);
+        v->splash[n] = (sim_obj_t){0, at.y + f->splash_dy[n], f->splash_opa[n] * opa / 255, f->splash_opa[n] > 0};
+    }
+    v->bolt = f->bolt;
+}
+
+static bool sim_same(const sim_t *a, const sim_t *b, char *why, size_t n)
+{
+    for (int s = 0; s < WX_SHEETS; s++)
+        if (a->strip_off[s] != b->strip_off[s] || a->strip_opa != b->strip_opa) {
+            snprintf(why, n, "sheet %d strip at %d opa %d, want %d opa %d", s, a->strip_off[s], a->strip_opa, b->strip_off[s],
+                     b->strip_opa);
+            return false;
+        }
+    for (int i = 0; i < WX_DRIPS; i++) {
+        const sim_obj_t *x = &a->drip[i], *y = &b->drip[i];
+        if (x->on != y->on || (y->on && (x->pose != y->pose || x->y != y->y || x->opa != y->opa))) {
+            snprintf(why, n, "drip %d on %d pose %d y %d opa %d, want on %d pose %d y %d opa %d", i, x->on, x->pose, x->y,
+                     x->opa, y->on, y->pose, y->y, y->opa);
+            return false;
+        }
+    }
+    for (int k = 0; k < WX_SPLASHES; k++) {
+        const sim_obj_t *x = &a->splash[k], *y = &b->splash[k];
+        if (x->on != y->on || (y->on && (x->y != y->y || x->opa != y->opa))) {
+            snprintf(why, n, "splash %d on %d y %d opa %d, want on %d y %d opa %d", k, x->on, x->y, x->opa, y->on, y->y, y->opa);
+            return false;
+        }
+    }
+    if (a->bolt != b->bolt || (b->bolt && a->bolt_opa != b->bolt_opa)) {
+        snprintf(why, n, "bolt %d opa %d, want %d opa %d", a->bolt, a->bolt_opa, b->bolt, b->bolt_opa);
+        return false;
+    }
+    return true;
+}
+
 static void compose(uint16_t *fb, const uint16_t *bg, const uint8_t *m, const wx_rain_layout_t *l, const wx_rain_t *r,
-                    const wx_rain_frame_t *f)
+                    const sim_t *v)
 {
     memcpy(fb, bg, (size_t)WX_FACE * WX_FACE * 2);
     uint32_t col = r->kind == WX_PRECIP_SNOW ? 0xD0DCE8 : wx_rain_rgb(r->intensity);
@@ -438,20 +600,20 @@ static void compose(uint16_t *fb, const uint16_t *bg, const uint8_t *m, const wx
         wx_box_t b = wx_sheet(s)->box;
         int w = b.x1 - b.x0;
         for (int c = -1; c <= 0; c++)
-            a8_over(fb, b, m + l->tile[s], w, WX_SHEET_PERIOD, b.x0, b.y0 + f->off[s] + c * WX_SHEET_PERIOD, col, 255);
-        if (s < WX_DRIPS && f->drip_pose[s] >= 0)
-            a8_over(fb, b, m + l->drip[f->drip_pose[s]], WX_DRIP_W, WX_DRIP_H, wx_drip_x(s), WX_DRIP_Y + f->drip_dy[s], col,
-                    f->drip_opa[s]);
+            a8_over(fb, b, m + l->tile[s], w, WX_SHEET_PERIOD, b.x0, b.y0 + v->strip_off[s] + c * WX_SHEET_PERIOD, col,
+                    v->strip_opa);
+        if (s < WX_DRIPS && v->drip[s].on)
+            a8_over(fb, b, m + l->drip[v->drip[s].pose], WX_DRIP_W, WX_DRIP_H, wx_drip_x(s), v->drip[s].y, col, v->drip[s].opa);
         if (s == 2)
             for (int n = 0; n < WX_SPLASHES; n++) {
                 wx_splash_at_t at;
                 wx_splash_at(n, &at);
-                if (f->splash_opa[n])
-                    a8_over(fb, b, m + l->splash[n], WX_SPLASH_W, WX_SPLASH_H, at.x, at.y + f->splash_dy[n], col, f->splash_opa[n]);
+                if (v->splash[n].on)
+                    a8_over(fb, b, m + l->splash[n], WX_SPLASH_W, WX_SPLASH_H, at.x, v->splash[n].y, col, v->splash[n].opa);
             }
         a8_over(fb, b, m + l->top[s], w, l->ramp_h[s], b.x0, b.y0, 0, 255);
         a8_over(fb, b, m + l->bottom[s], w, l->ramp_h[s], b.x0, b.y1 - l->ramp_h[s], 0, 255);
-        if (s == 2 && f->bolt) a8_over(fb, b, m + l->bolt, WX_BOLT_W, WX_BOLT_H, WX_BOLT_X, WX_BOLT_Y, 0xF0D040, 255);
+        if (s == 2 && v->bolt) a8_over(fb, b, m + l->bolt, WX_BOLT_W, WX_BOLT_H, WX_BOLT_X, WX_BOLT_Y, 0xF0D040, v->bolt_opa);
         wx_box_t c = l->cover_box[s];
         int cw = c.x1 - c.x0, ch = c.y1 - c.y0;
         const uint16_t *px = (const uint16_t *)(m + l->cover[s]);
@@ -462,6 +624,54 @@ static void compose(uint16_t *fb, const uint16_t *bg, const uint8_t *m, const wx
                 fb[i] = blend(fb[i], rgb_of(px[y * cw + x]), al[y * cw + x]);
             }
     }
+}
+
+static long box_px(wx_box_t b) { return (long)(b.x1 - b.x0) * (b.y1 - b.y0); }
+
+/* LVGL's area join (lv_refr_join_area): two overlapping areas merge when their bounding box is smaller than both. */
+static int join_areas(wx_box_t *a, int n)
+{
+    for (bool again = true; again;) {
+        again = false;
+        for (int i = 0; i < n && !again; i++)
+            for (int j = 0; j < n && !again; j++) {
+                if (i == j || a[i].x0 >= a[j].x1 || a[j].x0 >= a[i].x1 || a[i].y0 >= a[j].y1 || a[j].y0 >= a[i].y1) continue;
+                wx_box_t u = {a[i].x0 < a[j].x0 ? a[i].x0 : a[j].x0, a[i].y0 < a[j].y0 ? a[i].y0 : a[j].y0,
+                              a[i].x1 > a[j].x1 ? a[i].x1 : a[j].x1, a[i].y1 > a[j].y1 ? a[i].y1 : a[j].y1};
+                if (box_px(u) >= box_px(a[i]) + box_px(a[j])) continue;
+                a[i] = u;
+                a[j] = a[--n];
+                again = true;
+            }
+    }
+    return n;
+}
+
+static void test_ops(void)
+{
+    static const wx_precip_t KIND[3] = {WX_PRECIP_RAIN, WX_PRECIP_STORM, WX_PRECIP_SNOW};
+    static const int START[4] = {0, 7, 18, 61};
+    int bad = 0;
+    for (int c = 0; c < 3; c++)
+        for (int in = 1; in <= 3; in++)
+            for (int st = 0; st < 4; st++) {
+                wx_rain_t r = {.on = true, .kind = KIND[c], .intensity = in};
+                sim_t v, want;
+                sim_init(&v);
+                sim_attach(&v);
+                for (int k = START[st]; k < START[st] + 400; k++) {
+                    int opa = k - START[st] < 3 ? 85 * (k - START[st] + 1) : 255;
+                    if (k == START[st] + 200) sim_attach(&v);
+                    sim_frame(&v, &r, k, opa);
+                    wx_rain_frame_t f;
+                    wx_rain_frame(&r, k, &f);
+                    sim_ideal(&want, &f, opa);
+                    char why[160];
+                    if (!sim_same(&v, &want, why, sizeof why) && bad++ < 5)
+                        CHECK(false, "kind %d intensity %d from frame %d: frame %d %s", (int)KIND[c], in, START[st], k, why);
+                }
+            }
+    CHECK(bad == 0, "the replayed LVGL calls draw every frame as wx_rain_frame says (%d frames off)", bad);
 }
 
 static void dump(const char *dir, const char *name, const uint16_t *fb)
@@ -481,7 +691,7 @@ static void dump(const char *dir, const char *name, const uint16_t *fb)
 
 static void test_bake_and_areas(void)
 {
-    static uint16_t bg[WX_FACE * WX_FACE], fb[WX_FACE * WX_FACE], prev[WX_FACE * WX_FACE];
+    static uint16_t bg[WX_FACE * WX_FACE], fb[WX_FACE * WX_FACE], prev[WX_FACE * WX_FACE], ref[WX_FACE * WX_FACE];
     static uint16_t lut[WX_RING_LUT];
     static wx_ring_t ring;
     size_t still = (size_t)wx_clouds_max_px(false) * 3;
@@ -548,31 +758,34 @@ static void test_bake_and_areas(void)
             cycle = cycle / a * fr;
         }
         int frames = cycle * 4 > 2400 ? 2400 : cycle * 4;
-        wx_rain_frame_t f, pf;
-        int max_areas = 0, max_px = 0, max_changed = 0;
+        wx_rain_frame_t f;
+        sim_t v, want;
+        sim_init(&v);
+        sim_attach(&v);
+        int max_areas = 0, max_px = 0, max_changed = 0, off = 0;
         long sum_changed = 0;
         for (int k = 0; k <= frames; k++) {
+            sim_frame(&v, r, k, 255);
+            compose(fb, bg, m, &l, r, &v);
             wx_rain_frame(r, k, &f);
-            compose(fb, bg, m, &l, r, &f);
+            sim_ideal(&want, &f, 255);
+            compose(ref, bg, m, &l, r, &want);
+            if (memcmp(fb, ref, sizeof ref) && off++ < 3) CHECK(false, "%s frame %d: the replayed calls draw another picture", CASES[c].name, k);
             if (k > 0) {
-                int mask = wx_rain_dirty(&pf, &f), areas = 0, px = 0, changed = 0, stray = 0;
-                for (int s = 0; s < WX_SHEETS; s++)
-                    if (mask & (1 << s)) {
-                        areas++;
-                        wx_box_t bx = wx_sheet(s)->box;
-                        px += (bx.x1 - bx.x0) * (bx.y1 - bx.y0);
-                    }
+                wx_box_t area[64];
+                memcpy(area, v.inv, sizeof area);
+                int areas = join_areas(area, v.n_inv), px = 0, changed = 0, stray = 0;
+                for (int a = 0; a < areas; a++) px += (int)box_px(area[a]);
                 for (int i = 0; i < WX_FACE * WX_FACE; i++) {
                     if (fb[i] == prev[i]) continue;
                     changed++;
-                    int x = i % WX_FACE, y = i / WX_FACE, in = -1;
-                    for (int s = 0; s < WX_SHEETS; s++) {
-                        wx_box_t bx = wx_sheet(s)->box;
-                        if (x >= bx.x0 && x < bx.x1 && y >= bx.y0 && y < bx.y1) in = s;
-                    }
-                    if (in < 0 || !(mask & (1 << in))) stray++;
+                    int x = i % WX_FACE, y = i / WX_FACE;
+                    bool in = false;
+                    for (int a = 0; a < v.n_inv; a++)
+                        in |= x >= v.inv[a].x0 && x < v.inv[a].x1 && y >= v.inv[a].y0 && y < v.inv[a].y1;
+                    stray += !in;
                 }
-                CHECK(stray == 0, "%s frame %d: %d changed px outside the dirty boxes", CASES[c].name, k, stray);
+                CHECK(stray == 0, "%s frame %d: %d changed px outside the invalidated areas", CASES[c].name, k, stray);
                 if (areas > max_areas) max_areas = areas;
                 if (px > max_px) max_px = px;
                 if (changed > max_changed) max_changed = changed;
@@ -584,8 +797,8 @@ static void test_bake_and_areas(void)
                 dump(dir, name, fb);
             }
             memcpy(prev, fb, sizeof prev);
-            pf = f;
         }
+        CHECK(off == 0, "%s: %d frames differ from wx_rain_frame's picture", CASES[c].name, off);
         CHECK(max_areas <= 3, "%s: at most 3 areas a frame, got %d", CASES[c].name, max_areas);
         printf("rain: %s: %d frames: %d areas/frame, %d px redrawn/frame, changed px max %d avg %ld\n", CASES[c].name, frames,
                max_areas, max_px, max_changed, sum_changed / frames);
@@ -637,6 +850,7 @@ int main(void)
     test_sheets();
     test_tiles();
     test_splash_drip_bolt();
+    test_ops();
     test_boxes();
     test_ramps();
     test_bake_and_areas();
