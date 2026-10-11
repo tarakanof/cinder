@@ -1009,7 +1009,7 @@ static void test_paint(void)
     AT(3, 226, 173, 0xC9D2DC, "the hook");
     CLEAR(3, 226, 166, "inside the hook");
     CLEAR(3, 200, 150, "beside the shaft");
-    AT(1, 233, 120, 0xFF8A3D, "closed body");
+    AT(1, 229.5f, 125, 0xFF8A3D, "closed body");
     CLEAR(1, 205, 120, "closed: no canopy");
     AT(2, 215, 130, 0xFF8A3D, "half canopy");
     AT(2, 233, 120, 0xD9692A, "half middle");
