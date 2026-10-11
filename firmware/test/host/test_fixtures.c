@@ -408,7 +408,8 @@ static void test_view_days(void)
     wx_days_t d;
     if (!view("view_faces.json", &v)) return;
     CHECK(o->day_n == 3 && o->day[0].t == 1782082800 && o->day[1].t == 1782169200 && o->day[2].t == 1782255600, "days: three, in order");
-    CHECK(o->day[0].end == 1782169200 && o->day[1].end == 1782255600 && o->day[2].end == 0, "days: each ends at the next start, the last unknown");
+    CHECK(o->day[0].end == 1782169200 && o->day[1].end == 1782255600 && o->day[2].end == 1782342000,
+          "days: each ends at Ember's end, the last one included");
     CHECK(o->day[0].face == WX_OVERCAST && o->day[1].face == WX_RAIN && o->day[2].face == WX_SNOW, "days: clouds, rain, snow");
     CHECK(o->day[0].min_c == 7 && o->day[0].max_c == 16 && o->day[2].min_c == -4 && o->day[2].max_c == 3 && o->day[0].pop == 32 &&
               o->day[1].pop == 19 && o->day[2].pop == 40,
@@ -527,6 +528,84 @@ static wx_sun_t sun_now(const wx_obs_t *o)
     return s;
 }
 
+static int days_at(knob_view_t *v, long long now)
+{
+    wx_days_t d;
+    v->weather.observed_at = now;
+    v->weather.has_obs_age = true;
+    v->weather.obs_age_s = 0;
+    v->weather.age_s = 0;
+    wx_days_from(&v->weather, &d);
+    return d.n;
+}
+
+static bool dst_days(knob_view_t *v, const long long t[3], const double end[3], int off)
+{
+    cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+    for (int i = 0; i < 3; i++) {
+        cJSON *d = day_item((double)t[i], 1, 2, "clear", "0", NAN);
+        if (!isnan(end[i])) cJSON_AddNumberToObject(d, "end", end[i]);
+        cJSON_AddItemToArray(a, d);
+    }
+    cJSON_ReplaceItemInObjectCaseSensitive(w, "utc_offset", cJSON_CreateNumber(off));
+    cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+    return faces_parse(root, v);
+}
+
+static void test_view_day_ends(void)
+{
+    knob_view_t v;
+    const wx_obs_t *o = &v.weather;
+    static const struct {
+        long long t[3], end;
+        int off;
+        const char *what;
+    } DST[] = {
+        {{1774566000LL, 1774652400LL, 1774738800LL}, 1774821600LL, 3600, "Belgrade 2026-03-29, 23 h"},
+        {{1792706400LL, 1792792800LL, 1792879200LL}, 1792969200LL, 7200, "Belgrade 2026-10-25, 25 h"},
+    };
+    for (size_t k = 0; k < sizeof DST / sizeof DST[0]; k++) {
+        const long long *t = DST[k].t, end = DST[k].end;
+        const char *what = DST[k].what;
+        const double ENDS[3] = {(double)t[1], (double)t[2], (double)end};
+        bool ok = dst_days(&v, t, ENDS, DST[k].off);
+        CHECK(ok && o->day_n == 3 && o->day[0].end == t[1] && o->day[1].end == t[2] && o->day[2].end == end,
+              "%s: the last day ends at Ember's end: %lld", what, o->day[2].end);
+        CHECK(days_at(&v, end - 1) == 1, "%s: the last row shown to its last second", what);
+        CHECK(days_at(&v, end) == 0, "%s: the last row gone at local midnight", what);
+
+        const double NONE[3] = {NAN, NAN, NAN};
+        ok = dst_days(&v, t, NONE, DST[k].off);
+        CHECK(ok && o->day_n == 3 && o->day[0].end == t[1] && o->day[1].end == t[2] && o->day[2].end == 0,
+              "%s without end (an older Ember): the next start, the last unknown", what);
+        CHECK(days_at(&v, t[2] + 86400 - 1) == 1 && days_at(&v, t[2] + 86400) == 0, "%s without end: the last day lasts 24 h", what);
+
+        static const double BAD[] = {0, -1, 79199, 93601, 86400.5, -86400};
+        for (size_t b = 0; b < sizeof BAD / sizeof BAD[0]; b++) {
+            const double E[3] = {t[0] + BAD[b], t[1] + BAD[b], t[2] + BAD[b]};
+            ok = dst_days(&v, t, E, DST[k].off);
+            CHECK(ok && o->day_n == 3 && o->day[0].end == t[1] && o->day[1].end == t[2] && o->day[2].end == 0,
+                  "%s: an end at t%+.1f s ignored: %lld %lld %lld", what, BAD[b], o->day[0].end, o->day[1].end, o->day[2].end);
+        }
+        {
+            cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+            cJSON *d = day_item((double)t[2], 1, 2, "clear", "0", NAN);
+            cJSON_AddStringToObject(d, "end", "1774821600");
+            cJSON_AddItemToArray(a, d);
+            cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+            ok = faces_parse(root, &v);
+            CHECK(ok && o->day_n == 1 && o->day[0].end == 0, "%s: a string end ignored", what);
+        }
+        static const long long EDGE[] = {79200, 93600};
+        for (size_t b = 0; b < sizeof EDGE / sizeof EDGE[0]; b++) {
+            const double E[3] = {(double)(t[0] + EDGE[b]), (double)(t[1] + EDGE[b]), (double)(t[2] + EDGE[b])};
+            ok = dst_days(&v, t, E, DST[k].off);
+            CHECK(ok && o->day[0].end == t[0] + EDGE[b] && o->day[2].end == t[2] + EDGE[b], "%s: an end %lld h on kept, not the next start",
+                  what, EDGE[b] / 3600);
+        }
+    }
+}
+
 static void test_view_sun(void)
 {
     knob_view_t v;
@@ -551,12 +630,12 @@ static void test_view_sun(void)
     CHECK(s.have && !strcmp(s.rise, "03:45") && !strcmp(s.set, "20:20") && s.t[WX_SUN_DAWN] == TW[0], "MET: the same sun at offset 0");
 
     if (!view("view_faces_polar_dry.json", &v)) return;
-    CHECK(o->sunrise == 1788226500 && o->sunset == 1788294000 && !o->twilight[0] && !o->twilight[1] && o->twilight[2] == 1788236100 &&
-              o->twilight[3] == 1788284400 && !o->twilight[4] && !o->twilight[5],
+    CHECK(o->sunrise == 1788226500 && o->sunset == 1788293400 && !o->twilight[0] && !o->twilight[1] && o->twilight[2] == 1788236100 &&
+              o->twilight[3] == 1788284100 && !o->twilight[4] && !o->twilight[5],
           "polar: only the golden crossings");
     s = sun_now(o);
-    CHECK(s.have && wx_sun_start(&s) == 1788226500 && wx_sun_end(&s) == 1788294000 && !strcmp(s.sub, "golden hour 19:40") &&
-              !strcmp(s.rise, "03:35") && !strcmp(s.set, "22:20") && s.count == 16,
+    CHECK(s.have && wx_sun_start(&s) == 1788226500 && wx_sun_end(&s) == 1788293400 && !strcmp(s.sub, "golden hour 19:35") &&
+              !strcmp(s.rise, "03:35") && !strcmp(s.set, "22:10") && s.count == 16,
           "polar Sun: sunrise to sunset, '%s'", s.sub);
 
     if (!view("view_single_host_paused.json", &v)) return;
@@ -1193,6 +1272,7 @@ int main(int argc, char **argv)
     test_view_faces();
     test_view_rain_keys();
     test_view_days();
+    test_view_day_ends();
     test_view_sun();
     test_view_air();
     test_view_legacy_weather();
