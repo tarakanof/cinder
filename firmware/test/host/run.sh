@@ -115,7 +115,7 @@ body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" se
 body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255);' || WIRING="$WIRING paint-drives-the-rain-frames"
 body "$TFC" paint | grep -qF 'const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;' ||
     WIRING="$WIRING paint-keeps-the-baked-rain-while-fading-out"
-body "$TFC" paint | grep -qF 'set_unit(r->has_pop ? UNIT_RGB : GREY_RGB);' || WIRING="$WIRING paint-greys-the-unit-without-pop"
+body "$TFC" paint | grep -qF 'set_unit(r->has_pop ? wx_rain_rgb(r->intensity) : GREY_RGB);' || WIRING="$WIRING paint-greys-the-unit-without-pop"
 SET_RAIN=$(cat <<'END'
 static void set_rain(const wx_rain_t *r, int opa, bool shown)
 {

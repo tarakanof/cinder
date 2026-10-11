@@ -34,7 +34,6 @@ static const char *TAG = "tempface";
 #define SNOW_RGB 0xD0DCE8
 #define BOLT_RGB 0xF0D040
 #define LABEL_GREY_RGB 0x8A8A8A
-#define UNIT_RGB 0x9A9A9A
 #define SUB_RGB 0xBDBDBD
 
 #define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)
@@ -535,7 +534,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
             set_value("--", GREY_RGB);
         }
         set_marker(r->pop / 100.0f * (float)a, r->has_pop);
-        set_unit(r->has_pop ? UNIT_RGB : GREY_RGB);
+        set_unit(r->has_pop ? wx_rain_rgb(r->intensity) : GREY_RGB);
         set_rain(r, sprite_opa, fo == 255);
     } else if (t->have) {
         int k = wx_count_step(wx_count_n(t->value), ta);
