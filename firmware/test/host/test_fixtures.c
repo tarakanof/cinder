@@ -218,9 +218,9 @@ static void test_view_faces(void)
               o->rain_spell[0].end == 1782049500LL && o->rain_spell[0].intensity == 2 && o->rain_spell[0].kind == 0 &&
               o->rain_spell[1].intensity == 1 && o->rain_spell[1].kind == 1,
           "rain block");
-    CHECK(t.rain.on && t.rain.kind == WX_PRECIP_RAIN && t.rain.intensity == 1 && t.rain.has_pop && t.rain.pop == 83 &&
+    CHECK(t.rain.on && t.rain.kind == WX_PRECIP_RAIN && t.rain.intensity == 2 && t.rain.has_pop && t.rain.pop == 83 &&
               !strcmp(t.rain.sub, "until 14:45"),
-          "raining now: the Rain now face, light, 83 %%, '%s'", t.rain.sub);
+          "raining now: the Rain now face, the moderate spell's peak, 83 %%, '%s'", t.rain.sub);
 
     if (!view("view_faces_met.json", &v)) return;
     CHECK(o->has_cloud && o->cloud == 70 && o->has_uv && o->uv == 3, "MET now");

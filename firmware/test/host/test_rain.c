@@ -48,16 +48,26 @@ static void test_select(void)
     o.has_pop = true;
     o.pop = 83;
     wx_rain_from(&o, &r);
-    CHECK(r.on && r.kind == WX_PRECIP_RAIN && r.intensity == 1, "now.rain 1: light rain (the step, not the spell's peak)");
+    CHECK(r.on && r.kind == WX_PRECIP_RAIN && r.intensity == 2, "now.rain 1 in a moderate spell: the spell's peak");
     CHECK(r.has_pop && r.pop == 83 && r.has_until && r.until_min == 14 * 60 + 45 && !strcmp(r.sub, "until 14:45"),
           "chance and until: '%s'", r.sub);
+    o.rain_spell[0].intensity = 3;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && r.intensity == 3, "a heavy spell: heavy");
+    o.rain_n = 0;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && r.intensity == 1, "no spell covers now: now.rain");
     o.now_rain = 3;
     wx_rain_from(&o, &r);
-    CHECK(r.on && r.intensity == 3, "now.rain 3: heavy");
+    CHECK(r.on && r.intensity == 3, "no spell covers now: now.rain 3, heavy");
+    o.rain_n = 1;
+    o.rain_spell[0].intensity = 2;
 
     o.now_rain = 0;
+    o.rain_until = 0;
     wx_rain_from(&o, &r);
-    CHECK(!r.on, "now.rain 0 in a spell (a pause): Temperature face");
+    CHECK(r.on && r.intensity == 2 && !r.has_until && !strcmp(r.sub, "Rain"),
+          "now.rain 0 in a spell (a pause, not the end): the Rain face, the spell's peak, '%s'", r.sub);
     o.rain_n = 0;
     o.has_rain = true;
     wx_rain_from(&o, &r);
@@ -157,15 +167,24 @@ static void test_bake_kind(void)
     wx_temp_from(&o, &b);
     CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_RING, "chance appears or goes: ring only");
     o.has_pop = true;
-    o.now_rain = 3;
+    for (int step = 0; step < 4; step++) {
+        static const int NOW[4] = {1, 2, 0, 1};
+        o.now_rain = NOW[step];
+        wx_temp_from(&o, &b);
+        CHECK(b.rain.on && wx_temp_bake_kind(&b, &a) == 0, "showers in a spell (now.rain %d): no re-bake", NOW[step]);
+    }
+    o.now_rain = 2;
+    o.rain_spell[0].intensity = 3;
     wx_temp_from(&o, &b);
-    CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "intensity: full");
+    CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "the spell's peak changes: full");
+    o.rain_spell[0].intensity = 2;
     snprintf(o.condition, sizeof o.condition, "snow");
     snprintf(o.code, sizeof o.code, "73");
     o.now_rain = 2;
     wx_temp_from(&o, &b);
     CHECK(wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL, "kind: full");
     o.now_rain = 0;
+    o.rain_n = 0;
     wx_temp_from(&o, &b);
     CHECK(!b.rain.on && wx_temp_bake_kind(&b, &a) == WX_BAKE_FULL && wx_temp_bake_kind(&a, &b) == WX_BAKE_FULL,
           "rain stops or starts: full both ways");

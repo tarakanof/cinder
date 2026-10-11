@@ -73,8 +73,7 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r)
         if (o->rain_spell[i].start <= at && at < o->rain_spell[i].end) sp = &o->rain_spell[i];
     bool storm = l.face == WX_STORM;
     bool wet;
-    if (o->has_now_rain) wet = o->now_rain > 0;
-    else if (o->has_rain) wet = sp != NULL;
+    if (o->has_now_rain || o->has_rain) wet = (o->has_now_rain && o->now_rain > 0) || sp != NULL;
     else wet = l.face == WX_RAIN || l.face == WX_SNOW;
     if (wet && known && o->rain_until > 0 && now >= o->rain_until) wet = false;
     if (!wet && !storm) return;
@@ -84,7 +83,7 @@ void wx_rain_from(const wx_obs_t *o, wx_rain_t *r)
               : l.face == WX_RAIN ? WX_PRECIP_RAIN
               : sp && sp->kind == 1 ? WX_PRECIP_SNOW
                                     : WX_PRECIP_RAIN;
-    int in = o->has_now_rain && o->now_rain > 0 ? o->now_rain : sp ? sp->intensity : (int)l.intensity;
+    int in = sp ? sp->intensity : o->has_now_rain && o->now_rain > 0 ? o->now_rain : (int)l.intensity;
     r->intensity = in < 1 ? 1 : in > 3 ? 3 : in;
     r->has_pop = o->has_pop;
     r->pop = o->has_pop ? (o->pop < 0 ? 0 : o->pop > 100 ? 100 : o->pop) : 0;
