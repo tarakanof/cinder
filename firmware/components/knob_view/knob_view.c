@@ -123,6 +123,8 @@ static void parse_days(const cJSON *d, wx_obs_t *o)
         day.pop = (signed char)(int_in(e, "pop", 0, 100, &pop) ? pop : -1);
         day.min_c = (short)lo;
         day.max_c = (short)hi;
+        long long next;
+        day.end = e->next && unix_in(item(e->next, "t"), &next) && next > day.t && next <= day.t + WX_DAY_MAX_S ? next : 0;
         o->day[o->day_n++] = day;
     }
 }

@@ -408,6 +408,7 @@ static void test_view_days(void)
     wx_days_t d;
     if (!view("view_faces.json", &v)) return;
     CHECK(o->day_n == 3 && o->day[0].t == 1782082800 && o->day[1].t == 1782169200 && o->day[2].t == 1782255600, "days: three, in order");
+    CHECK(o->day[0].end == 1782169200 && o->day[1].end == 1782255600 && o->day[2].end == 0, "days: each ends at the next start, the last unknown");
     CHECK(o->day[0].face == WX_OVERCAST && o->day[1].face == WX_RAIN && o->day[2].face == WX_SNOW, "days: clouds, rain, snow");
     CHECK(o->day[0].min_c == 7 && o->day[0].max_c == 16 && o->day[2].min_c == -4 && o->day[2].max_c == 3 && o->day[0].pop == 32 &&
               o->day[1].pop == 19 && o->day[2].pop == 40,
@@ -461,6 +462,32 @@ static void test_view_days(void)
               "a repeated t skipped; rain by its bucket without a code: %lld %d..%d", o->day[1].t, o->day[1].min_c, o->day[1].max_c);
         CHECK(o->day[2].t == 1782255600 && o->day[2].pop == -1 && o->day[2].face == WX_OVERCAST,
               "a string t skipped; a string chance unknown; no condition: overcast");
+    }
+    {
+        cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+        cJSON_AddItemToArray(a, day_item(1782082800, 7, 16, "clouds", "3", NAN));
+        cJSON_AddItemToArray(a, day_item(1782169200, NAN, 17, "rain", "61", NAN));
+        cJSON_AddItemToArray(a, day_item(1782255600, -4, 3, "snow", "71", NAN));
+        cJSON_AddItemToArray(a, day_item(1782342000, 1, 2, "snow", "71", NAN));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 3 && o->day[0].end == 1782169200 && o->day[1].t == 1782255600 && o->day[1].end == 1782342000 &&
+                  o->day[2].end == 0,
+              "a bad middle day keeps its boundary: ends %lld %lld %lld", o->day[0].end, o->day[1].end, o->day[2].end);
+    }
+    {
+        cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+        cJSON_AddItemToArray(a, day_item(1782082800, 7, 16, "clouds", "3", NAN));
+        cJSON_AddItemToArray(a, day_item(1782082800 + 90001, 1, 2, "rain", "61", NAN));
+        cJSON *bad = day_item(0, 1, 2, "rain", "61", NAN);
+        cJSON_ReplaceItemInObjectCaseSensitive(bad, "t", cJSON_CreateString("x"));
+        cJSON_AddItemToArray(a, bad);
+        cJSON_AddItemToArray(a, day_item(1782082800 + 90001 + 86400, 1, 2, "rain", "61", NAN));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 3 && o->day[0].end == 0 && o->day[1].end == 0 && o->day[2].end == 0,
+              "a next start more than 25 h on, or none readable: end unknown (%lld %lld)", o->day[0].end, o->day[1].end);
+        CHECK(o->day[0].t == 1782082800 && o->day[1].t == 1782082800 + 90001, "both kept");
     }
     {
         cJSON *root, *w = faces_weather(&root);

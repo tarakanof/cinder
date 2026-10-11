@@ -46,7 +46,7 @@ void wx_days_from(const wx_obs_t *o, wx_days_t *d)
     int n = o->day_n < 0 ? 0 : o->day_n > WX_DAYS ? WX_DAYS : o->day_n;
     for (int i = 0; i < n; i++) {
         const wx_day_t *s = &o->day[i];
-        long long end = i + 1 < n ? o->day[i + 1].t : s->t + 86400;
+        long long end = s->end > s->t ? s->end : s->t + 86400;
         if (now >= end) continue;
         wx_days_row_t *r = &d->row[d->n++];
         r->wday = (signed char)wx_weekday(s->t, o->has_utc_offset, o->utc_offset);

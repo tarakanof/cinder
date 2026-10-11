@@ -23,6 +23,11 @@ static void set_day(wx_obs_t *o, int i, long long t, int face, int lo, int hi, i
     if (o->day_n < i + 1) o->day_n = i + 1;
 }
 
+static void link_ends(wx_obs_t *o)
+{
+    for (int i = 0; i + 1 < o->day_n; i++) o->day[i].end = o->day[i + 1].t;
+}
+
 static wx_obs_t base(void)
 {
     wx_obs_t o = {.valid = true, .enabled = true, .has_temp = true, .temp_c = 12, .now_min = -1, .rise_min = -1,
@@ -40,6 +45,7 @@ static wx_obs_t an1(void)
     set_day(&o, 0, MON + 4 * DAY, WX_PARTLY_CLOUDY, 8, 15, 10);
     set_day(&o, 1, MON + 5 * DAY, WX_RAIN, 9, 13, 70);
     set_day(&o, 2, MON + 6 * DAY, WX_CLEAR_DAY, 6, 17, 0);
+    link_ends(&o);
     o.observed_at = MON + 3 * DAY + 50000;
     return o;
 }
@@ -50,6 +56,7 @@ static wx_obs_t fixture(void)
     set_day(&o, 0, MON, WX_OVERCAST, 7, 16, 32);
     set_day(&o, 1, MON + DAY, WX_RAIN, 11, 17, 19);
     set_day(&o, 2, MON + 2 * DAY, WX_SNOW, -4, 3, 40);
+    link_ends(&o);
     return o;
 }
 
@@ -192,10 +199,10 @@ static void test_ended(void)
     wx_days_from(&o, &d);
     CHECK(d.n == 2 && d.row[0].wday == 2 && d.row[1].wday == 3 && d.amin == -4 && d.amax == 17, "Tuesday: Monday is gone");
     o.observed_at = MON + DAY + 1800 - 300;
-    o.day[1].t = MON + DAY + 3600;
+    o.day[0].end = MON + DAY + 3600;
     wx_days_from(&o, &d);
-    CHECK(d.n == 3 && d.row[0].wday == 1, "a day ends at the next day's start (here an hour late, a 25 h day)");
-    o.day[1].t = MON + DAY;
+    CHECK(d.n == 3 && d.row[0].wday == 1, "a day ends at its end (here an hour late, a 25 h day)");
+    o.day[0].end = MON + DAY;
     o.observed_at = MON + 3 * DAY - 1 - 300;
     wx_days_from(&o, &d);
     CHECK(d.n == 1 && d.row[0].wday == 3, "the last day lasts 24 h");
@@ -220,6 +227,45 @@ static void test_ended(void)
     o.age_s = 2 * DAY;
     wx_days_from(&o, &d);
     CHECK(d.n == 2 && d.row[0].wday == 2, "the knob's own age counts: Monday ended while the view was not refreshed");
+}
+
+static void test_boundaries(void)
+{
+    wx_obs_t o = fixture();
+    wx_days_t d;
+    o.day_n = 2;
+    o.day[0].end = MON + DAY;
+    o.day[1] = o.day[2];
+    o.day[1].end = MON + 3 * DAY;
+    o.observed_at = MON + DAY + 1800 - 300;
+    wx_days_from(&o, &d);
+    CHECK(d.n == 1 && d.row[0].wday == 3, "Tuesday skipped by the parser: Monday still ends at Tuesday's midnight (%d rows)", d.n);
+    o.day[0].end = 0;
+    wx_days_from(&o, &d);
+    CHECK(d.n == 1 && d.row[0].wday == 3, "an unknown end: 24 h, not the next kept day's start");
+
+    static const struct {
+        long long t, next;
+        int off;
+        const char *what;
+    } DST[] = {
+        {1774738800LL, 1774821600LL, 3600, "Belgrade 2026-03-29, 23 h"},
+        {1792879200LL, 1792969200LL, 7200, "Belgrade 2026-10-25, 25 h"},
+    };
+    for (size_t k = 0; k < sizeof DST / sizeof DST[0]; k++) {
+        wx_obs_t b = base();
+        b.utc_offset = DST[k].off;
+        set_day(&b, 0, DST[k].t, WX_CLEAR_DAY, 5, 10, -1);
+        set_day(&b, 1, DST[k].next, WX_CLEAR_DAY, 6, 11, -1);
+        b.day[0].end = DST[k].next;
+        b.day[1].end = DST[k].next + 86400;
+        b.observed_at = DST[k].next - 1 - 300;
+        wx_days_from(&b, &d);
+        CHECK(d.n == 2 && d.row[0].wday == 0, "%s: shown to its last second", DST[k].what);
+        b.observed_at = DST[k].next - 300;
+        wx_days_from(&b, &d);
+        CHECK(d.n == 1 && d.row[0].wday == 1, "%s: gone at local midnight", DST[k].what);
+    }
 }
 
 static void test_same(void)
@@ -676,6 +722,7 @@ int main(void)
     test_icons();
     test_from();
     test_ended();
+    test_boundaries();
     test_same();
     test_pick();
     test_rows_y();
