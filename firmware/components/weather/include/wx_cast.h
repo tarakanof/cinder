@@ -16,6 +16,8 @@ extern "C" {
 #define WX_CAST_SOON_S 3600
 #define WX_CAST_KEEP_S 5400
 #define WX_CAST_RGB 0x5C9CE0
+#define WX_CAST_DRY_RGB 0xBDBDBD
+#define WX_CAST_GREY_RGB 0x5A5A5A
 #define WX_CAST_SIDES 2
 #define WX_CAST_FPS 15
 #define WX_CAST_SLIDE_S 0.96
@@ -40,6 +42,7 @@ typedef struct {
     bool on;        /* the Rain forecast face */
     bool have;      /* fresh data with the rain block and the offset: dial, marker */
     bool wet;       /* raining now: the countdown runs to the stop */
+    bool dry;       /* no spell in the next 12 h: "12+ h" and the light cloud without its drops */
     bool has_count;
     bool hours;     /* count in half hours, else in 5-min steps */
     int count;
@@ -67,6 +70,8 @@ void wx_cast_count_text(bool hours, int count, char *buf, size_t n);
 /* Arrival count-up: n steps, step k's text. */
 int wx_cast_count_n(const wx_cast_t *c);
 void wx_cast_step_text(const wx_cast_t *c, int k, char *buf, size_t n);
+/* The value at count-up step k into buf and its colour; returns the unit, or NULL with "--" in grey. */
+const char *wx_cast_value(const wx_cast_t *c, int k, char *buf, size_t n, uint32_t *rgb);
 
 /* Dial label anchor at deg: align -1 right edge at x, 0 centred, 1 left edge; y is the text's centre line. */
 void wx_cast_label_at(float deg, float *x, float *y, int *align);

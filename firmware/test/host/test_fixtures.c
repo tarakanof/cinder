@@ -254,7 +254,12 @@ static void test_view_faces(void)
     at = *o;
     at.has_obs_age = true;
     wx_cast_from(&at, NULL, &c);
-    CHECK(c.have && !c.has_count && c.variant == 0 && !strcmp(c.sub, "Dry for 12 h"), "polar forecast: '%s'", c.sub);
+    char val[12];
+    uint32_t rgb = 0;
+    const char *unit = wx_cast_value(&c, wx_cast_count_n(&c), val, sizeof val, &rgb);
+    CHECK(c.have && c.dry && !c.has_count && c.variant == 1 && !strcmp(c.sub, "No rain for 12 h") && unit &&
+              !strcmp(unit, "h") && !strcmp(val, "12+") && rgb == WX_CAST_DRY_RGB,
+          "polar forecast: '%s %s', '%s'", val, unit ? unit : "-", c.sub);
     char *j = load("view_faces.json");
     cJSON *f = j ? cJSON_Parse(j) : NULL;
     free(j);
