@@ -223,6 +223,10 @@ static void test_text(void)
     m = moment(WXM_NIGHT, &o, false);
     CHECK(strcmp(m.text, "Clear 9\xC2\xB0") == 0 && m.moon && m.moon_phase == 30 && m.moon_illum == 60 && m.rgb == wx_temp_rgb(9),
           "night with the moon up: %s %d %d", m.text, m.moon_phase, m.moon_illum);
+    o.has_cloud = true;
+    o.cloud = 75;
+    CHECK(moment(WXM_NIGHT, &o, false).moon, "the moon up behind light cloud (the small moon): moon");
+    o.has_cloud = false;
     o.moon_up = 0;
     CHECK(!moment(WXM_NIGHT, &o, false).moon, "moon below the horizon: no moon");
     o.moon_up = -1;
