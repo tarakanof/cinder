@@ -32,7 +32,7 @@ uint32_t lt_created(legacy_task_t *t, bool ok, int64_t now_ms);
 /* Poll task: true while it should poll. */
 bool lt_on(legacy_task_t *t);
 
-/* Poll task, once lt_on() is false and its memory is freed: true = parked (suspend), false = on again (poll). */
+/* Poll task, once lt_on() is false and it has freed what it holds: true = parked (suspend), false = on again (poll). */
 bool lt_park(legacy_task_t *t);
 
 #ifdef __cplusplus
