@@ -946,12 +946,12 @@ The fourth weather face (canvases AW2, AW3, AW4, [`face-design.md`](face-design.
   - Text: the speed in `font_digits_96` with "km/h" in 30 px beside it, the pair centred; the sub-line uses LVGL's recolour markup (on for this face and the forecast). The bullet is U+2022, which the built-in Montserrat 30 has; it has no U+00B7 (the canvas's middle dot). The widest sub-line, "Moderate breeze • NW", is 338 px, 20 px from the ring's inner edge on each side at its baseline (`test_wind_label.c` requires 16).
 - **Areas/frame** (host model, `test_wind.c`, 900 frames per level): 1 area at 15 fps: limp 120×140 (16,800 px) on 880 of 900 frames, gentle 150×126 (18,900 px) and strong 168×112 (18,816 px) on every frame. Rain now: 3 areas, 35k px every frame; Rain forecast heavy: 2 areas, avg 24.4k px. Arrival: the number, the marker and the box, then the sub-line: ≤ 4 areas.
 - **Bake time**: host (M-series, -O1) full scene 1.2-1.9 ms over 5 runs of the three levels, one outlier at 3.0 ms (`test_wind.c` prints it; the sock planes dominate). S3 not measured; `tempface: baked parts 7 ... face 3 ...` gives it.
-- **Cost** (`idf.py size`, origin/main 8fa89c0 → this branch, same worktree, IDF 5.5.5, `sdkconfig` from `sdkconfig.defaults`):
+- **Cost** (`idf.py size`, origin/main 2f76eb0 (0.9.55) → this branch, same worktree, IDF 5.5.5, `sdkconfig` from `sdkconfig.defaults`):
 
   | | origin/main | 0.9.56 | Δ |
   |---|---|---|---|
-  | Image (`cinder.bin`) | 1,626,496 B | 1,636,928 B | +10,432 |
-  | Flash `.text` / `.rodata` | 1,093,540 / 429,484 B | 1,102,608 / 430,844 B | +9,068 / +1,360 |
+  | Image (`cinder.bin`) | 1,626,640 B | 1,637,152 B | +10,512 |
+  | Flash `.text` / `.rodata` | 1,093,664 / 429,500 B | 1,102,824 / 430,860 B | +9,160 / +1,360 |
   | IRAM `.text` | 15,356 B | 15,356 B | 0 |
   | DIRAM static (`.data` / `.bss`) | 101,999 B (23,464 / 15,312) | 102,071 B (23,464 / 15,384) | +72 (the new object pointers) |
   | PSRAM `.bss` | 50,492 B | 50,844 B | +352 (`wx_wind_t` in the job's keys, layout, shown state) |
