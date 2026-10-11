@@ -149,6 +149,13 @@ void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[W
 void wx_paint_streak(uint8_t *a8, int level, int r, int w);
 void wx_paint_leaf(uint8_t *a8, int rot);
 
+/* Next days: AN1's thin grey ring (WX_DAYS_RING_HW) into the ring strip. */
+void wx_paint_ring_days(wx_ring_t *r);
+/* One wx_icon_t in its WX_DAYS_ICON square at face (x, y), the canvas's 40 px viewBox. */
+void wx_paint_day_icon(wx_img_t *im, int icon, float x, float y);
+/* Row i's sprite (im at the row's rest position, l's sprite box): the icon, the grey track and the coloured span. */
+void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_layout_t *l);
+
 typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
     uint16_t *lut; /* WX_RING_LUT */

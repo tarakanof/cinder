@@ -23,12 +23,22 @@ typedef enum { WX_INT_NONE, WX_INT_LIGHT, WX_INT_MODERATE, WX_INT_HEAVY } wx_int
 
 #define WX_MAX_AGE_S 1800.0
 #define WX_SPELLS 4
+#define WX_DAYS 3
+#define WX_DAY_MAX_S 90000
 
 typedef struct {
     long long start, end; /* Unix s */
     int intensity;        /* 1..3 */
     int kind;             /* 0 rain, 1 snow or sleet */
 } wx_spell_t;
+
+typedef struct {
+    long long t;          /* Unix s of the day's local midnight */
+    long long end;        /* Unix s of the next local midnight (Ember's next day's t), 0 unknown */
+    signed char face;     /* wx_face_t of the day's condition, never night */
+    signed char pop;      /* chance of precipitation, %, -1 unknown */
+    short min_c, max_c;   /* whole degrees, min_c <= max_c */
+} wx_day_t;
 
 typedef struct {
     bool valid;
@@ -63,6 +73,8 @@ typedef struct {
     long long rain_until;  /* Unix s, 0 unknown */
     int rain_n;
     wx_spell_t rain_spell[WX_SPELLS];
+    int day_n;
+    wx_day_t day[WX_DAYS]; /* Ember's next days after today, t rising */
 } wx_obs_t;
 
 typedef struct {

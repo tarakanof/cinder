@@ -8,6 +8,7 @@
 #include "config_store.h"
 #include "diag.h"
 #include "ember_client.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "http_conn.h"
 #include "legacy_task.h"
@@ -91,7 +92,7 @@ static void poll_task(void *arg)
     char url[CFG_URL_MAX + 32];
     config_store_ember_url(url, sizeof url);
     strlcat(url, "/v1/weather/state", sizeof url);
-    static wx_obs_t obs;
+    static EXT_RAM_BSS_ATTR wx_obs_t obs;
     for (;;) {
         if (!lt_on(&s_lt)) {
             http_conn_free(conn);

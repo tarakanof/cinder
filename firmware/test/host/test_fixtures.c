@@ -389,6 +389,134 @@ static void test_view_rain_keys(void)
         CHECK(o->rain_spell[i].start == START[i], "spell %d starts %lld, want %lld", i, o->rain_spell[i].start, START[i]);
 }
 
+static cJSON *day_item(double t, double lo, double hi, const char *cond, const char *code, double pop)
+{
+    cJSON *d = cJSON_CreateObject();
+    cJSON_AddNumberToObject(d, "t", t);
+    if (cond) cJSON_AddStringToObject(d, "cond", cond);
+    if (code) cJSON_AddStringToObject(d, "code", code);
+    if (!isnan(lo)) cJSON_AddNumberToObject(d, "min_c", lo);
+    if (!isnan(hi)) cJSON_AddNumberToObject(d, "max_c", hi);
+    if (!isnan(pop)) cJSON_AddNumberToObject(d, "pop", pop);
+    return d;
+}
+
+static void test_view_days(void)
+{
+    knob_view_t v;
+    const wx_obs_t *o = &v.weather;
+    wx_days_t d;
+    if (!view("view_faces.json", &v)) return;
+    CHECK(o->day_n == 3 && o->day[0].t == 1782082800 && o->day[1].t == 1782169200 && o->day[2].t == 1782255600, "days: three, in order");
+    CHECK(o->day[0].end == 1782169200 && o->day[1].end == 1782255600 && o->day[2].end == 0, "days: each ends at the next start, the last unknown");
+    CHECK(o->day[0].face == WX_OVERCAST && o->day[1].face == WX_RAIN && o->day[2].face == WX_SNOW, "days: clouds, rain, snow");
+    CHECK(o->day[0].min_c == 7 && o->day[0].max_c == 16 && o->day[2].min_c == -4 && o->day[2].max_c == 3 && o->day[0].pop == 32 &&
+              o->day[1].pop == 19 && o->day[2].pop == 40,
+          "days: ranges and chances");
+    wx_days_from(o, &d);
+    CHECK(d.have && d.n == 3 && d.row[0].wday == 1 && d.row[1].wday == 2 && d.row[2].wday == 3 && d.row[0].icon == WX_ICON_CLOUD &&
+              d.row[1].icon == WX_ICON_RAIN && d.row[2].icon == WX_ICON_SNOW && d.row[0].pop == -1 && d.row[1].pop == 19 &&
+              d.row[2].pop == 40 && d.amin == -4 && d.amax == 17,
+          "Next days: Mon, Tue, Wed on -4..17");
+    wx_temp_t t;
+    wx_temp_from(o, &t);
+    CHECK(t.face != WXF_DAYS && !t.days.on, "never the auto face");
+
+    if (!view("view_faces_met.json", &v)) return;
+    CHECK(o->day_n == 3 && o->day[0].face == WX_STORM && o->day[1].face == WX_SNOW && o->day[2].face == WX_STORM &&
+              o->day[0].pop == -1 && o->day[1].pop == -1,
+          "MET days: worst symbols, no chance");
+    wx_days_from(o, &d);
+    CHECK(d.n == 3 && d.row[0].wday == 1 && d.row[0].icon == WX_ICON_STORM && d.row[0].pop == -1 && d.amin == 8 && d.amax == 19,
+          "MET Next days: Mon storm, no chance");
+
+    if (!view("view_faces_polar_dry.json", &v)) return;
+    wx_days_from(o, &d);
+    CHECK(d.n == 3 && d.row[0].wday == 3, "polar fixture: from Wednesday (offset +2 h)");
+
+    {
+        cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+        cJSON_AddItemToArray(a, cJSON_CreateNumber(5));
+        cJSON_AddItemToArray(a, day_item(1782082800.5, 5, 9, "clear", "0", NAN));
+        cJSON_AddItemToArray(a, day_item(1782082800, 9, 5, "clear", "0", NAN));
+        cJSON_AddItemToArray(a, day_item(1782082800, NAN, 5, "clear", "0", NAN));
+        cJSON_AddItemToArray(a, day_item(1782082800, -100, 5, "clear", "0", NAN));
+        cJSON_AddItemToArray(a, day_item(1782082800, 7.6, 16.4, "clear", "0", 50.5));
+        cJSON_AddItemToArray(a, day_item(1782082800, 1, 2, "rain", "61", 30));
+        cJSON_AddItemToArray(a, day_item(1782169200, -0.4, 98.6, "rain", NULL, 100));
+        cJSON *bad_t = day_item(0, 1, 2, "clear", "0", NAN);
+        cJSON_ReplaceItemInObjectCaseSensitive(bad_t, "t", cJSON_CreateString("1782255600"));
+        cJSON_AddItemToArray(a, bad_t);
+        cJSON *str_pop = day_item(1782255600, 1, 2, NULL, NULL, NAN);
+        cJSON_AddStringToObject(str_pop, "pop", "50");
+        cJSON_AddItemToArray(a, str_pop);
+        cJSON_AddItemToArray(a, day_item(1782342000, 1, 2, "snow", "71", 10));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 3, "11 entries, 7 bad, a fourth good one past the three: %d days", o->day_n);
+        CHECK(o->day[0].t == 1782082800 && o->day[0].min_c == 8 && o->day[0].max_c == 16 && o->day[0].pop == -1 &&
+                  o->day[0].face == WX_CLEAR_DAY,
+              "the first good day: rounded, a fractional chance unknown");
+        CHECK(o->day[1].t == 1782169200 && o->day[1].min_c == 0 && o->day[1].max_c == 99 && o->day[1].pop == 100 &&
+                  o->day[1].face == WX_RAIN,
+              "a repeated t skipped; rain by its bucket without a code: %lld %d..%d", o->day[1].t, o->day[1].min_c, o->day[1].max_c);
+        CHECK(o->day[2].t == 1782255600 && o->day[2].pop == -1 && o->day[2].face == WX_OVERCAST,
+              "a string t skipped; a string chance unknown; no condition: overcast");
+    }
+    {
+        cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+        cJSON_AddItemToArray(a, day_item(1782082800, 7, 16, "clouds", "3", NAN));
+        cJSON_AddItemToArray(a, day_item(1782169200, NAN, 17, "rain", "61", NAN));
+        cJSON_AddItemToArray(a, day_item(1782255600, -4, 3, "snow", "71", NAN));
+        cJSON_AddItemToArray(a, day_item(1782342000, 1, 2, "snow", "71", NAN));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 3 && o->day[0].end == 1782169200 && o->day[1].t == 1782255600 && o->day[1].end == 1782342000 &&
+                  o->day[2].end == 0,
+              "a bad middle day keeps its boundary: ends %lld %lld %lld", o->day[0].end, o->day[1].end, o->day[2].end);
+    }
+    {
+        cJSON *root, *w = faces_weather(&root), *a = cJSON_CreateArray();
+        cJSON_AddItemToArray(a, day_item(1782082800, 7, 16, "clouds", "3", NAN));
+        cJSON_AddItemToArray(a, day_item(1782082800 + 90001, 1, 2, "rain", "61", NAN));
+        cJSON *bad = day_item(0, 1, 2, "rain", "61", NAN);
+        cJSON_ReplaceItemInObjectCaseSensitive(bad, "t", cJSON_CreateString("x"));
+        cJSON_AddItemToArray(a, bad);
+        cJSON_AddItemToArray(a, day_item(1782082800 + 90001 + 86400, 1, 2, "rain", "61", NAN));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 3 && o->day[0].end == 0 && o->day[1].end == 0 && o->day[2].end == 0,
+              "a next start more than 25 h on, or none readable: end unknown (%lld %lld)", o->day[0].end, o->day[1].end);
+        CHECK(o->day[0].t == 1782082800 && o->day[1].t == 1782082800 + 90001, "both kept");
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", cJSON_CreateObject());
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 0, "days not an array: none");
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_DeleteItemFromObjectCaseSensitive(w, "days");
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 0 && o->has_today, "no days: none, the rest parsed");
+    }
+    {
+        cJSON *root, *w = faces_weather(&root);
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "provider", cJSON_CreateString("met-no"));
+        cJSON *a = cJSON_CreateArray();
+        cJSON_AddItemToArray(a, day_item(1782082800, 1, 2, "rain", "partlycloudy_night", NAN));
+        cJSON_AddItemToArray(a, day_item(1782169200, 1, 2, "clear", "clearsky_night", NAN));
+        cJSON_ReplaceItemInObjectCaseSensitive(w, "days", a);
+        bool ok = faces_parse(root, &v);
+        CHECK(ok && o->day_n == 2 && o->day[0].face == WX_PARTLY_CLOUDY && o->day[1].face == WX_CLEAR_DAY,
+              "a night symbol on a day is the day face: %d %d", o->day[0].face, o->day[1].face);
+    }
+    const char *names[] = {"view_full.json", "view_caps_limited.json"};
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+        if (view(names[i], &v)) CHECK(o->day_n == 0, "%s: no days without wx_faces", names[i]);
+}
+
 static void test_view_legacy_weather(void)
 {
     const char *names[] = {"view_full.json", "view_caps_limited.json"};
@@ -921,6 +1049,7 @@ int main(int argc, char **argv)
     test_view_caps_limited();
     test_view_faces();
     test_view_rain_keys();
+    test_view_days();
     test_view_legacy_weather();
     test_view_np_cover();
     test_json_hooks();
