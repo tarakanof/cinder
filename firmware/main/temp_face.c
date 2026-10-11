@@ -597,8 +597,7 @@ void temp_face_show(bool on)
 void temp_face_turn(int detents)
 {
     if (!s_root || !s_job.visible) return;
-    int on_screen = s_job.baked && s_job.attached ? s_io.key.face : -1;
-    if (wx_faces_turn(&s_faces, on_screen, s_face, detents)) wx_job_cut(&s_job);
+    if (wx_faces_turn(&s_faces, wx_job_face(&s_job), s_face, detents)) wx_job_cut(&s_job);
 }
 
 void temp_face_hold(bool hold)

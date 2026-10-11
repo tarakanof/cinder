@@ -116,6 +116,8 @@ int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt)
 
 void wx_job_cut(wx_job_t *j) { j->cut = true; }
 
+int wx_job_face(const wx_job_t *j) { return j->baked ? j->io->key.face : -1; }
+
 void wx_job_acquired(wx_job_t *j, bool ok)
 {
     j->bufs = ok;

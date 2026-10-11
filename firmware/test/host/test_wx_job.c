@@ -197,6 +197,15 @@ static void test_user_switch_cuts(void)
     CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "then the cut, never a stale frame");
 
     baked(a);
+    wx_job_cut(&J);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "a turn: cut to Rain now");
+    CHECK(wx_job_take(&J) != NULL, "its bake runs");
+    wx_job_cut(&J);
+    wx_job_done(&J, 2);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT),
+          "turns during the bake that end on the face that lands: it lands painted, no extra black frame");
+
+    baked(a);
     CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "a scene re-bake");
     bake();
     CHECK(wx_job_step(&J, &b, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 85, "lands fading in");
@@ -227,6 +236,24 @@ static void test_user_switch_cuts(void)
     CHECK(wx_job_show(&J, true) == WX_DO_ACQUIRE, "show again");
     wx_job_acquired(&J, true);
     CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_BAKE, "a page open forgets a pending cut");
+}
+
+static void test_turn_face(void)
+{
+    wx_temp_t a = key(3, 12, 1), r = rain_face(a);
+    shown();
+    CHECK(wx_job_face(&J) == -1, "nothing landed yet: no face on screen");
+    CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_BAKE && wx_job_face(&J) == -1, "black until the first bake lands");
+    bake();
+    wx_job_step(&J, &a, 1.0 / 30);
+    CHECK(wx_job_face(&J) == WXF_TEMP, "the landed face");
+    CHECK(fade_out(&r) == (WX_DO_BAKE | WX_DO_DETACH), "rain starts: fade out, black for the Rain now bake");
+    CHECK(wx_job_face(&J) == WXF_TEMP, "while it bakes black, a turn steps from the face last shown, not the one coming");
+    bake();
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && wx_job_face(&J) == WXF_RAIN, "then Rain now");
+    CHECK(wx_job_show(&J, false) == WX_DO_RELEASE, "hide");
+    wx_job_released(&J);
+    CHECK(wx_job_face(&J) == -1, "released: nothing on screen");
 }
 
 static void test_partial_during_fade_in(void)
@@ -443,6 +470,7 @@ int main(void)
     test_partial_during_fade_in();
     test_rain_face_switch();
     test_user_switch_cuts();
+    test_turn_face();
     test_hide_show_drops_a_done_job();
     test_hide_during_bake();
     test_ota_hold();
