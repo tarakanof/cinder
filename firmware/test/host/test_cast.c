@@ -351,6 +351,18 @@ static void test_dry_horizon(void)
         same &= wx_cast_same_ring(&c, &d);
     }
     CHECK(same, "dry, a spell running past now + 12 h: no dial bake every 5 min");
+    wx_obs_t late = obs_at(LOCAL(14, 50));
+    late.rain_n = 1;
+    late.rain_spell[0] = (wx_spell_t){LOCAL(2, 30) + 86400, LOCAL(3, 30) + 86400, 2, 0};
+    wx_cast_from(&late, NULL, &d);
+    CHECK(d.has_count && d.narc == 1 && d.arc[0].a == 150 && d.arc[0].n >= 20,
+          "a spell starting in the last hour before now + 12 h keeps its arc (%d arcs)", d.narc);
+    late.obs_age_s += 120;
+    wx_cast_t e;
+    wx_cast_from(&late, NULL, &e);
+    float past = fmodf((float)(e.arc[0].a + e.arc[0].n) * 0.5f - e.now_deg + 720.0f, 360.0f);
+    CHECK(e.narc == 1 && e.arc[0].a == 150 && (past <= 2.5f || past >= 180.0f),
+          "its far end stops at most 2.5 degrees past the marker (%.2f)", past);
     CHECK(c.narc == 1 && c.arc[0].a == 180 && c.arc[0].n == 660, "the far end stops at the hour of now + 12 h (%d+%d)", c.arc[0].a,
           c.arc[0].n);
 }
