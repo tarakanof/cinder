@@ -800,7 +800,7 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
         moment_view_abort(t);
         moment_unact(t);
     }
-    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .shown = bot_page,
+    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page,
                    .blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,
                    .every_s = s_ks_lv->weather_every_min * 60};
     static EXT_RAM_BSS_ATTR wxm_moment_t m;

@@ -103,6 +103,7 @@ typedef struct {
     char last_text[WXM_TEXT_MAX];
     bool shown;
     wxm_mood_t mood;
+    int bot_mood, every;
     double steady_at;
     wx_temp_t scratch;
 } wxm_trigger_t;
@@ -111,6 +112,7 @@ typedef struct {
     double t;            /* monotonic s */
     const wx_obs_t *obs; /* NULL: none */
     wxm_mood_t mood;
+    int bot_mood;        /* the bot's own mood: any change restarts the settle, also between resting moods */
     bool shown;          /* the bot page is on screen */
     bool blocked;        /* a glint chase, quiet hours or a moment still playing */
     bool on;             /* bot.weather_moments */
@@ -118,7 +120,8 @@ typedef struct {
 } wxm_in_t;
 
 void wxm_init(wxm_trigger_t *tr);
-/* Every frame. Returns true and fills m when a moment starts now; it then counts as shown for the cooldowns. */
+/* Every frame. Returns true and fills m when a moment starts now; it then counts as shown for the cooldowns. A change
+   of every_s reschedules the periodic moment every_s from then. The same-kind cooldown holds for periodic ones too. */
 bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m);
 
 /* Layers: RGB565A8 images in the arena at byte offset at, box px (the sprite box at WXM_BOX_X/Y). Elements: a layer

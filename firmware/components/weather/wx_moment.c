@@ -165,9 +165,10 @@ void wxm_init(wxm_trigger_t *tr)
 bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m)
 {
     double t = in->t;
-    if (in->shown != tr->shown || in->mood != tr->mood) {
+    if (in->shown != tr->shown || in->mood != tr->mood || in->bot_mood != tr->bot_mood) {
         tr->shown = in->shown;
         tr->mood = in->mood;
+        tr->bot_mood = in->bot_mood;
         tr->steady_at = t;
     }
     wxm_sig_t s;
@@ -185,8 +186,10 @@ bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m)
 
     double every = in->every_s;
     bool avail = in->shown && in->mood != WXM_BUSY;
+    bool reset = in->every_s != tr->every;
+    tr->every = in->every_s;
     if (every <= 0 || !in->on) tr->next_every = INFINITY;
-    else if (!isfinite(tr->next_every) || (!avail && tr->next_every < t + every)) tr->next_every = t + every;
+    else if (reset || !isfinite(tr->next_every) || (!avail && tr->next_every < t + every)) tr->next_every = t + every;
 
     if (!in->on || in->blocked || !avail || t - tr->steady_at < WXM_SETTLE_S || t - tr->last_at < WXM_GAP_S) return false;
     wxm_kind_t k = WXM_NONE;
@@ -199,7 +202,7 @@ bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m)
     if (k == WXM_NONE || !wxm_moment_from(k, in->obs, in->mood == WXM_WORKING, &tr->scratch, m)) return false;
     if (periodic) {
         tr->next_every = t + every;
-        if (strcmp(m->text, tr->last_text) == 0) return false;
+        if (strcmp(m->text, tr->last_text) == 0 || t - tr->kind_at[k] < WXM_SAME_S) return false;
     } else {
         tr->pending = WXM_NONE;
     }

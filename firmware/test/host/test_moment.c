@@ -432,6 +432,31 @@ static void test_trigger(void)
     CHECK(run(1800 * 2 + 14, 1, &k, NULL) == 1 && k == WXM_RAIN && strstr(s_rig.m.text, "until"), "with an end time: shown");
 
     rig(1800);
+    run(1799, 1, NULL, NULL);
+    s_rig.in.bot_mood = 5;
+    CHECK(run(1799 + WXM_SETTLE_S, 1, NULL, NULL) == 0, "idle to done (both resting) just before the slot: the mood settles 3 s first");
+    CHECK(run(1799 + WXM_SETTLE_S + 2, 1, &k, &at) == 1 && at == 1799 + WXM_SETTLE_S, "then the due glance (%.0f)", at);
+
+    rig(300);
+    run(10, 1, NULL, NULL);
+    s_rig.o = rain(2, "61");
+    s_rig.o.rain_until = NOW + 3600;
+    CHECK(run(11, 1, &k, NULL) == 1 && k == WXM_RAIN, "rain starts");
+    s_rig.o.rain_until = NOW + 5400;
+    CHECK(run(10 + WXM_SAME_S, 1, NULL, NULL) == 0, "a periodic rain with a new end time waits out the same-kind 30 min");
+    CHECK(run(10 + WXM_SAME_S + 301, 1, &k, &at) == 1 && k == WXM_RAIN && at == 10 + WXM_SAME_S, "then it shows (%.0f)", at);
+
+    rig(1800);
+    run(100, 1, NULL, NULL);
+    s_rig.in.every_s = 60;
+    CHECK(run(160, 1, NULL, NULL) == 0 && run(162, 1, &k, &at) == 1 && at == 160, "a shorter interval counts from the change (%.0f)", at);
+    rig(60);
+    run(50, 1, NULL, NULL);
+    s_rig.in.every_s = 14400;
+    CHECK(run(14449, 1, NULL, NULL) == 0, "a longer one too: the old slot is dropped");
+    CHECK(run(14452, 1, NULL, NULL) == 1, "and the new one comes");
+
+    rig(1800);
     s_rig.o = obs("0", 9);
     s_rig.o.night = true;
     CHECK(run(1802, 1, &k, NULL) == 1 && k == WXM_NIGHT, "periodic at a clear night: night");
