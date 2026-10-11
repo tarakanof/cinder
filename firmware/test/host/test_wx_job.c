@@ -184,8 +184,27 @@ static void test_user_switch_cuts(void)
     wx_temp_t rc = rain_face(c);
     CHECK(wx_job_step(&J, &rc, 1.0 / 30) == WX_DO_PAINT, "a turn while it runs waits for it");
     wx_job_done(&J, 1);
-    CHECK(wx_job_step(&J, &rc, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT), "the ring lands");
+    CHECK(wx_job_step(&J, &rc, 1.0 / 30) == WX_DO_APPLY, "the ring lands without a paint");
     CHECK(wx_job_step(&J, &rc, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "then the cut");
+
+    baked(a);
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "a weather scene change goes black");
+    CHECK(wx_job_take(&J) != NULL, "its bake runs");
+    wx_job_cut(&J);
+    wx_job_done(&J, 2);
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == WX_DO_APPLY, "a turn while a scene bake runs: it lands without a paint");
+    CHECK(IO.key.cloud_band == 3 && J.cut, "its key is applied, the cut still pending");
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "then the cut, never a stale frame");
+
+    baked(a);
+    CHECK(fade_out(&b) == (WX_DO_BAKE | WX_DO_DETACH), "a scene re-bake");
+    bake();
+    CHECK(wx_job_step(&J, &b, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && J.opa == 85, "lands fading in");
+    wx_job_cut(&J);
+    wx_temp_t bc = key(-2, 12, 3);
+    CHECK((wx_job_step(&J, &bc, 1.0 / 30) & ~WX_DO_PAINT) == WX_DO_BAKE && IO.kind == WX_BAKE_RING && !J.cut,
+          "a pending cut meeting a ring-only change is dropped");
+    CHECK(J.opa < 255, "and the fade in keeps stepping (%d)", J.opa);
 
     shown();
     CHECK(wx_job_step(&J, &a, 1.0 / 30) == WX_DO_BAKE, "page open: the first bake");
@@ -193,7 +212,7 @@ static void test_user_switch_cuts(void)
     wx_job_cut(&J);
     CHECK(wx_job_step(&J, &r, 1.0 / 30) == 0, "a turn before it lands: still black");
     wx_job_done(&J, 3);
-    CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT), "the first bake lands");
+    CHECK(wx_job_step(&J, &r, 1.0 / 30) == WX_DO_APPLY, "the first bake lands unseen");
     CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_BAKE | WX_DO_DETACH | WX_DO_ARRIVE), "then the picked face cuts in");
 
     baked(a);

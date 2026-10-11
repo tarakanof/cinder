@@ -85,6 +85,7 @@ int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt)
             j->opa = 85;
             j->fade = 0;
         }
+        if (j->cut && (wx_temp_bake_kind(t, &j->io->key) & WX_BAKE_SCENE)) return WX_DO_APPLY;
         return WX_DO_APPLY | WX_DO_PAINT;
     }
     if (s == WX_JOB_IDLE) {

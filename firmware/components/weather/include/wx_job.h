@@ -47,7 +47,8 @@ int wx_job_show(wx_job_t *j, bool on);
 int wx_job_hold(wx_job_t *j, bool hold);
 int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt);
 /* The user switched the face: the next step's scene bake skips the fade out (detach at once, no fade in) and replays
-   the arrival; the next step with nothing to bake drops it. */
+   the arrival; the next step with nothing to bake drops it. A bake landing while a cut to another scene is pending
+   applies without a paint, so no stale face shows. */
 void wx_job_cut(wx_job_t *j);
 void wx_job_acquired(wx_job_t *j, bool ok);
 void wx_job_released(wx_job_t *j);
