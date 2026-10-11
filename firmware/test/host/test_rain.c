@@ -73,6 +73,37 @@ static void test_select(void)
     wx_rain_from(&o, &r);
     CHECK(!r.on, "cond rain but now.rain 0 and no spell (polar dry fixture): off");
 
+    long long now = OBSERVED + 300;
+    o = obs("clouds", "3");
+    detail(&o, 0, 0, 0);
+    o.has_now_rain = false;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && r.intensity == 2, "without now.rain: a spell covering now");
+    o.rain_spell[0] = (wx_spell_t){now + 1, now + 3600, 3, 0};
+    wx_rain_from(&o, &r);
+    CHECK(!r.on, "without now.rain: no spell covering now, off");
+    o.rain_spell[0].start = now;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && r.intensity == 3, "a spell starting now covers now (start <= now)");
+    o.rain_spell[0] = (wx_spell_t){now - 3600, now, 2, 0};
+    wx_rain_from(&o, &r);
+    CHECK(!r.on, "a spell ending now does not (now < end)");
+    o.rain_spell[0] = (wx_spell_t){OBSERVED + 200, OBSERVED + 3600, 2, 0};
+    wx_rain_from(&o, &r);
+    CHECK(r.on, "a spell started after observed_at but before the knob's clock covers now");
+    o.rain_spell[0] = (wx_spell_t){OBSERVED - 3600, OBSERVED + 200, 2, 0};
+    wx_rain_from(&o, &r);
+    CHECK(!r.on, "a spell ended on the knob's clock, not at observed_at: off");
+
+    o = obs("rain", "61");
+    detail(&o, 2, now, 0);
+    o.rain_n = 0;
+    wx_rain_from(&o, &r);
+    CHECK(!r.on, "until == the knob's now: dry (now >= until)");
+    o.rain_until = now + 1;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && r.has_until, "until a second ahead: wet");
+
     o = obs("clouds", "3");
     detail(&o, 2, 1782049500, 1);
     wx_rain_from(&o, &r);
@@ -95,6 +126,12 @@ static void test_select(void)
     snprintf(o.code, sizeof o.code, "99");
     wx_rain_from(&o, &r);
     CHECK(r.on && r.intensity == 3, "storm 99: heavy");
+    o.rain_until = OBSERVED + 3600;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && !r.has_until && !strcmp(r.sub, "Storm"), "storm, dry now, until ahead: no until '%s'", r.sub);
+    o.rain_until = OBSERVED + 100;
+    wx_rain_from(&o, &r);
+    CHECK(r.on && !r.has_until && !strcmp(r.sub, "Storm"), "storm, until passed: never a past until '%s'", r.sub);
 
     o = obs("rain", "65");
     wx_rain_from(&o, &r);
