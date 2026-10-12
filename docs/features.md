@@ -34,17 +34,16 @@ The first batch of [`bot-review.md`](bot-review.md) (user decision: P5 + P1 + P8
 - **P8, error**: the label canvas leaves out the tool icon in error (`bot_label_mark`: the Clawd and Codex marks and T3's pixel icon); the text stays below the triangle as a name plate. The label now re-renders on a mood change (`s_label_mood`), not only on a colour change.
 - **Tests** (`test_bot.c`): `test_micro_saccades` (4 idle seeds over 280 s: count, amplitude, 25 ms, none in a fixation's first 0.6 s or within 50 ms of the next saccade, no lean or blink, gaps 0.3-2.5 s with a median near 0.8 s, mean cosine toward the target > 0.6, drift < 0.06; sleepy half amplitude and 2 s median; every other mood; none while tracking, held by a half chase or acting), `test_outline_dy` (rounding table, mirror symmetry and evenness from −14 to 14 px, no outline move off a hop in any mood with knob glances while the lean still reaches ≥ 1.5 px), `test_badged_rest` (done targets only the new rest or the viewer; the label mark except in error), and `hop_dy` in `test_pose_same`. Against the 0.9.67 behaviour (the old `bot_behavior.c` with the two new functions stubbed the old way) all of them fail. `test_moment.c` models the outline offset with `bot_rim_dy`.
 - **Cost** (`idf.py size`, origin/main 0.9.67 at 3c39425 → this branch, same machine, IDF 5.5.5): image 1,702,191 → 1,703,687 B (+1,496, flash `.text`); DIRAM 102,303 → 102,327 B (`.bss` +24, three doubles in `bot_t`); PSRAM `.bss` unchanged. `stack_walk.py` `lvgl` 8,608 (margin 1,888) unchanged. Simulated (BotNext, review table): +2-4 eye redraws/s, eye areas only, steps ≤ 3 px; outline moves off hops 10.8 → 0/min in idle, 10.4 → 0 in done, 36.6 → 0 in error.
-- **On the knob**: 0.9.67 baseline from Ember's full diagnostics, a 1 h window on 2026-10-12 (58 one-minute points, mixed pages and moods, so an aggregate, not per mood). 0.9.68 is to measure after release the same way, then per mood with Ember's demo mood scenes, which show all three changes. Invalidated areas come from the 30 s serial stats log, to measure on both builds.
+- **On the knob**: 0.9.67 baseline from Ember's full diagnostics, a 1 h window on 2026-10-12 (58 one-minute points, mixed pages and moods, so an aggregate, not per mood). 0.9.68 the same way, 2026-10-12 22:39-23:35 UTC (56 points after the first 5 min of uptime). The two windows mix pages differently (0.9.67: 47 of 58 points at 11-17 fps; 0.9.68: 27 of 56, plus two steady ~26 fps / ~28 % core 0 stretches and a few spikes, likely the maintainer's Devices › Demo checks), so the aggregate shift is mostly page mix. At matched 11-17 fps: core 0 18.3 → 19.2 %, frame avg 5.98 → 6.00 ms, frame max median 12 → 14 ms, consistent with the predicted +2-4 eye redraws/s. Internal free rose ~0.7 KB (different heap state after the update reboot), not a saving. Confirmed by the maintainer on the knob with the demo mood scenes (idle, done, waiting, error): micro-saccades in holds, no ring jump on glances, the badge gap no longer biting the right eye, and error's label without the mark. Invalidated areas are not measured yet: the 30 s stats log needs USB and has no per-second area count (#118).
 
-  | | 0.9.67 (aggregate, 1 h) | 0.9.68 |
+  | | 0.9.67 (aggregate, 1 h) | 0.9.68 (aggregate, 1 h) |
   |---|---|---|
-  | Core 0 load | median 18 % (14–27) | to measure on the knob after release |
-  | Core 1 load | median 8 % | to measure on the knob after release |
-  | Render fps | median 12.9 (6.6–26) | to measure on the knob after release |
-  | Frame avg | 6.0 ms (5.75–8.0) | to measure on the knob after release |
-  | Frame max | median 12.5 ms (11–52) | to measure on the knob after release |
-  | Internal free | 84.6 KB (84.2–84.8) | to measure on the knob after release |
-  | Invalidated areas/s (serial stats log) | to measure | to measure on the knob after release |
+  | Core 0 load | median 18 % (14–27) | median 19.2 % (13.7–50.8) |
+  | Core 1 load | median 8 % (6.8–13.3) | median 8.3 % (6.9–35.5) |
+  | Render fps | median 12.9 (6.6–26) | median 13.4 (4.2–34.7) |
+  | Frame avg | 6.0 ms (5.75–8.0) | 6.3 ms (5.74–11.3) |
+  | Frame max | median 12.5 ms (11–52) | median 16 ms (12–85) |
+  | Internal free | 84.6 KB (84.2–84.8) | 85.3 KB (84.2–86.2) |
 
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
