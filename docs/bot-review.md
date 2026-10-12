@@ -163,6 +163,8 @@ Effort: S under a day, M one to three days, L more. All new state is a few dozen
 
 **Suggested order:** P5 + P1 + P8 (one evening, mostly removing cost and fixing bugs), then P2 and P3 (where the hours are spent), then P4, then P6 + P7 together, since they share the mood-change beat.
 
+**Shipped:** P1, P5 and P8 in 0.9.68 (#111; design and tests in [`features.md`](features.md), bot face). P8 took BotNext's fixes: the badge drawn under the eyes at its old size, and no tool mark in error.
+
 ## Measured: proposed vs today
 
 How it was measured: BotNow (today) against BotNext (proposed, `design/faces/canvas/BotNext.dc.html`), with the same metric for both. Each artboard's component ran headless in Node at 60 fps, 3 seeds (777, 1234, 99), real timings (`waitingFast` off, `sleepAfter` 600 s except in the asleep row).
