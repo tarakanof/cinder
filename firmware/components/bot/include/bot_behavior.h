@@ -86,6 +86,8 @@ void bot_push(bot_t *b, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */
 void bot_hop(bot_t *b, double t);
 void bot_pop(bot_t *b, double t);
+/* A demo's sleepy mood undone: sleepy goes back to idle, which bot_set_mood never does. */
+void bot_wake(bot_t *b, double t);
 /* Weather-moment acting. Begin glides to the viewer and leans as for it; acting gazes keep that lean, the bot makes
    no saccades of its own and ignores bot_look (a knob turn) and bot_push (its hop). act_eyes: a bot_eyes_t costume,
    or -1 for the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s

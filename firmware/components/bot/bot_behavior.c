@@ -447,6 +447,11 @@ void bot_pop(bot_t *b, double t)
     b->pop_start = t;
 }
 
+void bot_wake(bot_t *b, double t)
+{
+    if (b->mood == BOT_SLEEPY) enter(b, BOT_IDLE, t);
+}
+
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
 {
     if (a->mood != b->mood || a->eyes != b->eyes) return false;

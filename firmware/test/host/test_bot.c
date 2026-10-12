@@ -965,6 +965,47 @@ static void test_demo_acts(void)
     CHECK(!o.chasing && c.phase == GC_IDLE && fabs(c.work_s - work - 0.1) < 1e-9 && c.wait_s == wait,
           "resume: no chase, the working time and wait as before: %g", c.work_s);
     CHECK(gc_start_now(&c, GC_STYLE_FULL, 0), "idle after resume");
+
+    gc_init(&c, 21);
+    gc_tick(&c, 0, true, 3.0, &o);
+    CHECK(gc_start_now(&c, GC_STYLE_FULL, 4), "a real chase");
+    gc_tick(&c, 1, true, 3.0, &o);
+    gc_tick(&c, 5, true, 3.0, &o);
+    CHECK(o.chasing && c.phase == GC_CHASE, "chasing at 5");
+    glint_chase_t saved = c;
+    double left = c.end_at - 5, in = 5 - c.start_at;
+    int sx = c.shift_x, sy = c.shift_y;
+    uint32_t rng = c.rng;
+    gc_resume(&c, c.work_s, c.wait_s);
+    CHECK(gc_start_now(&c, GC_STYLE_HALF, 2), "the demo's chase");
+    for (double t = 5; t < 30; t += 0.5) gc_tick(&c, t, true, 3.0, &o);
+    CHECK(c.shift_x != sx || c.shift_y != sy || c.rng != rng, "the demo chase moved the label or the rng");
+    gc_restore(&c, &saved, 5, 40);
+    CHECK(c.phase == GC_CHASE && c.shift_x == sx && c.shift_y == sy && c.rng == rng, "restored: phase, shift, rng");
+    CHECK(fabs(c.end_at - 40 - left) < 1e-9 && fabs(40 - c.start_at - in) < 1e-9, "the real chase goes on where it was");
+    gc_tick(&c, 40.1, true, 3.0, &o);
+    CHECK(o.chasing && o.style == GC_STYLE_FULL, "still the real chase after the scene");
+
+    gc_init(&c, 22);
+    gc_tick(&c, 0, true, 3.0, &o);
+    gc_tick(&c, 50, true, 3.0, &o);
+    saved = c;
+    double w = c.work_s;
+    c.hold = true;
+    for (double t = 50; t < 50 + GC_WAIT_MAX_S + 10; t += 1) gc_tick(&c, t, true, 3.0, &o);
+    CHECK(c.phase == GC_IDLE && !o.chasing, "a held scene in a working mood starts no chase");
+    gc_restore(&c, &saved, 50, 60 + GC_WAIT_MAX_S);
+    gc_tick(&c, 60 + GC_WAIT_MAX_S + 0.5, true, 3.0, &o);
+    CHECK(fabs(c.work_s - w - 0.5) < 1e-9 && !c.hold, "the scene's working time is not counted: %g", c.work_s);
+
+    bot_init(&b, 3, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 1);
+    CHECK(!bot_set_mood(&b, BOT_IDLE, 2) && b.mood == BOT_SLEEPY, "idle never wakes a sleepy bot");
+    bot_wake(&b, 3);
+    CHECK(b.mood == BOT_IDLE, "bot_wake: idle again");
+    bot_set_mood(&b, BOT_WORKING, 4);
+    bot_wake(&b, 5);
+    CHECK(b.mood == BOT_WORKING, "bot_wake leaves other moods");
 }
 
 int main(void)

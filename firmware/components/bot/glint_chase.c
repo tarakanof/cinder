@@ -40,6 +40,16 @@ void gc_resume(glint_chase_t *c, double work_s, double wait_s)
     c->wait_s = wait_s;
 }
 
+void gc_restore(glint_chase_t *c, const glint_chase_t *saved, double saved_t, double t)
+{
+    double dt = t - saved_t;
+    *c = *saved;
+    c->start_at += dt;
+    c->end_at += dt;
+    c->back_at += dt;
+    if (c->last_t >= 0) c->last_t += dt;
+}
+
 void gc_half_reset(gc_half_t *h) { *h = (gc_half_t){.prev = -1}; }
 
 void gc_half_step(gc_half_t *h, double psi, double lead_deg, gc_half_out_t *out)
