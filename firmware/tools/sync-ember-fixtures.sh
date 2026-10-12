@@ -61,11 +61,11 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 fetch_dir() {
-    local src="$1" dst="$2" n=0 name
+    local src="$1" dst="$2" names="$3" n=0 name
     mkdir -p "$dst"
     gh api "repos/$REPO/contents/$src?ref=$SHA" --jq '.[] | select(.type == "file") | .name' >"$TMP/names"
     while IFS= read -r name; do
-        if ! printf '%s' "$name" | grep -Eq '^[a-z0-9_]+\.json$'; then
+        if ! printf '%s' "$name" | grep -Eq "$names"; then
             case "$name" in
                 *.json) echo "sync-ember-fixtures: odd file name $src/$name" >&2; exit 1 ;;
                 *) continue ;;
@@ -80,7 +80,7 @@ fetch_dir() {
 }
 
 FETCHED=0
-fetch_dir "$SRC" "$TMP/out"
+fetch_dir "$SRC" "$TMP/out" '^[a-z0-9_]+\.json$'
 N=$FETCHED
 if [ "$N" -eq 0 ]; then
     echo "sync-ember-fixtures: no fixtures in $REPO/$SRC at $SHA" >&2
@@ -89,7 +89,7 @@ fi
 DEMO=0
 DIRS="$(gh api "repos/$REPO/contents/$SRC?ref=$SHA" --jq '.[] | select(.type == "dir") | .name')"
 if printf '%s\n' "$DIRS" | grep -qx demo; then
-    fetch_dir "$SRC/demo" "$TMP/out/demo"
+    fetch_dir "$SRC/demo" "$TMP/out/demo" '^[a-z0-9_]+(\.[a-z0-9_]+)*\.json$'
     DEMO=$FETCHED
     [ "$DEMO" -gt 0 ] || rmdir "$TMP/out/demo"
 fi
