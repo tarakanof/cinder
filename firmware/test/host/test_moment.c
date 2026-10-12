@@ -1043,7 +1043,7 @@ static void paint(wxm_moment_t *m, wxm_layout_t *l)
 {
     wxm_layout(m, l);
     memset(s_arena, 0xA5, sizeof s_arena);
-    wxm_paint(m, l, s_arena);
+    wxm_paint(m, l, s_arena, NULL);
 }
 
 #define AT(layer, u, v, rgb, what)                                                                                   \
@@ -1163,10 +1163,10 @@ static void test_paint(void)
         wxm_layout(&m, &l);
         static uint8_t first[WXM_ARENA];
         memset(s_arena, 0, sizeof s_arena);
-        wxm_paint(&m, &l, s_arena);
+        wxm_paint(&m, &l, s_arena, NULL);
         memcpy(first, s_arena, (size_t)l.total);
         memset(s_arena, 0xFF, sizeof s_arena);
-        wxm_paint(&m, &l, s_arena);
+        wxm_paint(&m, &l, s_arena, NULL);
         CHECK(memcmp(first, s_arena, (size_t)l.total) == 0, "%s: the paint does not depend on what the arena held", KIND[m.kind]);
         CHECK(s_arena[l.total] == 0xFF, "%s: nothing past the layout", KIND[m.kind]);
         for (int i = 0; i < l.nl; i++) {

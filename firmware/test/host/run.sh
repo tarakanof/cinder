@@ -359,8 +359,13 @@ body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment
 body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
     WIRING="$WIRING app_main-creates-the-moments"
 grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MAINC" || WIRING="$WIRING trigger-in-PSRAM"
-[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'wxm_paint(&s_m, &s_l, s_arena);' ||
-    WIRING="$WIRING wxm_paint-only-in-the-bake-task"
+[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'wxm_paint(&s_m, &s_l, s_arena, bake_yield);' ||
+    WIRING="$WIRING wxm_paint-only-in-the-bake-task-with-the-yield-hook"
+body "$MVC" moment_bake_task | awk '/s_yield_at = t0;/ {y = NR} /wxm_paint\(/ {p = NR} END {exit !(y && p > y)}' &&
+    body "$MVC" bake_yield | grep -qF 'if (esp_timer_get_time() - s_yield_at < MV_YIELD_US) return;' &&
+    body "$MVC" bake_yield | awk '/vTaskDelay\(1\);/ {d = NR} /s_yield_at = esp_timer_get_time\(\);/ {s = NR} END {exit !(d && s > d)}' &&
+    YUS=$(grep -o '^#define MV_YIELD_US [0-9]*' "$MVC" | awk '{print $3}') && [ "${YUS:-0}" -ge 20000 ] && [ "$YUS" -le 50000 ] ||
+    WIRING="$WIRING bake-yields-a-tick-every-20-50-ms"
 body "$MVC" moment_bake_task | grep -qF 'if (!atomic_compare_exchange_strong(&s_bake, &queued, BAKE_RUNNING)) continue;' &&
     body "$MVC" moment_bake_task | awk '/wxm_paint\(/ {p = NR} /atomic_store\(&s_bake, BAKE_DONE\);/ {d = NR} END {exit !(p && d > p)}' ||
     WIRING="$WIRING bake-claims-by-CAS-and-publishes-after-the-paint"
@@ -394,7 +399,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL weather moment wiring:$WIRING" >&2
     exit 1
 fi
-echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task, one area per change"
+echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change"
 body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_client_service\(/ {n = NR} END {exit !(r && n && r < n)}' ||
     WIRING="$WIRING demo-ready-before-the-art-fetch"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
@@ -437,6 +442,8 @@ cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
+cc $CFLAGS -I"$W/include" -I"$D" -include "$D/moment_pixel.h" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
+    "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment_paint.c" -lm -o "${OUT}_moment_paint"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
@@ -506,6 +513,7 @@ fi
 "${OUT}_sun"
 "${OUT}_air"
 "${OUT}_moment"
+"${OUT}_moment_paint"
 "${OUT}_faces"
 "${OUT}_umbrella"
 "${OUT}_wx_job"
