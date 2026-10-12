@@ -13,6 +13,7 @@
 
 enum { MV_IDLE, MV_BAKING, MV_PLAYING };
 #define MV_RETRY_S 5.0
+#define MV_YIELD_US 25000
 enum { BAKE_IDLE, BAKE_QUEUED, BAKE_RUNNING, BAKE_DONE };
 
 static lv_obj_t *s_parent, *s_box, *s_el[WXM_ELEMS], *s_text;
@@ -29,6 +30,14 @@ static EXT_RAM_BSS_ATTR double s_t0, s_play_at;
 static EXT_RAM_BSS_ATTR int s_k;
 static EXT_RAM_BSS_ATTR int s_count, s_bake_ms, s_failed;
 static EXT_RAM_BSS_ATTR double s_retry_at;
+static EXT_RAM_BSS_ATTR int64_t s_yield_at;
+
+static void bake_yield(void)
+{
+    if (esp_timer_get_time() - s_yield_at < MV_YIELD_US) return;
+    vTaskDelay(1);
+    s_yield_at = esp_timer_get_time();
+}
 
 static void moment_bake_task(void *arg)
 {
@@ -38,7 +47,8 @@ static void moment_bake_task(void *arg)
         int queued = BAKE_QUEUED;
         if (!atomic_compare_exchange_strong(&s_bake, &queued, BAKE_RUNNING)) continue;
         int64_t t0 = esp_timer_get_time();
-        wxm_paint(&s_m, &s_l, s_arena);
+        s_yield_at = t0;
+        wxm_paint(&s_m, &s_l, s_arena, bake_yield);
         s_bake_ms = (int)((esp_timer_get_time() - t0) / 1000);
         atomic_store(&s_bake, BAKE_DONE);
     }

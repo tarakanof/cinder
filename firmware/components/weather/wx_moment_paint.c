@@ -122,6 +122,7 @@ typedef struct {
     uint16_t *px;
     uint8_t *a;
     int w, h, x0, y0;
+    void (*yield)(void);
 } img_t;
 
 static inline float clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
@@ -165,11 +166,36 @@ static void design_at(const img_t *im, int x, int y, float *u, float *v)
     *v = ((float)(im->y0 + y) + 0.5f - OY) / WXM_K;
 }
 
-static void fill(img_t *im, sd_fn sd, const void *ctx, uint32_t rgb, float line_hw, uint32_t line_rgb)
+static void row(const img_t *im)
+{
+    if (im->yield) im->yield();
+}
+
+static rect_t grow(rect_t r, float by) { return (rect_t){r.x0 - by, r.y0 - by, r.x1 + by, r.y1 + by}; }
+
+static rect_t ring_box(float cx, float cy, float r) { return (rect_t){cx - r, cy - r, cx + r, cy + r}; }
+
+static void span(const img_t *im, rect_t r, int *x0, int *x1, int *y0, int *y1)
+{
+    *x0 = (int)floorf(r.x0 * WXM_K + OX) - im->x0 - 1;
+    *y0 = (int)floorf(r.y0 * WXM_K + OY) - im->y0 - 1;
+    *x1 = (int)ceilf(r.x1 * WXM_K + OX) - im->x0 + 1;
+    *y1 = (int)ceilf(r.y1 * WXM_K + OY) - im->y0 + 1;
+    if (*x0 < 0) *x0 = 0;
+    if (*y0 < 0) *y0 = 0;
+    if (*x1 > im->w) *x1 = im->w;
+    if (*y1 > im->h) *y1 = im->h;
+}
+
+static void fill(img_t *im, sd_fn sd, const void *ctx, rect_t ink, uint32_t rgb, float line_hw, uint32_t line_rgb)
 {
     const uint16_t c = wx_rgb565(rgb), lc = wx_rgb565(line_rgb);
-    for (int y = 0; y < im->h; y++)
-        for (int x = 0; x < im->w; x++) {
+    int x0, x1, y0, y1;
+    span(im, grow(ink, line_hw + 1), &x0, &x1, &y0, &y1);
+    for (int y = 0; y < im->h; y++) {
+        row(im);
+        if (y < y0 || y >= y1) continue;
+        for (int x = x0; x < x1; x++) {
             float u, v;
             design_at(im, x, y, &u, &v);
             float d = sd(ctx, u, v);
@@ -177,26 +203,24 @@ static void fill(img_t *im, sd_fn sd, const void *ctx, uint32_t rgb, float line_
             put(im, i, c, cov(d));
             if (line_hw > 0) put(im, i, lc, cov(fabsf(d) - line_hw));
         }
+    }
 }
 
 static void glow(img_t *im, float cx, float cy, float r, float from, float alpha, uint32_t rgb)
 {
     const uint16_t c = wx_rgb565(rgb);
-    for (int y = 0; y < im->h; y++)
-        for (int x = 0; x < im->w; x++) {
+    int x0, x1, y0, y1;
+    span(im, ring_box(cx, cy, r + 1), &x0, &x1, &y0, &y1);
+    for (int y = 0; y < im->h; y++) {
+        row(im);
+        if (y < y0 || y >= y1) continue;
+        for (int x = x0; x < x1; x++) {
             float u, v;
             design_at(im, x, y, &u, &v);
             float g = hypotf(u - cx, v - cy) / r;
             put(im, y * im->w + x, c, g <= from ? alpha : g >= 1 ? 0 : alpha * (1 - (g - from) / (1 - from)));
         }
-}
-
-static float seg_d(float px, float py, float ax, float ay, float bx, float by)
-{
-    float dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
-    float t = l2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
-    t = clamp01(t);
-    return hypotf(px - ax - t * dx, py - ay - t * dy);
+    }
 }
 
 typedef struct {
@@ -206,18 +230,62 @@ typedef struct {
     float p[PTS][2];
 } path_t;
 
-static float path_sd(const void *ctx, float u, float v)
+static rect_t path_box(const path_t *q)
 {
-    const path_t *q = ctx;
-    float d = 1e9f;
-    bool in = false;
-    for (int i = 0, j = q->n - 1; i < q->n; j = i++) {
-        if (i || q->closed) d = fminf(d, seg_d(u, v, q->p[j][0], q->p[j][1], q->p[i][0], q->p[i][1]));
-        if (q->closed && (q->p[i][1] > v) != (q->p[j][1] > v) &&
-            u < (q->p[j][0] - q->p[i][0]) * (v - q->p[i][1]) / (q->p[j][1] - q->p[i][1]) + q->p[i][0])
-            in = !in;
+    rect_t r = {q->p[0][0], q->p[0][1], q->p[0][0], q->p[0][1]};
+    for (int i = 1; i < q->n; i++) {
+        r.x0 = fminf(r.x0, q->p[i][0]);
+        r.y0 = fminf(r.y0, q->p[i][1]);
+        r.x1 = fmaxf(r.x1, q->p[i][0]);
+        r.y1 = fmaxf(r.y1, q->p[i][1]);
     }
-    return (in ? -d : d) - q->hw;
+    return grow(r, q->hw);
+}
+
+static void fill_path(img_t *im, const path_t *q, uint32_t rgb)
+{
+    const uint16_t c = wx_rgb565(rgb);
+    const float far = q->hw + 1, far2 = far * far;
+    int x0, x1, y0, y1;
+    span(im, grow(path_box(q), 1), &x0, &x1, &y0, &y1);
+    for (int y = 0; y < im->h; y++) {
+        row(im);
+        if (y < y0 || y >= y1) continue;
+        float u, v;
+        design_at(im, 0, y, &u, &v);
+        uint8_t near[PTS];
+        float cross[PTS];
+        int nn = 0, nc = 0;
+        for (int i = 0, j = q->n - 1; i < q->n; j = i++) {
+            if (q->closed && (q->p[i][1] > v) != (q->p[j][1] > v))
+                cross[nc++] = (q->p[j][0] - q->p[i][0]) * (v - q->p[i][1]) / (q->p[j][1] - q->p[i][1]) + q->p[i][0];
+            if ((i || q->closed) && fminf(q->p[i][1], q->p[j][1]) - far <= v && v <= fmaxf(q->p[i][1], q->p[j][1]) + far)
+                near[nn++] = (uint8_t)i;
+        }
+        for (int x = x0; x < x1; x++) {
+            design_at(im, x, y, &u, &v);
+            float best = far2, bx = far, by = 0;
+            for (int k = 0; k < nn; k++) {
+                const int i = near[k], j = i ? i - 1 : q->n - 1;
+                const float ax = q->p[j][0], ay = q->p[j][1], cx = q->p[i][0], cy = q->p[i][1];
+                if (fminf(ax, cx) - u > far || u - fmaxf(ax, cx) > far) continue;
+                float dx = cx - ax, dy = cy - ay, l2 = dx * dx + dy * dy;
+                float t = l2 > 0 ? ((u - ax) * dx + (v - ay) * dy) / l2 : 0;
+                t = clamp01(t);
+                float ex = u - ax - t * dx, ey = v - ay - t * dy, d2 = ex * ex + ey * ey;
+                if (d2 < best) {
+                    best = d2;
+                    bx = ex;
+                    by = ey;
+                }
+            }
+            bool in = false;
+            for (int k = 0; k < nc; k++)
+                if (u < cross[k]) in = !in;
+            float d = best < far2 ? hypotf(bx, by) : far;
+            put(im, y * im->w + x, c, cov((in ? -d : d) - q->hw));
+        }
+    }
 }
 
 static void pt(path_t *q, float x, float y)
@@ -262,7 +330,7 @@ static void line(img_t *im, float ax, float ay, float bx, float by, float w, uin
     path_t q = {.n = 0, .closed = false, .hw = w / 2};
     pt(&q, ax, ay);
     pt(&q, bx, by);
-    fill(im, path_sd, &q, rgb, 0, 0);
+    fill_path(im, &q, rgb);
 }
 
 static float cloud_sd(const void *ctx, float u, float v) { return wx_cloud_sd(ctx, u, v); }
@@ -274,7 +342,13 @@ static void cloud(img_t *im, const wx_cloud_t *c, int tone)
     static const uint32_t TONES[3][2] = {{0xE6ECF2, 0xC4CCD4}, {0x8E96A0, 0xA8B0BA}, {0x555D68, 0x6A7480}};
     wx_cloud_shape_t sh;
     wx_cloud_shape(c, &sh);
-    fill(im, cloud_sd, &sh, TONES[tone][0], 2.25f, TONES[tone][1]);
+    rect_t ink = {c->c[0].x - c->c[0].r, c->c[0].y - c->c[0].r, c->c[0].x + c->c[0].r, c->base};
+    for (int k = 1; k < c->n; k++) {
+        ink.x0 = fminf(ink.x0, c->c[k].x - c->c[k].r);
+        ink.y0 = fminf(ink.y0, c->c[k].y - c->c[k].r);
+        ink.x1 = fmaxf(ink.x1, c->c[k].x + c->c[k].r);
+    }
+    fill(im, cloud_sd, &sh, ink, TONES[tone][0], 2.25f, TONES[tone][1]);
 }
 
 typedef struct {
@@ -291,8 +365,12 @@ static void sun_disc(img_t *im, float cx, float cy, float r)
 {
     const float gx = cx - r * 0.3f, gy = cy - r * 0.3f, gr = r * 1.3f;
     const uint16_t rim = wx_rgb565(0xFFB547);
-    for (int y = 0; y < im->h; y++)
-        for (int x = 0; x < im->w; x++) {
+    int x0, x1, y0, y1;
+    span(im, ring_box(cx, cy, r + 2), &x0, &x1, &y0, &y1);
+    for (int y = 0; y < im->h; y++) {
+        row(im);
+        if (y < y0 || y >= y1) continue;
+        for (int x = x0; x < x1; x++) {
             float u, v;
             design_at(im, x, y, &u, &v);
             float d = hypotf(u - cx, v - cy) - r, f = hypotf(u - gx, v - gy) / gr;
@@ -301,6 +379,7 @@ static void sun_disc(img_t *im, float cx, float cy, float r)
             put(im, i, wx_rgb565(c), cov(d));
             put(im, i, rim, cov(fabsf(d) - 0.75f));
         }
+    }
 }
 
 static void paint_glance_sun(img_t *im)
@@ -322,7 +401,7 @@ static void umbrella(img_t *im, int pose)
     const uint32_t O = 0xFF8A3D, D = 0xD9692A, HC = 0xC9D2DC;
     path_t q;
     handle(&q);
-    fill(im, path_sd, &q, HC, 0, 0);
+    fill_path(im, &q, HC);
     if (pose > 0) line(im, 233, 97, 233, 89, 4, O);
     q = (path_t){.n = 0, .closed = true, .hw = 0};
     if (pose == 0) {
@@ -330,37 +409,37 @@ static void umbrella(img_t *im, int pose)
         quad(&q, 244, 120, 237, 150, 10);
         pt(&q, 229, 150);
         quad(&q, 222, 120, 233, 92, 10);
-        fill(im, path_sd, &q, O, 0, 0);
+        fill_path(im, &q, O);
         q = (path_t){.n = 0, .closed = false, .hw = 1};
         pt(&q, 233, 96);
         quad(&q, 236, 122, 233, 148, 10);
-        fill(im, path_sd, &q, D, 0, 0);
+        fill_path(im, &q, D);
     } else if (pose == 1) {
         pt(&q, 205, 142);
         quad(&q, 211, 104, 233, 96, 10);
         quad(&q, 255, 104, 261, 142, 10);
         quad(&q, 247, 136, 233, 142, 6);
         quad(&q, 219, 136, 205, 142, 6);
-        fill(im, path_sd, &q, O, 0, 0);
+        fill_path(im, &q, O);
         q = (path_t){.n = 0, .closed = true, .hw = 0};
         pt(&q, 233, 96);
         quad(&q, 226, 118, 225, 139, 8);
         quad(&q, 229, 138, 233, 142, 4);
         quad(&q, 237, 138, 241, 139, 4);
         quad(&q, 240, 118, 233, 96, 8);
-        fill(im, path_sd, &q, D, 0, 0);
+        fill_path(im, &q, D);
     } else {
         pt(&q, 181, 132);
         arc(&q, 233, 132, 52, 36, 180, 360, 24);
         for (int i = 3; i >= 0; i--) arc(&q, 194 + 26 * (float)i, 132, 13, 7, 0, -180, 6);
-        fill(im, path_sd, &q, O, 0, 0);
+        fill_path(im, &q, O);
         q = (path_t){.n = 0, .closed = true, .hw = 0};
         pt(&q, 233, 96);
         quad(&q, 213, 104, 207, 132, 10);
         arc(&q, 220, 132, 13, 7, 180, 360, 6);
         arc(&q, 246, 132, 13, 7, 180, 360, 6);
         quad(&q, 253, 104, 233, 96, 10);
-        fill(im, path_sd, &q, D, 0, 0);
+        fill_path(im, &q, D);
     }
 }
 
@@ -369,7 +448,7 @@ static void bolt(img_t *im)
     static const float P[7][2] = {{236, 126}, {258, 126}, {246, 148}, {260, 148}, {228, 178}, {236, 156}, {222, 156}};
     path_t q = {.n = 0, .closed = true, .hw = 1};
     for (int i = 0; i < 7; i++) pt(&q, P[i][0], P[i][1]);
-    fill(im, path_sd, &q, WXM_STORM_RGB, 0, 0);
+    fill_path(im, &q, WXM_STORM_RGB);
 }
 
 static void flake(img_t *im, float x, float y)
@@ -388,7 +467,7 @@ static void streak(img_t *im, int i)
     pt(&q, 156, y);
     pt(&q, x1, y);
     if (STREAK_CURL[i]) arc(&q, x1, y - 7, 7, 7, 90, -180, 24);
-    fill(im, path_sd, &q, 0xD0DCE8, 0, 0);
+    fill_path(im, &q, 0xD0DCE8);
 }
 
 static void leaf(img_t *im)
@@ -404,7 +483,7 @@ static void leaf(img_t *im)
         q.p[i][0] = 158 + x * c - y * s;
         q.p[i][1] = 136 + x * s + y * c;
     }
-    fill(im, path_sd, &q, 0x8ACF7A, 0, 0);
+    fill_path(im, &q, 0x8ACF7A);
 }
 
 static void heat_sun(img_t *im)
@@ -422,10 +501,14 @@ static void moon(img_t *im, int phase, int illum_pct)
     const float cx = 212, cy = 128, r = 30;
     glow(im, cx, cy, 42, 0.6f, 0.22f, 0xAFC4E0);
     disc_t body = {cx, cy, r};
-    fill(im, disc_sd, &body, 0x000000, 0, 0);
+    fill(im, disc_sd, &body, ring_box(cx, cy, r), 0x000000, 0, 0);
     const float il = clamp01((float)illum_pct / 100.0f), sgn = phase < 50 ? 1.0f : -1.0f, rx = fabsf(1 - 2 * il) * r;
-    for (int y = 0; y < im->h; y++)
-        for (int x = 0; x < im->w; x++) {
+    int x0, x1, y0, y1;
+    span(im, ring_box(cx, cy, r + 1), &x0, &x1, &y0, &y1);
+    for (int y = 0; y < im->h; y++) {
+        row(im);
+        if (y < y0 || y >= y1) continue;
+        for (int x = x0; x < x1; x++) {
             float u, v;
             design_at(im, x, y, &u, &v);
             float dx = u - cx, dy = v - cy, d = hypotf(dx, dy);
@@ -441,6 +524,7 @@ static void moon(img_t *im, int phase, int illum_pct)
             float lit = fminf(il < 0.5f ? fminf(side, 1 - in_e) : fmaxf(side, in_e), in_body);
             put(im, y * im->w + x, wx_rgb565(lerp_rgb(0xE8ECF2, 0xC9D2DC, hypotf(u - cx, v - cy + 6) / (r * 1.2f))), lit);
         }
+    }
 }
 
 static void star(img_t *im, float x, float y, float s)
@@ -451,7 +535,7 @@ static void star(img_t *im, float x, float y, float s)
     quad(&q, x, y, x, y + s, 8);
     quad(&q, x, y, x - s, y, 8);
     quad(&q, x, y, x, y - s, 8);
-    fill(im, path_sd, &q, 0xE8ECF2, 0, 0);
+    fill_path(im, &q, 0xE8ECF2);
 }
 
 typedef struct {
@@ -469,18 +553,19 @@ static void rainbow(img_t *im)
     static const uint32_t BANDS[5] = {0xE86A5A, 0xF0A040, 0xF0D040, 0x5CCB8A, 0x5C9CE0};
     for (int i = 0; i < 5; i++) {
         bow_t b = {63.0f - 6.0f * (float)i};
-        fill(im, bow_sd, &b, BANDS[i], 0, 0);
+        fill(im, bow_sd, &b, (rect_t){233 - b.r - 3.3f, 172 - b.r - 3.3f, 233 + b.r + 3.3f, 172}, BANDS[i], 0, 0);
     }
 }
 
-void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena)
+void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void))
 {
     img_t im[WXM_LAYERS];
     for (int i = 0; i < l->nl; i++) {
         const wxm_layer_t *a = &l->layer[i];
-        im[i] = (img_t){(uint16_t *)(arena + a->at), arena + a->at + a->w * a->h * 2, a->w, a->h, a->x, a->y};
+        im[i] = (img_t){(uint16_t *)(arena + a->at), arena + a->at + a->w * a->h * 2, a->w, a->h, a->x, a->y, yield};
         memset(arena + a->at, 0, (size_t)(a->w * a->h * 3));
     }
+    if (yield) yield();
     switch (m->kind) {
     case WXM_GLANCE:
     case WXM_FROST:
