@@ -430,6 +430,88 @@ wx_box_t wx_clouds_box(const wx_clouds_t *c)
     return b;
 }
 
+static float upper_cross(const wx_circle_t *a, const wx_circle_t *b, float *x)
+{
+    float dx = b->x - a->x, dy = b->y - a->y, d = hypotf(dx, dy);
+    if (!(d > 0)) {
+        *x = a->x;
+        return a->y - a->r;
+    }
+    float p = (a->r * a->r - b->r * b->r + d * d) / (2 * d), h2 = a->r * a->r - p * p, h = h2 > 0 ? sqrtf(h2) : 0;
+    float mx = a->x + p * dx / d, my = a->y + p * dy / d;
+    float y1 = my - h * dx / d, y2 = my + h * dx / d;
+    *x = y1 < y2 ? mx + h * dy / d : mx - h * dy / d;
+    return fminf(y1, y2);
+}
+
+static float base_end(const wx_circle_t *c, float base, float side)
+{
+    float k = c->r * c->r - (c->y - base) * (c->y - base);
+    return c->x + side * (k > 0 ? sqrtf(k) : 0);
+}
+
+void wx_cloud_shape(const wx_cloud_t *cl, wx_cloud_shape_t *s)
+{
+    s->cl = *cl;
+    if (s->cl.n > 4) s->cl.n = 4;
+    s->np = 0;
+    if (s->cl.n <= 0) return;
+    const wx_circle_t *c = s->cl.c;
+    const int n = s->cl.n;
+    s->p[s->np][0] = base_end(&c[0], cl->base, -1);
+    s->p[s->np++][1] = cl->base;
+    for (int i = 0; i + 1 < n; i++) {
+        s->p[s->np][1] = upper_cross(&c[i], &c[i + 1], &s->p[s->np][0]);
+        s->np++;
+    }
+    s->p[s->np][0] = base_end(&c[n - 1], cl->base, 1);
+    s->p[s->np++][1] = cl->base;
+    for (int k = 0; k < n; k++) {
+        float ax = s->p[k][0] - c[k].x, ay = s->p[k][1] - c[k].y;
+        float bx = s->p[k + 1][0] - c[k].x, by = s->p[k + 1][1] - c[k].y;
+        s->large[k] = ax * by - ay * bx < 0;
+    }
+    s->box[0] = s->box[2] = s->p[0][0];
+    s->box[1] = s->box[3] = s->p[0][1];
+    for (int i = 1; i < s->np; i++) {
+        s->box[0] = fminf(s->box[0], s->p[i][0]);
+        s->box[1] = fminf(s->box[1], s->p[i][1]);
+        s->box[2] = fmaxf(s->box[2], s->p[i][0]);
+        s->box[3] = fmaxf(s->box[3], s->p[i][1]);
+    }
+}
+
+float wx_cloud_sd(const wx_cloud_shape_t *s, float x, float y)
+{
+    const int n = s->cl.n;
+    if (n <= 0) return 1e9f;
+    float b = y - s->cl.base, deep = 1e9f, arc = 1e9f;
+    bool in = false;
+    for (int k = 0; k < n; k++) {
+        const wx_circle_t *q = &s->cl.c[k];
+        float dx = x - q->x, dy = y - q->y, c = sqrtf(dx * dx + dy * dy) - q->r;
+        deep = fminf(deep, c);
+        float ax = s->p[k][0] - q->x, ay = s->p[k][1] - q->y, bx = s->p[k + 1][0] - q->x, by = s->p[k + 1][1] - q->y;
+        bool on = s->large[k] ? !(bx * dy - by * dx > 0 && dx * ay - dy * ax > 0)
+                              : ax * dy - ay * dx >= 0 && dx * by - dy * bx >= 0;
+        if (on) arc = fminf(arc, fabsf(c));
+    }
+    if (deep <= -WX_CLOUD_EXACT && b <= -WX_CLOUD_EXACT) return fmaxf(deep, b);
+    float ox = fmaxf(fmaxf(s->box[0] - x, x - s->box[2]), 0), oy = fmaxf(fmaxf(s->box[1] - y, y - s->box[3]), 0);
+    if (b >= WX_CLOUD_EXACT || (deep >= WX_CLOUD_EXACT && ox * ox + oy * oy >= WX_CLOUD_EXACT * WX_CLOUD_EXACT))
+        return fmaxf(b, deep);
+    float v2 = 1e18f;
+    for (int i = 0, j = s->np - 1; i < s->np; j = i++) {
+        const float *p = s->p[i], *q = s->p[j];
+        float ex = x - p[0], ey = y - p[1];
+        v2 = fminf(v2, ex * ex + ey * ey);
+        if ((p[1] > y) != (q[1] > y) && x < (q[0] - p[0]) * (y - p[1]) / (q[1] - p[1]) + p[0]) in = !in;
+    }
+    float d = fminf(arc, sqrtf(v2));
+    if (x >= s->p[0][0] && x <= s->p[s->np - 1][0]) d = fminf(d, fabsf(b));
+    return b <= 0 && (in || deep < 0) ? -d : d;
+}
+
 void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c)
 {
     static const uint32_t TONES[4][3] = {
@@ -450,14 +532,13 @@ void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c)
             bx1 = fmaxf(bx1, cl->c[k].x + cl->c[k].r + 3);
             by0 = fminf(by0, cl->c[k].y - cl->c[k].r - 3);
         }
+        wx_cloud_shape_t sh;
+        wx_cloud_shape(cl, &sh);
         int x0, y0, x1, y1;
         clip(im, bx0, by0, bx1, cl->base + 3, &x0, &y0, &x1, &y1);
         for (int y = y0; y < y1; y++)
             for (int x = x0; x < x1; x++) {
-                float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
-                float d = 1e9f;
-                for (int k = 0; k < cl->n; k++) d = fminf(d, hypotf(fx - cl->c[k].x, fy - cl->c[k].y) - cl->c[k].r);
-                d = fmaxf(d, fy - cl->base);
+                float d = wx_cloud_sd(&sh, (float)(im->x0 + x) + 0.5f, (float)(im->y0 + y) + 0.5f);
                 int idx = y * im->w + x;
                 put(im, idx, fill, cov(d));
                 put(im, idx, line, cov(fabsf(d) - 2.25f));
@@ -1309,14 +1390,14 @@ static float ring_days_px(const void *ctx, float fx, float fy, float r2, uint16_
 void wx_paint_ring_days(wx_ring_t *r) { annulus(r, ring_days_px, NULL); }
 
 typedef struct {
-    float c[3][3], base;
+    wx_cloud_t cl;
     uint32_t fill, line;
 } day_cloud_t;
 
-static const day_cloud_t CLOUD_WHITE = {{{13, 28, 7}, {21, 23, 8.5f}, {30, 28, 7}}, 33, 0xE6ECF2, 0xC4CCD4};
-static const day_cloud_t CLOUD_GREY = {{{10, 19, 7}, {19, 14, 9}, {29, 19, 7}}, 24, 0x8E96A0, 0xA8B0BA};
-static const day_cloud_t CLOUD_LOW = {{{10, 25, 7}, {19, 20, 9}, {29, 25, 7}}, 30, 0x8E96A0, 0xA8B0BA};
-static const day_cloud_t CLOUD_DARK = {{{10, 19, 7}, {19, 14, 9}, {29, 19, 7}}, 24, 0x555D68, 0x6A7480};
+static const day_cloud_t CLOUD_WHITE = {{false, 33, 3, {{13, 28, 7}, {21, 23, 8.5f}, {30, 28, 7}}}, 0xE6ECF2, 0xC4CCD4};
+static const day_cloud_t CLOUD_GREY = {{false, 24, 3, {{10, 19, 7}, {19, 14, 9}, {29, 19, 7}}}, 0x8E96A0, 0xA8B0BA};
+static const day_cloud_t CLOUD_LOW = {{false, 30, 3, {{10, 25, 7}, {19, 20, 9}, {29, 25, 7}}}, 0x8E96A0, 0xA8B0BA};
+static const day_cloud_t CLOUD_DARK = {{false, 24, 3, {{10, 19, 7}, {19, 14, 9}, {29, 19, 7}}}, 0x555D68, 0x6A7480};
 static const float BOLT[7][2] = {{21, 24}, {15, 32}, {19.5f, 32}, {17, 39}, {25, 30}, {20.5f, 30}, {23, 24}};
 
 static uint32_t sun_rgb(float f)
@@ -1332,7 +1413,15 @@ static bool in_poly(const float (*p)[2], int n, float x, float y)
     return in;
 }
 
-static void icon_px(wx_img_t *im, int idx, int icon, float x, float y)
+static const day_cloud_t *icon_cloud(int icon)
+{
+    return icon == WX_ICON_PARTLY  ? &CLOUD_WHITE
+           : icon == WX_ICON_CLOUD ? &CLOUD_LOW
+           : icon == WX_ICON_STORM ? &CLOUD_DARK
+                                   : &CLOUD_GREY;
+}
+
+static void icon_px(wx_img_t *im, int idx, int icon, const wx_cloud_shape_t *sh, float x, float y)
 {
     const uint16_t ray = wx_rgb565(0xFFB547);
     if (icon == WX_ICON_SUN) {
@@ -1351,12 +1440,8 @@ static void icon_px(wx_img_t *im, int idx, int icon, float x, float y)
     if (icon == WX_ICON_RAIN)
         for (int k = 0; k < 3; k++)
             put(im, idx, wx_rgb565(WX_DAYS_POP_RGB), cov(seg_d(x, y, 13 + 7 * k, 28, 11 + 7 * k, 34) - 1.25f));
-    const day_cloud_t *cl = icon == WX_ICON_PARTLY ? &CLOUD_WHITE : icon == WX_ICON_CLOUD ? &CLOUD_LOW
-                            : icon == WX_ICON_STORM                                     ? &CLOUD_DARK
-                                                                                        : &CLOUD_GREY;
-    float d = 1e9f;
-    for (int k = 0; k < 3; k++) d = fminf(d, hypotf(x - cl->c[k][0], y - cl->c[k][1]) - cl->c[k][2]);
-    d = fmaxf(d, y - cl->base);
+    const day_cloud_t *cl = icon_cloud(icon);
+    float d = wx_cloud_sd(sh, x, y);
     put(im, idx, wx_rgb565(cl->fill), cov(d));
     put(im, idx, wx_rgb565(cl->line), cov(fabsf(d) - 1));
     if (icon == WX_ICON_FOG) {
@@ -1373,11 +1458,13 @@ void wx_paint_day_icon(wx_img_t *im, int icon, float ox, float oy)
     int x0, y0, x1, y1;
     clip(im, ox - 1, oy - 1, ox + WX_DAYS_ICON + 1, oy + WX_DAYS_ICON + 1, &x0, &y0, &x1, &y1);
     const uint16_t bolt = wx_rgb565(0xF0D040);
+    wx_cloud_shape_t sh;
+    wx_cloud_shape(&icon_cloud(icon)->cl, &sh);
     for (int y = y0; y < y1; y++)
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f - ox, fy = (float)(im->y0 + y) + 0.5f - oy;
             int idx = y * im->w + x;
-            icon_px(im, idx, icon, fx, fy);
+            icon_px(im, idx, icon, &sh, fx, fy);
             if (icon != WX_ICON_STORM) continue;
             int in = 0;
             for (int sy = 0; sy < 4; sy++)

@@ -52,6 +52,22 @@ wx_box_t wx_paint_hero(wx_img_t *im, wx_hero_t hero, int moon_phase, int moon_il
 /* Ink box of the clouds (stroke included), clipped to the face; empty when none. */
 wx_box_t wx_clouds_box(const wx_clouds_t *c);
 void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c);
+/* One cloud as the design's closed path: puff k's arc runs clockwise from p[k] to p[k + 1] (large: over 180 degrees),
+   then the straight base closes it. p: the base ends and the upper crossings of neighbouring puffs, left to right (at
+   most 4 puffs); box: their bounds x0, y0, x1, y1. */
+typedef struct {
+    wx_cloud_t cl;
+    int np;
+    float p[5][2], box[4];
+    bool large[4];
+} wx_cloud_shape_t;
+
+#define WX_CLOUD_EXACT 4.0f
+
+void wx_cloud_shape(const wx_cloud_t *cl, wx_cloud_shape_t *s);
+/* Signed distance to the closed cloud path in the cloud's units, negative inside: exact within WX_CLOUD_EXACT of the
+   path, beyond it any value past +-WX_CLOUD_EXACT. A stroke of half-width w is |d| <= w with round joins. */
+float wx_cloud_sd(const wx_cloud_shape_t *s, float x, float y);
 /* Mercury, bulb and ticks into the WX_THERMO_* box; top before WX_THERMO_DY. */
 void wx_paint_mercury(wx_img_t *im, float top, uint32_t rgb);
 void wx_paint_marker(wx_img_t *im);

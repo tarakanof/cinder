@@ -26,15 +26,11 @@ static const float FLAKE_X[5] = {192, 236, 214, 280, 258};
 static const float STREAK_Y[4] = {103, 124, 148, 170}, STREAK_LEN[4] = {54, 40, 58, 36};
 static const bool STREAK_CURL[4] = {true, false, true, false};
 
-typedef struct {
-    float x, y, r;
-} circ_t;
-
-static const circ_t GLANCE_CLOUD[3] = {{198, 153, 19}, {233, 139, 25}, {266, 154, 17}};
-static const circ_t STORM_CLOUD[3] = {{198, 122, 18}, {233, 112, 24}, {268, 122, 18}};
-static const circ_t SNOW_CLOUD[3] = {{206, 118, 15}, {233, 108, 20}, {260, 118, 14}};
-static const circ_t FOOT_L[3] = {{172, 166, 10}, {186, 161, 13}, {200, 167, 9}};
-static const circ_t FOOT_R[3] = {{266, 167, 9}, {280, 161, 13}, {294, 166, 10}};
+static const wx_cloud_t GLANCE_CLOUD = {false, 166, 3, {{198, 153, 19}, {233, 139, 25}, {266, 154, 17}}};
+static const wx_cloud_t STORM_CLOUD = {false, 134, 3, {{198, 122, 18}, {233, 112, 24}, {268, 122, 18}}};
+static const wx_cloud_t SNOW_CLOUD = {false, 128, 3, {{206, 118, 15}, {233, 108, 20}, {260, 118, 14}}};
+static const wx_cloud_t FOOT_L = {false, 174, 3, {{172, 166, 10}, {186, 161, 13}, {200, 167, 9}}};
+static const wx_cloud_t FOOT_R = {false, 174, 3, {{266, 167, 9}, {280, 161, 13}, {294, 166, 10}}};
 
 static wxm_layer_t layer_of(rect_t r)
 {
@@ -262,52 +258,16 @@ static void line(img_t *im, float ax, float ay, float bx, float by, float w, uin
     fill(im, path_sd, &q, rgb, 0, 0);
 }
 
-typedef struct {
-    const circ_t *c;
-    int n;
-    float base;
-    path_t under;
-} cloud_t;
-
-static void upper_x(const circ_t *a, const circ_t *b, float *x, float *y)
-{
-    float dx = b->x - a->x, dy = b->y - a->y, d = hypotf(dx, dy);
-    float p = (a->r * a->r - b->r * b->r + d * d) / (2 * d), h2 = a->r * a->r - p * p, h = h2 > 0 ? sqrtf(h2) : 0;
-    float mx = a->x + p * dx / d, my = a->y + p * dy / d;
-    float x1 = mx + h * dy / d, y1 = my - h * dx / d, x2 = mx - h * dy / d, y2 = my + h * dx / d;
-    bool first = y1 < y2;
-    *x = first ? x1 : x2;
-    *y = first ? y1 : y2;
-}
-
-static float base_x(const circ_t *c, float base, int side)
-{
-    float k = c->r * c->r - (c->y - base) * (c->y - base);
-    return c->x + (float)side * (k > 0 ? sqrtf(k) : 0);
-}
-
-static float cloud_sd(const void *ctx, float u, float v)
-{
-    const cloud_t *cl = ctx;
-    float d = path_sd(&cl->under, u, v);
-    for (int i = 0; i < cl->n; i++) d = fminf(d, hypotf(u - cl->c[i].x, v - cl->c[i].y) - cl->c[i].r);
-    return fmaxf(d, v - cl->base);
-}
+static float cloud_sd(const void *ctx, float u, float v) { return wx_cloud_sd(ctx, u, v); }
 
 enum { TONE_WHITE, TONE_LIGHT, TONE_DARK };
 
-static void cloud(img_t *im, const circ_t *c, int n, float base, int tone)
+static void cloud(img_t *im, const wx_cloud_t *c, int tone)
 {
     static const uint32_t TONES[3][2] = {{0xE6ECF2, 0xC4CCD4}, {0x8E96A0, 0xA8B0BA}, {0x555D68, 0x6A7480}};
-    cloud_t cl = {c, n, base, {.n = 0, .closed = true, .hw = 0}};
-    pt(&cl.under, base_x(&c[0], base, -1), base);
-    for (int i = 0; i + 1 < n; i++) {
-        float x, y;
-        upper_x(&c[i], &c[i + 1], &x, &y);
-        pt(&cl.under, x, y);
-    }
-    pt(&cl.under, base_x(&c[n - 1], base, 1), base);
-    fill(im, cloud_sd, &cl, TONES[tone][0], 2.25f, TONES[tone][1]);
+    wx_cloud_shape_t sh;
+    wx_cloud_shape(c, &sh);
+    fill(im, cloud_sd, &sh, TONES[tone][0], 2.25f, TONES[tone][1]);
 }
 
 typedef struct {
@@ -518,7 +478,7 @@ void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena)
     case WXM_GLANCE:
     case WXM_FROST:
         if (m->sun) paint_glance_sun(&im[0]);
-        cloud(&im[m->sun ? 1 : 0], GLANCE_CLOUD, 3, 166, TONE_WHITE);
+        cloud(&im[m->sun ? 1 : 0], &GLANCE_CLOUD, TONE_WHITE);
         break;
     case WXM_RAIN:
         line(&im[0], DROP_X[0], 96, DROP_X[0] - 3, 106, 4, WXM_BLUE);
@@ -526,12 +486,12 @@ void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena)
         break;
     case WXM_STORM:
         bolt(&im[0]);
-        cloud(&im[1], STORM_CLOUD, 3, 134, TONE_LIGHT);
-        cloud(&im[2], STORM_CLOUD, 3, 134, TONE_DARK);
+        cloud(&im[1], &STORM_CLOUD, TONE_LIGHT);
+        cloud(&im[2], &STORM_CLOUD, TONE_DARK);
         break;
     case WXM_SNOW:
         flake(&im[0], FLAKE_X[0], 132);
-        cloud(&im[1], SNOW_CLOUD, 3, 128, TONE_WHITE);
+        cloud(&im[1], &SNOW_CLOUD, TONE_WHITE);
         break;
     case WXM_WIND:
         for (int i = 0; i < 4; i++) streak(&im[i], i);
@@ -550,8 +510,8 @@ void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena)
     }
     case WXM_AFTERRAIN:
         rainbow(&im[0]);
-        cloud(&im[1], FOOT_L, 3, 174, TONE_WHITE);
-        cloud(&im[1], FOOT_R, 3, 174, TONE_WHITE);
+        cloud(&im[1], &FOOT_L, TONE_WHITE);
+        cloud(&im[1], &FOOT_R, TONE_WHITE);
         break;
     default: break;
     }

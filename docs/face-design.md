@@ -15,6 +15,7 @@ Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.
 - **Type**: big values 96 px (`font_digits_96`), unit and sub-line 30 px, gauge end labels 36 px (`font_face_36`), secondary 24 px. Both 96 and 36 are compiled subsets from `firmware/tools/gen_face_fonts.py` (see Fonts).
 - **Arrival** (on page show, and on a face picked by a turn): marker sweeps from the gauge start, the number counts up (step-end, ease-out, ~1.3 s), the hero slides or fades in. Then still, except small ambient loops.
 - **Filled shapes, soft rim fade**: clouds, sun, moon fill with colour; side elements fade out between r 160 and r 195 instead of a hard clip.
+- **Clouds are one closed path**: the puffs' upper envelope closed by a straight base (`cloud_path` in `tools/temp.py`), filled, stroke with round joins; never a union of circles. On the device `wx_cloud_sd` paints that path (features.md, Temperature face, "Cloud shape").
 - **Face dots** (6) at the bottom, r 206 arc; Rain has left-edge view dots (now / forecast). On the device one dot per built face, baked into the background; a plain turn moves to the next face.
 - **Night**: the firmware dims the screen at night; faces never dim themselves.
 
