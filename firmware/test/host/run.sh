@@ -411,6 +411,8 @@ cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
+cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
+    "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
@@ -467,6 +469,7 @@ fi
 "${OUT}_pomo"
 "${OUT}_weather"
 "${OUT}_temp"
+"${OUT}_cloud"
 "${OUT}_rain"
 "${OUT}_cast"
 "${OUT}_wind"

@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "weather_face.h"
+#include "wx_cast.h"
 #include "wx_paint.h"
 #include "wx_temp.h"
 
@@ -344,6 +345,137 @@ static bool near(uint16_t p, uint32_t rgb)
     return true;
 }
 
+static float off_puff(const wx_circle_t *a, const wx_circle_t *b, float t, float *x, float *y)
+{
+    *x = a->x + a->r * cosf(t);
+    *y = a->y + a->r * sinf(t);
+    return hypotf(*x - b->x, *y - b->y) - b->r;
+}
+
+static void upper_cross(const wx_circle_t *a, const wx_circle_t *b, float *cx, float *cy)
+{
+    *cx = a->x;
+    *cy = 1e9f;
+    const int N = 3600;
+    for (int i = 0; i < N; i++) {
+        float lo = -(float)M_PI + 2 * (float)M_PI * i / N, hi = -(float)M_PI + 2 * (float)M_PI * (i + 1) / N, x, y;
+        if ((off_puff(a, b, lo, &x, &y) > 0) == (off_puff(a, b, hi, &x, &y) > 0)) continue;
+        for (int k = 0; k < 40; k++) {
+            float mid = (lo + hi) / 2;
+            if ((off_puff(a, b, mid, &x, &y) > 0) == (off_puff(a, b, lo, &x, &y) > 0)) lo = mid;
+            else hi = mid;
+        }
+        off_puff(a, b, lo, &x, &y);
+        if (y < *cy) {
+            *cx = x;
+            *cy = y;
+        }
+    }
+}
+
+static float base_end(const wx_circle_t *c, float base, float side)
+{
+    return c->x + side * sqrtf(c->r * c->r - (c->y - base) * (c->y - base));
+}
+
+static int s_under_n;
+
+static void check_cloud_path(const char *what, const wx_clouds_t *all)
+{
+    static const uint32_t TONE[4][3] = {{0xE6ECF2, 0xE6ECF2, 0xC4CCD4},
+                                        {0x8E96A0, 0x737B86, 0xA8B0BA},
+                                        {0x555D68, 0x3A4048, 0x6A7480},
+                                        {0x3E4652, 0x2E343D, 0x56606C}};
+    for (int i = 0; i < all->n; i++) {
+        wx_clouds_t one = *all;
+        one.n = 1;
+        one.cl[0] = all->cl[i];
+        const wx_cloud_t *cl = &one.cl[0];
+        const uint16_t fill = wx_rgb565(TONE[one.tone][cl->back ? 1 : 0]), line = wx_rgb565(TONE[one.tone][2]);
+        wx_box_t b = wx_clouds_box(&one);
+        int w = b.x1 - b.x0, h = b.y1 - b.y0;
+        uint16_t *px = calloc((size_t)w * h, 2);
+        uint8_t *a = calloc((size_t)w * h, 1);
+        wx_img_t im = {.px = px, .a = a, .w = w, .h = h, .x0 = b.x0, .y0 = b.y0};
+        wx_paint_clouds(&im, &one);
+        const float lim = one.fade_from - 1;
+#define AT(x, y) (((x) - b.x0) + ((y) - b.y0) * w)
+#define CLEAR(x, y) (hypotf((float)(x) + 0.5f - 233, (float)(y) + 0.5f - 233) <= lim)
+        int under_bad = 0, under_n = 0, base_bad = 0, base_n = 0, edge_bad = 0, edge_n = 0;
+        for (int k = 0; k + 1 < cl->n; k++) {
+            float cx, cy;
+            upper_cross(&cl->c[k], &cl->c[k + 1], &cx, &cy);
+            int x = (int)floorf(cx);
+            for (int y = (int)ceilf(cy + 3); (float)y + 0.5f <= cl->base - 3.5f; y++) {
+                if (!CLEAR(x, y) || x < b.x0 || x >= b.x1) continue;
+                under_n++;
+                under_bad += a[AT(x, y)] != 255 || px[AT(x, y)] != fill;
+            }
+        }
+        const float xl = base_end(&cl->c[0], cl->base, -1) + 3, xr = base_end(&cl->c[cl->n - 1], cl->base, 1) - 3;
+        const int yb = (int)floorf(cl->base + 1.5f), ye = (int)floorf(cl->base + 2.5f);
+        for (int x = (int)ceilf(xl); (float)x + 1 <= xr; x++) {
+            if (x < b.x0 || x >= b.x1 || !CLEAR(x, yb) || !CLEAR(x, ye)) continue;
+            base_n++;
+            base_bad += yb >= b.y1 || a[AT(x, yb)] != 255 || px[AT(x, yb)] != line;
+            edge_n++;
+            edge_bad += ye >= b.y1 || a[AT(x, ye)] == 0 || a[AT(x, ye)] == 255;
+        }
+        s_under_n += under_n;
+        CHECK(under_bad == 0, "%s cloud %d: under each puff junction the fill reaches the base stroke (%d of %d px)",
+              what, i, under_bad, under_n);
+        CHECK(base_n > 20 && base_bad == 0, "%s cloud %d: one straight base stroke end to end (%d of %d px missing)",
+              what, i, base_bad, base_n);
+        CHECK(edge_bad == 0 && b.y1 >= (int)ceilf(cl->base + 2.75f),
+              "%s cloud %d: the base stroke's soft lower edge inside the box (y1 %d, base %.0f, %d of %d px)", what, i,
+              b.y1, cl->base, edge_bad, edge_n);
+        wx_cloud_shape_t sh;
+        wx_cloud_shape(cl, &sh);
+        int out = 0;
+        for (int y = b.y0 - 8; y < b.y1 + 8; y++)
+            for (int x = b.x0 - 8; x < b.x1 + 8; x++) {
+                bool in = x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1;
+                bool face = x >= 0 && y >= 0 && x < WX_FACE && y < WX_FACE;
+                if (!in && face && wx_cloud_sd(&sh, (float)x + 0.5f, (float)y + 0.5f) < 2.75f) out++;
+            }
+        CHECK(out == 0, "%s cloud %d: no ink outside its box (%d px)", what, i, out);
+#undef AT
+#undef CLEAR
+        free(px);
+        free(a);
+    }
+}
+
+static void test_cloud_path(void)
+{
+    char what[32];
+    for (int band = 1; band <= 4; band++)
+        for (int night = 0; night <= 1; night++) {
+            wx_clouds_t c;
+            wx_clouds_for(band, night, &c);
+            snprintf(what, sizeof what, "band %d%s", band, night ? " night" : "");
+            check_cloud_path(what, &c);
+        }
+    for (int v = 1; v <= 3; v++)
+        for (int s = 0; s < wx_cast_sides(v); s++) {
+            wx_clouds_t c;
+            wx_cast_clouds(v, s, &c);
+            snprintf(what, sizeof what, "forecast %d side %d", v, s);
+            check_cloud_path(what, &c);
+        }
+    CHECK(s_under_n > 500, "junction columns checked: %d px", s_under_n);
+    wx_cloud_t two = {false, 170, 2, {{100, 150, 25}, {140, 150, 25}}};
+    wx_cloud_shape_t sh;
+    wx_cloud_shape(&two, &sh);
+    CHECK(fabsf(sh.p[1][0] - 120) < 1e-4f && fabsf(sh.p[1][1] - 135) < 1e-4f, "two puffs cross at 120,135");
+    CHECK(fabsf(wx_cloud_sd(&sh, 120, 168) + 2) < 1e-3f, "under the crossing, 2 px above the base: 2 px in");
+    CHECK(fabsf(wx_cloud_sd(&sh, 120, 173) - 3) < 1e-3f, "3 px under the base: 3 px out");
+    CHECK(fabsf(wx_cloud_sd(&sh, 120, 137) + 2) < 1e-3f, "2 px under the crossing: 2 px in, a round join");
+    CHECK(fabsf(wx_cloud_sd(&sh, 100, 122) - 3) < 1e-3f, "above a puff: the distance to its arc");
+    CHECK(fabsf(wx_cloud_sd(&sh, 75 - 2, 150) - 2) < 1e-3f, "beside the left puff: the distance to its arc");
+    CHECK(fabsf(wx_cloud_sd(&sh, 83, 173) - sqrtf(13)) < 1e-3f, "off the base corner: round");
+}
+
 static void test_paint(void)
 {
     static uint16_t px[WX_FACE * WX_FACE];
@@ -615,6 +747,7 @@ int main(void)
     test_count();
     test_geometry();
     test_clouds();
+    test_cloud_path();
     test_paint();
     test_shift();
     test_bake();

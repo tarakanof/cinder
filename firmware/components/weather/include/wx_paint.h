@@ -52,6 +52,19 @@ wx_box_t wx_paint_hero(wx_img_t *im, wx_hero_t hero, int moon_phase, int moon_il
 /* Ink box of the clouds (stroke included), clipped to the face; empty when none. */
 wx_box_t wx_clouds_box(const wx_clouds_t *c);
 void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c);
+typedef struct {
+    wx_cloud_t cl;
+    int np;
+    float p[5][2], box[4];
+    bool large[4];
+} wx_cloud_shape_t;
+
+#define WX_CLOUD_EXACT 4.0f
+
+/* False (an empty shape, no ink) unless 1-4 puffs, neighbours cross above the base and the outer puffs cross it. */
+bool wx_cloud_shape(const wx_cloud_t *cl, wx_cloud_shape_t *s);
+/* Signed distance to the cloud path, negative inside; exact within WX_CLOUD_EXACT, past it beyond. */
+float wx_cloud_sd(const wx_cloud_shape_t *s, float x, float y);
 /* Mercury, bulb and ticks into the WX_THERMO_* box; top before WX_THERMO_DY. */
 void wx_paint_mercury(wx_img_t *im, float top, uint32_t rgb);
 void wx_paint_marker(wx_img_t *im);
@@ -153,6 +166,7 @@ void wx_paint_leaf(uint8_t *a8, int rot);
 void wx_paint_ring_days(wx_ring_t *r);
 /* One wx_icon_t in its WX_DAYS_ICON square at face (x, y), the canvas's 40 px viewBox. */
 void wx_paint_day_icon(wx_img_t *im, int icon, float x, float y);
+const wx_cloud_t *wx_day_cloud(int icon);
 /* Row i's sprite (im at the row's rest position, l's sprite box): the icon, the grey track and the coloured span. */
 void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_layout_t *l);
 

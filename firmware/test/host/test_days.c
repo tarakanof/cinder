@@ -727,6 +727,9 @@ static void test_paint(void)
     } ICON[] = {
         {WX_OVERCAST, 19, 22, 0x8E96A0, "Cloud: grey, low in its square"},
         {WX_OVERCAST, 19, 8, 0, "Cloud: nothing above it"},
+        {WX_OVERCAST, 19, 30, 0xA8B0BA, "Cloud: the base line runs on under the middle puff"},
+        {WX_RAIN, 19, 24, 0xA8B0BA, "Rain: the base line runs on under the middle puff"},
+        {WX_PARTLY_CLOUDY, 21, 33, 0xC4CCD4, "Partly: the base line runs on under the middle puff"},
         {WX_FOG, 20, 29, 0x9AA4B0, "Fog: the first mist line"},
         {WX_FOG, 20, 34, 0x9AA4B0, "Fog: the second"},
         {WX_SNOW, 20, 34, 0xD0DCE8, "Snow: a flake"},
