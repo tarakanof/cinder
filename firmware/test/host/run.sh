@@ -442,7 +442,7 @@ cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/
 cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
-cc $CFLAGS -I"$W/include" -I"$D" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
+cc $CFLAGS -I"$W/include" -I"$D" -include "$D/moment_pixel.h" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
     "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment_paint.c" -lm -o "${OUT}_moment_paint"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"

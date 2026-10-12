@@ -8,6 +8,9 @@
 #define OX (232.0f - 233.0f * WXM_K + 3.0f - WXM_BOX_X)
 #define OY (62.0f - 84.0f * WXM_K - WXM_BOX_Y)
 #define PTS 64
+#ifndef WXM_PIXEL
+#define WXM_PIXEL(im, y) ((void)0)
+#endif
 
 typedef struct {
     float x0, y0, x1, y1;
@@ -162,6 +165,7 @@ typedef uint32_t (*shade_fn)(const void *ctx, float u, float v, float *alpha);
 
 static void design_at(const img_t *im, int x, int y, float *u, float *v)
 {
+    WXM_PIXEL(im, y);
     *u = ((float)(im->x0 + x) + 0.5f - OX) / WXM_K;
     *v = ((float)(im->y0 + y) + 0.5f - OY) / WXM_K;
 }

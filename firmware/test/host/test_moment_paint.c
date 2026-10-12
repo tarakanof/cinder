@@ -31,22 +31,23 @@ static wxm_moment_t moment(wxm_kind_t k, bool sky, int phase, int illum)
     return m;
 }
 
-static int s_rows, s_calls, s_total, s_most;
-static uint8_t s_snap[WXM_ARENA];
+static int s_rows, s_calls, s_most, s_since, s_pixels, s_last_y;
+static const void *s_last_layer;
 
-static void since_last(void)
+void wxm_test_pixel(const void *layer, int y)
 {
-    int n = 0;
-    for (int i = 0; i < s_total; i++) n += s_got[i] != s_snap[i];
-    if (n > s_most) s_most = n;
-    memcpy(s_snap, s_got, (size_t)s_total);
+    s_pixels++;
+    if (layer == s_last_layer && y == s_last_y) return;
+    s_last_layer = layer;
+    s_last_y = y;
+    if (++s_since > s_most) s_most = s_since;
 }
 
 static void count_yield(void)
 {
-    if (s_total && s_calls) since_last();
-    else if (s_total) memcpy(s_snap, s_got, (size_t)s_total);
     s_calls++;
+    s_since = 0;
+    s_last_layer = NULL;
 }
 
 static int rows_of(const wxm_layout_t *l)
@@ -65,11 +66,9 @@ static void compare(const wxm_moment_t *m, const char *what)
     for (int fillv = 0; fillv < 2; fillv++) {
         memset(s_got, fillv ? 0xFF : 0, sizeof s_got);
         memset(s_ref, fillv ? 0xFF : 0, sizeof s_ref);
-        s_calls = s_most = 0;
-        s_total = l.total;
+        s_calls = s_most = s_since = s_pixels = 0;
+        s_last_layer = NULL;
         wxm_paint(m, &l, s_got, count_yield);
-        since_last();
-        s_total = 0;
         ref_wxm_paint(m, &rl, s_ref);
         int diff = -1;
         for (int i = 0; i < l.total && diff < 0; i++)
@@ -78,25 +77,24 @@ static void compare(const wxm_moment_t *m, const char *what)
               diff < 0 ? 0 : s_got[diff], diff < 0 ? 0 : s_ref[diff]);
         CHECK(s_got[l.total] == (fillv ? 0xFF : 0), "%s %s: nothing past the layout", KIND[m->kind], what);
         CHECK(s_calls >= rows_of(&l), "%s %s: %d yield calls, want one per row at least (%d)", KIND[m->kind], what, s_calls, rows_of(&l));
-        CHECK(s_most <= 3 * WXM_BOX_W, "%s %s: %d bytes changed between two yield calls, want one row at most (%d)", KIND[m->kind], what,
-              s_most, 3 * WXM_BOX_W);
+        CHECK(s_pixels > 0, "%s %s: no pixel evaluated through design_at", KIND[m->kind], what);
+        CHECK(s_most <= 1, "%s %s: %d layer rows evaluated between two yield calls, want one at most", KIND[m->kind], what, s_most);
         s_rows += rows_of(&l);
     }
 }
 
 static void test_same(void)
 {
-    static const int ILLUM[] = {0, 1, 5, 24, 25, 26, 49, 50, 51, 60, 74, 75, 76, 95, 99, 100};
     for (int a = 0; a < N_ALL; a++)
         for (int sky = 0; sky < 2; sky++) {
             wxm_moment_t m = moment(ALL[a], sky, 30, 60);
             compare(&m, sky ? "with sun/moon" : "without");
         }
     for (int p = 0; p < 2; p++)
-        for (size_t i = 0; i < sizeof ILLUM / sizeof ILLUM[0]; i++) {
+        for (int illum = 0; illum <= 100; illum++) {
             char what[48];
-            snprintf(what, sizeof what, "phase %d illum %d", p ? 80 : 30, ILLUM[i]);
-            wxm_moment_t m = moment(WXM_NIGHT, true, p ? 80 : 30, ILLUM[i]);
+            snprintf(what, sizeof what, "phase %d illum %d", p ? 80 : 30, illum);
+            wxm_moment_t m = moment(WXM_NIGHT, true, p ? 80 : 30, illum);
             compare(&m, what);
         }
 }
