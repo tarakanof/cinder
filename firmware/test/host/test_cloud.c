@@ -190,7 +190,7 @@ static void test_contract(void)
         {{false, 60, 3, {{35, 50, 20}, {50, 48, 6}, {65, 50, 20}}}, "a hidden middle puff"},
         {{false, 60, 2, {{30, 50, 15}, {50, 80, 15}}}, "a puff below the base"},
         {{false, 60, 2, {{30, 50, 15}, {48, 75, 16}}}, "a crossing below the base"},
-        {{false, 60, 0, {{0}}}, "no puff"},
+        {{false, 60, 0, {{0, 0, 0}}}, "no puff"},
         {{false, 60, 5, {{30, 50, 15}, {50, 50, 15}, {70, 50, 15}, {90, 50, 15}}}, "five puffs"},
         {{false, 60, 1, {{50, 50, 0}}}, "a zero radius"},
         {{false, NAN, 1, {{50, 50, 20}}}, "no base"},
