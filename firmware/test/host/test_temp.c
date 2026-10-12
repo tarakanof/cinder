@@ -354,6 +354,7 @@ static float off_puff(const wx_circle_t *a, const wx_circle_t *b, float t, float
 
 static void upper_cross(const wx_circle_t *a, const wx_circle_t *b, float *cx, float *cy)
 {
+    *cx = a->x;
     *cy = 1e9f;
     const int N = 3600;
     for (int i = 0; i < N; i++) {
