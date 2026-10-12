@@ -23,6 +23,7 @@ bool demo_act_parse(const char *s, demo_act_t *out)
     if (strcmp(s, "hop") == 0) out->kind = DEMO_ACT_HOP;
     else if (strcmp(s, "pop") == 0) out->kind = DEMO_ACT_POP;
     else if (strcmp(s, "blink") == 0) out->kind = DEMO_ACT_BLINK;
+    else if (strcmp(s, "sleepy") == 0) out->kind = DEMO_ACT_SLEEPY;
     else if (strcmp(s, "chase:full") == 0) out->kind = DEMO_ACT_CHASE;
     else if (strcmp(s, "chase:half") == 0) {
         out->kind = DEMO_ACT_CHASE;
@@ -83,6 +84,8 @@ static bool seen(const demo_t *d, const char *id)
     return false;
 }
 
+static bool natural(demo_act_kind_t k) { return k != DEMO_ACT_NONE && k != DEMO_ACT_SLEEPY; }
+
 static void end(demo_t *d)
 {
     d->phase = DEMO_DONE;
@@ -112,18 +115,20 @@ demo_ev_t demo_offer(demo_t *d, const demo_block_t *b, double t)
     d->phase = DEMO_PLAYING;
     d->gen++;
     d->ready = d->taken = d->act_done = false;
-    bool act = b->act.kind != DEMO_ACT_NONE;
     d->start = t;
-    d->min_until = t + (act && !b->has_view ? 0 : DEMO_VIEW_S);
-    d->max_until = t + (b->hold ? DEMO_HOLD_S : act ? DEMO_ACT_MAX_S : DEMO_VIEW_S);
+    d->min_until = d->max_until = t + DEMO_READY_MAX_S;
     return DEMO_EV_START;
 }
 
 bool demo_tick(demo_t *d, double t)
 {
     if (d->phase != DEMO_PLAYING) return false;
-    bool act_over = d->cur.act.kind == DEMO_ACT_NONE || d->act_done;
-    if (t < d->max_until && (d->cur.hold || t < d->min_until || !act_over)) return false;
+    bool act_over = !natural(d->cur.act.kind) || d->act_done;
+    if (!d->ready) {
+        if (t < d->max_until) return false;
+    } else if (t < d->max_until && (d->cur.hold || t < d->min_until || !act_over)) {
+        return false;
+    }
     end(d);
     return true;
 }
@@ -135,14 +140,18 @@ bool demo_input(demo_t *d)
     return true;
 }
 
-void demo_act_finished(demo_t *d)
+void demo_act_finished(demo_t *d, unsigned gen)
 {
-    if (d->phase == DEMO_PLAYING) d->act_done = true;
+    if (d->phase == DEMO_PLAYING && d->gen == gen) d->act_done = true;
 }
 
-void demo_ready(demo_t *d)
+void demo_ready(demo_t *d, double t)
 {
-    if (d->phase == DEMO_PLAYING) d->ready = true;
+    if (d->phase != DEMO_PLAYING || d->ready) return;
+    d->ready = true;
+    bool act = natural(d->cur.act.kind);
+    d->min_until = t + (act && !d->cur.has_view ? 0 : DEMO_VIEW_S);
+    d->max_until = t + (d->cur.hold ? DEMO_HOLD_S : act ? DEMO_ACT_MAX_S : DEMO_VIEW_S);
 }
 
 bool demo_take_start(demo_t *d, demo_block_t *out)
@@ -192,4 +201,29 @@ bool demo_query(const demo_t *d, char *out, size_t cap)
     ok = ok && put(out, cap, &n, d->phase == DEMO_PLAYING ? "&demo_state=playing" : "&demo_state=done");
     if (!ok) out[0] = 0;
     return ok;
+}
+
+int demo_mood(const demo_t *d, int real, int view_mood, int frozen)
+{
+    if (d->phase != DEMO_PLAYING) return real;
+    if (d->cur.has_view && view_mood >= 0) return view_mood;
+    return frozen >= 0 ? frozen : real;
+}
+
+bool demo_quiet_dim(bool playing, bool real_quiet) { return real_quiet && !playing; }
+
+bool demo_calm(bool playing, bool view_on, bool scene_quiet, bool real_quiet, bool calm_setting)
+{
+    if (view_on) return scene_quiet;
+    return !playing && real_quiet && calm_setting;
+}
+
+demo_gate_act_t demo_gate(demo_gate_t *g, const demo_gate_in_t *in, double t)
+{
+    if (in->input) g->quiet_until = t + DEMO_GATE_QUIET_S;
+    if (in->input && (in->playing || in->view_on)) g->on = true;
+    if (in->playing) return in->input ? DEMO_GATE_END : DEMO_GATE_DROP;
+    if (g->on && (in->input || in->held || in->view_on || t < g->quiet_until)) return DEMO_GATE_DROP;
+    g->on = false;
+    return in->view_on ? DEMO_GATE_DROP : DEMO_GATE_PASS;
 }

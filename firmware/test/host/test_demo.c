@@ -50,9 +50,10 @@ static void test_act(void)
     CHECK(demo_act_parse("hop", &a) && a.kind == DEMO_ACT_HOP, "hop");
     CHECK(demo_act_parse("pop", &a) && a.kind == DEMO_ACT_POP, "pop");
     CHECK(demo_act_parse("blink", &a) && a.kind == DEMO_ACT_BLINK, "blink");
+    CHECK(demo_act_parse("sleepy", &a) && a.kind == DEMO_ACT_SLEEPY, "sleepy");
     static const char *const BAD[] = {"", "moment", "moment:", "moment:storm", "moment:storm:", "moment:storm:loud",
                                       "moment:hail:full", "moment::full", "chase", "chase:quarter", "Hop", "hop ",
-                                      "moment:storm:full:x", "blinks"};
+                                      "moment:storm:full:x", "blinks", "Sleepy", "sleepy:full"};
     for (size_t i = 0; i < sizeof BAD / sizeof BAD[0]; i++)
         CHECK(!demo_act_parse(BAD[i], &a) && a.kind == DEMO_ACT_NONE, "bad act '%s'", BAD[i]);
     CHECK(!demo_act_parse(NULL, &a), "NULL act");
@@ -151,7 +152,7 @@ static void test_once(void)
     CHECK(demo_offer(&d, NULL, 0) == DEMO_EV_NONE, "absent, idle");
     CHECK(demo_offer(&d, &a, 10) == DEMO_EV_START && demo_playing(&d) && demo_view_wanted(&d), "a starts");
     CHECK(!demo_take_start(&d, &out), "not before the view is applied");
-    demo_ready(&d);
+    demo_ready(&d, 10);
     CHECK(demo_take_start(&d, &out) && strcmp(out.id, "a") == 0, "start taken");
     CHECK(!demo_take_start(&d, &out), "start taken once");
     CHECK(demo_query(&d, q, sizeof q) && strcmp(q, "demo_id=a&demo_state=playing") == 0, "playing: %s", q);
@@ -181,8 +182,22 @@ static void test_once(void)
         demo_block_t n = block(id, DEMO_PAGE_BOT, DEMO_ACT_NONE, false, false);
         CHECK(demo_offer(&d, &n, 40 + i) == DEMO_EV_START, "%s starts", id);
     }
-    demo_block_t n7 = block("n7", DEMO_PAGE_BOT, DEMO_ACT_NONE, false, false);
-    CHECK(demo_offer(&d, &n7, 60) == DEMO_EV_NONE, "the last id is remembered");
+    demo_block_t n1 = block("n1", DEMO_PAGE_BOT, DEMO_ACT_NONE, false, false);
+    CHECK(strcmp(d.cur.id, "n7") == 0 && demo_offer(&d, &n1, 60) == DEMO_EV_STOP && !demo_playing(&d),
+          "an earlier id in the ring is remembered: the playing one stops, n1 does not replay");
+    CHECK(demo_offer(&d, &n1, 61) == DEMO_EV_NONE, "n1 again: still nothing");
+
+    demo_init(&d);
+    for (int i = 0; i <= DEMO_SEEN; i++) {
+        char id[8];
+        snprintf(id, sizeof id, "x%d", i);
+        demo_block_t x = block(id, DEMO_PAGE_BOT, DEMO_ACT_NONE, false, false);
+        CHECK(demo_offer(&d, &x, 70 + i) == DEMO_EV_START, "%s starts", id);
+    }
+    demo_block_t x0 = block("x0", DEMO_PAGE_BOT, DEMO_ACT_NONE, false, false);
+    CHECK(demo_offer(&d, &x0, 90) == DEMO_EV_START, "the ring holds DEMO_SEEN ids: the oldest is evicted and plays again");
+    demo_block_t x2 = block("x2", DEMO_PAGE_BOT, DEMO_ACT_NONE, false, false);
+    CHECK(demo_offer(&d, &x2, 91) == DEMO_EV_STOP, "x2 is still in the ring");
 }
 
 static void test_timing(void)
@@ -191,26 +206,31 @@ static void test_timing(void)
     demo_init(&d);
     demo_block_t act = block("hop", DEMO_PAGE_BOT, DEMO_ACT_HOP, false, false);
     demo_offer(&d, &act, 100);
+    demo_ready(&d, 100);
     CHECK(!demo_tick(&d, 100.5), "an act runs until done");
-    CHECK(!demo_tick(&d, 159.9), "still waiting for the act");
-    demo_act_finished(&d);
-    CHECK(demo_tick(&d, 160.0), "act done: ends at once without a view");
+    CHECK(!demo_tick(&d, 101.0), "still waiting for the act");
+    demo_act_finished(&d, d.gen);
+    CHECK(demo_tick(&d, 101.0) && !demo_playing(&d), "act done: ends at once without a view, well before the 60 s cap");
 
     demo_block_t av = block("hop+view", DEMO_PAGE_BOT, DEMO_ACT_HOP, true, false);
     demo_offer(&d, &av, 200);
-    demo_act_finished(&d);
+    demo_ready(&d, 200);
+    demo_act_finished(&d, d.gen);
     CHECK(!demo_tick(&d, 207.9) && demo_tick(&d, 208.0), "an act with a view plays at least 8 s");
 
     demo_block_t stuck = block("stuck", DEMO_PAGE_BOT, DEMO_ACT_MOMENT, true, false);
     demo_offer(&d, &stuck, 300);
+    demo_ready(&d, 300);
     CHECK(!demo_tick(&d, 359.9) && demo_tick(&d, 360.0), "an act that never ends stops at 60 s");
 
     demo_block_t hold = block("hold", DEMO_PAGE_WEATHER, DEMO_ACT_NONE, true, true);
     demo_offer(&d, &hold, 400);
+    demo_ready(&d, 400);
     CHECK(!demo_tick(&d, 420) && !demo_tick(&d, 459.9) && demo_tick(&d, 460.0), "hold: 60 s");
     demo_block_t hold2 = block("hold2", DEMO_PAGE_BOT, DEMO_ACT_POP, false, true);
     demo_offer(&d, &hold2, 500);
-    demo_act_finished(&d);
+    demo_ready(&d, 500);
+    demo_act_finished(&d, d.gen);
     CHECK(!demo_tick(&d, 530), "hold outlasts its act");
     CHECK(demo_offer(&d, NULL, 531) == DEMO_EV_STOP && !demo_playing(&d), "the server clears a hold");
     char q[DEMO_QUERY_MAX];
@@ -219,8 +239,113 @@ static void test_timing(void)
     demo_offer(&d, &hold3, 600);
     demo_block_t next = block("next", DEMO_PAGE_BOT, DEMO_ACT_NONE, true, false);
     CHECK(demo_offer(&d, &next, 610) == DEMO_EV_START && strcmp(d.cur.id, "next") == 0, "a new id ends a hold");
-    demo_act_finished(&d);
+    demo_ready(&d, 610);
+    demo_act_finished(&d, d.gen);
     CHECK(!demo_tick(&d, 611), "act_finished without an act changes nothing");
+
+    demo_block_t late = block("late", DEMO_PAGE_POMODORO, DEMO_ACT_NONE, true, false);
+    demo_offer(&d, &late, 700);
+    CHECK(!demo_tick(&d, 704.9), "not ready yet: waiting");
+    demo_ready(&d, 704.9);
+    CHECK(!demo_tick(&d, 708.0) && !demo_tick(&d, 712.8) && demo_tick(&d, 712.9),
+          "the 8 s start when the scene is ready, not at the offer");
+    demo_ready(&d, 720);
+    demo_block_t never = block("never", DEMO_PAGE_BOT, DEMO_ACT_NONE, true, false);
+    demo_offer(&d, &never, 800);
+    CHECK(!demo_tick(&d, 800 + DEMO_READY_MAX_S - 0.1) && demo_tick(&d, 800 + DEMO_READY_MAX_S) && !demo_playing(&d),
+          "never ready: it ends after DEMO_READY_MAX_S");
+
+    demo_block_t sl = block("sleepy", DEMO_PAGE_BOT, DEMO_ACT_SLEEPY, false, false);
+    demo_offer(&d, &sl, 900);
+    demo_ready(&d, 900);
+    CHECK(!demo_tick(&d, 907.9) && demo_tick(&d, 908.0), "sleepy has no natural end: it plays 8 s, view or not");
+}
+
+static void test_stale_act(void)
+{
+    demo_t d;
+    demo_init(&d);
+    demo_block_t a = block("a", DEMO_PAGE_BOT, DEMO_ACT_HOP, false, false);
+    demo_offer(&d, &a, 0);
+    demo_ready(&d, 0);
+    unsigned ga = d.gen;
+    demo_block_t b = block("b", DEMO_PAGE_BOT, DEMO_ACT_POP, false, false);
+    CHECK(demo_offer(&d, &b, 1) == DEMO_EV_START, "b replaces a");
+    demo_ready(&d, 1);
+    demo_act_finished(&d, ga);
+    CHECK(!demo_tick(&d, 1.1) && demo_playing(&d), "a's late act completion does not end b");
+    demo_act_finished(&d, d.gen);
+    CHECK(demo_tick(&d, 1.2), "b's own completion does");
+}
+
+static void test_mood(void)
+{
+    enum { REAL = 2, VIEW = 5, FROZEN = 3 };
+    demo_t d;
+    demo_init(&d);
+    CHECK(demo_mood(&d, REAL, VIEW, FROZEN) == REAL, "no demo: real");
+    demo_block_t v = block("v", DEMO_PAGE_BOT, DEMO_ACT_NONE, true, false);
+    demo_offer(&d, &v, 0);
+    CHECK(demo_mood(&d, REAL, VIEW, FROZEN) == VIEW, "a view scene: its mood");
+    CHECK(demo_mood(&d, REAL, -1, FROZEN) == FROZEN, "a view without a mood: the mood at the start");
+    demo_block_t n = block("n", DEMO_PAGE_BOT, DEMO_ACT_HOP, false, false);
+    demo_offer(&d, &n, 1);
+    CHECK(demo_mood(&d, REAL, VIEW, FROZEN) == FROZEN && demo_mood(&d, REAL, VIEW, -1) == REAL,
+          "no view: frozen, else real");
+    demo_input(&d);
+    CHECK(demo_mood(&d, REAL, VIEW, FROZEN) == REAL, "ended: real");
+}
+
+static void test_quiet(void)
+{
+    CHECK(demo_quiet_dim(false, true) && !demo_quiet_dim(true, true) && !demo_quiet_dim(false, false),
+          "quiet dimming: the real quiet, off while a demo plays");
+    CHECK(demo_calm(true, true, true, false, false), "the quiet calm scene is calm, real quiet and setting off");
+    CHECK(!demo_calm(true, true, false, true, true), "a scene view without quiet is not calm in real quiet hours");
+    CHECK(!demo_calm(true, false, false, true, true), "a scene without a view is not calm");
+    CHECK(demo_calm(false, true, true, false, false), "the scene's view still applied just after the end: still its calm");
+    CHECK(demo_calm(false, false, false, true, true) && !demo_calm(false, false, false, true, false) &&
+              !demo_calm(false, false, true, false, true),
+          "no demo: the real quiet and the setting");
+}
+
+static demo_gate_act_t gate(demo_gate_t *g, bool playing, bool input, bool held, bool view_on, double t)
+{
+    demo_gate_in_t in = {.playing = playing, .input = input, .held = held, .view_on = view_on};
+    return demo_gate(g, &in, t);
+}
+
+static void test_gate(void)
+{
+    demo_gate_t g = {0};
+    CHECK(gate(&g, false, true, false, false, 0) == DEMO_GATE_PASS, "no demo: inputs pass");
+    CHECK(gate(&g, true, false, false, false, 1) == DEMO_GATE_DROP, "a demo offered, not yet shown: nothing to end");
+    CHECK(gate(&g, true, true, true, true, 1.0) == DEMO_GATE_END, "touch down while offered: ends it, dropped");
+    CHECK(gate(&g, false, false, true, true, 1.05) == DEMO_GATE_DROP, "still down");
+    CHECK(gate(&g, false, true, false, true, 1.1) == DEMO_GATE_DROP, "the release's tap is dropped");
+    CHECK(gate(&g, false, false, false, false, 1.3) == DEMO_GATE_DROP, "within 300 ms of the last input");
+    CHECK(gate(&g, false, false, false, false, 1.45) == DEMO_GATE_PASS && !g.on, "the gesture is over");
+    CHECK(gate(&g, false, true, false, false, 1.5) == DEMO_GATE_PASS, "a new input reaches the page");
+
+    g = (demo_gate_t){0};
+    CHECK(gate(&g, true, true, false, true, 10.0) == DEMO_GATE_END, "the first detent ends it");
+    for (int i = 1; i <= 9; i++) {
+        double t = 10 + 0.1 * i;
+        CHECK(gate(&g, false, true, false, i < 5, t) == DEMO_GATE_DROP, "detent at %.1f", t);
+    }
+    CHECK(gate(&g, false, false, false, false, 11.1) == DEMO_GATE_DROP, "200 ms after the last detent");
+    CHECK(gate(&g, false, false, false, false, 11.25) == DEMO_GATE_PASS, "300 ms quiet: inputs pass");
+
+    g = (demo_gate_t){0};
+    CHECK(gate(&g, true, true, true, true, 20.0) == DEMO_GATE_END, "a push ends it");
+    CHECK(gate(&g, false, false, false, true, 21.0) == DEMO_GATE_DROP, "the scene's view is still applied");
+    CHECK(gate(&g, false, false, true, false, 21.1) == DEMO_GATE_DROP, "the button still down");
+    CHECK(gate(&g, false, false, false, false, 21.2) == DEMO_GATE_PASS, "all clear");
+
+    g = (demo_gate_t){0};
+    CHECK(gate(&g, false, true, false, true, 30.0) == DEMO_GATE_DROP, "ended on its own, real view not back: dropped");
+    CHECK(gate(&g, false, true, false, false, 30.1) == DEMO_GATE_DROP, "and that gesture's rest too");
+    CHECK(gate(&g, false, false, false, false, 30.5) == DEMO_GATE_PASS, "then clear");
 }
 
 static void test_input(void)
@@ -237,7 +362,7 @@ static void test_input(void)
     CHECK(demo_query(&d, q, sizeof q) && strcmp(q, "demo_id=a&demo_state=done") == 0, "done after input");
     CHECK(!demo_tick(&d, 100), "nothing to end");
     demo_block_t out;
-    demo_ready(&d);
+    demo_ready(&d, 100);
     CHECK(!demo_take_start(&d, &out), "no start after the end");
 }
 
@@ -311,6 +436,10 @@ int main(int argc, char **argv)
     test_timing();
     test_input();
     test_query();
+    test_stale_act();
+    test_mood();
+    test_quiet();
+    test_gate();
     if (argc > 1) CHECK(parse_dir(argv[1], true) >= 4, "own demo fixtures");
     int ember = argc > 2 ? parse_dir(argv[2], false) : 0;
     if (failures) {

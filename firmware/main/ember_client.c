@@ -302,8 +302,9 @@ static bool s_fade_on;
 static int s_bright_target = -1;
 static int s_bright_want = -1;
 static atomic_bool s_quiet;
+static atomic_bool s_quiet_dim;
 
-static int fade_floor(void) { return dim_quiet_floor(s_ks.floor, atomic_load(&s_quiet), s_ks.quiet_dim); }
+static int fade_floor(void) { return dim_quiet_floor(s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim); }
 
 static void set_brightness_target(int level)
 {
@@ -316,7 +317,7 @@ static void bright_apply(void)
 {
     if (s_fade_on) dim_fade_set_floor(&s_fade, fade_floor());
     if (s_bright_want < 0) return;
-    set_brightness_target(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet), s_ks.quiet_dim));
+    set_brightness_target(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim));
 }
 
 static void bright_want(int level)
@@ -401,6 +402,7 @@ static void watchdog_start(void)
 static EXT_RAM_BSS_ATTR demo_t s_demo;
 static portMUX_TYPE s_demo_mux = portMUX_INITIALIZER_UNLOCKED;
 static atomic_bool s_demo_view_on;
+static atomic_bool s_demo_quiet;
 static atomic_int s_demo_mood = -1;
 
 static bool demo_moved(void)
@@ -822,15 +824,14 @@ static void demo_offer_view(void)
     }
 }
 
-static int demo_mood(int real)
+static int scene_mood(int real)
 {
-    taskENTER_CRITICAL(&s_demo_mux);
-    bool playing = demo_playing(&s_demo), view = demo_view_wanted(&s_demo);
-    taskEXIT_CRITICAL(&s_demo_mux);
-    if (!playing) return real;
-    if (view && P->vs.demo_view.has_mood) return (int)knob_view_mood(&P->vs.demo_view);
+    int view = P->vs.demo_view.has_mood ? (int)knob_view_mood(&P->vs.demo_view) : -1;
     int frozen = atomic_load(&s_demo_mood);
-    return frozen >= 0 ? frozen : real;
+    taskENTER_CRITICAL(&s_demo_mux);
+    int m = demo_mood(&s_demo, real, view, frozen);
+    taskEXIT_CRITICAL(&s_demo_mux);
+    return m;
 }
 
 static void view_host(const knob_view_t *v, ember_host_info_t *host)
@@ -848,6 +849,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     P->demo_gen = s_demo.gen;
     taskEXIT_CRITICAL(&s_demo_mux);
     const knob_view_t *e = want ? &P->vs.demo_view : v;
+    atomic_store(&s_demo_quiet, want && e->quiet);
     atomic_store(&s_demo_view_on, want);
     view_host(e, host);
     char key[48];
@@ -859,7 +861,8 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
         pomo_client_feed(e->has_pomo ? &e->pomo : NULL, e->pomo_counting, e->ends_at, srv_now, sent, received);
     weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
     np_client_feed(e->has_np ? &e->np : NULL);
-    set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet && !playing));
+    set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
+    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));
     view_brightness();
     bright_apply();
 }
@@ -959,7 +962,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     case KNOB_STEP_APPLY:
         demo_offer_view();
         apply_view(host, srv_now, sent, received);
-        *mood = demo_mood(st.mood);
+        *mood = scene_mood(st.mood);
         return status;
     case KNOB_STEP_RESTORE:
         view_host(&P->vs.view, host);
@@ -993,7 +996,7 @@ static void demo_sync(ember_host_info_t *host, int *mood, bool *fresh)
     double now = pomo_client_now();
     apply_view(host, 0, now, now);
     if (*mood >= 0) {
-        *mood = demo_mood(P->vs.view.has_mood ? (int)knob_view_mood(&P->vs.view) : -1);
+        *mood = scene_mood(P->vs.view.has_mood ? (int)knob_view_mood(&P->vs.view) : -1);
         *fresh = *mood >= 0;
     }
     if (!playing) ESP_LOGI(TAG, "demo done");
@@ -1002,7 +1005,7 @@ static void demo_sync(ember_host_info_t *host, int *mood, bool *fresh)
 static void demo_mark_ready(void)
 {
     taskENTER_CRITICAL(&s_demo_mux);
-    if (P->demo_gen == s_demo.gen) demo_ready(&s_demo);
+    if (P->demo_gen == s_demo.gen) demo_ready(&s_demo, demo_now());
     taskEXIT_CRITICAL(&s_demo_mux);
 }
 
@@ -1098,6 +1101,7 @@ static void poll_task(void *arg)
         bool online = atomic_load(&s_online);
         bool fresh = false;
         P->rearm_ms = -1;
+        demo_sync(&host, &mood, &fresh);
         if (online) {
             int status = -1;
             bool viewed = false;
@@ -1261,6 +1265,7 @@ void ember_client_demo_status(ember_demo_status_t *out)
     out->gen = s_demo.gen;
     taskEXIT_CRITICAL(&s_demo_mux);
     out->view_on = atomic_load(&s_demo_view_on);
+    out->quiet = atomic_load(&s_demo_quiet);
 }
 
 bool ember_client_demo_take(demo_block_t *out, unsigned *gen)
@@ -1272,12 +1277,13 @@ bool ember_client_demo_take(demo_block_t *out, unsigned *gen)
     return ok;
 }
 
-void ember_client_demo_tick(double t)
+bool ember_client_demo_tick(double t)
 {
     taskENTER_CRITICAL(&s_demo_mux);
     bool ended = demo_tick(&s_demo, t);
     taskEXIT_CRITICAL(&s_demo_mux);
     if (ended) ember_client_wake();
+    return ended;
 }
 
 bool ember_client_demo_input(void)
@@ -1289,10 +1295,10 @@ bool ember_client_demo_input(void)
     return ended;
 }
 
-void ember_client_demo_act_done(void)
+void ember_client_demo_act_done(unsigned gen)
 {
     taskENTER_CRITICAL(&s_demo_mux);
-    demo_act_finished(&s_demo);
+    demo_act_finished(&s_demo, gen);
     taskEXIT_CRITICAL(&s_demo_mux);
 }
 

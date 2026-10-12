@@ -58,24 +58,24 @@ int ember_client_join_failures(void);
 /* Any task. */
 void ember_client_host(ember_host_info_t *out);
 
-/* Demo scenes (docs/features.md, demo mode). gen moves on every start and end; view_on: the demo's view is the one
-   applied (the pages and the weather see it), which lags the end until the poll task puts the real view back. */
+/* gen moves on every demo start and end; view_on (quiet: its quiet) lags the end until the real view is back. */
 typedef struct {
     bool playing;
     unsigned gen;
     bool view_on;
+    bool quiet;
 } ember_demo_status_t;
 
 /* Any task. */
 void ember_client_demo_status(ember_demo_status_t *out);
 /* LVGL task: the scene to start and its gen, once per demo, after its view is applied. */
 bool ember_client_demo_take(demo_block_t *out, unsigned *gen);
-/* LVGL task, every frame: ends a demo past its time. */
-void ember_client_demo_tick(double t);
+/* LVGL task, every frame: ends a demo past its time (true when it did). */
+bool ember_client_demo_tick(double t);
 /* LVGL task: true when a demo was playing; it ends and the input is consumed. */
 bool ember_client_demo_input(void);
-/* LVGL task: the scene's act has played. */
-void ember_client_demo_act_done(void);
+/* LVGL task: the act of the scene with this gen has played. */
+void ember_client_demo_act_done(unsigned gen);
 
 /* level on the 0-255 scale; call once after the BSP init. */
 void ember_client_dim_enable(uint8_t current_level);
