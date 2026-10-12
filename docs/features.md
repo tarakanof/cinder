@@ -34,14 +34,17 @@ The first batch of [`bot-review.md`](bot-review.md) (user decision: P5 + P1 + P8
 - **P8, error**: the label canvas leaves out the tool icon in error (`bot_label_mark`: the Clawd and Codex marks and T3's pixel icon); the text stays below the triangle as a name plate. The label now re-renders on a mood change (`s_label_mood`), not only on a colour change.
 - **Tests** (`test_bot.c`): `test_micro_saccades` (4 idle seeds over 280 s: count, amplitude, 25 ms, none in a fixation's first 0.6 s or within 50 ms of the next saccade, no lean or blink, gaps 0.3-2.5 s with a median near 0.8 s, mean cosine toward the target > 0.6, drift < 0.06; sleepy half amplitude and 2 s median; every other mood; none while tracking, held by a half chase or acting), `test_outline_dy` (rounding table, mirror symmetry and evenness from −14 to 14 px, no outline move off a hop in any mood with knob glances while the lean still reaches ≥ 1.5 px), `test_badged_rest` (done targets only the new rest or the viewer; the label mark except in error), and `hop_dy` in `test_pose_same`. Against the 0.9.67 behaviour (the old `bot_behavior.c` with the two new functions stubbed the old way) all of them fail. `test_moment.c` models the outline offset with `bot_rim_dy`.
 - **Cost** (`idf.py size`, origin/main 0.9.67 at 3c39425 → this branch, same machine, IDF 5.5.5): image 1,702,191 → 1,703,687 B (+1,496, flash `.text`); DIRAM 102,303 → 102,327 B (`.bss` +24, three doubles in `bot_t`); PSRAM `.bss` unchanged. `stack_walk.py` `lvgl` 8,608 (margin 1,888) unchanged. Simulated (BotNext, review table): +2-4 eye redraws/s, eye areas only, steps ≤ 3 px; outline moves off hops 10.8 → 0/min in idle, 10.4 → 0 in done, 36.6 → 0 in error.
-- **On the knob** (to measure after release; Ember's demo mood scenes show all three):
+- **On the knob**: 0.9.67 baseline from Ember's full diagnostics, a 1 h window on 2026-10-12 (58 one-minute points, mixed pages and moods, so an aggregate, not per mood). 0.9.68 is to measure after release the same way, then per mood with Ember's demo mood scenes, which show all three changes. Invalidated areas come from the 30 s serial stats log, to measure on both builds.
 
-  | | 0.9.67 | 0.9.68 |
+  | | 0.9.67 (aggregate, 1 h) | 0.9.68 |
   |---|---|---|
-  | Invalidated areas/s (idle, done, error) | to measure on the knob after release | to measure on the knob after release |
-  | fps | to measure on the knob after release | to measure on the knob after release |
-  | Core 0 load | to measure on the knob after release | to measure on the knob after release |
-  | Internal free | to measure on the knob after release | to measure on the knob after release |
+  | Core 0 load | median 18 % (14–27) | to measure on the knob after release |
+  | Core 1 load | median 8 % | to measure on the knob after release |
+  | Render fps | median 12.9 (6.6–26) | to measure on the knob after release |
+  | Frame avg | 6.0 ms (5.75–8.0) | to measure on the knob after release |
+  | Frame max | median 12.5 ms (11–52) | to measure on the knob after release |
+  | Internal free | 84.6 KB (84.2–84.8) | to measure on the knob after release |
+  | Invalidated areas/s (serial stats log) | to measure | to measure on the knob after release |
 
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
