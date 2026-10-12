@@ -251,7 +251,10 @@ static void test_arcs(void)
     o.obs_age_s += 60;
     wx_cast_from(&o, NULL, &c);
     CHECK(c.wet && c.narc == 1 && c.arc[0].a == 150 && c.arc[0].n == 3, "14:31: the spell ending 14:33 is lit (%d arcs)", c.narc);
-    o.obs_age_s += 180;
+    o.obs_age_s += 120;
+    wx_cast_from(&o, NULL, &c);
+    CHECK(!c.wet && c.narc == 0, "14:33: a spell ending exactly now off the 5-min grid is not lit (%d arcs)", c.narc);
+    o.obs_age_s += 60;
     wx_cast_from(&o, NULL, &c);
     CHECK(!c.wet && c.dry && c.narc == 0, "14:34: a spell ending off the 5-min grid is not lit after it ended (%d arcs)", c.narc);
 }
