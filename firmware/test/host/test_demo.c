@@ -445,6 +445,24 @@ static int parse_dir(const char *dir, bool need)
     return n;
 }
 
+static void ember_asleep(const char *dir)
+{
+    char *j = load(dir, "bot.asleep.json");
+    CHECK(j != NULL, "Ember's bot.asleep scene");
+    if (!j) return;
+    static knob_view_t v, dv;
+    CHECK(knob_view_read_full(j, &v, NULL, &dv) == KNOB_VIEW_OK, "bot.asleep parses");
+    CHECK(v.demo.present && v.demo.page == DEMO_PAGE_BOT && v.demo.has_view && v.demo.act.kind == DEMO_ACT_ASLEEP,
+          "bot.asleep: the bot page, a view and the asleep act");
+    demo_t d;
+    demo_init(&d);
+    CHECK(demo_offer(&d, &v.demo, 50) == DEMO_EV_START, "bot.asleep starts");
+    demo_ready(&d, 50);
+    demo_act_finished(&d, d.gen);
+    CHECK(!demo_tick(&d, 57.9) && demo_tick(&d, 58.0), "bot.asleep plays 8 s, as sleepy");
+    free(j);
+}
+
 int main(int argc, char **argv)
 {
     test_act();
@@ -461,6 +479,7 @@ int main(int argc, char **argv)
     test_gate();
     if (argc > 1) CHECK(parse_dir(argv[1], true) >= 4, "own demo fixtures");
     int ember = argc > 2 ? parse_dir(argv[2], false) : 0;
+    if (ember) ember_asleep(argv[2]);
     if (failures) {
         printf("demo: %d failure(s)\n", failures);
         return 1;
