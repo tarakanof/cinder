@@ -752,38 +752,83 @@ static float ellipse_d(float x, float y, float cx, float cy, float rx, float ry)
 #define CANOPY_RY 103.0f
 #define SCALLOPS 5
 #define UMB_HW 2.25f
+#define SCALLOP_RY 9.0f
+#define HANDLE_X 233.0f
+#define HANDLE_TOP 185.0f
+#define HANDLE_GAP0 210.75f
+#define HANDLE_GAP1 336.25f
+#define HOOK_Y 366.0f
+#define HOOK_R 11.0f
+#define FERRULE_Y0 81.0f
+#define FERRULE_Y1 93.0f
 
 static float canopy_d(float x, float y)
 {
     float cx = (CANOPY_L + CANOPY_R) / 2, rx = (CANOPY_R - CANOPY_L) / 2;
     float d = fmaxf(ellipse_d(x, y, cx, CANOPY_RIM, rx, CANOPY_RY), y - CANOPY_RIM);
     float w = (CANOPY_R - CANOPY_L) / SCALLOPS;
-    for (int k = 0; k < SCALLOPS; k++) d = fmaxf(d, -ellipse_d(x, y, CANOPY_L + w * (k + 0.5f), CANOPY_RIM, w / 2, 9));
+    for (int k = 0; k < SCALLOPS; k++) d = fmaxf(d, -ellipse_d(x, y, CANOPY_L + w * (k + 0.5f), CANOPY_RIM, w / 2, SCALLOP_RY));
     return d;
 }
 
 static float handle_d(float x, float y)
 {
-    float d = seg_d(x, y, 233, 185, 233, 210.75f);
-    d = fminf(d, seg_d(x, y, 233, 336.25f, 233, 366));
-    float arc = y >= 366 ? fabsf(hypotf(x - 244, y - 366) - 11) : fminf(hypotf(x - 233, y - 366), hypotf(x - 255, y - 366));
+    float d = seg_d(x, y, HANDLE_X, HANDLE_TOP, HANDLE_X, HANDLE_GAP0);
+    d = fminf(d, seg_d(x, y, HANDLE_X, HANDLE_GAP1, HANDLE_X, HOOK_Y));
+    float arc = y >= HOOK_Y ? fabsf(hypotf(x - (HANDLE_X + HOOK_R), y - HOOK_Y) - HOOK_R)
+                            : fminf(hypotf(x - HANDLE_X, y - HOOK_Y), hypotf(x - (HANDLE_X + 2 * HOOK_R), y - HOOK_Y));
     return fminf(d, arc);
+}
+
+#define UMB_REACH (UMB_HW + 0.5f)
+
+static void umbrella_handle(wx_img_t *im, uint16_t c, float fy0, float fy1)
+{
+    int x0, y0, x1, y1;
+    clip(im, HANDLE_X - UMB_REACH - 1, fy0, HANDLE_X + 2 * HOOK_R + UMB_REACH + 1, fy1, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
+            put(im, y * im->w + x, c, cov(handle_d(fx, fy) - UMB_HW));
+        }
+}
+
+static void umbrella_canopy(wx_img_t *im, uint16_t c)
+{
+    const float cx = (CANOPY_L + CANOPY_R) / 2, rx = (CANOPY_R - CANOPY_L) / 2;
+    const float out2 = 1.06f * 1.06f, in2 = 0.94f * 0.94f, scallop_reach = SCALLOP_RY + 14.0f;
+    int x0, y0, x1, y1;
+    clip(im, CANOPY_L - 4, CANOPY_RIM - CANOPY_RY - 8, CANOPY_R + 4, CANOPY_RIM + UMB_REACH + 1, &x0, &y0, &x1, &y1);
+    for (int y = y0; y < y1; y++) {
+        float fy = (float)(im->y0 + y) + 0.5f, v = (fy - CANOPY_RIM) / CANOPY_RY;
+        bool deep_row = CANOPY_RIM - fy >= scallop_reach;
+        for (int x = x0; x < x1; x++) {
+            float fx = (float)(im->x0 + x) + 0.5f, u = (fx - cx) / rx, r2 = u * u + v * v;
+            if (r2 >= out2) continue;
+            int i = y * im->w + x;
+            if (deep_row && r2 <= in2) {
+                put(im, i, 0, 1);
+                continue;
+            }
+            float d = canopy_d(fx, fy);
+            put(im, i, 0, cov(d));
+            put(im, i, c, cov(fabsf(d) - UMB_HW));
+        }
+    }
 }
 
 void wx_paint_umbrella(wx_img_t *im)
 {
     const uint16_t orange = wx_rgb565(0xFF8A3D);
+    umbrella_handle(im, orange, HANDLE_TOP - UMB_REACH - 1, HANDLE_GAP0 + UMB_REACH + 1);
+    umbrella_handle(im, orange, HANDLE_GAP1 - UMB_REACH - 1, HOOK_Y + HOOK_R + UMB_REACH + 1);
+    umbrella_canopy(im, orange);
     int x0, y0, x1, y1;
-    clip(im, CANOPY_L - 4, 76, CANOPY_R + 4, 382, &x0, &y0, &x1, &y1);
+    clip(im, HANDLE_X - UMB_REACH - 1, FERRULE_Y0 - UMB_REACH - 1, HANDLE_X + UMB_REACH + 1, FERRULE_Y1 + UMB_REACH + 1, &x0, &y0, &x1, &y1);
     for (int y = y0; y < y1; y++)
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
-            int i = y * im->w + x;
-            put(im, i, orange, cov(handle_d(fx, fy) - UMB_HW));
-            float d = canopy_d(fx, fy);
-            put(im, i, 0, cov(d));
-            put(im, i, orange, cov(fabsf(d) - UMB_HW));
-            put(im, i, orange, cov(seg_d(fx, fy, 233, 93, 233, 81) - UMB_HW));
+            put(im, y * im->w + x, orange, cov(seg_d(fx, fy, HANDLE_X, FERRULE_Y1, HANDLE_X, FERRULE_Y0) - UMB_HW));
         }
 }
 
@@ -850,24 +895,32 @@ void wx_paint_drip(uint8_t *a8, int pose)
     const float sc = SCALE[pose < 0 ? 0 : pose >= WX_DRIP_POSES ? WX_DRIP_POSES - 1 : pose];
     const float ox = WX_DRIP_W / 2.0f, oy = 203.0f - WX_DRIP_Y;
     memset(a8, 0, WX_DRIP_W * WX_DRIP_H);
-    for (int y = 0; y < WX_DRIP_H; y++)
+    for (int y = 0; y < WX_DRIP_H; y++) {
+        float hw[4];
+        bool in[4], any = false;
+        for (int sy = 0; sy < 4; sy++) {
+            float py = ((float)y + (sy + 0.5f) / 4 - oy) / sc + 203.0f;
+            in[sy] = !(py < 199 || py > 208);
+            if (!in[sy]) continue;
+            any = true;
+            float lo = 0, hi = 1;
+            for (int it = 0; it < 24; it++) {
+                float t = (lo + hi) / 2, u = 1 - t;
+                float yt = 199 * u * u + 2 * u * t * 205 + 208 * t * t;
+                if (yt < py) lo = t;
+                else hi = t;
+            }
+            hw[sy] = drip_hw((lo + hi) / 2);
+        }
+        if (!any) continue;
         for (int x = 0; x < WX_DRIP_W; x++) {
             int hit = 0;
             for (int sy = 0; sy < 4; sy++)
-                for (int sx = 0; sx < 4; sx++) {
-                    float px = ((float)x + (sx + 0.5f) / 4 - ox) / sc, py = ((float)y + (sy + 0.5f) / 4 - oy) / sc + 203.0f;
-                    if (py < 199 || py > 208) continue;
-                    float lo = 0, hi = 1;
-                    for (int it = 0; it < 24; it++) {
-                        float t = (lo + hi) / 2, u = 1 - t;
-                        float yt = 199 * u * u + 2 * u * t * 205 + 208 * t * t;
-                        if (yt < py) lo = t;
-                        else hi = t;
-                    }
-                    if (fabsf(px) <= drip_hw((lo + hi) / 2)) hit++;
-                }
+                for (int sx = 0; in[sy] && sx < 4; sx++)
+                    if (fabsf(((float)x + (sx + 0.5f) / 4 - ox) / sc) <= hw[sy]) hit++;
             a8[y * WX_DRIP_W + x] = (uint8_t)(hit * 255 / 16);
         }
+    }
 }
 
 void wx_paint_splash(uint8_t *a8, int n)
