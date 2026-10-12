@@ -249,6 +249,33 @@ static void test_switch(void)
     page_log_reset();
     CHECK(!pages_step(&nav, 1) && page_log[0] == 0, "one page: no step");
     CHECK_NAV(nav);
+
+    knob_settings_parse("{\"pages\":[{\"id\":\"bot\",\"on\":true},{\"id\":\"pomodoro\",\"on\":true},"
+                        "{\"id\":\"weather\",\"on\":true}],\"home\":\"bot\"}",
+                        &ks);
+    pages_settings(&nav, &ks, true);
+    pages_step(&nav, 1);
+    CHECK(nav.page == index_of("pomodoro") && nav.pos == 1, "the user's page: pomodoro");
+    pages_show(&nav, index_of("bot"));
+    knob_settings_parse("{\"pages\":[{\"id\":\"weather\",\"on\":true},{\"id\":\"pomodoro\",\"on\":true},"
+                        "{\"id\":\"bot\",\"on\":true}],\"home\":\"bot\"}",
+                        &ks);
+    page_log_reset();
+    pages_settings(&nav, &ks, false);
+    CHECK(nav.order[nav.pos] == index_of("pomodoro") && nav.page == index_of("bot") && page_log[0] == 0,
+          "a settings change while a scene shows bot keeps pomodoro as the user's page, no show: pos %d %s", nav.pos,
+          page_log);
+    pages_resume(&nav);
+    CHECK_NAV(nav);
+    CHECK(nav.page == index_of("pomodoro"), "the scene's end brings pomodoro back");
+    pages_show(&nav, index_of("weather"));
+    knob_settings_parse("{\"pages\":[{\"id\":\"weather\",\"on\":true},{\"id\":\"pomodoro\",\"on\":false},"
+                        "{\"id\":\"bot\",\"on\":true}],\"home\":\"bot\"}",
+                        &ks);
+    page_log_reset();
+    pages_settings(&nav, &ks, false);
+    CHECK(nav.order[nav.pos] == index_of("bot") && nav.page == index_of("weather") && page_log[0] == 0,
+          "the user's page turned off mid-scene: home becomes theirs, the scene keeps showing: %s", page_log);
 }
 
 static void test_ops(void)
