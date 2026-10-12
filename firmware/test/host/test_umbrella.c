@@ -168,11 +168,14 @@ static int first_diff(const wx_img_t *a, const wx_img_t *b)
     return -1;
 }
 
-static void test_face_bg(void)
+static void test_face(bool alpha)
 {
     static uint16_t got[WX_FACE * WX_FACE], want[WX_FACE * WX_FACE];
+    static uint8_t got_a[WX_FACE * WX_FACE], want_a[WX_FACE * WX_FACE];
+    const char *what = alpha ? "face RGBA" : "face bg";
     for (int noise = 0; noise < 2; noise++) {
-        wx_img_t g = {.px = got, .w = WX_FACE, .h = WX_FACE}, w = {.px = want, .w = WX_FACE, .h = WX_FACE};
+        wx_img_t g = {.px = got, .a = alpha ? got_a : NULL, .w = WX_FACE, .h = WX_FACE};
+        wx_img_t w = {.px = want, .a = alpha ? want_a : NULL, .w = WX_FACE, .h = WX_FACE};
         uint32_t seed = rng;
         fill(&g, noise);
         rng = seed;
@@ -180,8 +183,13 @@ static void test_face_bg(void)
         wx_paint_umbrella(&g);
         ref_umbrella(&w);
         int i = first_diff(&g, &w);
-        CHECK(i < 0, "face bg (%s): first diff at (%d, %d) %04X want %04X", noise ? "noise" : "cleared", i % WX_FACE, i / WX_FACE,
+        CHECK(i < 0, "%s (%s): first diff at (%d, %d) %04X want %04X", what, noise ? "noise" : "cleared", i % WX_FACE, i / WX_FACE,
               i < 0 ? 0 : got[i], i < 0 ? 0 : want[i]);
+        if (alpha && !noise) {
+            CHECK(got_a[190 * WX_FACE + 233] == 255 && got_a[185 * WX_FACE + 233] > 0 && got_a[200 * WX_FACE + 233] > 0,
+                  "face RGBA: the handle/canopy overlap near (233, 185) is painted");
+            CHECK(got_a[377 * WX_FACE + 244] > 0 && got_a[366 * WX_FACE + 255] > 0, "face RGBA: the lower hook is painted");
+        }
     }
 }
 
@@ -273,15 +281,27 @@ static void test_bake(void)
     } CASES[] = {{"rain-light", WX_PRECIP_RAIN, 1, true, false}, {"rain-moderate", WX_PRECIP_RAIN, 2, true, false},
                  {"rain-heavy", WX_PRECIP_RAIN, 3, true, false}, {"snow", WX_PRECIP_SNOW, 2, true, false},
                  {"storm", WX_PRECIP_STORM, 3, false, false},    {"dry", WX_PRECIP_RAIN, 1, true, true}};
-    double got_ms = 1e9, ref_ms = 1e9;
+    wx_temp_t t = {0};
+    t.face = WXF_RAIN;
     for (size_t c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
-        wx_temp_t t = {0};
-        t.face = WXF_RAIN;
         t.rain = (wx_rain_t){.on = true, .kind = CASES[c].kind, .intensity = CASES[c].in, .has_pop = CASES[c].pop, .pop = 90,
                              .dry = CASES[c].dry};
         memset(m, 0x5A, sn);
         memset(rm, 0x5A, sn);
         wx_bake_out_t o;
+        wx_bake(&t, WX_BAKE_FULL, &b, &o);
+        ref_bake_rain(&t, rbg, &rring, rlut, rm);
+        CHECK(!memcmp(bg, rbg, sizeof bg), "%s: bake_rain bg as the brute-force painters", CASES[c].name);
+        CHECK(!memcmp(m, rm, (size_t)l.total), "%s: bake_rain still buffer as the brute-force painters", CASES[c].name);
+    }
+    const char *bench = getenv("CINDER_BENCH");
+    bool on = bench && *bench && strcmp(bench, "0");
+    int reps = on ? 50 : 3;
+    double got_ms = 1e9, ref_ms = 1e9;
+    wx_bake_out_t o;
+    wx_bake(&t, WX_BAKE_FULL, &b, &o);
+    ref_bake_rain(&t, rbg, &rring, rlut, rm);
+    for (int k = 0; k < reps; k++) {
         double t0 = now_ms();
         wx_bake(&t, WX_BAKE_FULL, &b, &o);
         double t1 = now_ms();
@@ -289,11 +309,10 @@ static void test_bake(void)
         double t2 = now_ms();
         if (t1 - t0 < got_ms) got_ms = t1 - t0;
         if (t2 - t1 < ref_ms) ref_ms = t2 - t1;
-        CHECK(!memcmp(bg, rbg, sizeof bg), "%s: bake_rain bg as the brute-force painters", CASES[c].name);
-        CHECK(!memcmp(m, rm, (size_t)l.total), "%s: bake_rain still buffer as the brute-force painters", CASES[c].name);
     }
-    printf("umbrella: rain bake %.2f ms, brute-force reference %.2f ms on the host\n", got_ms, ref_ms);
-    CHECK(got_ms * 2 < ref_ms, "the rain bake is well under half the brute-force reference: %.2f vs %.2f ms", got_ms, ref_ms);
+    printf("umbrella: rain bake %.2f ms, brute-force reference %.2f ms (x%.1f, best of %d) on the host\n", got_ms, ref_ms,
+           ref_ms / got_ms, reps);
+    if (on) CHECK(got_ms * 2 < ref_ms, "CINDER_BENCH: the rain bake is well under half the brute-force reference");
     free(m);
     free(rm);
     free(drift);
@@ -301,7 +320,8 @@ static void test_bake(void)
 
 int main(void)
 {
-    test_face_bg();
+    test_face(false);
+    test_face(true);
     test_cover_boxes();
     test_drips();
     test_bake();

@@ -752,21 +752,31 @@ static float ellipse_d(float x, float y, float cx, float cy, float rx, float ry)
 #define CANOPY_RY 103.0f
 #define SCALLOPS 5
 #define UMB_HW 2.25f
+#define SCALLOP_RY 9.0f
+#define HANDLE_X 233.0f
+#define HANDLE_TOP 185.0f
+#define HANDLE_GAP0 210.75f
+#define HANDLE_GAP1 336.25f
+#define HOOK_Y 366.0f
+#define HOOK_R 11.0f
+#define FERRULE_Y0 81.0f
+#define FERRULE_Y1 93.0f
 
 static float canopy_d(float x, float y)
 {
     float cx = (CANOPY_L + CANOPY_R) / 2, rx = (CANOPY_R - CANOPY_L) / 2;
     float d = fmaxf(ellipse_d(x, y, cx, CANOPY_RIM, rx, CANOPY_RY), y - CANOPY_RIM);
     float w = (CANOPY_R - CANOPY_L) / SCALLOPS;
-    for (int k = 0; k < SCALLOPS; k++) d = fmaxf(d, -ellipse_d(x, y, CANOPY_L + w * (k + 0.5f), CANOPY_RIM, w / 2, 9));
+    for (int k = 0; k < SCALLOPS; k++) d = fmaxf(d, -ellipse_d(x, y, CANOPY_L + w * (k + 0.5f), CANOPY_RIM, w / 2, SCALLOP_RY));
     return d;
 }
 
 static float handle_d(float x, float y)
 {
-    float d = seg_d(x, y, 233, 185, 233, 210.75f);
-    d = fminf(d, seg_d(x, y, 233, 336.25f, 233, 366));
-    float arc = y >= 366 ? fabsf(hypotf(x - 244, y - 366) - 11) : fminf(hypotf(x - 233, y - 366), hypotf(x - 255, y - 366));
+    float d = seg_d(x, y, HANDLE_X, HANDLE_TOP, HANDLE_X, HANDLE_GAP0);
+    d = fminf(d, seg_d(x, y, HANDLE_X, HANDLE_GAP1, HANDLE_X, HOOK_Y));
+    float arc = y >= HOOK_Y ? fabsf(hypotf(x - (HANDLE_X + HOOK_R), y - HOOK_Y) - HOOK_R)
+                            : fminf(hypotf(x - HANDLE_X, y - HOOK_Y), hypotf(x - (HANDLE_X + 2 * HOOK_R), y - HOOK_Y));
     return fminf(d, arc);
 }
 
@@ -775,7 +785,7 @@ static float handle_d(float x, float y)
 static void umbrella_handle(wx_img_t *im, uint16_t c, float fy0, float fy1)
 {
     int x0, y0, x1, y1;
-    clip(im, 233 - UMB_REACH - 1, fy0, 255 + UMB_REACH + 1, fy1, &x0, &y0, &x1, &y1);
+    clip(im, HANDLE_X - UMB_REACH - 1, fy0, HANDLE_X + 2 * HOOK_R + UMB_REACH + 1, fy1, &x0, &y0, &x1, &y1);
     for (int y = y0; y < y1; y++)
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
@@ -786,7 +796,7 @@ static void umbrella_handle(wx_img_t *im, uint16_t c, float fy0, float fy1)
 static void umbrella_canopy(wx_img_t *im, uint16_t c)
 {
     const float cx = (CANOPY_L + CANOPY_R) / 2, rx = (CANOPY_R - CANOPY_L) / 2;
-    const float out2 = 1.06f * 1.06f, in2 = 0.94f * 0.94f, scallop_reach = 9 + 14.0f;
+    const float out2 = 1.06f * 1.06f, in2 = 0.94f * 0.94f, scallop_reach = SCALLOP_RY + 14.0f;
     int x0, y0, x1, y1;
     clip(im, CANOPY_L - 4, CANOPY_RIM - CANOPY_RY - 8, CANOPY_R + 4, CANOPY_RIM + UMB_REACH + 1, &x0, &y0, &x1, &y1);
     for (int y = y0; y < y1; y++) {
@@ -810,15 +820,15 @@ static void umbrella_canopy(wx_img_t *im, uint16_t c)
 void wx_paint_umbrella(wx_img_t *im)
 {
     const uint16_t orange = wx_rgb565(0xFF8A3D);
-    umbrella_handle(im, orange, 185 - UMB_REACH - 1, 210.75f + UMB_REACH + 1);
-    umbrella_handle(im, orange, 336.25f - UMB_REACH - 1, 377 + UMB_REACH + 1);
+    umbrella_handle(im, orange, HANDLE_TOP - UMB_REACH - 1, HANDLE_GAP0 + UMB_REACH + 1);
+    umbrella_handle(im, orange, HANDLE_GAP1 - UMB_REACH - 1, HOOK_Y + HOOK_R + UMB_REACH + 1);
     umbrella_canopy(im, orange);
     int x0, y0, x1, y1;
-    clip(im, 233 - UMB_REACH - 1, 81 - UMB_REACH - 1, 233 + UMB_REACH + 1, 93 + UMB_REACH + 1, &x0, &y0, &x1, &y1);
+    clip(im, HANDLE_X - UMB_REACH - 1, FERRULE_Y0 - UMB_REACH - 1, HANDLE_X + UMB_REACH + 1, FERRULE_Y1 + UMB_REACH + 1, &x0, &y0, &x1, &y1);
     for (int y = y0; y < y1; y++)
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
-            put(im, y * im->w + x, orange, cov(seg_d(fx, fy, 233, 93, 233, 81) - UMB_HW));
+            put(im, y * im->w + x, orange, cov(seg_d(fx, fy, HANDLE_X, FERRULE_Y1, HANDLE_X, FERRULE_Y0) - UMB_HW));
         }
 }
 
