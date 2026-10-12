@@ -548,7 +548,7 @@
   "moment": {
    "entry": "moment_bake_task",
    "file": "main/moment_view.c",
-   "stack": 4608
+   "stack": 5120
   },
   "stats": {
    "entry": "stats_task",

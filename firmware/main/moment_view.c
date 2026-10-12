@@ -104,7 +104,7 @@ bool moment_view_busy(void) { return s_state != MV_IDLE; }
 
 static bool ensure(void)
 {
-    if (!s_task && xTaskCreatePinnedToCoreWithCaps(moment_bake_task, "moment", 4608, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)
+    if (!s_task && xTaskCreatePinnedToCoreWithCaps(moment_bake_task, "moment", 5120, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)
         s_task = NULL;
     if (s_task && !s_arena) s_arena = heap_caps_malloc(WXM_ARENA, MALLOC_CAP_SPIRAM);
     return s_task && s_arena;
