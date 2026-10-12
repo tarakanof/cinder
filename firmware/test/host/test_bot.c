@@ -1185,7 +1185,7 @@ static void test_micro_saccades(void)
         bool quiet = true;
         for (double end = t + 0.6 - dt / 2; t < end; t += dt) {
             bot_pose(&b, t);
-            quiet = quiet && b.gaze_start == rs;
+            quiet = quiet && b.gaze_start == rs && b.gaze_dur == 0 && b.gaze_to_x == rx && b.gaze_to_y == ry;
         }
         CHECK(quiet, "seed %d: no micro-saccade on the chase's release frame or in the 0.6 s after it", seed);
         for (double end = t + 0.5; t < end && b.gaze_start == rs; t += dt) bot_pose(&b, t);
