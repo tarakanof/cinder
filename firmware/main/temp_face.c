@@ -1235,6 +1235,15 @@ void temp_face_turn(int detents)
     if (wx_faces_turn(&s_faces, wx_job_face(&s_job), s_face, detents)) wx_job_cut(&s_job);
 }
 
+int temp_face_picked(void) { return s_faces.pick; }
+
+void temp_face_pick(int face)
+{
+    if (!s_root || !s_job.visible || face == s_faces.pick) return;
+    s_faces.pick = face;
+    if (face != WXF_AUTO && wx_job_face(&s_job) != face) wx_job_cut(&s_job);
+}
+
 void temp_face_hold(bool hold)
 {
     if (s_root) act(wx_job_hold(&s_job, hold));

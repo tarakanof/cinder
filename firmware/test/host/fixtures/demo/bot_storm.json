@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "epoch": 4,
+  "config_version": 3,
+  "mood": {"waiting": 0, "errors": 0, "running": 1, "done": 0, "source": "", "lead": "M4", "hosts": 1, "lead_color": "#00C8C8", "tool": "claude"},
+  "weather": {"provider": "open-meteo", "cond": "rain", "code": "61", "temp_c": 12.5, "stale": false, "severe": false, "night": false, "sunrise": 1782013500, "sunset": 1782073200, "observed_at": 1782041400},
+  "brightness": {"level": 120, "night": true},
+  "quiet": true,
+  "demo": {
+    "id": "scene-storm-1",
+    "page": "bot",
+    "act": "moment:storm:full",
+    "hold": false,
+    "view": {
+      "v": 1,
+      "mood": {"waiting": 0, "errors": 0, "running": 0, "done": 1, "source": "", "lead": "DEMO", "hosts": 1, "lead_color": "#B48CFF", "tool": "codex"},
+      "weather": {"provider": "open-meteo", "cond": "thunderstorm", "code": "95", "temp_c": 18, "stale": false, "severe": true, "night": false, "sunrise": 1782013500, "sunset": 1782073200, "observed_at": 1782041400},
+      "brightness": {"level": 255, "night": false}
+    }
+  }
+}

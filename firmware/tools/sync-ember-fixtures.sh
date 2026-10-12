@@ -60,29 +60,44 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-gh api "repos/$REPO/contents/$SRC?ref=$SHA" --jq '.[] | select(.type == "file") | .name' >"$TMP/names"
-N=0
-while IFS= read -r name; do
-    if ! printf '%s' "$name" | grep -Eq '^[a-z0-9_]+\.json$'; then
-        case "$name" in
-            *.json) echo "sync-ember-fixtures: odd file name $name" >&2; exit 1 ;;
-            *) continue ;;
-        esac
-    fi
-    gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/$SRC/$name?ref=$SHA" >"$TMP/$name.part"
-    mv "$TMP/$name.part" "$TMP/$name"
-    N=$((N + 1))
-done <"$TMP/names"
-rm -f "$TMP/names"
+fetch_dir() {
+    local src="$1" dst="$2" names="$3" n=0 name
+    mkdir -p "$dst"
+    gh api "repos/$REPO/contents/$src?ref=$SHA" --jq '.[] | select(.type == "file") | .name' >"$TMP/names"
+    while IFS= read -r name; do
+        if ! printf '%s' "$name" | grep -Eq "$names"; then
+            case "$name" in
+                *.json) echo "sync-ember-fixtures: odd file name $src/$name" >&2; exit 1 ;;
+                *) continue ;;
+            esac
+        fi
+        gh api -H "Accept: application/vnd.github.raw" "repos/$REPO/contents/$src/$name?ref=$SHA" >"$dst/$name.part"
+        mv "$dst/$name.part" "$dst/$name"
+        n=$((n + 1))
+    done <"$TMP/names"
+    rm -f "$TMP/names"
+    FETCHED=$n
+}
+
+FETCHED=0
+fetch_dir "$SRC" "$TMP/out" '^[a-z0-9_]+\.json$'
+N=$FETCHED
 if [ "$N" -eq 0 ]; then
     echo "sync-ember-fixtures: no fixtures in $REPO/$SRC at $SHA" >&2
     exit 1
 fi
+DEMO=0
+DIRS="$(gh api "repos/$REPO/contents/$SRC?ref=$SHA" --jq '.[] | select(.type == "dir") | .name')"
+if printf '%s\n' "$DIRS" | grep -qx demo; then
+    fetch_dir "$SRC/demo" "$TMP/out/demo" '^[a-z0-9_]+(\.[a-z0-9_]+)*\.json$'
+    DEMO=$FETCHED
+    [ "$DEMO" -gt 0 ] || rmdir "$TMP/out/demo"
+fi
 
-printf 'repo: %s\npath: %s\nref: %s\ncommit: %s\n' "$REPO" "$SRC" "$REF" "$SHA" >"$TMP/SOURCE"
+printf 'repo: %s\npath: %s\nref: %s\ncommit: %s\n' "$REPO" "$SRC" "$REF" "$SHA" >"$TMP/out/SOURCE"
 rm -rf "$NEW" "$OLD"
 mkdir -p "$(dirname "$DEST")" "$NEW"
-cp "$TMP"/* "$NEW/"
+cp -R "$TMP"/out/. "$NEW/"
 if [ -e "$DEST" ]; then mv "$DEST" "$OLD"; fi
 if ! mv "$NEW" "$DEST"; then
     if [ -e "$OLD" ] && { [ -e "$DEST" ] || ! mv "$OLD" "$DEST"; }; then
@@ -94,4 +109,4 @@ if ! mv "$NEW" "$DEST"; then
     exit 1
 fi
 rm -rf "$OLD"
-echo "sync-ember-fixtures: $N fixtures from $REPO@$SHA ($REF) into $DEST"
+echo "sync-ember-fixtures: $N fixtures and $DEMO demo scenes from $REPO@$SHA ($REF) into $DEST"

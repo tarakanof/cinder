@@ -58,15 +58,17 @@ void pages_settings(pages_nav_t *nav, const knob_settings_t *ks, bool first)
 {
     const char *ids[PAGES_N];
     int idx[PAGES_N], home;
+    int own = first ? -1 : nav->order[nav->pos];
+    bool shown = first || nav->page == own;
     nav->n = knob_settings_page_order(ks, ids, pages_ids(ids, PAGES_N), idx, &home);
     int pos = -1;
     for (int i = 0; i < nav->n; i++) {
         nav->order[i] = idx[i];
-        if (idx[i] == nav->page) pos = i;
+        if (idx[i] == own) pos = i;
     }
     if (first || pos < 0) {
         nav->pos = home;
-        pages_show(nav, nav->order[home]);
+        if (shown) pages_show(nav, nav->order[home]);
     } else {
         nav->pos = pos;
     }

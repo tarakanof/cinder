@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "epoch": 4,
+  "config_version": 3,
+  "mood": {"waiting": 0, "errors": 0, "running": 0, "done": 0, "source": ""},
+  "demo": {
+    "id": "scene-pomo-offline",
+    "page": "pomodoro",
+    "offline": true,
+    "hold": false,
+    "view": {
+      "v": 1,
+      "pomo": {"phase": "focus", "running": true, "paused": false, "remaining_sec": 900, "planned_sec": 1500, "round": 1}
+    }
+  }
+}

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "bot_behavior.h"
+#include "demo.h"
 #include "device_api.h"
 #include "ember_host.h"
 #include "link_state.h"
@@ -56,6 +57,25 @@ int ember_client_join_failures(void);
 
 /* Any task. */
 void ember_client_host(ember_host_info_t *out);
+
+/* gen moves on every demo start and end; view_on (quiet: its quiet) lags the end until the real view is back. */
+typedef struct {
+    bool playing;
+    unsigned gen;
+    bool view_on;
+    bool quiet;
+} ember_demo_status_t;
+
+/* Any task. */
+void ember_client_demo_status(ember_demo_status_t *out);
+/* LVGL task: the scene to start and its gen, once per demo, after its view is applied. */
+bool ember_client_demo_take(demo_block_t *out, unsigned *gen);
+/* LVGL task, every frame: ends a demo past its time (true when it did). */
+bool ember_client_demo_tick(double t);
+/* LVGL task: true when a demo was playing; it ends and the input is consumed. */
+bool ember_client_demo_input(void);
+/* LVGL task: the act of the scene with this gen has played. */
+void ember_client_demo_act_done(unsigned gen);
 
 /* level on the 0-255 scale; call once after the BSP init. */
 void ember_client_dim_enable(uint8_t current_level);

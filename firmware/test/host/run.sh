@@ -15,6 +15,7 @@ PG="$D/../../components/pages"
 LS="$D/../../components/link_state"
 CP="$D/../../components/caps"
 RT="$D/../../components/rotation"
+DM="$D/../../components/demo"
 IDF="${IDF_PATH:?source the ESP-IDF export script first (IDF_PATH)}"
 J="$IDF/components/json/cJSON"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cinder_test.XXXXXX")"
@@ -100,7 +101,8 @@ body "$TFC" temp_face_show | grep -qF 'wx_faces_open(&s_faces);' && body "$TFC" 
     WIRING="$WIRING show-opens-on-the-auto-face-and-forgets-the-last-face"
 body "$TFC" temp_face_update | grep -qxF '    if (s_job.visible) {' || WIRING="$WIRING update-resolves-the-face-without-buffers-too"
 body "$TFC" temp_face_turn | grep -qF 'if (wx_faces_turn(&s_faces, wx_job_face(&s_job), s_face, detents)) wx_job_cut(&s_job);' &&
-    [ "$(grep -c 'wx_job_cut(' "$TFC")" -eq 1 ] || WIRING="$WIRING turn-cuts-only-on-a-new-face"
+    body "$TFC" temp_face_pick | grep -qF 'if (face != WXF_AUTO && wx_job_face(&s_job) != face) wx_job_cut(&s_job);' &&
+    [ "$(grep -c 'wx_job_cut(' "$TFC")" -eq 2 ] || WIRING="$WIRING turn-and-demo-pick-cut-only-on-a-new-face"
 body "$TFC" act | awk '/if \(a & WX_DO_ARRIVE\) \{/ {on = 1} on && /s_t = 0;/ {t = 1} on && /s_tick = -1;/ {k = 1} END {exit !(t && k)}' ||
     WIRING="$WIRING act-replays-the-arrival"
 body "$MAINC" page_weather_input | grep -qF 'if (in->detents) temp_face_turn(in->detents);' ||
@@ -393,6 +395,30 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task, one area per change"
+body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_client_service\(/ {n = NR} END {exit !(r && n && r < n)}' ||
+    WIRING="$WIRING demo-ready-before-the-art-fetch"
+[ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
+    body "$ECL" apply_view | grep -qxF '    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
+    WIRING="$WIRING quiet-dim-only-in-apply_view"
+[ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 3 ] || WIRING="$WIRING three-scene_gate-call-sites"
+fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes)) in = (page_input_t){0};' ||
+    WIRING="$WIRING page_tick-gates-its-input"
+body "$MAINC" scene_frame | sed -n 3p | grep -qxF '    if (scene_gate(t, inputs_pending())) drop_inputs();' || WIRING="$WIRING scene_frame-gates-first"
+body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
+    WIRING="$WIRING frame_cb-gates-steps-and-swipes"
+body "$MAINC" scene_frame | grep -qxF '    } else if (ended && (s_scene_gate.on || (!st.playing && !timed))) {' || WIRING="$WIRING scene_frame-resume-branch"
+body "$MAINC" scene_start | grep -qxF '    demo_gate_start(&s_scene_gate);' || WIRING="$WIRING scene_start-clears-the-gate"
+body "$MAINC" scene_start | grep -qxF '    s_scene_half = s_half;' && body "$MAINC" scene_start | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
+    WIRING="$WIRING scene_start-pauses-the-chase"
+body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    s_half = s_scene_half;$/ {h = NR} END {exit !(r && h > r)}' ||
+    WIRING="$WIRING scene_end-restores-the-half-chase"
+fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);' &&
+    [ "$(grep -c 'atomic_store(&s_chase_req, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING server-chase-deferred-during-a-scene"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
+    exit 1
+fi
+echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
@@ -430,11 +456,14 @@ cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c
 cc $CFLAGS "-DLT_RACE_POINT(t)=lt_race_point(t)" -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
 K="$D/../../components/knob_view"
 NP="$D/../../components/nowplaying"
-cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
-    "$K/knob_view.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$J/cJSON.c" \
+cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
+    "$K/knob_view.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$J/cJSON.c" \
     "$D/test_view.c" -lm \
     -o "${OUT}_view"
-cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$J" "$K/knob_view.c" \
+cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
+    "$K/knob_view.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$J/cJSON.c" \
+    "$D/test_demo.c" -lm -o "${OUT}_demo"
+cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$J" "$K/knob_view.c" "$DM/demo.c" \
     "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$J/cJSON.c" "$D/test_np.c" -lm -o "${OUT}_np"
 LV="$D/../../managed_components/lvgl__lvgl"
 TITLE_FONT=0
@@ -492,6 +521,7 @@ fi
 "${OUT}_ota" "$D/../vectors"
 "${OUT}_net"
 "${OUT}_view"
+"${OUT}_demo" "$D/fixtures/demo" "$D/fixtures/ember/demo"
 "${OUT}_np"
 if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_title_font"
@@ -508,16 +538,16 @@ fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
 "${OUT}_ota_rec"
-cc $CFLAGS -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$G/include" -I"$J" \
-    "$K/knob_view.c" "$K/ember_legacy.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
+cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$G/include" -I"$J" \
+    "$K/knob_view.c" "$DM/demo.c" "$K/ember_legacy.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
     "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
 "${OUT}_legacy"
-cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
-    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$K/knob_view.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
+cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$K/knob_view.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
     "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
-cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
     "$O/ota_policy.c" "$PG/pages.c" "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_caps.c" -lm \
     -o "${OUT}_caps"
@@ -525,9 +555,9 @@ cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$C/include" -I"$P/include" -I"$LS/i
 cc $CFLAGS -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_pages.c" -lm -o "${OUT}_pages"
 "${OUT}_pages" "$D/fixtures/ember"
-cc $CFLAGS -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" \
+cc $CFLAGS -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
-    "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$P/pomo.c" \
+    "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$DM/demo.c" "$P/pomo.c" \
     "$W/weather_face.c" "$NP/np.c" "$H/ember_host.c" "$LS/link_state.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
     "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_http.c" -lm \
     -o "${OUT}_http"

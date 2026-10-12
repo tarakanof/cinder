@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "epoch": 4,
+  "config_version": 3,
+  "mood": {"waiting": 0, "errors": 0, "running": 0, "done": 0, "source": ""},
+  "demo": {
+    "id": "scene wind/2",
+    "page": "weather:wind",
+    "hold": true,
+    "view": {
+      "v": 1,
+      "weather": {"provider": "open-meteo", "cond": "clear", "code": "0", "temp_c": 9, "stale": false, "severe": false, "night": false, "sunrise": 1782013500, "sunset": 1782073200, "observed_at": 1782041400, "now": {"wind_kmh": 48, "wind_dir": 250}}
+    }
+  }
+}

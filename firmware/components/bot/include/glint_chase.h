@@ -58,6 +58,10 @@ void gc_tick(glint_chase_t *c, double t, bool active, double lap_s, gc_out_t *ou
 double gc_orbit(double since_start, double to_end);
 
 bool gc_start_now(glint_chase_t *c, int style, int laps);
+/* Ends any chase at once and puts the working time and the wait back as they were (a demo's chase). */
+void gc_resume(glint_chase_t *c, double work_s, double wait_s);
+/* A demo's end: saved (taken at saved_t) carries on at t as if the time between had not passed. */
+void gc_restore(glint_chase_t *c, const glint_chase_t *saved, double saved_t, double t);
 
 typedef struct {
     double prev;

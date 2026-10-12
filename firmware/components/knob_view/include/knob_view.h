@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "bot_behavior.h"
+#include "demo.h"
 #include "np.h"
 #include "pomo.h"
 #include "weather_face.h"
@@ -49,12 +50,16 @@ typedef struct {
     np_info_t np;
 
     long long diag_live_until;   /* server Unix s; 0 = absent */
+
+    demo_block_t demo;
 } knob_view_t;
 
 typedef enum { KNOB_VIEW_OK, KNOB_VIEW_BAD, KNOB_VIEW_TOO_OLD, KNOB_VIEW_TOO_NEW } knob_view_res_t;
 
 /* BAD (not an object; v missing, not a number or not a whole number) zeroes *out. TOO_OLD/TOO_NEW: whole v below/above [KNOB_VIEW_V_MIN, KNOB_VIEW_V_MAX]; *out is untouched and no other key is read. major gets v (clamped to +-1e9) unless BAD; may be NULL. */
 knob_view_res_t knob_view_read(const char *json, knob_view_t *out, int *major);
+/* knob_view_read plus the demo block's view into demo_view (zeroed when there is none; may be NULL). */
+knob_view_res_t knob_view_read_full(const char *json, knob_view_t *out, int *major, knob_view_t *demo_view);
 /* knob_view_read(json, out, NULL) == KNOB_VIEW_OK. */
 bool knob_view_parse(const char *json, knob_view_t *out);
 
@@ -63,6 +68,7 @@ typedef enum { KNOB_COMPAT_OK, KNOB_COMPAT_UPDATE_EMBER, KNOB_COMPAT_UPDATE_KNOB
 /* One poller's view state. view is the last good view; unsupported: the last answer had a major outside the range. */
 typedef struct {
     knob_view_t view;
+    knob_view_t demo_view;
     bool have_view;
     bool unsupported;
     knob_compat_t compat;

@@ -15,6 +15,10 @@ void temp_face_show(bool on);
 /* Plain knob detents on the weather page: the next or previous face, kept until the page shows again. */
 void temp_face_turn(int detents);
 
+/* A demo's face: the pick (WXF_AUTO: the page's own choice) while the page shows; temp_face_picked to put it back. */
+int temp_face_picked(void);
+void temp_face_pick(int face);
+
 /* OTA face: call with true on every OTA frame (parks a queued bake, frees the hidden face once a running one ends). */
 void temp_face_hold(bool hold);
 

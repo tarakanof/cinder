@@ -4,6 +4,7 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "esp_system.h"
@@ -47,6 +48,7 @@
 #include "weather_client.h"
 #include "temp_face.h"
 #include "moment_view.h"
+#include "wx_faces.h"
 #include "wx_moment.h"
 #include "bsp_knob_15_md50et.h"
 
@@ -65,6 +67,7 @@ static atomic_int s_swipes;
 static atomic_int s_np_wakes;
 static atomic_bool s_hold_seen;
 static atomic_bool s_button_down;
+static atomic_bool s_touch_down;
 static atomic_bool s_turned_while_down;
 
 static reset_gesture_t s_rg;
@@ -108,14 +111,37 @@ static glint_chase_t s_chase;
 static atomic_int s_chase_status = 2;
 static atomic_int s_chase_req = -1;
 static atomic_int s_chase_fps = CHASE_FPS_DEFAULT;
-static gc_half_t s_half;
-static double s_half_hold_deg;
-static bool s_half_snapped;
+typedef struct {
+    gc_half_t h;
+    double hold_deg;
+    bool snapped;
+} half_chase_t;
+static half_chase_t s_half;
 static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;
 static const wxm_cue_t *s_cues;
 static int s_cue, s_cue_n;
 static bot_mood_t s_moment_mood;
 static bool s_acting;
+
+_Static_assert(WXM_GLANCE == 1 && WXM_STORM == 9 && WXF_TEMP == 0 && WXF_AIR == 6, "demo.c's moment and face order");
+#define SCENE_START_S 3.0
+#define SCENE_NEXT_S 1.5
+typedef enum { SCENE_ACT_WAIT, SCENE_ACT_RUN, SCENE_ACT_DONE } scene_act_st_t;
+static bool s_scene_on;
+static unsigned s_scene_gen;
+static demo_act_t s_scene_act;
+static scene_act_st_t s_scene_act_st;
+static double s_scene_t0;
+static bool s_scene_face, s_scene_chased;
+static int s_scene_face_saved;
+static bot_mood_t s_scene_mood0;
+static EXT_RAM_BSS_ATTR glint_chase_t s_scene_chase;
+static half_chase_t s_scene_half;
+static int s_scene_chase_req = -1;
+static double s_scene_resume_at;
+static demo_gate_t s_scene_gate;
+static EXT_RAM_BSS_ATTR wx_temp_t s_scene_scratch;
+static EXT_RAM_BSS_ATTR demo_block_t s_scene_block;
 
 int app_chase_request(int style, int fps, int laps)
 {
@@ -368,6 +394,7 @@ static void touch_cb(lv_event_t *e)
     if (indev) lv_indev_get_point(indev, &p);
     double now = now_s(), report = bsp_knob_15_md50et_touch_report_us() / 1e6;
     ts_result_t r = TS_NONE;
+    atomic_store(&s_touch_down, code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING);
     if (code == LV_EVENT_PRESSED) {
         ota_client_note_input();
         atomic_fetch_add(&s_np_wakes, 1);
@@ -821,6 +848,75 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
     s_chase.hold = moment_view_busy();
 }
 
+static void scene_act_done(void)
+{
+    s_scene_act_st = SCENE_ACT_DONE;
+    ember_client_demo_act_done(s_scene_gen);
+}
+
+static void scene_moment(double t, const wx_obs_t *wx, bool bot_page)
+{
+    static EXT_RAM_BSS_ATTR wxm_moment_t m;
+    const demo_act_t *a = &s_scene_act;
+    if (s_scene_act_st == SCENE_ACT_WAIT) {
+        if (!bot_page || !wx || !wxm_moment_from((wxm_kind_t)a->moment, wx, a->quiet, &s_scene_scratch, &m)) {
+            scene_act_done();
+        } else if (moment_view_start(&m, t)) {
+            s_scene_act_st = SCENE_ACT_RUN;
+            s_moment_mood = s_bot.mood;
+            s_cues = wxm_script(&m, &s_cue_n);
+            s_cue = 0;
+            if (s_cue_n > 0) {
+                bot_act_begin(&s_bot, t);
+                s_acting = true;
+            }
+        } else if (t - s_scene_t0 > SCENE_START_S) {
+            scene_act_done();
+        }
+        return;
+    }
+    double tau = moment_view_poll(t);
+    while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);
+    if (!moment_view_busy()) scene_act_done();
+}
+
+static __attribute__((noinline)) void scene_act(double t, const wx_obs_t *wx, bool bot_page)
+{
+    const demo_act_t *a = &s_scene_act;
+    s_chase.hold = a->kind != DEMO_ACT_CHASE;
+    if (a->kind == DEMO_ACT_NONE || a->kind == DEMO_ACT_SLEEPY || s_scene_act_st == SCENE_ACT_DONE) return;
+    bool wait = s_scene_act_st == SCENE_ACT_WAIT;
+    switch (a->kind) {
+    case DEMO_ACT_MOMENT:
+        scene_moment(t, wx, bot_page);
+        return;
+    case DEMO_ACT_CHASE:
+        if (s_chase.phase != GC_IDLE) s_scene_act_st = SCENE_ACT_RUN;
+        else if (!wait) scene_act_done();
+        else if (t - s_scene_t0 > SCENE_START_S) scene_act_done();
+        else s_scene_chase_req = a->chase_style;
+        return;
+    case DEMO_ACT_HOP:
+        if (wait) bot_hop(&s_bot, t);
+        else if (!s_bot.hopping) scene_act_done();
+        break;
+    case DEMO_ACT_POP:
+        if (wait) bot_pop(&s_bot, t);
+        else if (!s_bot.popping) scene_act_done();
+        break;
+    case DEMO_ACT_BLINK:
+        if (wait) bot_blink(&s_bot, t);
+        else if (!s_bot.blinking) scene_act_done();
+        break;
+    default:
+        scene_act_done();
+        return;
+    }
+    if (wait) s_scene_act_st = SCENE_ACT_RUN;
+}
+
+static bool scene_gate(double t, bool input);
+
 static __attribute__((noinline)) void page_tick(double t, double dt)
 {
     const page_desc_t *pg = pages_current(&s_nav);
@@ -836,21 +932,27 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bool have_wx = weather_client_get(&wx);
     temp_face_update(have_wx ? &wx : NULL, offline, dt);
 
-    bool calm = bot_calm(ember_client_quiet(), s_ks_lv->quiet_calm);
+    ember_demo_status_t ds;
+    ember_client_demo_status(&ds);
+    bool calm = demo_calm(ds.playing, ds.view_on, ds.quiet, ember_client_quiet(), s_ks_lv->quiet_calm);
     bot_set_calm(&s_bot, calm, t);
+    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
-    if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
+    if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
+    else if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
-    moment_tick(t, have_wx ? &wx : NULL, calm, pg->frame == page_bot_frame);
+    if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, pg->frame == page_bot_frame);
+    else if (!ds.view_on && s_scene_resume_at == 0) moment_tick(t, have_wx ? &wx : NULL, calm, pg->frame == page_bot_frame);
 
     float gdeg;
     bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
-    int req = atomic_exchange(&s_chase_req, -1);
+    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);
+    s_scene_chase_req = -1;
     if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
-        gc_half_reset(&s_half);
-        s_half_hold_deg = 0;
-        s_half_snapped = false;
+        gc_half_reset(&s_half.h);
+        s_half.hold_deg = 0;
+        s_half.snapped = false;
     }
     page_frame_t f = {.t = t, .offline = offline};
     gc_out_t *chase = &f.chase;
@@ -860,20 +962,20 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
     if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
         gc_half_out_t h;
-        gc_half_step(&s_half, psi, CHASE_LEAD_DEG, &h);
+        gc_half_step(&s_half.h, psi, CHASE_LEAD_DEG, &h);
         if (h.follow) {
-            s_half_snapped = false;
-            s_half_hold_deg = h.target_deg;
+            s_half.snapped = false;
+            s_half.hold_deg = h.target_deg;
             chase_track(&ref, h.target_deg, chase->orbit, t);
         } else {
             bot_hold_gaze(&s_bot, t + 0.5);
             if (h.blink) bot_blink(&s_bot, t);
             if (h.snap) {
                 if (s_bot.tracking) bot_track_end(&s_bot, t);
-                s_half_snapped = true;
+                s_half.snapped = true;
                 bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
-            } else if (!s_half_snapped) {
-                chase_track(&ref, s_half_hold_deg, chase->orbit, t);
+            } else if (!s_half.snapped) {
+                chase_track(&ref, s_half.hold_deg, chase->orbit, t);
             }
         }
     } else if (chase->chasing && glint) {
@@ -886,6 +988,115 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     f.pose.orbit = chase->chasing ? chase->orbit : 0;
     s_cur_mood = f.pose.mood;
     pages_frame(&s_nav, &f);
+}
+
+static int page_index(const char *id)
+{
+    for (int i = 0; i < PAGES_N; i++)
+        if (strcmp(PAGES[i].id, id) == 0) return i;
+    return 0;
+}
+
+static bool inputs_pending(void)
+{
+    return atomic_load(&s_detents) || atomic_load(&s_pushes) || atomic_load(&s_touches) || atomic_load(&s_long_pushes) ||
+           atomic_load(&s_page_steps) || atomic_load(&s_swipes) || atomic_load(&s_np_wakes);
+}
+
+static bool scene_gate(double t, bool input)
+{
+    ember_demo_status_t st;
+    ember_client_demo_status(&st);
+    demo_gate_in_t in = {.playing = st.playing || s_scene_on || s_scene_resume_at > 0,
+                         .input = input,
+                         .held = atomic_load(&s_button_down) || atomic_load(&s_touch_down),
+                         .view_on = st.view_on};
+    demo_gate_act_t a = demo_gate(&s_scene_gate, &in, t);
+    if (a == DEMO_GATE_END) {
+        ember_client_demo_input();
+        if (s_scene_resume_at > 0) s_scene_resume_at = t;
+    }
+    return a != DEMO_GATE_PASS;
+}
+
+static void scene_resume(double t)
+{
+    s_scene_resume_at = 0;
+    if (s_nav.page != s_nav.order[s_nav.pos]) {
+        pages_resume(&s_nav);
+        wipe_start(-1, t);
+    }
+}
+
+static void scene_end(double t)
+{
+    s_scene_on = false;
+    if (s_scene_act.kind == DEMO_ACT_MOMENT && s_scene_act_st == SCENE_ACT_RUN && moment_view_busy()) {
+        moment_view_abort(t);
+        moment_unact(t);
+    }
+    gc_restore(&s_chase, &s_scene_chase, s_scene_t0, t);
+    s_half = s_scene_half;
+    if (s_scene_chased) {
+        if (s_bot.tracking) bot_track_end(&s_bot, t);
+        bot_view_glint_force(false);
+        s_scene_chased = false;
+    }
+    if (s_scene_act.kind == DEMO_ACT_SLEEPY && s_scene_mood0 != BOT_SLEEPY) bot_wake(&s_bot, t);
+    if (s_scene_face) temp_face_pick(s_scene_face_saved);
+    s_scene_face = false;
+    s_scene_resume_at = t + SCENE_NEXT_S;
+}
+
+static void scene_start(const demo_block_t *b, double t)
+{
+    s_scene_on = true;
+    s_scene_resume_at = 0;
+    s_scene_act = b->act;
+    s_scene_act_st = SCENE_ACT_WAIT;
+    s_scene_t0 = t;
+    s_scene_mood0 = s_bot.mood;
+    s_scene_chase = s_chase;
+    s_scene_half = s_half;
+    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);
+    demo_gate_start(&s_scene_gate);
+    if (moment_view_busy()) {
+        moment_view_stop();
+        moment_unact(t);
+    }
+    int page = page_index(demo_page_id(b->page));
+    if (page != s_nav.page) {
+        pages_show(&s_nav, page);
+        wipe_start(1, t);
+    }
+    if (b->face >= 0) {
+        s_scene_face_saved = temp_face_picked();
+        temp_face_pick(b->face);
+        s_scene_face = true;
+    }
+    if (b->act.kind == DEMO_ACT_CHASE) {
+        bot_view_glint_force(true);
+        s_scene_chased = true;
+    }
+}
+
+static void scene_frame(double t)
+{
+    if (scene_gate(t, inputs_pending())) drop_inputs();
+    bool timed = ember_client_demo_tick(t);
+    ember_demo_status_t st;
+    ember_client_demo_status(&st);
+    bool ended = s_scene_on && (!st.playing || st.gen != s_scene_gen);
+    if (ended) scene_end(t);
+    unsigned gen;
+    if (ember_client_demo_take(&s_scene_block, &gen)) {
+        if (s_scene_on) scene_end(t);
+        s_scene_gen = gen;
+        scene_start(&s_scene_block, t);
+    } else if (ended && (s_scene_gate.on || (!st.playing && !timed))) {
+        scene_resume(t);
+    }
+    if (s_scene_resume_at > 0 && t >= s_scene_resume_at) scene_resume(t);
 }
 
 static atomic_uint s_loop_ticks;
@@ -911,8 +1122,10 @@ static void frame_cb(lv_timer_t *timer)
     }
 
     settings_frame(t);
+    scene_frame(t);
     int steps = atomic_exchange(&s_page_steps, 0);
     int swipes = atomic_exchange(&s_swipes, 0);
+    if (scene_gate(t, steps || swipes)) steps = swipes = 0;
     if (s_ks_lv->swipe_pages) steps += swipes;
     if (steps) page_go(steps, t);
     page_fx_frame(t);

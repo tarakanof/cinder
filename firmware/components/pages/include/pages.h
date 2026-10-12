@@ -49,6 +49,7 @@ void pages_resume(pages_nav_t *nav);
 
 bool pages_step(pages_nav_t *nav, int steps);
 
+/* The user's page is order[pos]; while another shows (a demo scene) it is kept or replaced by home, but not shown. */
 void pages_settings(pages_nav_t *nav, const knob_settings_t *ks, bool first);
 
 void pages_dispatch(const pages_nav_t *nav, page_input_t raw, double t);
