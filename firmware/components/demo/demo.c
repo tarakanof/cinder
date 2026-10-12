@@ -227,3 +227,5 @@ demo_gate_act_t demo_gate(demo_gate_t *g, const demo_gate_in_t *in, double t)
     g->on = false;
     return in->view_on ? DEMO_GATE_DROP : DEMO_GATE_PASS;
 }
+
+void demo_gate_start(demo_gate_t *g) { g->on = false; }

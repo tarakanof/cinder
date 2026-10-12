@@ -986,6 +986,25 @@ static void test_demo_acts(void)
     gc_tick(&c, 40.1, true, 3.0, &o);
     CHECK(o.chasing && o.style == GC_STYLE_FULL, "still the real chase after the scene");
 
+    gc_init(&c, 23);
+    gc_tick(&c, 0, true, 3.0, &o);
+    CHECK(gc_start_now(&c, GC_STYLE_FULL, 4), "a real chase before a non-chase scene");
+    gc_tick(&c, 1, true, 3.0, &o);
+    gc_tick(&c, 4, true, 3.0, &o);
+    saved = c;
+    left = c.end_at - 4;
+    gc_resume(&c, c.work_s, c.wait_s);
+    c.hold = true;
+    bool orbited = false;
+    for (double t = 4; t < 20; t += 0.25) {
+        gc_tick(&c, t, true, 3.0, &o);
+        orbited = orbited || o.chasing;
+    }
+    CHECK(!orbited, "the real chase pauses during a non-chase scene");
+    gc_restore(&c, &saved, 4, 20);
+    gc_tick(&c, 20.1, true, 3.0, &o);
+    CHECK(o.chasing && fabs(c.end_at - 20 - left) < 1e-9, "and resumes after it where it was");
+
     gc_init(&c, 22);
     gc_tick(&c, 0, true, 3.0, &o);
     gc_tick(&c, 50, true, 3.0, &o);

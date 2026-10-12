@@ -1164,7 +1164,6 @@ static void poll_task(void *arg)
             link_note(link_counts(s_ls.level, false, false, -1, false));
         }
         demo_sync(&host, &mood, &fresh);
-        if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (fresh) {
             taskENTER_CRITICAL(&s_host_mux);
             s_host = host;
@@ -1172,6 +1171,7 @@ static void poll_task(void *arg)
         }
         atomic_store(&s_mood, mood);
         demo_mark_ready();
+        if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (mood != last) {
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;

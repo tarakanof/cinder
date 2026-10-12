@@ -111,9 +111,12 @@ static glint_chase_t s_chase;
 static atomic_int s_chase_status = 2;
 static atomic_int s_chase_req = -1;
 static atomic_int s_chase_fps = CHASE_FPS_DEFAULT;
-static gc_half_t s_half;
-static double s_half_hold_deg;
-static bool s_half_snapped;
+typedef struct {
+    gc_half_t h;
+    double hold_deg;
+    bool snapped;
+} half_chase_t;
+static half_chase_t s_half;
 static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;
 static const wxm_cue_t *s_cues;
 static int s_cue, s_cue_n;
@@ -133,6 +136,8 @@ static bool s_scene_face, s_scene_chased;
 static int s_scene_face_saved;
 static bot_mood_t s_scene_mood0;
 static EXT_RAM_BSS_ATTR glint_chase_t s_scene_chase;
+static half_chase_t s_scene_half;
+static int s_scene_chase_req = -1;
 static double s_scene_resume_at;
 static demo_gate_t s_scene_gate;
 static EXT_RAM_BSS_ATTR wx_temp_t s_scene_scratch;
@@ -889,7 +894,7 @@ static __attribute__((noinline)) void scene_act(double t, const wx_obs_t *wx, bo
         if (s_chase.phase != GC_IDLE) s_scene_act_st = SCENE_ACT_RUN;
         else if (!wait) scene_act_done();
         else if (t - s_scene_t0 > SCENE_START_S) scene_act_done();
-        else atomic_store(&s_chase_req, a->chase_style);
+        else s_scene_chase_req = a->chase_style;
         return;
     case DEMO_ACT_HOP:
         if (wait) bot_hop(&s_bot, t);
@@ -942,11 +947,12 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
 
     float gdeg;
     bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
-    int req = atomic_exchange(&s_chase_req, -1);
+    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);
+    s_scene_chase_req = -1;
     if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
-        gc_half_reset(&s_half);
-        s_half_hold_deg = 0;
-        s_half_snapped = false;
+        gc_half_reset(&s_half.h);
+        s_half.hold_deg = 0;
+        s_half.snapped = false;
     }
     page_frame_t f = {.t = t, .offline = offline};
     gc_out_t *chase = &f.chase;
@@ -956,20 +962,20 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
     if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
         gc_half_out_t h;
-        gc_half_step(&s_half, psi, CHASE_LEAD_DEG, &h);
+        gc_half_step(&s_half.h, psi, CHASE_LEAD_DEG, &h);
         if (h.follow) {
-            s_half_snapped = false;
-            s_half_hold_deg = h.target_deg;
+            s_half.snapped = false;
+            s_half.hold_deg = h.target_deg;
             chase_track(&ref, h.target_deg, chase->orbit, t);
         } else {
             bot_hold_gaze(&s_bot, t + 0.5);
             if (h.blink) bot_blink(&s_bot, t);
             if (h.snap) {
                 if (s_bot.tracking) bot_track_end(&s_bot, t);
-                s_half_snapped = true;
+                s_half.snapped = true;
                 bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
-            } else if (!s_half_snapped) {
-                chase_track(&ref, s_half_hold_deg, chase->orbit, t);
+            } else if (!s_half.snapped) {
+                chase_track(&ref, s_half.hold_deg, chase->orbit, t);
             }
         }
     } else if (chase->chasing && glint) {
@@ -1030,6 +1036,7 @@ static void scene_end(double t)
         moment_unact(t);
     }
     gc_restore(&s_chase, &s_scene_chase, s_scene_t0, t);
+    s_half = s_scene_half;
     if (s_scene_chased) {
         if (s_bot.tracking) bot_track_end(&s_bot, t);
         bot_view_glint_force(false);
@@ -1050,6 +1057,9 @@ static void scene_start(const demo_block_t *b, double t)
     s_scene_t0 = t;
     s_scene_mood0 = s_bot.mood;
     s_scene_chase = s_chase;
+    s_scene_half = s_half;
+    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);
+    demo_gate_start(&s_scene_gate);
     if (moment_view_busy()) {
         moment_view_stop();
         moment_unact(t);
@@ -1065,7 +1075,6 @@ static void scene_start(const demo_block_t *b, double t)
         s_scene_face = true;
     }
     if (b->act.kind == DEMO_ACT_CHASE) {
-        gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);
         bot_view_glint_force(true);
         s_scene_chased = true;
     }

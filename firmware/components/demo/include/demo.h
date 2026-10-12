@@ -105,6 +105,7 @@ typedef struct {
 /* END: drop and end the demo; after it the gesture is dropped until nothing is held, DEMO_GATE_QUIET_S passes with no input and view_on is off. */
 typedef enum { DEMO_GATE_PASS, DEMO_GATE_DROP, DEMO_GATE_END } demo_gate_act_t;
 demo_gate_act_t demo_gate(demo_gate_t *g, const demo_gate_in_t *in, double t);
+void demo_gate_start(demo_gate_t *g);
 
 #ifdef __cplusplus
 }

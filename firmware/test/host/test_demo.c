@@ -346,6 +346,14 @@ static void test_gate(void)
     CHECK(gate(&g, false, true, false, true, 30.0) == DEMO_GATE_DROP, "ended on its own, real view not back: dropped");
     CHECK(gate(&g, false, true, false, false, 30.1) == DEMO_GATE_DROP, "and that gesture's rest too");
     CHECK(gate(&g, false, false, false, false, 30.5) == DEMO_GATE_PASS, "then clear");
+
+    g = (demo_gate_t){0};
+    CHECK(gate(&g, true, true, false, true, 40.0) == DEMO_GATE_END, "input ends a queued scene");
+    CHECK(gate(&g, true, false, false, true, 40.1) == DEMO_GATE_DROP && g.on, "the next one offered while the view lags");
+    demo_gate_start(&g);
+    CHECK(!g.on, "a new scene starts: the old gesture no longer counts");
+    CHECK(gate(&g, true, false, false, true, 40.2) == DEMO_GATE_DROP, "while it plays: dropped");
+    CHECK(gate(&g, false, false, false, false, 48.2) == DEMO_GATE_PASS && !g.on, "its natural end is not an input end");
 }
 
 static void test_input(void)
