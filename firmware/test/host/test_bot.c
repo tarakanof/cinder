@@ -1028,7 +1028,7 @@ static void test_demo_acts(void)
 }
 
 typedef struct {
-    int micros, gaps, toward_n, bad_amp, bad_dur, early, late, moved_saccade, moved_lean, blinked;
+    int micros, saccades, gaps, toward_n, bad_amp, bad_dur, early, late, moved_saccade, moved_fix, moved_lean, blinked;
     double amp_lo, amp_hi, gap_lo, gap_hi, toward_sum, drift_max;
     double gap[8192];
 } micro_stats_t;
@@ -1060,7 +1060,8 @@ static void micro_run(bot_t *b, double t0, double secs, double amp_lo, double am
             if (t > fix_from && b->mood == was.mood) s->drift_max = fmax(s->drift_max, hypot(p.gaze_x - fix_x, p.gaze_y - fix_y));
             continue;
         }
-        if (b->next_saccade_at != was.next_saccade_at) {
+        if (t >= was.next_saccade_at) {
+            s->saccades++;
             fix_x = b->gaze_to_x;
             fix_y = b->gaze_to_y;
             fix_from = b->gaze_start + b->gaze_dur;
@@ -1068,6 +1069,8 @@ static void micro_run(bot_t *b, double t0, double secs, double amp_lo, double am
             continue;
         }
         s->micros++;
+        s->moved_saccade += b->next_saccade_at != was.next_saccade_at;
+        s->moved_fix += b->fix_x != was.fix_x || b->fix_y != was.fix_y;
         double dx = b->gaze_to_x - b->gaze_from_x, dy = b->gaze_to_y - b->gaze_from_y, amp = hypot(dx, dy);
         s->amp_lo = fmin(s->amp_lo, amp);
         s->amp_hi = fmax(s->amp_hi, amp);
@@ -1109,6 +1112,9 @@ static void test_micro_saccades(void)
         CHECK(!s->early, "idle seed %d: %d micro-saccades in the first 0.6 s of a fixation", seed, s->early);
         CHECK(!s->late, "idle seed %d: %d micro-saccades within 50 ms of the next saccade", seed, s->late);
         CHECK(!s->moved_lean, "idle seed %d: %d micro-saccades moved the lean", seed, s->moved_lean);
+        CHECK(!s->moved_saccade && !s->moved_fix, "idle seed %d: micro-saccades moved the saccade deadline %d times, the fixation target %d",
+              seed, s->moved_saccade, s->moved_fix);
+        CHECK(s->saccades >= 280 / 8, "idle seed %d: %d saccades in 280 s", seed, s->saccades);
         CHECK(!s->blinked, "idle seed %d: %d micro-saccades started a blink", seed, s->blinked);
         CHECK(s->gap_lo >= 0.3 - dt && s->gap_hi <= 2.5 + dt, "idle seed %d: gaps %.3f..%.3f outside 0.3..2.5 s", seed, s->gap_lo, s->gap_hi);
         CHECK(s->toward_n > 10 && s->toward_sum / s->toward_n > 0.6, "idle seed %d: biased back to the target, mean cos %.2f over %d", seed,
@@ -1128,14 +1134,17 @@ static void test_micro_saccades(void)
     CHECK(s->gap_lo >= 0.8 - dt && s->gap_hi <= 5 + dt, "sleepy: gaps %.3f..%.3f outside 0.8..5 s", s->gap_lo, s->gap_hi);
     double med = micro_median(s);
     CHECK(med > 1.6 && med < 2.5, "sleepy: median gap %.2f s, want about 2", med);
-    CHECK(!s->early && !s->late && !s->moved_lean, "sleepy: timing and lean (%d early, %d late, %d lean)", s->early, s->late, s->moved_lean);
+    CHECK(!s->early && !s->late && !s->moved_lean && !s->moved_saccade && !s->moved_fix,
+          "sleepy: timing, lean, deadline, target (%d early, %d late, %d lean, %d deadline, %d target)", s->early, s->late, s->moved_lean,
+          s->moved_saccade, s->moved_fix);
 
     for (int mood = BOT_WORKING; mood <= BOT_DONE; mood++) {
         bot_init(&b, 0xABC + (uint64_t)mood, 0);
         bot_set_mood(&b, (bot_mood_t)mood, 0);
         micro_run(&b, 0, 300, 0.012, 0.025, s);
-        CHECK(s->micros > 0 && !s->bad_amp && !s->early && !s->late && !s->moved_lean, "mood %d: %d micro-saccades, %d off size, %d early, %d late, %d lean",
-              mood, s->micros, s->bad_amp, s->early, s->late, s->moved_lean);
+        CHECK(s->micros > 0 && !s->bad_amp && !s->early && !s->late && !s->moved_lean && !s->moved_saccade && !s->moved_fix,
+              "mood %d: %d micro-saccades, %d off size, %d early, %d late, %d lean, %d deadline, %d target", mood, s->micros, s->bad_amp,
+              s->early, s->late, s->moved_lean, s->moved_saccade, s->moved_fix);
     }
     free(s);
 
@@ -1159,6 +1168,35 @@ static void test_micro_saccades(void)
         CHECK(p.gaze_x == held.gaze_x && p.gaze_y == held.gaze_y, "no micro-saccade while a half chase holds the gaze (t %.2f)", t);
         if (p.gaze_x != held.gaze_x) break;
     }
+
+    double toward_old = 0;
+    int released = 0;
+    for (int seed = 0; seed < 40; seed++) {
+        bot_init(&b, 300 + (uint64_t)seed, 0);
+        for (t = 0; t < 2; t += dt) bot_pose(&b, t);
+        bot_look(&b, -0.8, -0.5, t);
+        for (double end = t + 0.5; t < end; t += dt) bot_pose(&b, t);
+        for (double end = t + 3; t < end; t += dt) {
+            bot_track(&b, 0.85, 0, t);
+            bot_pose(&b, t);
+        }
+        bot_track_end(&b, t);
+        double rs = b.gaze_start, rx = b.gaze_to_x, ry = b.gaze_to_y;
+        bool quiet = true;
+        for (double end = t + 0.6 - dt / 2; t < end; t += dt) {
+            bot_pose(&b, t);
+            quiet = quiet && b.gaze_start == rs;
+        }
+        CHECK(quiet, "seed %d: no micro-saccade on the chase's release frame or in the 0.6 s after it", seed);
+        for (double end = t + 0.5; t < end && b.gaze_start == rs; t += dt) bot_pose(&b, t);
+        if (b.gaze_start == rs || hypot(b.gaze_to_x - rx, b.gaze_to_y - ry) > 0.03) continue;
+        double dx = b.gaze_to_x - b.gaze_from_x, dy = b.gaze_to_y - b.gaze_from_y, ox = -0.8 - b.gaze_from_x, oy = -0.5 - b.gaze_from_y;
+        toward_old += (dx * ox + dy * oy) / (hypot(dx, dy) * hypot(ox, oy));
+        released++;
+    }
+    CHECK(released >= 30, "a micro-saccade follows the release hold: %d of 40", released);
+    CHECK(released && toward_old / released < 0.4, "the first micro-saccade after a chase ignores the pre-chase target: mean cos %.2f over %d",
+          released ? toward_old / released : 0, released);
 
     bot_init(&b, 78, 0);
     for (t = 0; t < 3; t += dt) bot_pose(&b, t);

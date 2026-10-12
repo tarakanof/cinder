@@ -105,7 +105,7 @@ void bot_act_end(bot_t *b, bool glide, double lid_dur, double t);
 /* Ends the act where the gaze is (a new mood's own glance stays), with the mood's eyes and no lid floor. */
 void bot_act_drop(bot_t *b, double t);
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px);
-/* Screen px the outline moves for p's hop alone: even, the nearest even number, symmetric about 0. */
+/* Screen px the outline moves for p's hop alone: the nearest even px, ties away from 0, so a mirrored hop gives -n. */
 int bot_rim_dy(const bot_pose_t *p, double radius_px, double hop_scale);
 bool bot_label_mark(bot_mood_t m);
 

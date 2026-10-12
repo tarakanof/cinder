@@ -323,6 +323,18 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "rim wiring: rim_task skips a held take and stops a dead job"
+body "$BVC" bot_view_update | grep -qF 'int dy = bot_rim_dy(p, s_r, HOP_SCALE);' &&
+    ! body "$BVC" bot_view_update | grep -q 'offset_y \* HOP_SCALE)) & ~1' || WIRING="$WIRING outline-dy-from-bot_rim_dy"
+body "$BVC" label_draw | grep -qF 'bool marked = bot_label_mark(s_rim_mood);' &&
+    body "$BVC" label_draw | grep -qF 'const uint8_t *mark = marked ? tool_mark(' &&
+    body "$BVC" label_draw | grep -qF 'bool icon = marked && (' || WIRING="$WIRING label-icon-from-bot_label_mark"
+body "$BVC" bot_view_create | awk '/s_badge_dot = circle_create\(/ {d = NR} /s_eye\[e\]\.canvas = canvas_create\(/ {e = NR}
+    END {exit !(d && e && d < e)}' || WIRING="$WIRING badge-created-before-the-eye-canvases"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL bot view wiring:$WIRING" >&2
+    exit 1
+fi
+echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes"
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 for ARG in true false; do
