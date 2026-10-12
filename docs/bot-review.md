@@ -164,6 +164,7 @@ Effort: S under a day, M one to three days, L more. All new state is a few dozen
 **Suggested order:** P5 + P1 + P8 (one evening, mostly removing cost and fixing bugs), then P2 and P3 (where the hours are spent), then P4, then P6 + P7 together, since they share the mood-change beat.
 
 **Shipped:** P1, P5 and P8 in 0.9.68 (#111; design and tests in [`features.md`](features.md), bot face). P8 took BotNext's fixes: the badge drawn under the eyes at its old size, and no tool mark in error.
+P2 in 0.9.69 (#112; design and tests in [`features.md`](features.md), bot face).
 
 ## Measured: proposed vs today
 
