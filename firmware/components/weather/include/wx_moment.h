@@ -145,6 +145,8 @@ typedef struct {
 void wxm_layout(const wxm_moment_t *m, wxm_layout_t *l);
 /* Paints every layer of l into the arena (l->total bytes). Pure, any task. */
 void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena);
+#define WXM_CLOUDS 5
+int wxm_clouds(const wx_cloud_t *out[WXM_CLOUDS]);
 
 typedef struct {
     int x, y, opa;

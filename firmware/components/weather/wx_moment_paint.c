@@ -32,6 +32,13 @@ static const wx_cloud_t SNOW_CLOUD = {false, 128, 3, {{206, 118, 15}, {233, 108,
 static const wx_cloud_t FOOT_L = {false, 174, 3, {{172, 166, 10}, {186, 161, 13}, {200, 167, 9}}};
 static const wx_cloud_t FOOT_R = {false, 174, 3, {{266, 167, 9}, {280, 161, 13}, {294, 166, 10}}};
 
+int wxm_clouds(const wx_cloud_t *out[WXM_CLOUDS])
+{
+    static const wx_cloud_t *const ALL[WXM_CLOUDS] = {&GLANCE_CLOUD, &STORM_CLOUD, &SNOW_CLOUD, &FOOT_L, &FOOT_R};
+    for (int i = 0; i < WXM_CLOUDS; i++) out[i] = ALL[i];
+    return WXM_CLOUDS;
+}
+
 static wxm_layer_t layer_of(rect_t r)
 {
     int x0 = (int)floorf(r.x0 * WXM_K + OX), y0 = (int)floorf(r.y0 * WXM_K + OY);
