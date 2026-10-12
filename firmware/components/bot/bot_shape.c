@@ -125,7 +125,7 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
         case BOT_EYES_HAPPY: {
             double w = 0.3 * ffx, h = L(0.16, 0.03) * ffy;
             double x0 = ex - w / 2, y0 = ey - h / 2, qx = ex, qy = ey + h * 1.5, x1 = ex + w / 2, y1 = ey - h / 2;
-            s->n = 7;
+            s->n = BOT_STROKE_MAX;
             for (int i = 0; i < s->n; i++) {
                 double u = (double)i / (s->n - 1), v = 1 - u;
                 s->x[i] = v * v * x0 + 2 * v * u * qx + u * u * x1;

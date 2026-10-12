@@ -65,6 +65,28 @@ static void test_mood_swaps_eyes_behind_blink(void)
     CHECK(p.badge > 0.9, "done shows the badge, got %.2f", p.badge);
 }
 
+static void test_happy_eyes_smooth(void)
+{
+    const double R = 196;
+    for (double lid = 0; lid <= 1.0001; lid += 0.25) {
+        bot_pose_t p = {0};
+        p.eyes = BOT_EYES_HAPPY;
+        p.lid_l = p.lid_r = lid;
+        bot_stroke_t s[2];
+        bot_eye_strokes(&p, 1.15, s);
+        for (int e = 0; e < 2; e++) {
+            double sag = 0;
+            for (int i = 1; i + 1 < s[e].n; i++) {
+                double ax = s[e].x[i] - s[e].x[i - 1], ay = s[e].y[i] - s[e].y[i - 1];
+                double bx = s[e].x[i + 1] - s[e].x[i], by = s[e].y[i + 1] - s[e].y[i];
+                double turn = fabs(atan2(ax * by - ay * bx, ax * bx + ay * by));
+                sag = fmax(sag, turn * fmax(hypot(ax, ay), hypot(bx, by)) * R / 8);
+            }
+            CHECK(sag < 0.25, "lid %.2f eye %d: happy arc strays %.2f px from a smooth curve", lid, e, sag);
+        }
+    }
+}
+
 static void test_sleepy_after_idle(void)
 {
     bot_t b;
@@ -930,6 +952,7 @@ int main(void)
     test_raster_matches_reference();
     test_blink_rate();
     test_mood_swaps_eyes_behind_blink();
+    test_happy_eyes_smooth();
     test_sleepy_after_idle();
     test_error_triangle_geometry();
     test_eye_strokes_finite();
