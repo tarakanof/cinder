@@ -888,7 +888,7 @@ static fbox_t eye_box(const bot_pose_t *p)
     return b;
 }
 
-static int rim_dy_of(const bot_pose_t *p) { return ((int)lround(-BODY_R * p->offset_y * HOP_SCALE)) & ~1; }
+static int rim_dy_of(const bot_pose_t *p) { return bot_rim_dy(p, BODY_R, HOP_SCALE); }
 
 static int cue_eyes(wxm_eyes_t e) { return e == WXM_EYES_ROUND ? BOT_EYES_ROUND : e == WXM_EYES_HAPPY ? BOT_EYES_HAPPY : -1; }
 

@@ -90,7 +90,7 @@ static lv_area_t s_icon_box = {0, 0, -1, -1};
 static bool s_icon_off;
 static ember_host_info_t s_host = {.color = -1};
 static bool s_label_dirty = true;
-static uint32_t s_label_mood_rgb;
+static int s_label_mood = -1;
 static bool s_opt_label = true, s_opt_glint = true;
 #define LABEL_WIPE_R 150.0
 static uint8_t *s_label_alpha0;
@@ -233,13 +233,13 @@ void bot_view_create(lv_obj_t *parent)
     lv_obj_set_size(s_glint, SCREEN_W, SCREEN_H);
     lv_obj_remove_flag(s_glint, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_glint, glint_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
+    s_badge_gap = circle_create(parent, lv_color_black());
+    s_badge_dot = circle_create(parent, lv_color_hex(mood_rgb(BOT_IDLE)));
     for (int e = 0; e < 2; e++) {
         s_eye[e].buf = heap_caps_malloc(EYE_BUF_W * EYE_BUF_H * 3, MALLOC_CAP_SPIRAM);
         assert(s_eye[e].buf);
         s_eye[e].canvas = canvas_create(parent);
     }
-    s_badge_gap = circle_create(parent, lv_color_black());
-    s_badge_dot = circle_create(parent, lv_color_hex(mood_rgb(BOT_IDLE)));
     s_label_buf = heap_caps_malloc(LABEL_W * LABEL_H * 3, MALLOC_CAP_SPIRAM);
     s_label_alpha0 = heap_caps_malloc(LABEL_W * LABEL_H, MALLOC_CAP_SPIRAM);
     s_label_bin = heap_caps_malloc(LABEL_W * LABEL_H * sizeof *s_label_bin, MALLOC_CAP_SPIRAM);
@@ -405,8 +405,9 @@ static void label_draw(void)
     int n = 0;
     uint32_t mark_rgb = 0;
     int mark_w = 0, mark_h = 0;
-    const uint8_t *mark = tool_mark(s_host.tool, &mark_rgb, &mark_w, &mark_h);
-    bool icon = mark || arc_tool_icon(s_host.tool, body, feat);
+    bool marked = bot_label_mark(s_rim_mood);
+    const uint8_t *mark = marked ? tool_mark(s_host.tool, &mark_rgb, &mark_w, &mark_h) : NULL;
+    bool icon = marked && (mark || arc_tool_icon(s_host.tool, body, feat));
     int first = n;
     for (const char *p = s_host.text; *p && n < EMBER_HOST_MAX; p++)
         w[n++] = (float)lv_font_get_glyph_width(font, (uint8_t)p[0], (uint8_t)p[1]);
@@ -456,7 +457,7 @@ static void label_draw(void)
     lv_obj_delete(tmp);
     label_crop(scratch);
     heap_caps_free(scratch);
-    s_label_mood_rgb = mood_c;
+    s_label_mood = (int)s_rim_mood;
     s_label_dirty = false;
 }
 
@@ -464,7 +465,7 @@ static void host_sync(void)
 {
     bool show = s_opt_label && s_host.text[0] &&
                 (s_rim_mood == BOT_WAITING || s_rim_mood == BOT_ERROR || s_rim_mood == BOT_WORKING);
-    if (show && (s_label_dirty || s_label_mood_rgb != mood_rgb(s_rim_mood))) label_draw();
+    if (show && (s_label_dirty || s_label_mood != (int)s_rim_mood)) label_draw();
     if (show == lv_obj_has_flag(s_label, LV_OBJ_FLAG_HIDDEN)) {
         if (show) lv_obj_remove_flag(s_label, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(s_label, LV_OBJ_FLAG_HIDDEN);
@@ -806,7 +807,7 @@ void bot_view_update(const bot_pose_t *p)
     /* Even offsets only: the panel driver rounds areas to 2 px. */
     /* Outline variants swap as one area in a single sweep (docs/features.md, bot face). */
     int v = rim_variant_for(p);
-    int dy = ((int)lround(-s_r * p->offset_y * HOP_SCALE)) & ~1;
+    int dy = bot_rim_dy(p, s_r, HOP_SCALE);
     if (v != s_rim_shown || dy != s_rim_dy) {
         rim_move(v, dy);
         label_place();
