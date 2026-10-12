@@ -330,11 +330,15 @@ body "$BVC" label_draw | grep -qF 'bool marked = bot_label_mark(s_rim_mood);' &&
     body "$BVC" label_draw | grep -qF 'bool icon = marked && (' || WIRING="$WIRING label-icon-from-bot_label_mark"
 body "$BVC" bot_view_create | awk '/s_badge_gap = circle_create\(/ {g = NR} /s_badge_dot = circle_create\(/ {d = NR}
     /s_eye\[e\]\.canvas = canvas_create\(/ {e = NR} END {exit !(g && d && e && g < e && d < e)}' || WIRING="$WIRING badge-created-before-the-eye-canvases"
+body "$BVC" bot_view_update | grep -qF 'if (shape != s_rim_shape || p->mood != s_rim_mood || p->asleep != s_rim_asleep) {' &&
+    body "$BVC" bot_view_update | grep -qF 'int tone = bot_rim_tone(p->mood, p->asleep);' &&
+    body "$BVC" bot_view_update | grep -qF 'rim_job_new(&s_rim, shape, tone);' || WIRING="$WIRING outline-re-renders-on-asleep"
+body "$BVC" rim_raster | grep -qF 'mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));' || WIRING="$WIRING outline-alpha-from-bot_rim_alpha"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL bot view wiring:$WIRING" >&2
     exit 1
 fi
-echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes"
+echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone"
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 for ARG in true false; do
@@ -429,13 +433,18 @@ body "$MAINC" scene_start | grep -qxF '    s_scene_half = s_half;' && body "$MAI
     WIRING="$WIRING scene_start-pauses-the-chase"
 body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    s_half = s_scene_half;$/ {h = NR} END {exit !(r && h > r)}' ||
     WIRING="$WIRING scene_end-restores-the-half-chase"
+fbody "$MAINC" page_tick | grep -qxF '    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);' ||
+    WIRING="$WIRING page_tick-asleep-act-sleeps"
+body "$MAINC" scene_end | grep -qxF '    else if (s_scene_act.kind == DEMO_ACT_ASLEEP && !s_scene_asleep0) bot_stir(&s_bot, t);' &&
+    body "$MAINC" scene_end | grep -qF 'bool slept = s_scene_act.kind == DEMO_ACT_SLEEPY || s_scene_act.kind == DEMO_ACT_ASLEEP;' ||
+    WIRING="$WIRING scene_end-wakes-after-asleep"
 fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);' &&
     [ "$(grep -c 'atomic_store(&s_chase_req, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING server-chase-deferred-during-a-scene"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene"
+echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"

@@ -977,7 +977,7 @@ static void test_acting(void)
                 bot_pose_t p = bot_pose(&b, t);
                 CHECK(b.mood != mood || p.eyes == (mood == BOT_DONE ? BOT_EYES_HAPPY : BOT_EYES_DASH), "%s in mood %d: the mood's eyes back (%d)",
                       KIND[m.kind], mood, p.eyes);
-                CHECK(fabs(p.lid_l - (mood == BOT_SLEEPY ? 0.55 : 0)) < 0.02 || b.blinking, "%s: no lid left (%.2f)", KIND[m.kind], p.lid_l);
+                CHECK(fabs(p.lid_l - (mood == BOT_SLEEPY ? 0.80 + 0.12 * p.breath : 0)) < 0.02 || b.blinking, "%s: no lid left (%.2f)", KIND[m.kind], p.lid_l);
                 runs++;
             }
     printf("moment acting: %d runs, eyes from y %.1f (sprite box ends at %d) to %.1f (text line from %d)\n", runs, top,

@@ -24,6 +24,7 @@ bool demo_act_parse(const char *s, demo_act_t *out)
     else if (strcmp(s, "pop") == 0) out->kind = DEMO_ACT_POP;
     else if (strcmp(s, "blink") == 0) out->kind = DEMO_ACT_BLINK;
     else if (strcmp(s, "sleepy") == 0) out->kind = DEMO_ACT_SLEEPY;
+    else if (strcmp(s, "asleep") == 0) out->kind = DEMO_ACT_ASLEEP;
     else if (strcmp(s, "chase:full") == 0) out->kind = DEMO_ACT_CHASE;
     else if (strcmp(s, "chase:half") == 0) {
         out->kind = DEMO_ACT_CHASE;
@@ -84,7 +85,7 @@ static bool seen(const demo_t *d, const char *id)
     return false;
 }
 
-static bool natural(demo_act_kind_t k) { return k != DEMO_ACT_NONE && k != DEMO_ACT_SLEEPY; }
+static bool natural(demo_act_kind_t k) { return k != DEMO_ACT_NONE && k != DEMO_ACT_SLEEPY && k != DEMO_ACT_ASLEEP; }
 
 static void end(demo_t *d)
 {

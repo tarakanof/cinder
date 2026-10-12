@@ -24,6 +24,8 @@ typedef struct {
     double offset_x, offset_y;
     double hop_dy;  /* the hop's lift alone, also in offset_y */
     double orbit;   /* 0..1 */
+    double breath;  /* -1..1: eye height and centre awake, the centre's bob asleep */
+    bool asleep;
 } bot_pose_t;
 
 typedef struct {
@@ -46,8 +48,8 @@ typedef struct {
     double fix_x, fix_y, next_micro_at;
     double read_x;
 
-    bool blinking;
-    double blink_start, blink_lag, blink_speed;
+    bool blinking, blink_heavy;
+    double blink_start, blink_lag, blink_speed, blink_hold;
     bool double_blink_pending;
     double next_blink_at, last_blink_at;
 
@@ -56,6 +58,11 @@ typedef struct {
     double pop_start, hop_start, next_hop_at;
     double sleep_after_s;
     bool calm;
+
+    double breath, breath_ph, breath_per, breath_t;
+    bool asleep;
+    double asleep_at;
+    bot_tween_t sleep_lid;
 
     bool tracking;
     double trk_x, trk_y, trk_gx, trk_gy, trk_vx, trk_vy, trk_t;
@@ -66,6 +73,13 @@ typedef struct {
 } bot_t;
 
 #define BOT_SLEEP_AFTER_S 300.0
+#define BOT_ASLEEP_AFTER_S 600.0
+/* Body radii an eye point moves per unit of breath (awake, asleep) or of lid: bot_pose_same's half pixel. */
+#define BOT_BREATH_REACH 0.006
+#define BOT_BREATH_BOB 0.0077
+#define BOT_LID_REACH 0.2
+/* bot_rim_tone's flag on top of the mood. */
+#define BOT_RIM_ASLEEP 0x100
 #define BOT_HOP_DURATION_S 1.0
 #define BOT_HOP_SQUASH 0.75
 
@@ -90,6 +104,9 @@ void bot_hop(bot_t *b, double t);
 void bot_pop(bot_t *b, double t);
 /* A demo's sleepy mood undone: sleepy goes back to idle, which bot_set_mood never does. */
 void bot_wake(bot_t *b, double t);
+/* A demo's asleep: sleepy and asleep now. bot_stir: an asleep bot back to awake sleepy, asleep again after BOT_ASLEEP_AFTER_S. */
+void bot_sleep(bot_t *b, double t);
+void bot_stir(bot_t *b, double t);
 /* Weather-moment acting. Begin glides to the viewer and leans as for it; acting gazes keep that lean, the bot makes
    no saccades of its own and ignores bot_look (a knob turn) and bot_push (its hop). act_eyes: a bot_eyes_t costume,
    or -1 for the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s
@@ -108,6 +125,10 @@ bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px);
 /* Screen px the outline moves for p's hop alone: the nearest even px, ties away from 0, so a mirrored hop gives -n. */
 int bot_rim_dy(const bot_pose_t *p, double radius_px, double hop_scale);
 bool bot_label_mark(bot_mood_t m);
+/* The outline's colour and opacity key: the mood, | BOT_RIM_ASLEEP while asleep. */
+int bot_rim_tone(bot_mood_t m, bool asleep);
+bot_mood_t bot_rim_mood(int tone);
+float bot_rim_alpha(int tone);
 
 #ifdef __cplusplus
 }
