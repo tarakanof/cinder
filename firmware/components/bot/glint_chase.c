@@ -31,6 +31,15 @@ bool gc_start_now(glint_chase_t *c, int style, int laps)
     return true;
 }
 
+void gc_resume(glint_chase_t *c, double work_s, double wait_s)
+{
+    c->phase = GC_IDLE;
+    c->forced = 0;
+    c->forced_laps = 0;
+    c->work_s = work_s;
+    c->wait_s = wait_s;
+}
+
 void gc_half_reset(gc_half_t *h) { *h = (gc_half_t){.prev = -1}; }
 
 void gc_half_step(gc_half_t *h, double psi, double lead_deg, gc_half_out_t *out)

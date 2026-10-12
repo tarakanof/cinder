@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "epoch": 4,
+  "config_version": 3,
+  "mood": {"waiting": 0, "errors": 0, "running": 2, "done": 0, "source": ""},
+  "demo": {
+    "id": "scene-chase-half",
+    "page": "bot",
+    "act": "chase:half",
+    "hold": false
+  }
+}

@@ -575,7 +575,14 @@ void bot_view_label_fx(float opa, int shift_x, int shift_y)
     }
 }
 
-static bool glint_enabled(void) { return s_opt_glint && s_rim_mood == BOT_WORKING && s_rim_shape == 0; }
+static bool s_glint_force;
+
+void bot_view_glint_force(bool on) { s_glint_force = on; }
+
+static bool glint_enabled(void)
+{
+    return (s_glint_force || (s_opt_glint && s_rim_mood == BOT_WORKING)) && s_rim_shape == 0;
+}
 
 static int glint_step(double t) { return (int)fmod(floor(t / GLINT_STEP_S), GLINT_STEPS); }
 

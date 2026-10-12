@@ -25,7 +25,7 @@ knob_step_t knob_view_step(knob_view_state_t *s, int status, const char *body)
     switch (view_answer(status, knob_view_conditional(s))) {
     case VIEW_ANS_NEW: {
         int major = 0;
-        knob_view_res_t res = knob_view_read(body, &s->view, &major);
+        knob_view_res_t res = knob_view_read_full(body, &s->view, &major, &s->demo_view);
         if (res == KNOB_VIEW_TOO_OLD || res == KNOB_VIEW_TOO_NEW) {
             s->unsupported = true;
             s->major = major;

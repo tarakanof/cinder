@@ -18,6 +18,8 @@ void bot_view_set_options(bool source_label, bool working_ring);
 void bot_view_set_offline(bool on);
 /* t in seconds; LVGL task only. Returns true when it invalidated a step. */
 bool bot_view_tick(double t, bool defer);
+/* LVGL task only: a demo's chase shows the glint in any mood with the round outline, working ring setting or not. */
+void bot_view_glint_force(bool on);
 /* Screen degrees, 0 = 3 o'clock, clockwise. */
 bool bot_view_glint_deg(double t, float *deg);
 /* Opacity 0..1, offset in px; LVGL task only. */

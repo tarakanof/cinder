@@ -933,9 +933,44 @@ static void test_act(void)
     CHECK(!b.acting, "a second drop: nothing");
 }
 
+static void test_demo_acts(void)
+{
+    bot_t b;
+    bot_init(&b, 7, 0);
+    bot_set_calm(&b, true, 0.5);
+    bot_act_begin(&b, 1);
+    bot_hop(&b, 2);
+    bot_pose(&b, 2.5);
+    CHECK(b.hopping && !b.popping, "a demo hop runs while calm and acting, alone");
+    bot_pose(&b, 2 + BOT_HOP_DURATION_S + 0.01);
+    CHECK(!b.hopping, "the hop ends after BOT_HOP_DURATION_S");
+    bot_pop(&b, 4);
+    bot_pose(&b, 4.2);
+    CHECK(b.popping && !b.hopping, "a demo pop, alone");
+    bot_pose(&b, 4.41);
+    CHECK(!b.popping, "the pop ends after 0.4 s");
+
+    glint_chase_t c;
+    gc_out_t o;
+    gc_init(&c, 5);
+    gc_tick(&c, 0, true, 3.0, &o);
+    gc_tick(&c, 100, true, 3.0, &o);
+    double work = c.work_s, wait = c.wait_s;
+    CHECK(work > 0 && work < wait, "working time counts: %g of %g", work, wait);
+    CHECK(gc_start_now(&c, GC_STYLE_HALF, 0), "a demo chase");
+    gc_tick(&c, 100.1, true, 3.0, &o);
+    CHECK(o.chasing, "chasing");
+    gc_resume(&c, work, wait);
+    gc_tick(&c, 100.2, true, 3.0, &o);
+    CHECK(!o.chasing && c.phase == GC_IDLE && fabs(c.work_s - work - 0.1) < 1e-9 && c.wait_s == wait,
+          "resume: no chase, the working time and wait as before: %g", c.work_s);
+    CHECK(gc_start_now(&c, GC_STYLE_FULL, 0), "idle after resume");
+}
+
 int main(void)
 {
     bot_shape_init();
+    test_demo_acts();
     test_chase_hold();
     test_act();
     test_rim_job();

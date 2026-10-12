@@ -435,6 +435,18 @@ void bot_push(bot_t *b, double t)
     b->popping = true; b->pop_start = t;
 }
 
+void bot_hop(bot_t *b, double t)
+{
+    b->hopping = true;
+    b->hop_start = t;
+}
+
+void bot_pop(bot_t *b, double t)
+{
+    b->popping = true;
+    b->pop_start = t;
+}
+
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
 {
     if (a->mood != b->mood || a->eyes != b->eyes) return false;

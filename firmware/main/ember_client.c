@@ -280,7 +280,9 @@ typedef struct {
     const char *cap_ids[PAGES_N];
     char base[CFG_URL_MAX + 1];
     char view_url[CFG_URL_MAX + 32];
-    char wait_url[CFG_URL_MAX + 48];
+    char wait_url[CFG_URL_MAX + 48 + DEMO_QUERY_MAX];
+    char demo_q[DEMO_QUERY_MAX];
+    unsigned demo_gen;
     char state_url[CFG_URL_MAX + 16];
     char bright_url[CFG_URL_MAX + 32];
     char checkin_url[CFG_URL_MAX + 40];
@@ -396,6 +398,20 @@ static void watchdog_start(void)
     ESP_LOGE(TAG, "ember watchdog not armed: %s", esp_err_to_name(err));
 }
 
+static EXT_RAM_BSS_ATTR demo_t s_demo;
+static portMUX_TYPE s_demo_mux = portMUX_INITIALIZER_UNLOCKED;
+static atomic_bool s_demo_view_on;
+static atomic_int s_demo_mood = -1;
+
+static bool demo_moved(void)
+{
+    if (!P) return false;
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool moved = s_demo.gen != P->demo_gen;
+    taskEXIT_CRITICAL(&s_demo_mux);
+    return moved;
+}
+
 static void wait_and_fade(int ms, char *buf)
 {
     fade_start();
@@ -405,6 +421,7 @@ static void wait_and_fade(int ms, char *buf)
         int32_t left = (int32_t)(end - xTaskGetTickCount());
         if (left <= 0) return;
         if (ota_client_mark_pending()) return;
+        if (buf && demo_moved()) return;
         TickType_t wait = (TickType_t)left;
         if (wait > pdMS_TO_TICKS(1000)) wait = pdMS_TO_TICKS(1000);
         int next = fade_step();
@@ -788,9 +805,36 @@ static void apply_mode(void)
     else ESP_LOGI(TAG, "reading Ember's knob view");
 }
 
-static void view_host(ember_host_info_t *host)
+static double demo_now(void) { return esp_timer_get_time() / 1e6; }
+
+static void demo_offer_view(void)
 {
-    const knob_view_t *v = &P->vs.view;
+    taskENTER_CRITICAL(&s_demo_mux);
+    demo_ev_t ev = demo_offer(&s_demo, &P->vs.view.demo, demo_now());
+    taskEXIT_CRITICAL(&s_demo_mux);
+    if (ev == DEMO_EV_START) {
+        atomic_store(&s_demo_mood, atomic_load(&s_mood));
+        const demo_block_t *b = &P->vs.view.demo;
+        ESP_LOGI(TAG, "demo %s: %s%s%s", b->id, demo_page_id(b->page), b->has_view ? ", view" : "",
+                 b->hold ? ", hold" : "");
+    } else if (ev == DEMO_EV_STOP) {
+        ESP_LOGI(TAG, "demo stopped by the server");
+    }
+}
+
+static int demo_mood(int real)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool playing = demo_playing(&s_demo), view = demo_view_wanted(&s_demo);
+    taskEXIT_CRITICAL(&s_demo_mux);
+    if (!playing) return real;
+    if (view && P->vs.demo_view.has_mood) return (int)knob_view_mood(&P->vs.demo_view);
+    int frozen = atomic_load(&s_demo_mood);
+    return frozen >= 0 ? frozen : real;
+}
+
+static void view_host(const knob_view_t *v, ember_host_info_t *host)
+{
     ember_host_lead_label(v->source, v->lead, v->hosts, host->text, sizeof host->text);
     host->color = ember_host_color(v->lead_color);
     host->tool = (uint8_t)ember_host_tool(v->tool);
@@ -799,17 +843,23 @@ static void view_host(ember_host_info_t *host)
 static void apply_view(ember_host_info_t *host, long long srv_now, double sent, double received)
 {
     const knob_view_t *v = &P->vs.view;
-    view_host(host);
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool playing = demo_playing(&s_demo), want = demo_view_wanted(&s_demo);
+    P->demo_gen = s_demo.gen;
+    taskEXIT_CRITICAL(&s_demo_mux);
+    const knob_view_t *e = want ? &P->vs.demo_view : v;
+    atomic_store(&s_demo_view_on, want);
+    view_host(e, host);
     char key[48];
     knob_view_epoch_key(v, key, sizeof key);
     dev_sched_epoch(&s_sched, key, now_ms());
     live_mode(v->diag_live_until, P->hdrs.now);
     P->applied = true;
     double srv_est =
-        pomo_client_feed(v->has_pomo ? &v->pomo : NULL, v->pomo_counting, v->ends_at, srv_now, sent, received);
-    weather_client_feed(v->has_weather ? &v->weather : NULL, srv_est);
-    np_client_feed(v->has_np ? &v->np : NULL);
-    set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
+        pomo_client_feed(e->has_pomo ? &e->pomo : NULL, e->pomo_counting, e->ends_at, srv_now, sent, received);
+    weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
+    np_client_feed(e->has_np ? &e->np : NULL);
+    set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet && !playing));
     view_brightness();
     bright_apply();
 }
@@ -824,6 +874,7 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (!atomic_load(&s_online) || config_store_token_gen() != P->token_gen) return true;
     if (config_store_settings_gen() != s_ks_gen) return true;
     if (np_client_pending()) return true;
+    if (demo_moved()) return true;
     if (!P->has_pending && pomo_client_next_action(0, &P->pending)) P->has_pending = true;
     return P->has_pending;
 }
@@ -854,11 +905,16 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     const char *etag = knob_view_conditional(&P->vs) ? view_etag_get(&P->etag) : NULL;
     int wait = s_plain_poll ? 0 : view_wait_s(P->wait_cap, etag != NULL, s_sched.next_ms - now_ms(), P->view_failing);
     const char *url = P->view_url;
-    if (wait > 0) {
-        snprintf(P->wait_url, sizeof P->wait_url, "%s?wait=%d", P->view_url, wait);
+    taskENTER_CRITICAL(&s_demo_mux);
+    demo_query(&s_demo, P->demo_q, sizeof P->demo_q);
+    taskEXIT_CRITICAL(&s_demo_mux);
+    if (wait > 0 || P->demo_q[0]) {
+        int n = snprintf(P->wait_url, sizeof P->wait_url, "%s", P->view_url);
+        if (wait > 0) n += snprintf(P->wait_url + n, sizeof P->wait_url - n, "?wait=%d", wait);
+        if (P->demo_q[0]) snprintf(P->wait_url + n, sizeof P->wait_url - n, "%c%s", wait > 0 ? '&' : '?', P->demo_q);
         url = P->wait_url;
-        fade_start();
     }
+    if (wait > 0) fade_start();
     bool truncated = false;
     const http_req_opts_t o = {
         .idempotent = true,
@@ -901,11 +957,12 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     if (st.etag_set) view_etag_set(&P->etag, h->etag);
     switch (st.act) {
     case KNOB_STEP_APPLY:
+        demo_offer_view();
         apply_view(host, srv_now, sent, received);
-        *mood = st.mood;
+        *mood = demo_mood(st.mood);
         return status;
     case KNOB_STEP_RESTORE:
-        view_host(host);
+        view_host(&P->vs.view, host);
         *mood = st.mood;
         return status;
     case KNOB_STEP_UNPARSED: {
@@ -920,6 +977,34 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     }
 }
 
+
+static void demo_sync(ember_host_info_t *host, int *mood, bool *fresh)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    unsigned gen = s_demo.gen;
+    bool playing = demo_playing(&s_demo);
+    taskEXIT_CRITICAL(&s_demo_mux);
+    if (gen == P->demo_gen) return;
+    if (P->vp.legacy || !P->vs.have_view || P->vs.unsupported) {
+        P->demo_gen = gen;
+        atomic_store(&s_demo_view_on, false);
+        return;
+    }
+    double now = pomo_client_now();
+    apply_view(host, 0, now, now);
+    if (*mood >= 0) {
+        *mood = demo_mood(P->vs.view.has_mood ? (int)knob_view_mood(&P->vs.view) : -1);
+        *fresh = *mood >= 0;
+    }
+    if (!playing) ESP_LOGI(TAG, "demo done");
+}
+
+static void demo_mark_ready(void)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    if (P->demo_gen == s_demo.gen) demo_ready(&s_demo);
+    taskEXIT_CRITICAL(&s_demo_mux);
+}
 
 static bool ota_fresh_view(void)
 {
@@ -1074,6 +1159,7 @@ static void poll_task(void *arg)
             mood = -1;
             link_note(link_counts(s_ls.level, false, false, -1, false));
         }
+        demo_sync(&host, &mood, &fresh);
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (fresh) {
             taskENTER_CRITICAL(&s_host_mux);
@@ -1081,6 +1167,7 @@ static void poll_task(void *arg)
             taskEXIT_CRITICAL(&s_host_mux);
         }
         atomic_store(&s_mood, mood);
+        demo_mark_ready();
         if (mood != last) {
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;
@@ -1161,7 +1248,52 @@ uint32_t ember_client_link_word(void) { return atomic_load(&s_link_word); }
 
 bool ember_client_offline(void)
 {
-    return atomic_load(&s_link) != EMBER_LINK_OFF && link_word_offline(atomic_load(&s_link_word));
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool demo = demo_playing(&s_demo) && s_demo.cur.offline;
+    taskEXIT_CRITICAL(&s_demo_mux);
+    return demo || (atomic_load(&s_link) != EMBER_LINK_OFF && link_word_offline(atomic_load(&s_link_word)));
+}
+
+void ember_client_demo_status(ember_demo_status_t *out)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    out->playing = demo_playing(&s_demo);
+    out->gen = s_demo.gen;
+    taskEXIT_CRITICAL(&s_demo_mux);
+    out->view_on = atomic_load(&s_demo_view_on);
+}
+
+bool ember_client_demo_take(demo_block_t *out, unsigned *gen)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool ok = demo_take_start(&s_demo, out);
+    *gen = s_demo.gen;
+    taskEXIT_CRITICAL(&s_demo_mux);
+    return ok;
+}
+
+void ember_client_demo_tick(double t)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool ended = demo_tick(&s_demo, t);
+    taskEXIT_CRITICAL(&s_demo_mux);
+    if (ended) ember_client_wake();
+}
+
+bool ember_client_demo_input(void)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool ended = demo_input(&s_demo);
+    taskEXIT_CRITICAL(&s_demo_mux);
+    if (ended) ember_client_wake();
+    return ended;
+}
+
+void ember_client_demo_act_done(void)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    demo_act_finished(&s_demo);
+    taskEXIT_CRITICAL(&s_demo_mux);
 }
 
 ember_view_compat_t ember_client_view_compat(void) { return (ember_view_compat_t)atomic_load(&s_view_compat); }

@@ -226,7 +226,28 @@ static void parse_mood(const cJSON *mood, knob_view_t *out)
     str_copy(out->tool, sizeof out->tool, mood, "tool");
 }
 
-knob_view_res_t knob_view_read(const char *json, knob_view_t *out, int *major)
+static void read_body(const cJSON *root, knob_view_t *out)
+{
+    const cJSON *e = item(root, "epoch"), *cv = item(root, "config_version");
+    out->epoch = cJSON_IsNumber(e) && e->valuedouble > 0 ? (unsigned long long)e->valuedouble : 0;
+    out->config_version = cJSON_IsNumber(cv) && cv->valuedouble > 0 ? (unsigned long)cv->valuedouble : 0;
+    parse_mood(item(root, "mood"), out);
+    parse_pomo(item(root, "pomo"), out);
+    parse_weather(item(root, "weather"), out);
+    const cJSON *b = item(root, "brightness");
+    const cJSON *lv = cJSON_IsObject(b) ? item(b, "level") : NULL;
+    if (cJSON_IsNumber(lv) && lv->valuedouble >= 0 && lv->valuedouble <= 255) {
+        out->has_brightness = true;
+        out->level = (int)lv->valuedouble;
+        out->bright_night = cJSON_IsTrue(item(b, "night"));
+    }
+    out->quiet = cJSON_IsTrue(item(root, "quiet"));
+    out->has_np = np_parse(item(root, "nowplaying"), &out->np);
+    long long lu;
+    if (num_ll(root, "diag_live_until", &lu) && lu > 0) out->diag_live_until = lu;
+}
+
+knob_view_res_t knob_view_read_full(const char *json, knob_view_t *out, int *major, knob_view_t *demo_view)
 {
     cJSON *root = json ? cJSON_Parse(json) : NULL;
     knob_view_res_t res = view_major(root, major);
@@ -235,28 +256,25 @@ knob_view_res_t knob_view_read(const char *json, knob_view_t *out, int *major)
         return res;
     }
     memset(out, 0, sizeof *out);
+    out->demo.face = -1;
+    if (demo_view) memset(demo_view, 0, sizeof *demo_view);
     if (res == KNOB_VIEW_OK) {
         out->v = num_int(root, "v");
-        const cJSON *e = item(root, "epoch"), *cv = item(root, "config_version");
-        out->epoch = cJSON_IsNumber(e) && e->valuedouble > 0 ? (unsigned long long)e->valuedouble : 0;
-        out->config_version = cJSON_IsNumber(cv) && cv->valuedouble > 0 ? (unsigned long)cv->valuedouble : 0;
-        parse_mood(item(root, "mood"), out);
-        parse_pomo(item(root, "pomo"), out);
-        parse_weather(item(root, "weather"), out);
-        const cJSON *b = item(root, "brightness");
-        const cJSON *lv = cJSON_IsObject(b) ? item(b, "level") : NULL;
-        if (cJSON_IsNumber(lv) && lv->valuedouble >= 0 && lv->valuedouble <= 255) {
-            out->has_brightness = true;
-            out->level = (int)lv->valuedouble;
-            out->bright_night = cJSON_IsTrue(item(b, "night"));
+        read_body(root, out);
+        const cJSON *d = item(root, "demo");
+        if (demo_block_parse(d, &out->demo) && out->demo.has_view && demo_view) {
+            demo_view->v = out->v;
+            demo_view->demo.face = -1;
+            read_body(item(d, "view"), demo_view);
         }
-        out->quiet = cJSON_IsTrue(item(root, "quiet"));
-        out->has_np = np_parse(item(root, "nowplaying"), &out->np);
-        long long lu;
-        if (num_ll(root, "diag_live_until", &lu) && lu > 0) out->diag_live_until = lu;
     }
     cJSON_Delete(root);
     return res;
+}
+
+knob_view_res_t knob_view_read(const char *json, knob_view_t *out, int *major)
+{
+    return knob_view_read_full(json, out, major, NULL);
 }
 
 bool knob_view_parse(const char *json, knob_view_t *out) { return knob_view_read(json, out, NULL) == KNOB_VIEW_OK; }

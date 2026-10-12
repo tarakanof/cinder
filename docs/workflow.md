@@ -22,7 +22,8 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   change under review. The script replaces `firmware/test/host/fixtures/ember/` and records
   the resolved commit in its `SOURCE`; it needs `gh`, not an Ember checkout. Never edit
   the fixtures by hand. `test_fixtures.c` parses each one with the firmware's own parsers
-  and rebuilds `checkin_req_*` with `dev_checkin_body`; a new fixture file needs a test.
+  and rebuilds `checkin_req_*` with `dev_checkin_body`; a new fixture file needs a test. Ember's demo
+  scenes (`demo/<scene>.json`, full view answers with a `demo` block) need none: `test_demo.c` parses every one.
 - **New checkin request fields.** The rebuilt body must match the fixture, except for
   paths listed in `NOT_YET_SENT[]` in `test_fixtures.c` (`".caps"`, `".diag.foo"`): the
   sync commit that brings a field the firmware does not send yet adds its path there, and
@@ -32,7 +33,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 - **New caps feature tokens.** `NOT_YET_SENT` matches object keys only; `caps.features` is
   an array. A token in Ember's feature registry that the firmware sends before
   `checkin_req_caps.json` lists it goes in `FEATURES_AHEAD[]` in `test_fixtures.c`
-  (`wx_faces` since 0.9.51, `wx_moments` since 0.9.65): the test drops it from the firmware's list before comparing,
+  (`wx_faces` since 0.9.51, `wx_moments` since 0.9.65, `demo` since 0.9.66): the test drops it from the firmware's list before comparing,
   fails when a caps body does not carry it exactly once or no caps fixture is checked, and
   fails once the fixture has it (then remove
   the entry in the sync commit).
@@ -184,7 +185,7 @@ The port tools open it with raw termios and leave DTR/RTS alone; their effects a
 | `gen_tool_marks.py` | Regenerate `components/bot/tool_marks.c` (venv; no port) |
 | `gen_title_font.py [TTF]` | Regenerate `main/font_title_bold.c`, the OTA face's bold title glyphs (Pillow; no port) |
 | `gen_face_fonts.py [TTF]` | Regenerate `main/font_face_36.c` and `main/font_digits_96.c`, the weather/music face subsets (Pillow; no port) |
-| `sync-ember-fixtures.sh <v* tag or commit SHA>` | Replace `test/host/fixtures/ember/` with Ember's device-protocol fixtures at an existing `v*` tag or a 7-40 lowercase hex commit SHA (`gh`; no port) |
+| `sync-ember-fixtures.sh <v* tag or commit SHA>` | Replace `test/host/fixtures/ember/` with Ember's device-protocol fixtures at an existing `v*` tag or a 7-40 lowercase hex commit SHA, demo scenes (`demo/`) included (`gh`; no port) |
 
 To put the bot in working mood without real work, post a demo session to Ember
 and re-post every 10 s (Ember `docs/WORKFLOW.md` step 7).
