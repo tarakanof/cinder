@@ -7,11 +7,16 @@
 #define REST_Y 0.77
 #define VIEWER_X 0.0
 #define VIEWER_Y 0.1
+#define BADGED_REST_X 0.5
+#define BADGED_REST_Y 0.6
+#define MICRO_HOLD_S 0.6
+#define MICRO_DUR_S 0.025
 #define TRANSITION_S 0.7
 #define HOP_LEN_S BOT_HOP_DURATION_S
 #define HOP_CURVE_LEN 0.62
 
 enum { EASE_IN_OUT, EASE_OUT_BACK };
+enum { SAC_NORMAL, SAC_GLIDE, SAC_MICRO };
 
 static uint64_t rng_next(bot_t *b)
 {
@@ -161,7 +166,7 @@ static void next_target(bot_t *b, double *x, double *y)
         *x = jitter(b, 0.9); *y = jitter(b, 0.7); return;
     case BOT_DONE:
     default:
-        if (r < 0.5) { *x = REST_X + jitter(b, 0.08); *y = REST_Y + jitter(b, 0.06); return; }
+        if (r < 0.5) { *x = BADGED_REST_X + jitter(b, 0.08); *y = BADGED_REST_Y + jitter(b, 0.06); return; }
         *x = VIEWER_X + jitter(b, 0.06); *y = VIEWER_Y + jitter(b, 0.06); return;
     }
 }
@@ -177,14 +182,27 @@ static void start_blink(bot_t *b, double t)
     b->next_blink_at = t + blink_interval(b);
 }
 
-static void start_saccade_to(bot_t *b, double t, bool glide, double tx, double ty)
+static double micro_gap(bot_t *b)
 {
+    return b->mood == BOT_SLEEPY ? lognormal(b, 2, 0.4, 0.8, 5) : lognormal(b, 0.8, 0.4, 0.3, 2.5);
+}
+
+static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
+{
+    bool glide = kind == SAC_GLIDE;
     double fx, fy;
     current_gaze(b, t, &fx, &fy);
     double amp = hypot(tx - fx, ty - fy);
     b->gaze_from_x = fx; b->gaze_from_y = fy;
     b->gaze_to_x = tx; b->gaze_to_y = ty;
     b->gaze_start = t;
+    if (kind == SAC_MICRO) {
+        b->gaze_dur = MICRO_DUR_S;
+        b->gaze_ease = EASE_IN_OUT;
+        b->next_micro_at = t + micro_gap(b);
+        return;
+    }
+    b->fix_x = tx; b->fix_y = ty;
     b->gaze_dur = glide ? 0.42 : 0.025 + 0.045 * amp;
     b->gaze_ease = glide ? EASE_IN_OUT : EASE_OUT_BACK;
     if (!glide && amp > 0.8 && !b->blinking && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
@@ -194,13 +212,24 @@ static void start_saccade_to(bot_t *b, double t, bool glide, double tx, double t
     b->lean_x = tween(tween_value(&b->lean_x, t), tx * 0.045, t + 0.03, lean_dur, EASE_IN_OUT);
     b->lean_y = tween(tween_value(&b->lean_y, t), ty * 0.03, t + 0.03, lean_dur, EASE_IN_OUT);
     b->next_saccade_at = t + b->gaze_dur + fixation(b);
+    b->next_micro_at = t + b->gaze_dur + fmax(MICRO_HOLD_S, micro_gap(b));
 }
 
 static void start_saccade(bot_t *b, double t, bool glide)
 {
     double tx, ty;
     next_target(b, &tx, &ty);
-    start_saccade_to(b, t, glide, tx, ty);
+    start_saccade_to(b, t, glide ? SAC_GLIDE : SAC_NORMAL, tx, ty);
+}
+
+static void start_micro(bot_t *b, double t)
+{
+    double cx, cy;
+    current_gaze(b, t, &cx, &cy);
+    double amp = rng_range(b, 0.012, 0.025) * (b->mood == BOT_SLEEPY ? 0.5 : 1);
+    double dx = b->fix_x - cx, dy = b->fix_y - cy;
+    double ang = hypot(dx, dy) > 0.015 ? atan2(dy, dx) + jitter(b, 1.0) : rng_range(b, 0, 2 * M_PI);
+    start_saccade_to(b, t, SAC_MICRO, cx + amp * cos(ang), cy + amp * sin(ang));
 }
 
 static void enter(bot_t *b, bot_mood_t m, double t)
@@ -258,6 +287,9 @@ void bot_init(bot_t *b, uint64_t seed, double now)
     b->gaze_start = -1;
     b->gaze_ease = EASE_OUT_BACK;
     b->next_saccade_at = now + 1;
+    b->fix_x = REST_X;
+    b->fix_y = REST_Y;
+    b->next_micro_at = now + 0.8;
     b->read_x = -0.6;
     b->blink_speed = 1;
     b->next_blink_at = now + 0.8;
@@ -290,6 +322,11 @@ bot_pose_t bot_pose(bot_t *b, double t)
     if (b->mood == BOT_IDLE && b->sleep_after_s > 0 && t - b->mood_since >= b->sleep_after_s) enter(b, BOT_SLEEPY, t);
     if (!b->blinking && t >= b->next_blink_at) start_blink(b, t);
     if (t >= b->next_saccade_at && !b->acting) start_saccade(b, t, false);
+    bool moving = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
+    if (!b->acting && !b->tracking && !moving && t >= b->next_micro_at) {
+        if (t + 0.05 < b->next_saccade_at) start_micro(b, t);
+        else b->next_micro_at = b->next_saccade_at + MICRO_HOLD_S;
+    }
     if (t >= b->next_hop_at) {
         b->hopping = true;
         b->hop_start = t;
@@ -339,6 +376,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
             p.scale_x *= 1 + (sx - 1) * BOT_HOP_SQUASH;
             p.scale_y *= 1 + (sy - 1) * BOT_HOP_SQUASH;
             p.offset_y += dy;
+            p.hop_dy = dy;
         } else {
             b->hopping = false;
         }
@@ -362,7 +400,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
 void bot_look(bot_t *b, double x, double y, double t)
 {
     if (b->acting) return;
-    start_saccade_to(b, t, false, x, y);
+    start_saccade_to(b, t, SAC_NORMAL, x, y);
     b->next_saccade_at = t + 2.5;
 }
 
@@ -391,7 +429,10 @@ void bot_track_end(bot_t *b, double t)
     b->gaze_from_y = b->gaze_to_y = b->trk_gy;
     b->gaze_start = t;
     b->gaze_dur = 0;
+    b->fix_x = b->trk_gx;
+    b->fix_y = b->trk_gy;
     b->next_saccade_at = t + 1.0;
+    b->next_micro_at = t + MICRO_HOLD_S;
 }
 
 void bot_blink(bot_t *b, double t)
@@ -401,7 +442,7 @@ void bot_blink(bot_t *b, double t)
 
 void bot_look_still(bot_t *b, double x, double y, double t)
 {
-    start_saccade_to(b, t, false, x, y);
+    start_saccade_to(b, t, SAC_NORMAL, x, y);
     b->lean_x = tween(tween_value(&b->lean_x, t), 0, t, 0.2, EASE_IN_OUT);
     b->lean_y = tween(tween_value(&b->lean_y, t), 0, t, 0.2, EASE_IN_OUT);
     b->next_saccade_at = t + 2.5;
@@ -410,6 +451,7 @@ void bot_look_still(bot_t *b, double x, double y, double t)
 void bot_hold_gaze(bot_t *b, double until)
 {
     if (b->next_saccade_at < until) b->next_saccade_at = until;
+    if (b->next_micro_at < until) b->next_micro_at = until;
 }
 
 static void track_step(bot_t *b, double t)
@@ -460,15 +502,25 @@ bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
 #define SAME(f, s) (Q(a->f, s) == Q(b->f, s))
     return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, step) && SAME(lid_r, step) &&
            SAME(triangle, step) && SAME(slump, step) && SAME(badge, step) && SAME(offset_x, step) &&
-           SAME(offset_y, step) && SAME(orbit, step) && SAME(scale_x, step / 2) && SAME(scale_y, step / 2);
+           SAME(offset_y, step) && SAME(hop_dy, step) && SAME(orbit, step) && SAME(scale_x, step / 2) &&
+           SAME(scale_y, step / 2);
 #undef SAME
 #undef Q
 }
 
+int bot_rim_dy(const bot_pose_t *p, double radius_px, double hop_scale)
+{
+    double x = -radius_px * p->hop_dy * hop_scale;
+    int even = 2 * (int)floor(fabs(x) / 2 + 0.5);
+    return x < 0 ? -even : even;
+}
+
+bool bot_label_mark(bot_mood_t m) { return m != BOT_ERROR; }
+
 void bot_act_begin(bot_t *b, double t)
 {
     b->acting = true;
-    start_saccade_to(b, t, true, VIEWER_X, VIEWER_Y);
+    start_saccade_to(b, t, SAC_GLIDE, VIEWER_X, VIEWER_Y);
     b->lean_x = tween(tween_value(&b->lean_x, t), VIEWER_X * 0.045, t, 0.42, EASE_IN_OUT);
     b->lean_y = tween(tween_value(&b->lean_y, t), VIEWER_Y * 0.03, t, 0.42, EASE_IN_OUT);
 }
@@ -476,7 +528,7 @@ void bot_act_begin(bot_t *b, double t)
 void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t)
 {
     bot_tween_t lx = b->lean_x, ly = b->lean_y;
-    start_saccade_to(b, t, glide, x, y);
+    start_saccade_to(b, t, glide ? SAC_GLIDE : SAC_NORMAL, x, y);
     b->lean_x = lx;
     b->lean_y = ly;
 }
@@ -511,7 +563,7 @@ void bot_act_hop(bot_t *b, double t)
 void bot_act_end(bot_t *b, bool glide, double lid_dur, double t)
 {
     if (!b->acting) return;
-    start_saccade_to(b, t, glide, VIEWER_X, VIEWER_Y);
+    start_saccade_to(b, t, glide ? SAC_GLIDE : SAC_NORMAL, VIEWER_X, VIEWER_Y);
     bot_act_lid(b, 0, lid_dur, t);
     bot_act_eyes(b, -1, t);
     b->acting = false;

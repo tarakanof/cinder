@@ -620,7 +620,7 @@ static void test_pose_same(void)
     p.scale_y += 0.1 * px;
     CHECK(bot_pose_same(&base, &p, R), "under half a pixel: no redraw");
     double *fields[] = {&p.gaze_x, &p.gaze_y, &p.lid_l, &p.lid_r, &p.triangle, &p.slump, &p.badge,
-                        &p.scale_x, &p.scale_y, &p.offset_x, &p.offset_y, &p.orbit};
+                        &p.scale_x, &p.scale_y, &p.offset_x, &p.offset_y, &p.hop_dy, &p.orbit};
     for (size_t i = 0; i < sizeof fields / sizeof fields[0]; i++) {
         p = base;
         *fields[i] += 0.4 * px;
@@ -1027,8 +1027,219 @@ static void test_demo_acts(void)
     CHECK(b.mood == BOT_WORKING, "bot_wake leaves other moods");
 }
 
+typedef struct {
+    int micros, gaps, toward_n, bad_amp, bad_dur, early, late, moved_saccade, moved_lean, blinked;
+    double amp_lo, amp_hi, gap_lo, gap_hi, toward_sum, drift_max;
+    double gap[8192];
+} micro_stats_t;
+
+static int cmp_double(const void *a, const void *b)
+{
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+static double micro_median(micro_stats_t *s)
+{
+    if (!s->gaps) return 0;
+    qsort(s->gap, (size_t)s->gaps, sizeof s->gap[0], cmp_double);
+    return s->gap[s->gaps / 2];
+}
+
+static void micro_run(bot_t *b, double t0, double secs, double amp_lo, double amp_hi, micro_stats_t *s)
+{
+    memset(s, 0, sizeof *s);
+    s->amp_lo = 1e9;
+    s->gap_lo = 1e9;
+    double fix_x = b->gaze_to_x, fix_y = b->gaze_to_y, fix_from = b->gaze_start + b->gaze_dur, last_micro = -1;
+    const double dt = 1.0 / 120;
+    for (double t = t0; t < t0 + secs; t += dt) {
+        bot_t was = *b;
+        bot_pose_t p = bot_pose(b, t);
+        if (b->gaze_start == was.gaze_start) {
+            if (t > fix_from && b->mood == was.mood) s->drift_max = fmax(s->drift_max, hypot(p.gaze_x - fix_x, p.gaze_y - fix_y));
+            continue;
+        }
+        if (b->next_saccade_at != was.next_saccade_at) {
+            fix_x = b->gaze_to_x;
+            fix_y = b->gaze_to_y;
+            fix_from = b->gaze_start + b->gaze_dur;
+            last_micro = -1;
+            continue;
+        }
+        s->micros++;
+        double dx = b->gaze_to_x - b->gaze_from_x, dy = b->gaze_to_y - b->gaze_from_y, amp = hypot(dx, dy);
+        s->amp_lo = fmin(s->amp_lo, amp);
+        s->amp_hi = fmax(s->amp_hi, amp);
+        s->bad_amp += amp < amp_lo - 1e-9 || amp > amp_hi + 1e-9;
+        s->bad_dur += b->gaze_dur != 0.025;
+        s->early += t - fix_from < 0.6 - dt;
+        s->late += t + 0.05 >= b->next_saccade_at;
+        s->moved_lean += memcmp(&b->lean_x, &was.lean_x, sizeof b->lean_x) || memcmp(&b->lean_y, &was.lean_y, sizeof b->lean_y);
+        s->blinked += b->blinking && !was.blinking && was.next_blink_at > t;
+        double fx = fix_x - b->gaze_from_x, fy = fix_y - b->gaze_from_y, fd = hypot(fx, fy);
+        if (fd > 0.015) {
+            s->toward_sum += (dx * fx + dy * fy) / (amp * fd);
+            s->toward_n++;
+        }
+        if (last_micro >= 0 && s->gaps < (int)(sizeof s->gap / sizeof s->gap[0])) {
+            double g = t - last_micro;
+            s->gap[s->gaps++] = g;
+            s->gap_lo = fmin(s->gap_lo, g);
+            s->gap_hi = fmax(s->gap_hi, g);
+        }
+        last_micro = t;
+    }
+}
+
+static void test_micro_saccades(void)
+{
+    micro_stats_t *s = malloc(sizeof *s);
+    const double dt = 1.0 / 120;
+    int idle_micros = 0;
+    for (int seed = 1; seed <= 4; seed++) {
+        bot_t b;
+        bot_init(&b, 0xC0FFEE + (uint64_t)seed, 0);
+        bot_set_sleep_after(&b, 0);
+        micro_run(&b, 0, 280, 0.012, 0.025, s);
+        idle_micros += s->micros;
+        CHECK(s->micros >= 280 / 6, "idle seed %d: %d micro-saccades in 280 s", seed, s->micros);
+        CHECK(!s->bad_amp, "idle seed %d: amplitude %.4f..%.4f outside 0.012..0.025", seed, s->amp_lo, s->amp_hi);
+        CHECK(!s->bad_dur, "idle seed %d: %d micro-saccades not 25 ms", seed, s->bad_dur);
+        CHECK(!s->early, "idle seed %d: %d micro-saccades in the first 0.6 s of a fixation", seed, s->early);
+        CHECK(!s->late, "idle seed %d: %d micro-saccades within 50 ms of the next saccade", seed, s->late);
+        CHECK(!s->moved_lean, "idle seed %d: %d micro-saccades moved the lean", seed, s->moved_lean);
+        CHECK(!s->blinked, "idle seed %d: %d micro-saccades started a blink", seed, s->blinked);
+        CHECK(s->gap_lo >= 0.3 - dt && s->gap_hi <= 2.5 + dt, "idle seed %d: gaps %.3f..%.3f outside 0.3..2.5 s", seed, s->gap_lo, s->gap_hi);
+        CHECK(s->toward_n > 10 && s->toward_sum / s->toward_n > 0.6, "idle seed %d: biased back to the target, mean cos %.2f over %d", seed,
+              s->toward_n ? s->toward_sum / s->toward_n : 0, s->toward_n);
+        CHECK(s->drift_max < 0.06, "idle seed %d: the gaze drifts %.3f from its fixation target", seed, s->drift_max);
+        double med = micro_median(s);
+        CHECK(med > 0.6 && med < 1.05, "idle seed %d: median gap %.2f s, want about 0.8", seed, med);
+    }
+    printf("micro-saccades: idle %d in 4 x 280 s\n", idle_micros);
+
+    bot_t b;
+    bot_init(&b, 0xBEEF, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    micro_run(&b, 0, 1200, 0.006, 0.0125, s);
+    CHECK(s->micros >= 100, "sleepy: %d micro-saccades in 1200 s", s->micros);
+    CHECK(!s->bad_amp, "sleepy: half amplitude, got %.4f..%.4f", s->amp_lo, s->amp_hi);
+    CHECK(s->gap_lo >= 0.8 - dt && s->gap_hi <= 5 + dt, "sleepy: gaps %.3f..%.3f outside 0.8..5 s", s->gap_lo, s->gap_hi);
+    double med = micro_median(s);
+    CHECK(med > 1.6 && med < 2.5, "sleepy: median gap %.2f s, want about 2", med);
+    CHECK(!s->early && !s->late && !s->moved_lean, "sleepy: timing and lean (%d early, %d late, %d lean)", s->early, s->late, s->moved_lean);
+
+    for (int mood = BOT_WORKING; mood <= BOT_DONE; mood++) {
+        bot_init(&b, 0xABC + (uint64_t)mood, 0);
+        bot_set_mood(&b, (bot_mood_t)mood, 0);
+        micro_run(&b, 0, 300, 0.012, 0.025, s);
+        CHECK(s->micros > 0 && !s->bad_amp && !s->early && !s->late && !s->moved_lean, "mood %d: %d micro-saccades, %d off size, %d early, %d late, %d lean",
+              mood, s->micros, s->bad_amp, s->early, s->late, s->moved_lean);
+    }
+    free(s);
+
+    bot_init(&b, 77, 0);
+    double t = 0;
+    for (; t < 5; t += dt) bot_pose(&b, t);
+    for (double end = t + 6; t < end; t += dt) {
+        double a = 2 * M_PI * t / 3;
+        bot_track(&b, cos(a) * 0.85, -sin(a) * 0.85, t);
+        double gs = b.gaze_start;
+        bot_pose(&b, t);
+        CHECK(b.gaze_start == gs, "no micro-saccade while tracking a chase (t %.2f)", t);
+        if (b.gaze_start != gs) break;
+    }
+    bot_track_end(&b, t);
+    bot_look_still(&b, 0.6, 0, t);
+    bot_pose_t held = bot_pose(&b, t + 0.2);
+    for (double end = t + 6; t < end; t += dt) {
+        bot_hold_gaze(&b, t + 0.5);
+        bot_pose_t p = bot_pose(&b, t + 0.2);
+        CHECK(p.gaze_x == held.gaze_x && p.gaze_y == held.gaze_y, "no micro-saccade while a half chase holds the gaze (t %.2f)", t);
+        if (p.gaze_x != held.gaze_x) break;
+    }
+
+    bot_init(&b, 78, 0);
+    for (t = 0; t < 3; t += dt) bot_pose(&b, t);
+    bot_act_begin(&b, t);
+    double gs = b.gaze_start;
+    for (double end = t + 6; t < end; t += dt) bot_pose(&b, t);
+    CHECK(b.gaze_start == gs, "no micro-saccade while acting");
+}
+
+static void test_outline_dy(void)
+{
+    const double R = 196, S = 0.45;
+    const struct { double px; int want; } cases[] = {
+        {0, 0}, {0.6, 0}, {-0.6, 0}, {0.99, 0}, {-0.99, 0}, {1.2, 2}, {-1.2, -2}, {2.9, 2}, {-2.9, -2}, {3.1, 4}, {-3.1, -4}, {-10.4, -10},
+    };
+    bot_pose_t p = {.scale_x = 1, .scale_y = 1};
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        p.hop_dy = -cases[i].px / (R * S);
+        p.offset_y = p.hop_dy + 0.03;
+        int dy = bot_rim_dy(&p, R, S);
+        CHECK(dy == cases[i].want, "outline dy for %.2f px = %d, want %d", cases[i].px, dy, cases[i].want);
+    }
+    for (double x = -14; x <= 14; x += 0.013) {
+        p.hop_dy = -x / (R * S);
+        int a = bot_rim_dy(&p, R, S);
+        p.hop_dy = x / (R * S);
+        int b = bot_rim_dy(&p, R, S);
+        CHECK(a == -b && a % 2 == 0 && fabs(a - x) <= 1 + 1e-9, "outline dy %.3f px: %d and %d for the mirror", x, a, b);
+        if (a != -b) break;
+    }
+
+    double lean_px = 0;
+    int moved = 0;
+    for (int mood = BOT_IDLE; mood <= BOT_DONE; mood++) {
+        bot_t bt;
+        bot_init(&bt, 900 + (uint64_t)mood, 0);
+        bot_set_mood(&bt, (bot_mood_t)mood, 0);
+        for (double t = 0; t < 120; t += 1.0 / 60) {
+            if (fmod(t, 7) < 1.0 / 60) bot_look(&bt, 0, 0.85, t);
+            bot_pose_t q = bot_pose(&bt, t);
+            if (!bt.hopping) {
+                lean_px = fmax(lean_px, fabs(q.offset_y) * R * S);
+                bool still = q.hop_dy == 0 && bot_rim_dy(&q, R, S) == 0;
+                CHECK(still, "mood %d at %.2f: the outline moves %d px off a hop", mood, t, bot_rim_dy(&q, R, S));
+                if (!still) break;
+            } else {
+                moved += bot_rim_dy(&q, R, S) != 0;
+            }
+        }
+    }
+    CHECK(lean_px >= 1.5, "the glance lean is still there for the eyes: %.2f px", lean_px);
+    CHECK(moved > 0, "a hop still moves the outline");
+}
+
+static void test_badged_rest(void)
+{
+    int rest = 0, viewer = 0, other = 0;
+    for (int seed = 0; seed < 6; seed++) {
+        bot_t b;
+        bot_init(&b, 4000 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_DONE, 0);
+        for (double t = 0; t < 300; t += 1.0 / 60) {
+            double nsa = b.next_saccade_at;
+            bot_pose(&b, t);
+            if (b.next_saccade_at == nsa || t < 0.1) continue;
+            double x = b.gaze_to_x, y = b.gaze_to_y;
+            if (fabs(x - 0.5) <= 0.08 + 1e-9 && fabs(y - 0.6) <= 0.06 + 1e-9) rest++;
+            else if (fabs(x) <= 0.06 + 1e-9 && fabs(y - 0.1) <= 0.06 + 1e-9) viewer++;
+            else other++;
+        }
+    }
+    CHECK(rest > 50 && viewer > 50 && other == 0, "done rests at (0.5, 0.6): %d rest, %d viewer, %d elsewhere", rest, viewer, other);
+    CHECK(bot_label_mark(BOT_WORKING) && bot_label_mark(BOT_WAITING) && !bot_label_mark(BOT_ERROR),
+          "the label keeps its tool mark except in error");
+}
+
 int main(void)
 {
+    test_micro_saccades();
+    test_outline_dy();
+    test_badged_rest();
     bot_shape_init();
     test_demo_acts();
     test_chase_hold();

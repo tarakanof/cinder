@@ -22,6 +22,7 @@ typedef struct {
     double badge;
     double scale_x, scale_y;
     double offset_x, offset_y;
+    double hop_dy;  /* the hop's lift alone, also in offset_y */
     double orbit;   /* 0..1 */
 } bot_pose_t;
 
@@ -42,6 +43,7 @@ typedef struct {
     double gaze_start, gaze_dur;
     int gaze_ease;
     double next_saccade_at;
+    double fix_x, fix_y, next_micro_at;
     double read_x;
 
     bool blinking;
@@ -103,6 +105,9 @@ void bot_act_end(bot_t *b, bool glide, double lid_dur, double t);
 /* Ends the act where the gaze is (a new mood's own glance stays), with the mood's eyes and no lid floor. */
 void bot_act_drop(bot_t *b, double t);
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px);
+/* Screen px the outline moves for p's hop alone: even, the nearest even number, symmetric about 0. */
+int bot_rim_dy(const bot_pose_t *p, double radius_px, double hop_scale);
+bool bot_label_mark(bot_mood_t m);
 
 #ifdef __cplusplus
 }
