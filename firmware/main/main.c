@@ -991,6 +991,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
         bot_track_end(&s_bot, t);
     }
 
+    bot_rim_ready(&s_bot, pg->frame != page_bot_frame || bot_view_rim_ready(s_bot.mood));
     f.pose = bot_pose(&s_bot, t);
     f.pose.orbit = chase->chasing ? chase->orbit : 0;
     s_cur_mood = f.pose.mood;

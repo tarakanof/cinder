@@ -30,5 +30,7 @@ void bot_view_chase(bool merge, bool wipe);
    (a empty) when the label shows no icon. Redraws nothing: bot_view_icon_redraw(a) does. */
 bool bot_view_icon_off(bool off, lv_area_t *a);
 void bot_view_icon_redraw(const lv_area_t *a);
+/* LVGL task only: whether the outline of m can show now (bot_rim_ready's input on the bot page). */
+bool bot_view_rim_ready(bot_mood_t m);
 /* LVGL task only: true drops the background outline job until false, which redoes it. */
 void bot_view_rim_hold(bool hold);
