@@ -68,7 +68,7 @@ The second batch of [`bot-review.md`](bot-review.md), matched to BotNext (`desig
   | Frame avg | 6.3 ms (5.74–11.3) | 6.25 ms (5.86–6.66) |
   | Frame max | median 16 ms (12–85) | median 47 ms (15–54) |
   | Internal free | 85.3 KB (84.2–86.2) | 85.4 KB (85.1–85.5) |
-  | Invalidated areas/s | not measured (#118) | not measured (#118) |
+  | Invalidated areas/s | not measurable (no counter before 0.9.72) | per mood on 0.9.72: "Invalidated-area count (#118)", on the knob |
 
 ### Reading v2 for working (#113, review P3, 0.9.70)
 
@@ -92,7 +92,7 @@ The third batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design
   | Frame avg | 6.25 ms (5.86–6.66) | 5.69 ms (4.39–16.6) |
   | Frame max | median 47 ms (15–54) | median 17 ms (9–56) |
   | Internal free | 85.4 KB (85.1–85.5) | 85.1 KB (84.4–86.2) |
-  | Invalidated areas/s | not measured (#118) | not measured (#118) |
+  | Invalidated areas/s | not measurable (no counter before 0.9.72) | per mood on 0.9.72: "Invalidated-area count (#118)", on the knob |
 
 ### Big reading jumps behind a blink (#127, 0.9.71)
 
@@ -1297,3 +1297,16 @@ Ember plays scripted scenes on the knob (the bot moods, the weather moments and 
 - **Checkin buffer**: two keys cost 23 B plus digits, which broke `test_caps.c`'s 256 B headroom at 2,048 B, so `DEV_CHECKIN_BODY_MAX` is 2,304 B (PSRAM, `P->body`). The worst-case body (both totals at `INT64_MAX`) is 1,844 of 2,304 B.
 - **Cost** (`idf.py size` against main at c253309): image +928 B, DIRAM +64 B; the area copy for the count (512 B) is in PSRAM. Per refresh: one pass over at most 32 areas and a short critical section. `stack_walk.py`: `lvgl` unchanged (8,608 B), `stats` 2,688 → 2,672 B.
 - **Checkin cost** (`idf.py size` against main at 7dbe45e): image +548 B, DIRAM +32 B, PSRAM +256 B (the checkin buffer). Per refresh: two more 64-bit adds inside the existing critical section; per checkin window: two short `s_refr_mux` sections on the ember task. `stack_walk.py`: every task unchanged (`stats` 2,672 B, `ember` 5,104 B, `lvgl` 8,608 B).
+- **On the knob** (0.9.72, Ember v0.58.0, 2026-10-13 ~18:55 UTC): each bot mood held with Devices › Demo (`bot.<mood>`, hold), Ember live stats at 5 s, 8 samples per mood from 6 s after the scene started; medians (range). Releases before 0.9.72 have no counter, so there is no per-mood baseline; the simulated deltas in the #111, #112, #113 and #127 sections stand.
+
+  | Mood | Areas/s | kpx/s | fps | Core 0 |
+  |---|---|---|---|---|
+  | idle | 21.8 (11.8–37.6) | 79 | 11.9 | 18.5 % |
+  | working | 39.8 (35.0–45.4) | 286 | 26.9 | 28.1 % |
+  | waiting | 20.8 (14.3–29.7) | 1,071 | 14.1 | 39.5 % |
+  | done | 10.6 (7.9–14.4) | 113 | 10.8 | 26.0 % |
+  | error | 38.7 (30.6–50.3) | 122 | 20.5 | 26.8 % |
+  | sleepy | 25.8 (18.8–30.7) | 43 | 15.4 | 17.5 % |
+  | asleep | 4.1 (3.3–4.6) | 4 | 2.6 | 7.8 % |
+
+  Waiting moves the most pixels (the hop moves the whole outline, ~1 MB/s) at a moderate area count; working and error redraw the most areas (eyes every saccade, two areas per eye redraw); asleep is near idle for the panel, as #112 aimed for (−7 points of core 0 overnight predicted; 7.8 % measured against idle's 18.5 %).
