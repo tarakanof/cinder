@@ -1237,7 +1237,9 @@ static void test_checkin_req_full(void)
                       .req_ok = (uint32_t)num(sj, "req_ok"), .req_fail = (uint32_t)num(sj, "req_fail"),
                       .req_ms_avg = (float)num(sj, "req_ms_avg"), .req_ms_max = (uint32_t)num(sj, "req_ms_max"),
                       .has_frames = at(sj, "fps") != NULL, .fps = (float)num(sj, "fps"),
-                      .frame_ms_avg = (float)num(sj, "frame_ms_avg"), .frame_ms_max = (uint32_t)num(sj, "frame_ms_max")};
+                      .frame_ms_avg = (float)num(sj, "frame_ms_avg"), .frame_ms_max = (uint32_t)num(sj, "frame_ms_max"),
+                      .has_inv = at(sj, "inv_areas") != NULL, .inv_areas = (int64_t)num(sj, "inv_areas"),
+                      .inv_px = (int64_t)num(sj, "inv_px")};
     cJSON_ArrayForEach(t, at(sj, "cpu_pct"))
     {
         if (st.n_cpu < DEV_STATS_MAX_CPU) st.cpu_pct[st.n_cpu++] = (float)t->valuedouble;

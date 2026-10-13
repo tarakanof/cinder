@@ -173,7 +173,8 @@ static void test_worst_case_body(void)
                       .psram_min = UINT32_MAX, .psram_largest = UINT32_MAX, .has_temp = true, .temp_c = -40.5f,
                       .reset_reason = "cpu_lockup", .has_req = true, .req_ok = UINT32_MAX, .req_fail = UINT32_MAX,
                       .req_ms_avg = 99999.9f, .req_ms_max = UINT32_MAX, .has_frames = true, .fps = 999.9f,
-                      .frame_ms_avg = 99999.9f, .frame_ms_max = UINT32_MAX};
+                      .frame_ms_avg = 99999.9f, .frame_ms_max = UINT32_MAX, .has_inv = true,
+                      .inv_areas = INT64_MAX, .inv_px = INT64_MAX};
     for (int i = 0; i < DEV_STATS_MAX_CPU; i++) st.cpu_pct[i] = 100;
     char fw[33];
     fill(fw, 32, '1');

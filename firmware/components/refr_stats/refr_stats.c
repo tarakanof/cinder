@@ -36,6 +36,8 @@ bool refr_stats_end(refr_stats_t *s, int64_t us)
     k->us += us;
     if (us > k->us_max) k->us_max = us;
     if (s->cur_areas > k->areas_max) k->areas_max = s->cur_areas;
+    s->win.areas += s->cur_areas;
+    s->win.px += s->cur_px;
     s->cur_areas = 0;
     s->cur_px = 0;
     return true;
@@ -58,3 +60,7 @@ int64_t refr_stats_take(refr_stats_t *s, int64_t now_us, refr_kind_t out[REFR_KI
     }
     return win;
 }
+
+void refr_stats_win_reset(refr_stats_t *s, int64_t start_us) { s->win = (refr_win_t){.start_us = start_us}; }
+
+refr_win_t refr_stats_win_read(const refr_stats_t *s) { return s->win; }

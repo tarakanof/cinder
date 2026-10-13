@@ -116,6 +116,10 @@ static void put_stats(const dev_stats_t *st, char *out, size_t cap, size_t *len)
         KEY("frame_ms_max"), put(out, cap, len, "%" PRIu32, st->frame_ms_max);
     }
     if (st->has_heap_min) KEY("heap_internal_min"), put(out, cap, len, "%" PRIu32, st->heap_internal_min);
+    if (w && st->has_inv) {
+        KEY("inv_areas"), put(out, cap, len, "%" PRId64, st->inv_areas < 0 ? 0 : st->inv_areas);
+        KEY("inv_px"), put(out, cap, len, "%" PRId64, st->inv_px < 0 ? 0 : st->inv_px);
+    }
     uint32_t period = st->period_ms < 1 ? 1 : st->period_ms > 3600000 ? 3600000 : st->period_ms;
     if (w) KEY("period_ms"), put(out, cap, len, "%" PRIu32, period);
     if (st->has_psram) {

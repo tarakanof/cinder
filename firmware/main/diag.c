@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #include "driver/temperature_sensor.h"
+#include "diag_refr.h"
 #include "esp_core_dump.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -122,19 +123,36 @@ static int64_t s_frame_us_max;
 
 static int64_t s_win_start_us;
 static bool s_reported;
+static refr_stats_t *s_refr;
+static portMUX_TYPE *s_refr_mux;
 static uint64_t s_idle_base[portNUM_PROCESSORS];
 static temperature_sensor_handle_t s_tsens;
 static bool s_tsens_failed;
 
 static void window_start(void)
 {
-    s_win_start_us = esp_timer_get_time();
+    int64_t now;
+    if (s_refr) {
+        taskENTER_CRITICAL(s_refr_mux);
+        now = esp_timer_get_time();
+        refr_stats_win_reset(s_refr, now);
+        taskEXIT_CRITICAL(s_refr_mux);
+    } else {
+        now = esp_timer_get_time();
+    }
+    s_win_start_us = now;
     for (int i = 0; i < portNUM_PROCESSORS; i++) s_idle_base[i] = ulTaskGetIdleRunTimeCounterForCore(i);
     taskENTER_CRITICAL(&s_mux);
     s_frames = s_req_ok = s_req_fail = s_req_ms_max = 0;
     s_frame_us = s_req_ms_total = 0;
     s_frame_us_max = 0;
     taskEXIT_CRITICAL(&s_mux);
+}
+
+void diag_attach_refr(refr_stats_t *s, portMUX_TYPE *mux)
+{
+    s_refr_mux = mux;
+    s_refr = s;
 }
 
 void diag_set_level(ks_diag_t level)
@@ -194,7 +212,16 @@ bool diag_sample(dev_stats_t *st)
     int level = atomic_load(&s_level);
     if (level == KS_DIAG_OFF) return false;
     memset(st, 0, sizeof *st);
-    int64_t now = esp_timer_get_time();
+    int64_t now;
+    refr_win_t rw = {0};
+    if (s_refr) {
+        taskENTER_CRITICAL(s_refr_mux);
+        now = esp_timer_get_time();
+        rw = refr_stats_win_read(s_refr);
+        taskEXIT_CRITICAL(s_refr_mux);
+    } else {
+        now = esp_timer_get_time();
+    }
     int64_t period_us = now - s_win_start_us;
     if (!dev_window_ok(period_us)) {
         st->no_window = true;
@@ -230,6 +257,9 @@ bool diag_sample(dev_stats_t *st)
         st->fps = period_us > 0 ? frames * 1e6f / (float)period_us : 0;
         st->frame_ms_avg = frames ? (float)fus / frames / 1000.0f : 0;
         st->frame_ms_max = (uint32_t)((fmax + 999) / 1000);
+        st->has_inv = s_refr && rw.start_us == s_win_start_us;
+        st->inv_areas = rw.areas;
+        st->inv_px = rw.px;
     }
     return true;
 }
