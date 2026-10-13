@@ -7,8 +7,8 @@
 #define BOT_VIEW_EYE_SCALE 1.15
 
 void bot_view_create(lv_obj_t *parent);
-/* LVGL task only. */
-void bot_view_update(const bot_pose_t *p);
+/* LVGL task only; t: the frame's time, bot_pose's clock. */
+void bot_view_update(const bot_pose_t *p, double t);
 double bot_view_radius_px(void);
 /* LVGL task only; text "" hides the label. */
 void bot_view_set_host(const ember_host_info_t *host);
@@ -30,7 +30,9 @@ void bot_view_chase(bool merge, bool wipe);
    (a empty) when the label shows no icon. Redraws nothing: bot_view_icon_redraw(a) does. */
 bool bot_view_icon_off(bool off, lv_area_t *a);
 void bot_view_icon_redraw(const lv_area_t *a);
-/* LVGL task only: whether the outline of m can show now (bot_rim_ready's input on the bot page). */
-bool bot_view_rim_ready(bot_mood_t m);
+/* LVGL task only, every frame on any page before bot_pose: starts the outline job for m and asleep; returns bot_rim_ready's input. */
+bool bot_view_rim_feed(bot_mood_t m, bool asleep);
+/* LVGL task only, every frame on any page right after bot_pose: the outline follows the pose's face (swaps while hidden too). */
+void bot_view_rim_pose(const bot_pose_t *p, double t);
 /* LVGL task only: true drops the background outline job until false, which redoes it. */
 void bot_view_rim_hold(bool hold);

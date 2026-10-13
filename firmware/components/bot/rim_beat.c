@@ -6,13 +6,19 @@
 
 void rim_beat_init(rim_beat_t *r) { *r = (rim_beat_t){.job = -1, .shown = -1, .settle_t = -INFINITY}; }
 
+bool rim_beat_want(rim_beat_t *r, int want)
+{
+    if (want == r->job) return false;
+    r->job = want;
+    r->own = r->settle_due = false;
+    r->settle_t = -INFINITY;
+    return true;
+}
+
 void rim_beat_step(rim_beat_t *r, int want, int show, bool ready, bool m1, bool p1, bool still, double t, rim_beat_out_t *out)
 {
     *out = (rim_beat_out_t){0};
-    if (want != r->job) {
-        r->job = want;
-        r->own = r->settle_due = false;
-        r->settle_t = -INFINITY;
+    if (rim_beat_want(r, want)) {
         out->start = true;
         ready = m1 = p1 = false;
     }

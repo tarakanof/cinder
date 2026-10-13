@@ -512,6 +512,40 @@
   ],
   "wxm_paint": [
    "bake_yield"
+  ],
+  "rim_slots_run": [
+   "rim_raster_cb",
+   "rim_yield"
+  ],
+  "rim_slots_feed": [
+   "rim_canvas_show",
+   "rim_wake",
+   "rim_swapped"
+  ],
+  "rim_slots_sync": [
+   "rim_canvas_show",
+   "rim_wake",
+   "rim_swapped"
+  ],
+  "rim_slots_show": [
+   "rim_canvas_show",
+   "rim_wake",
+   "rim_swapped"
+  ],
+  "rim_slots_hold": [
+   "rim_canvas_show",
+   "rim_wake",
+   "rim_swapped"
+  ],
+  "slots_start": [
+   "rim_canvas_show",
+   "rim_wake",
+   "rim_swapped"
+  ],
+  "slots_swap": [
+   "rim_canvas_show",
+   "rim_wake",
+   "rim_swapped"
   ]
  },
  "tasks": {

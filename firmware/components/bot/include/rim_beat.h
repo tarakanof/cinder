@@ -27,6 +27,8 @@ typedef struct {
 } rim_beat_out_t;
 
 void rim_beat_init(rim_beat_t *r);
+/* A new job when want differs from it (true: start rendering want); rim_beat_step does this first. */
+bool rim_beat_want(rim_beat_t *r, int want);
 /* want: the pose's mood outline; show: its face's; ready: job's base is rendered; m1, p1: its variants -1 and +1 are;
    still: the pose asks for the base variant. */
 void rim_beat_step(rim_beat_t *r, int want, int show, bool ready, bool m1, bool p1, bool still, double t, rim_beat_out_t *out);

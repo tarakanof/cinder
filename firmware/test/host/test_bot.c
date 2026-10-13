@@ -13,6 +13,8 @@
 #include "orbit_table.h"
 #include "rim_job.h"
 #include "rim_beat.h"
+#include "rim_slots.h"
+#include <pthread.h>
 #include <stdlib.h>
 
 static int failures;
@@ -761,9 +763,15 @@ static bool s_race_took;
 static unsigned s_race_gen, s_race_base_gen, *s_take_gen;
 static int s_race_shape, s_race_mood, *s_take_shape, *s_take_mood;
 
+static void (*s_rj_hook)(void);
+
 void rj_race_point(rim_job_t *j, int at);
 void rj_race_point(rim_job_t *j, int at)
 {
+    if (s_rj_hook) {
+        s_rj_hook();
+        return;
+    }
     if (at != s_race_at) return;
     s_race_at = 0;
     s_race_fired = at;
@@ -3270,12 +3278,256 @@ static void test_mood_beat_view(void)
     }
 }
 
+
+typedef struct {
+    int key;
+    float sx, sy;
+    bool writing;
+} fake_buf_t;
+
+static struct {
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    int turn;
+    bool quit;
+    uint64_t rng;
+    int race_pct, raster_frames;
+    rim_slots_t s;
+    fake_buf_t bufs[RIM_SLOTS];
+    fake_buf_t *canvas;
+    int notify, badge_key;
+    unsigned raster_gen;
+    int replaced, races;
+} M;
+static _Thread_local int s_me;
+
+static void m_give(int who)
+{
+    pthread_mutex_lock(&M.mu);
+    M.turn = who;
+    pthread_cond_broadcast(&M.cv);
+    while (M.turn != s_me && !(s_me == 1 && M.quit)) pthread_cond_wait(&M.cv, &M.mu);
+    pthread_mutex_unlock(&M.mu);
+}
+
+static bool m_coin(void)
+{
+    M.rng = M.rng * 6364136223846793005ULL + 1442695040888963407ULL;
+    return (int)((M.rng >> 33) % 100) < M.race_pct;
+}
+
+static void m_race(void)
+{
+    if (!m_coin()) return;
+    M.races++;
+    m_give(!s_me);
+}
+
+void rs_race_point(rim_slots_t *s, int at);
+void rs_race_point(rim_slots_t *s, int at)
+{
+    (void)s;
+    (void)at;
+    m_race();
+}
+
+static void m_raster(void *ctx, void *buf, int shape, int tone, float sx, float sy)
+{
+    (void)ctx;
+    fake_buf_t *f = buf;
+    unsigned gen = rim_job_gen(&M.s.job);
+    f->writing = true;
+    for (int i = 0; i < M.raster_frames; i++) m_give(0);
+    M.replaced += rim_job_gen(&M.s.job) != gen;
+    f->key = tone | (shape ? BOT_RIM_TRIANGLE : 0);
+    f->sx = sx;
+    f->sy = sy;
+    f->writing = false;
+}
+
+static void m_yield(void *ctx)
+{
+    (void)ctx;
+    m_give(0);
+}
+
+static void *m_task(void *arg)
+{
+    (void)arg;
+    s_me = 1;
+    pthread_mutex_lock(&M.mu);
+    while (M.turn != 1 && !M.quit) pthread_cond_wait(&M.cv, &M.mu);
+    pthread_mutex_unlock(&M.mu);
+    while (!M.quit) {
+        if (M.notify) {
+            M.notify = 0;
+            rim_slots_run(&M.s, m_raster, m_yield, NULL);
+        } else {
+            m_give(0);
+        }
+    }
+    return NULL;
+}
+
+static void m_show(void *ctx, void *buf)
+{
+    (void)ctx;
+    M.canvas = buf;
+}
+
+static void m_wake(void *ctx)
+{
+    (void)ctx;
+    M.notify = 1;
+}
+
+static void m_swapped(void *ctx, int key)
+{
+    (void)ctx;
+    M.badge_key = key;
+}
+
+typedef struct {
+    int frames, tears, wrong_slot, badge_off, open_mismatch, returns, return_mismatch, beats, beat_open, ota_own, ota_unswapped;
+    double worst_open;
+} model_log_t;
+
+static void model_run(uint64_t seed, int race_pct, model_log_t *g)
+{
+    static const rim_slots_ops_t ops = {.show = m_show, .wake = m_wake, .swapped = m_swapped};
+    memset(&M, 0, sizeof M);
+    pthread_mutex_init(&M.mu, NULL);
+    pthread_cond_init(&M.cv, NULL);
+    M.rng = seed * 0x9E3779B97F4A7C15ULL + 1;
+    M.race_pct = race_pct;
+    M.raster_frames = 1 + (int)(seed % 7);
+    M.badge_key = -1;
+    void *bufs[RIM_SLOTS];
+    for (int v = 0; v < RIM_SLOTS; v++) {
+        M.bufs[v].key = -1;
+        bufs[v] = &M.bufs[v];
+    }
+    rim_slots_init(&M.s, bufs);
+    s_me = 0;
+    s_rj_hook = m_race;
+    pthread_t th;
+    pthread_create(&th, NULL, m_task, NULL);
+
+    bot_t b;
+    bot_init(&b, seed, 0);
+    bot_set_sleep_after(&b, 0);
+    uint64_t r = seed * 2654435761ULL + 7;
+#define RND(n) ((r = r * 6364136223846793005ULL + 1442695040888963407ULL), (double)(r >> 11) / (double)(1ULL << 53) * (n))
+    double next_mood = 1, page_off = 2 + RND(4), page_on = -1, ota_at = 3 + RND(6), ota_end = -1;
+    bool on_page = true, ota = false, held = false, back = false;
+    bot_mood_t last_face = b.face;
+    float ratio = 1;
+    for (double t = 0; t < 40; t += 1.0 / 60) {
+        g->frames++;
+        if (t >= next_mood) {
+            bot_set_mood(&b, (bot_mood_t)((int)RND(6) % 6), t);
+            next_mood = t + 0.03 + RND(1.5);
+        }
+        if (on_page && t >= page_off) {
+            on_page = false;
+            page_on = t + 0.05 + RND(2);
+        } else if (!on_page && t >= page_on) {
+            on_page = back = true;
+            page_off = t + 1 + RND(5);
+        }
+        if (!ota && t >= ota_at) {
+            ota = true;
+            ota_end = t + 0.05 + RND(3);
+        } else if (ota && t >= ota_end) {
+            ota = false;
+            ota_at = t + 2 + RND(7);
+        }
+        if (ota) {
+            if (!held) {
+                held = true;
+                g->ota_own += atomic_load(&M.s.own);
+                g->ota_unswapped += !atomic_load(&M.s.own);
+                rim_slots_hold(&M.s, true, &ops);
+            }
+            m_give(1);
+            continue;
+        }
+        if (held) {
+            held = false;
+            rim_slots_hold(&M.s, false, &ops);
+        }
+        bot_rim_ready(&b, rim_slots_feed(&M.s, bot_rim_key(b.mood, b.asleep), &ops));
+        bot_pose_t p = bot_pose(&b, t);
+        bool beat = p.face != last_face;
+        last_face = p.face;
+        int face = bot_rim_key(p.face, p.asleep);
+        if (on_page) ratio = (float)(p.scale_y / p.scale_x);
+        int v = rim_slots_sync(&M.s, bot_rim_key(p.mood, p.asleep), face, ratio, t, &ops);
+        if (v != M.s.shown) rim_slots_show(&M.s, v, &ops);
+        if (on_page) {
+            fake_buf_t *c = M.canvas;
+            if (c) {
+                g->tears += c->writing;
+                g->wrong_slot += c != M.s.buf[M.s.shown] || c->sx != M.s.sx[M.s.shown] || c->sy != M.s.sy[M.s.shown];
+                g->badge_off += c->key != M.badge_key;
+                bool mismatch = c->key != face;
+                if (mismatch && lid_max(&p) < 0.9) {
+                    g->open_mismatch++;
+                    g->worst_open = fmax(g->worst_open, t - b.mood_since);
+                }
+                if (back) g->return_mismatch += mismatch;
+                if (beat) {
+                    g->beats++;
+                    g->beat_open += lid_max(&p) < 0.9;
+                }
+            }
+            g->returns += back;
+            back = false;
+        }
+        m_give(1);
+    }
+#undef RND
+    pthread_mutex_lock(&M.mu);
+    M.quit = true;
+    M.turn = 1;
+    pthread_cond_broadcast(&M.cv);
+    pthread_mutex_unlock(&M.mu);
+    pthread_join(th, NULL);
+    s_rj_hook = NULL;
+    pthread_cond_destroy(&M.cv);
+    pthread_mutex_destroy(&M.mu);
+}
+
+static void test_rim_slots_model(void)
+{
+    model_log_t g = {0};
+    int replaced = 0, races = 0;
+    for (int seed = 1; seed <= 80; seed++) {
+        model_run((uint64_t)seed, seed % 5 == 0 ? 0 : 35, &g);
+        replaced += M.replaced;
+        races += M.races;
+    }
+    printf("rim slots model: %d frames, %d beats, %d page returns, %d OTA holds swapped and %d not, %d rasters replaced mid-way, %d race "
+           "switches; %d tears, %d wrong slots, %d badge off, %d open mismatches (worst %.2f s after a change), %d on return, %d beats open\n",
+           g.frames, g.beats, g.returns, g.ota_own, g.ota_unswapped, replaced, races, g.tears, g.wrong_slot, g.badge_off, g.open_mismatch,
+           g.worst_open, g.return_mismatch, g.beat_open);
+    CHECK(g.beats > 500 && g.returns > 50 && g.ota_own > 20 && g.ota_unswapped > 20 && replaced > 50 && races > 1000,
+          "the model covers beats, page returns, holds before and after the swap, and replacement mid-raster");
+    CHECK(!g.tears, "the shown outline is never being rendered (%d frames)", g.tears);
+    CHECK(!g.wrong_slot, "the canvas shows the slot's own variant (%d frames)", g.wrong_slot);
+    CHECK(!g.badge_off, "badge and label follow the outline on screen (%d frames)", g.badge_off);
+    CHECK(!g.beat_open, "every beat behind the lids (%d)", g.beat_open);
+    CHECK(!g.return_mismatch, "back on the bot page: the outline matches the eyes in the first frame (%d)", g.return_mismatch);
+    CHECK(!g.open_mismatch, "never the face's eyes with another outline on open lids (%d frames)", g.open_mismatch);
+}
+
 int main(void)
 {
     test_rim_beat();
     test_mood_beat();
     test_mood_beat_gaps();
     test_mood_beat_view();
+    test_rim_slots_model();
     test_done_reward();
     test_wait_phases();
     test_wait_nudge();

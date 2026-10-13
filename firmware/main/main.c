@@ -785,11 +785,12 @@ void page_bot_frame(const page_frame_t *f)
     bot_view_set_host(&host);
     bot_view_set_offline(f->offline);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
-    if (pose && s_drawn && chase->chasing && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps)) pose = false;
+    if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))
+        pose = false;
     bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);
     if (pose) s_pose_drawn_at = t;
     if (pose) {
-        bot_view_update(p);
+        bot_view_update(p, t);
         s_last_pose = *p;
         s_drawn = true;
         s_frames++;
@@ -992,8 +993,9 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
         bot_track_end(&s_bot, t);
     }
 
-    bot_rim_ready(&s_bot, pg->frame != page_bot_frame || bot_view_rim_ready(s_bot.mood));
+    bot_rim_ready(&s_bot, bot_view_rim_feed(s_bot.mood, s_bot.asleep));
     f.pose = bot_pose(&s_bot, t);
+    bot_view_rim_pose(&f.pose, t);
     f.pose.orbit = chase->chasing ? chase->orbit : 0;
     s_cur_mood = f.pose.mood;
     pages_frame(&s_nav, &f);
