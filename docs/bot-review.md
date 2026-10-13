@@ -166,7 +166,7 @@ Effort: S under a day, M one to three days, L more. All new state is a few dozen
 **Shipped:** P1, P5 and P8 in 0.9.68 (#111; design and tests in [`features.md`](features.md), bot face). P8 took BotNext's fixes: the badge drawn under the eyes at its old size, and no tool mark in error.
 P2 in 0.9.69 (#112; design and tests in [`features.md`](features.md), bot face).
 P3 in 0.9.70 (#113; design and tests in [`features.md`](features.md), bot face), with BotNext's 7 % viewer and 5 % mark glances.
-P4 in 0.9.73 (#114; design and tests in [`features.md`](features.md), bot face), with BotNext's badge pulse; the second hop of a double starts when the first ends (BotNext's 0.92 × length snapped the outline 4 variants), and a lead or page restart counts only once phase C has been reached (at most every 5 min); the demo shortens phase B to 15 s so a 60 s hold shows all three phases. On-knob measurements: to do after the release.
+P4 in 0.9.73 (#114; design and tests in [`features.md`](features.md), bot face), with BotNext's badge pulse; the second hop of a double starts when the first ends (BotNext's 0.92 × length snapped the outline 4 variants), and a restart from a new lead, a higher host count, the page being shown or calm ending counts only once 5 min have passed since waiting began or last restarted (50 s in a demo); one that comes earlier is dropped, not deferred (#139); the demo shortens phase B to 15 s so a 60 s hold shows all three phases. On-knob measurements in [`features.md`](features.md) (P4 entry).
 
 ## Measured: proposed vs today
 
