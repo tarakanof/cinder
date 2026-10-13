@@ -42,6 +42,7 @@
 #include "pages.h"
 #include "press_route.h"
 #include "provision_usb.h"
+#include "refr_stats.h"
 #include "screen_snap.h"
 #include "reset_gesture.h"
 #include "touch_swipe.h"
@@ -210,45 +211,38 @@ static int64_t s_refr_start_us;
 static int s_refr_count;
 static int64_t s_refr_total_us, s_refr_max_us;
 static int s_frame_kind;
-static int s_refr_kind;
-static int64_t s_refr_px;
-typedef struct {
-    int n, areas_max;
-    int64_t us, us_max;
-    int64_t px;
-} refr_kind_t;
-static refr_kind_t s_kind[4];
+static refr_stats_t s_refr;
+static portMUX_TYPE s_refr_mux = portMUX_INITIALIZER_UNLOCKED;
+static EXT_RAM_BSS_ATTR refr_area_t s_refr_areas[LV_INV_BUF_SIZE];
 
 static void refr_cb(lv_event_t *e)
 {
     int64_t now = esp_timer_get_time();
     lv_display_t *disp = lv_event_get_current_target(e);
-    if (lv_event_get_code(e) == LV_EVENT_REFR_START) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_REFR_START) {
         s_refr_start_us = now;
-        s_refr_kind = s_frame_kind;
+        refr_stats_begin(&s_refr, s_frame_kind);
         s_frame_kind = 0;
-        refr_kind_t *k = &s_kind[s_refr_kind];
-        int64_t px = 0;
-        for (uint32_t i = 0; i < disp->inv_p; i++) px += lv_area_get_size(&disp->inv_areas[i]);
-        s_refr_px = px;
-        if (px) {
-            k->px += px;
-            if ((int)disp->inv_p > k->areas_max) k->areas_max = (int)disp->inv_p;
-        }
+        return;
+    }
+    if (code == LV_EVENT_RENDER_START) {
+        int n = disp->inv_p > LV_INV_BUF_SIZE ? LV_INV_BUF_SIZE : (int)disp->inv_p;
+        for (int i = 0; i < n; i++)
+            s_refr_areas[i] = (refr_area_t){disp->inv_areas[i].x1, disp->inv_areas[i].y1, disp->inv_areas[i].x2,
+                                            disp->inv_areas[i].y2};
+        refr_stats_render(&s_refr, s_refr_areas, disp->inv_area_joined, n);
         return;
     }
     int64_t d = now - s_refr_start_us;
-    refr_kind_t *k = &s_kind[s_refr_kind];
-    if (s_refr_px) {
-        k->n++;
-        k->us += d;
-        if (d > k->us_max) k->us_max = d;
-        ota_client_note_frame();
-    }
-    diag_note_frame(d);
+    taskENTER_CRITICAL(&s_refr_mux);
+    bool drew = refr_stats_end(&s_refr, d);
     s_refr_count++;
     s_refr_total_us += d;
     if (d > s_refr_max_us) s_refr_max_us = d;
+    taskEXIT_CRITICAL(&s_refr_mux);
+    if (drew) ota_client_note_frame();
+    diag_note_frame(d);
 }
 
 static void link_reboot(const char *why)
@@ -1197,18 +1191,22 @@ static void stats_task(void *arg)
 {
     (void)arg;
     static EXT_RAM_BSS_ATTR http_conn_stats_t prev, ns;
-    static EXT_RAM_BSS_ATTR refr_kind_t kc[4];
+    static EXT_RAM_BSS_ATTR refr_kind_t kc[REFR_KINDS], kt;
     static EXT_RAM_BSS_ATTR dev_wifi_t w;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
         orbit_reap();
         double t = now_s();
-        int frames = s_frames, n = s_refr_count;
-        int64_t total = s_refr_total_us, mx = s_refr_max_us;
+        int frames = s_frames;
         s_frames = 0;
+        taskENTER_CRITICAL(&s_refr_mux);
+        int n = s_refr_count;
+        int64_t total = s_refr_total_us, mx = s_refr_max_us;
         s_refr_count = 0;
         s_refr_total_us = s_refr_max_us = 0;
+        int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);
+        taskEXIT_CRITICAL(&s_refr_mux);
         http_conn_get_stats(&ns);
         ESP_LOGI(TAG, "pose redraws %.1f/s | screen refreshes %d, avg %.1f ms, max %.1f ms | mood %s | page %d",
                  frames / (t - s_fps_since), n, n ? total / 1000.0 / n : 0.0, mx / 1000.0, MOOD_NAMES[s_cur_mood],
@@ -1220,12 +1218,13 @@ static void stats_task(void *arg)
         ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
         if (failed) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
-        memcpy(kc, s_kind, sizeof kc);
-        memset(s_kind, 0, sizeof s_kind);
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < REFR_KINDS; i++)
             if (kc[i].n)
                 ESP_LOGI(TAG, "refresh %s: %d, avg %.1f ms, max %.1f ms, avg %lld px, max %d areas", KIND[i], kc[i].n,
                          kc[i].us / 1000.0 / kc[i].n, kc[i].us_max / 1000.0, kc[i].px / kc[i].n, kc[i].areas_max);
+        double win = win_us > 0 ? win_us / 1e6 : 1;
+        ESP_LOGI(TAG, "invalidated: %lld areas (%.1f/s), %lld px (%.0f px/s) in %d refreshes over %.0f s", kt.areas,
+                 kt.areas / win, kt.px, kt.px / win, kt.n, win);
         ESP_LOGI(TAG, "net: %" PRIu32 " req (%" PRIu32 " x 304), %" PRIu32 " B in, %" PRIu32 " failed, %" PRIu32
                  " retried, %" PRIu32 " new connections | internal free %u B (largest %u B) | PSRAM free %u KB",
                  ns.requests - prev.requests, ns.not_modified - prev.not_modified, ns.rx_bytes - prev.rx_bytes,
@@ -1328,7 +1327,9 @@ void app_main(void)
     wxm_init(&s_wxm);
     bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
     lv_timer_create(frame_cb, 16, handles.disp);
+    refr_stats_init(&s_refr, esp_timer_get_time());
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_READY, NULL);
     bsp_knob_15_md50et_unlock();
 
