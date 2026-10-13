@@ -505,12 +505,23 @@ static double giggle_lid(const bot_t *b, double t)
 
 static bool lap_on(const bot_t *b, double t) { return t >= b->lap_at && t < b->lap_at + BOT_LAP_S; }
 
+static void reclose(bot_t *b, double t)
+{
+    b->blinking = true;
+    b->blink_start = t;
+    b->blink_lag = 0;
+    b->blink_heavy = false;
+    b->double_blink_pending = false;
+    if (b->blink_speed < 1.6) b->blink_speed = 1.6;
+}
+
 static void enter(bot_t *b, bot_mood_t m, double t)
 {
     bool waking = b->mood == BOT_SLEEPY;
     bool shut = b->asleep || (b->blinking && b->blink_heavy && blink_lid(b, t - b->blink_start) >= 0.5);
     b->mood = m;
     b->mood_since = t;
+    b->beat_by = t + BOT_BEAT_MAX_S;
     b->swap_eyes_on_close = true;
     b->asleep = false;
     b->asleep_at = t + BOT_ASLEEP_AFTER_S;
@@ -639,6 +650,8 @@ bot_pose_t bot_pose(bot_t *b, double t)
         else b->next_micro_at = b->next_saccade_at + MICRO_HOLD_S;
     }
     wait_tick(b, t);
+    bool due = b->face != b->mood;
+    if (due && t - b->breath_t > BOT_BEAT_GAP_S) b->beat_by = fmax(b->beat_by, t + BOT_BEAT_MAX_S);
     bool loud = bot_anim_allowed(BOT_ANIM_DONE_REWARD, b->calm);
     if (t >= b->done_hop_at && !b->hopping) {
         if (loud) start_hop(b, t, BOT_DONE_HOP_H, HOP_LEN_S);
@@ -647,37 +660,41 @@ bot_pose_t bot_pose(bot_t *b, double t)
 
     breathe(b, t);
     bot_pose_t p = {.mood = b->mood, .scale_x = 1, .scale_y = 1, .breath = b->breath, .asleep = b->asleep};
-    double bl = 0, br = 0;
-    if (b->blinking) {
-        bool due = b->face != b->mood;
-        double u = t - b->blink_start, shut = 0.075 * b->blink_speed + fmax(b->blink_lag, 0);
-        if (due && !b->rim_ready && !b->blink_heavy && t < b->mood_since + BOT_BEAT_MAX_S && u > shut &&
-            b->blink_start + shut > b->mood_since - 1e-6) {
-            b->blink_start = t - shut;
-            u = shut;
-        }
-        bl = blink_lid(b, u);
-        br = blink_lid(b, u - b->blink_lag);
-        bool now = !due || b->rim_ready || t >= b->mood_since + BOT_BEAT_MAX_S;
-        if (b->swap_eyes_on_close && fmax(bl, br) >= 0.9 && now) swap_eyes(b, t);
-        if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
-            if (b->swap_eyes_on_close && !b->double_blink_pending) swap_eyes(b, t);
-            b->blinking = false;
-            if (b->double_blink_pending) {
-                b->double_blink_pending = false;
-                b->blinking = true;
-                b->blink_start = t + 0.06;
-            }
-        }
-    }
-    if (b->face != b->mood && !b->blinking) swap_eyes(b, t);
-    p.face = b->face;
-    p.eyes = b->eyes;
     double slump = tween_value(&b->slump, t), heavy;
     if (b->asleep) heavy = tween_value(&b->sleep_lid, t);
     else if (b->mood == BOT_SLEEPY) heavy = fmax(sleepy_lid(b, slump), tween_value(&b->sleep_lid, t));
     else heavy = slump * 0.55;
     heavy = fmax(heavy, tween_value(&b->act_lid, t));
+    double bl = 0, br = 0;
+    bool now = !due || b->rim_ready || t >= b->beat_by;
+    if (due && !b->blinking) {
+        if (heavy >= 0.9 && now) swap_eyes(b, t);
+        else if (!b->asleep) reclose(b, t);
+    }
+    if (b->blinking) {
+        double u = t - b->blink_start, shut = 0.075 * b->blink_speed + fmax(b->blink_lag, 0);
+        if (due && !b->rim_ready && !b->blink_heavy && t < b->beat_by && u > shut && b->blink_start + shut > b->mood_since - 1e-6) {
+            b->blink_start = t - shut;
+            u = shut;
+        }
+        bl = blink_lid(b, u);
+        br = blink_lid(b, u - b->blink_lag);
+        if (b->swap_eyes_on_close && heavy + (1 - heavy) * fmax(bl, br) >= 0.9 && now) swap_eyes(b, t);
+        if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
+            bool beat_due = b->face != b->mood;
+            if (b->swap_eyes_on_close && !b->double_blink_pending && !beat_due) swap_eyes(b, t);
+            b->blinking = false;
+            if (b->double_blink_pending) {
+                b->double_blink_pending = false;
+                b->blinking = true;
+                b->blink_start = t + 0.06;
+            } else if (beat_due && !b->asleep) {
+                reclose(b, t);
+            }
+        }
+    }
+    p.face = b->face;
+    p.eyes = b->eyes;
     p.lid_l = heavy + (1 - heavy) * bl;
     p.lid_r = heavy + (1 - heavy) * br;
     double giggle = loud ? giggle_lid(b, t) : 0;

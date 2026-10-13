@@ -1500,6 +1500,7 @@ static void test_heavy_blinks(void)
     bot_init(&b, 0xB11C, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
     const double dt = 1.0 / 240;
+    for (double t = 0; t < 3; t += dt) bot_pose(&b, t);
     int closes = 0, bad_hold = 0, overshoots = 0, singles = 0, starts = 0;
     double prev = 0, shut_at = -1, last_start = -1, gaps[256];
     int ngaps = 0;
@@ -1729,7 +1730,7 @@ static void test_asleep_guards(void)
 
     bot_init(&b, 43, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
-    bot_pose(&b, 10);
+    for (double t = 0; t <= 10; t += 1.0 / 60) bot_pose(&b, t);
     bot_act_begin(&b, 10);
     bot_act_eyes(&b, BOT_EYES_ROUND, 10.5);
     CHECK(b.blinking && !b.blink_heavy && b.blink_speed == 2.2, "a costume blink in sleepy is not heavy, 2.2x as in 0.9.68");
@@ -2921,6 +2922,68 @@ static void test_mood_beat(void)
     CHECK(beats > 1000 && !bad && !slow, "every beat behind closed lids with its eyes and badge (%d bad, %d late of %d)", bad, slow, beats);
 }
 
+typedef struct {
+    double beat, lid, resume;
+    bool early, wrong;
+} gap_log_t;
+
+static void gap_run(uint64_t seed, double gap_at, double gap_len, double ready_after, gap_log_t *g)
+{
+    bot_t b;
+    bot_init(&b, seed, 0);
+    double t0 = settle_open(&b, 0);
+    bot_eyes_t eyes0 = b.eyes;
+    bot_set_mood(&b, BOT_DONE, t0);
+    *g = (gap_log_t){.beat = -1, .resume = t0 + gap_at + gap_len};
+    bool gapped = false;
+    for (double t = t0; t < g->resume + 2; t += 1.0 / 60) {
+        if (!gapped && t > t0 + gap_at) {
+            gapped = true;
+            t = g->resume;
+        }
+        bot_rim_ready(&b, t >= g->resume + ready_after);
+        bot_pose_t p = bot_pose(&b, t);
+        if (g->beat < 0 && p.face == BOT_DONE) {
+            g->beat = t - g->resume;
+            g->lid = lid_max(&p);
+            g->wrong = p.eyes != BOT_EYES_HAPPY;
+        }
+        if (g->beat < 0) g->early |= p.eyes != eyes0;
+    }
+}
+
+static void test_mood_beat_gaps(void)
+{
+    gap_log_t g;
+    int bad = 0;
+    double worst = 1;
+    for (int seed = 0; seed < 20; seed++) {
+        gap_run(0x6A9 + (uint64_t)seed, 0.03, 5, 0.12, &g);
+        bad += g.beat < 0.12 || g.beat > BOT_BEAT_MAX_S + 0.02 || g.lid < 0.9 || g.early || g.wrong;
+        worst = fmin(worst, g.lid);
+    }
+    CHECK(!bad, "an OTA pause from the closing blink: the beat on a new closure once the outline is back (%d bad, lowest lid %.2f)", bad,
+          worst);
+    bad = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        gap_run(0x6A9 + (uint64_t)seed, 0.03, 5, INFINITY, &g);
+        bad += g.beat < BOT_BEAT_MAX_S - 0.02 || g.beat > BOT_BEAT_MAX_S + 0.02 || g.lid < 0.9 || g.early || g.wrong;
+    }
+    CHECK(!bad, "an OTA pause and no outline after it: the beat %.2f s after the pause, behind the lids (%d bad)", BOT_BEAT_MAX_S, bad);
+    bad = 0;
+    worst = 1;
+    int n = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        for (double len = 0.08; len < 0.6; len += 0.01, n++) {
+            gap_run(0x6A9 + (uint64_t)seed, 0.001, len, -INFINITY, &g);
+            bad += g.beat < 0 || g.lid < 0.9 || g.early || g.wrong;
+            worst = fmin(worst, g.lid);
+        }
+    }
+    CHECK(!bad, "a frame gap across the closing blink, outline ready: the beat on another closure, never open (%d of %d bad, lowest lid %.2f)",
+          bad, n, worst);
+}
+
 static void test_done_reward(void)
 {
     bot_t b;
@@ -3145,6 +3208,7 @@ int main(void)
 {
     test_rim_beat();
     test_mood_beat();
+    test_mood_beat_gaps();
     test_mood_beat_view();
     test_done_reward();
     test_wait_phases();

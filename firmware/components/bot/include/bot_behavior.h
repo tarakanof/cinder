@@ -67,7 +67,7 @@ typedef struct {
     double sleep_after_s;
     bool calm;
     bool rim_ready;
-    double done_hop_at, giggle_at, lap_at;
+    double done_hop_at, giggle_at, lap_at, beat_by;
 
     double breath, breath_ph, breath_per, breath_t;
     bool asleep;
@@ -104,6 +104,8 @@ typedef struct {
 #define BOT_NUDGE_S 0.35
 /* A mood beat waits for the view's outline at most this long after the mood change, seconds. */
 #define BOT_BEAT_MAX_S 0.45
+/* A frame gap longer than this while a beat waits (off-page, OTA pause) gives the outline another BOT_BEAT_MAX_S. */
+#define BOT_BEAT_GAP_S 0.1
 /* Done's reward, seconds after the beat. */
 #define BOT_DONE_HOP_S 0.35
 #define BOT_DONE_HOP_H 0.7
