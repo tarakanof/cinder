@@ -50,8 +50,8 @@ int wx_job_step(wx_job_t *j, const wx_temp_t *t, double dt);
    the arrival; the next step with nothing to bake drops it. A bake landing while a cut to another scene is pending
    applies without a paint, so no stale face shows. */
 void wx_job_cut(wx_job_t *j);
-/* The face a turn treats as on screen: the last landed bake's face (also while a scene re-bake runs black), -1 before
-   the first bake of this page visit lands. */
+/* The face a turn treats as on screen: the last landed bake's face (also while a scene re-bake runs black), -1 until a
+   bake lands this visit, unless the last visit's face is still attached. */
 int wx_job_face(const wx_job_t *j);
 void wx_job_acquired(wx_job_t *j, bool ok);
 void wx_job_released(wx_job_t *j);
