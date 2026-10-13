@@ -18,6 +18,12 @@
 #define ASLEEP_Y -0.35
 #define ASLEEP_CLOSE_S 1.2
 #define STIR_OPEN_S 0.6
+#define READ_RIGHT 0.7
+#define READ_FLOOR -0.35
+#define READ_MOMENT_FLOOR -0.19
+#define READ_MOMENT_TOP 0.15
+#define READ_OVERSHOOT 0.071
+#define MARK_X 0.0
 
 enum { EASE_IN_OUT, EASE_OUT_BACK };
 enum { SAC_NORMAL, SAC_GLIDE, SAC_MICRO };
@@ -97,6 +103,10 @@ static double heavy_curve(double u, double hold)
     return 0;
 }
 static double blink_length(const bot_t *b) { return b->blink_heavy ? 0.55 + b->blink_hold : (0.075 + 0.035 + 0.15) * b->blink_speed; }
+static bool blink_on(const bot_t *b, double t)
+{
+    return b->blinking && (b->double_blink_pending || t - b->blink_start - b->blink_lag < blink_length(b));
+}
 static double blink_lid(const bot_t *b, double u) { return b->blink_heavy ? heavy_curve(u, b->blink_hold) : lid_curve(u, b->blink_speed); }
 
 static void hop_curve(double u, double *sx, double *sy, double *dy)
@@ -156,6 +166,58 @@ static double fixation(bot_t *b)
     }
 }
 
+static double read_floor(const bot_t *b) { return b->rd_moment ? READ_MOMENT_FLOOR : READ_FLOOR; }
+
+static double read_line_y(const bot_t *b)
+{
+    int last = b->rd_moment ? 2 : 4;
+    return -0.05 - 0.06 * (b->rd_line < last ? b->rd_line : last);
+}
+
+static void read_new_line(bot_t *b)
+{
+    b->rd_steps = 3 + (int)(rng_unit(b) * 4);
+    b->read_x = -0.65 + jitter(b, 0.03);
+}
+
+static void read_new_page(bot_t *b)
+{
+    b->rd_turn = false;
+    b->rd_line = 0;
+    b->rd_lines = 4 + (int)(rng_unit(b) * 3);
+    read_new_line(b);
+}
+
+static void read_target(bot_t *b, double *x, double *y, double *fix, double *mul, bool *blink)
+{
+    if (b->rd_turn) {
+        read_new_page(b);
+        *x = b->read_x; *y = read_line_y(b) + jitter(b, 0.02); *mul = 1.3;
+        return;
+    }
+    double r = rng_unit(b);
+    if (r < 0.07) { *x = VIEWER_X + jitter(b, 0.05); *y = VIEWER_Y; return; }
+    if (r < 0.12 && !b->rd_moment) { *x = MARK_X + jitter(b, 0.04); *y = READ_FLOOR; *fix = rng_range(b, 0.6, 1.0); return; }
+    if (b->rd_steps <= 0 || b->read_x >= READ_RIGHT) {
+        if (++b->rd_line >= b->rd_lines) {
+            b->rd_turn = true;
+            *y = rng_unit(b) < 0.5 && !b->rd_moment ? 0.3 : VIEWER_Y;
+            *x = jitter(b, 0.08); *fix = 1.2; *blink = true;
+            return;
+        }
+        read_new_line(b);
+        *x = b->read_x; *y = read_line_y(b) + jitter(b, 0.02); *mul = 1.3;
+        return;
+    }
+    if (b->read_x > -0.35 && rng_unit(b) < 0.12) {
+        b->read_x -= rng_range(b, 0.10, 0.22);
+    } else {
+        b->read_x = fmin(READ_RIGHT, b->read_x + rng_range(b, 0.18, 0.38));
+        b->rd_steps--;
+    }
+    *x = b->read_x; *y = read_line_y(b) + jitter(b, 0.02);
+}
+
 static void next_target(bot_t *b, double *x, double *y)
 {
     double r = rng_unit(b);
@@ -164,11 +226,6 @@ static void next_target(bot_t *b, double *x, double *y)
         if (r < 0.45) { *x = REST_X + jitter(b, 0.1); *y = REST_Y + jitter(b, 0.08); return; }
         if (r < 0.7) { *x = VIEWER_X + jitter(b, 0.08); *y = VIEWER_Y + jitter(b, 0.08); return; }
         *x = jitter(b, 0.9); *y = rng_range(b, -0.6, 0.8); return;
-    case BOT_WORKING:
-        if (r < 0.1) { *x = VIEWER_X + jitter(b, 0.05); *y = VIEWER_Y; return; }
-        b->read_x += rng_range(b, 0.28, 0.45);
-        if (b->read_x > 0.7) b->read_x = -0.7;
-        *x = b->read_x; *y = -0.15 + jitter(b, 0.04); return;
     case BOT_WAITING:
         if (r < 0.75) { *x = VIEWER_X + jitter(b, 0.05); *y = VIEWER_Y + jitter(b, 0.05); return; }
         *x = r < 0.875 ? -0.7 : 0.7; *y = jitter(b, 0.2); return;
@@ -263,9 +320,17 @@ static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
 
 static void start_saccade(bot_t *b, double t, bool glide)
 {
-    double tx, ty;
-    next_target(b, &tx, &ty);
+    double tx, ty, fix = -1, mul = 1;
+    bool blink = false;
+    if (b->mood == BOT_WORKING) read_target(b, &tx, &ty, &fix, &mul, &blink);
+    else next_target(b, &tx, &ty);
     start_saccade_to(b, t, glide ? SAC_GLIDE : SAC_NORMAL, tx, ty);
+    if (fix >= 0 || mul != 1) {
+        double hold = b->next_saccade_at - t - b->gaze_dur;
+        b->next_saccade_at = t + b->gaze_dur + (fix >= 0 ? fix : hold * mul);
+    }
+    if (b->mood == BOT_WORKING && !glide && ty - READ_OVERSHOOT * (b->gaze_from_y - ty) < read_floor(b)) b->gaze_ease = EASE_IN_OUT;
+    if (blink && !blink_on(b, t)) start_blink(b, t);
 }
 
 static void start_micro(bot_t *b, double t)
@@ -275,7 +340,9 @@ static void start_micro(bot_t *b, double t)
     double amp = rng_range(b, 0.012, 0.025) * (b->mood == BOT_SLEEPY ? 0.5 : 1);
     double dx = b->fix_x - cx, dy = b->fix_y - cy;
     double ang = hypot(dx, dy) > 0.015 ? atan2(dy, dx) + jitter(b, 1.0) : rng_range(b, 0, 2 * M_PI);
-    start_saccade_to(b, t, SAC_MICRO, cx + amp * cos(ang), cy + amp * sin(ang));
+    double ty = cy + amp * sin(ang);
+    if (b->mood == BOT_WORKING && b->fix_y >= read_floor(b) && ty < read_floor(b)) ty = cy - amp * sin(ang);
+    start_saccade_to(b, t, SAC_MICRO, cx + amp * cos(ang), ty);
 }
 
 static void fall_asleep(bot_t *b, double t)
@@ -336,7 +403,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
                      badged ? EASE_OUT_BACK : EASE_IN_OUT);
     b->popping = m != BOT_SLEEPY && bot_anim_allowed(BOT_ANIM_MOOD_POP, b->calm);
     b->pop_start = t;
-    b->read_x = -0.6;
+    if (m == BOT_WORKING) b->rd_turn = true;
     start_saccade(b, t, true);
     b->next_hop_at = m == BOT_WAITING && bot_anim_allowed(BOT_ANIM_WAIT_HOP, b->calm) ? t + 0.6 : INFINITY;
 }
@@ -546,6 +613,21 @@ void bot_look_still(bot_t *b, double x, double y, double t)
     b->lean_x = tween(tween_value(&b->lean_x, t), 0, t, 0.2, EASE_IN_OUT);
     b->lean_y = tween(tween_value(&b->lean_y, t), 0, t, 0.2, EASE_IN_OUT);
     b->next_saccade_at = t + 2.5;
+}
+
+void bot_read_moment(bot_t *b, bool on, double t)
+{
+    if (on == b->rd_moment) return;
+    b->rd_moment = on;
+    if (b->rd_line > 2) b->rd_steps = 0;
+    if (!on || b->mood != BOT_WORKING || b->acting || b->tracking) return;
+    double gx, gy;
+    current_gaze(b, t, &gx, &gy);
+    bool moving = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
+    double lo = fmin(fmin(gy, b->fix_y), b->gaze_to_y), hi = fmax(fmax(gy, b->fix_y), b->gaze_to_y);
+    if (lo < READ_MOMENT_FLOOR || hi > READ_MOMENT_TOP) start_saccade(b, t, false);
+    else if (!moving) return;
+    b->gaze_start = t - b->gaze_dur;
 }
 
 void bot_hold_gaze(bot_t *b, double until)

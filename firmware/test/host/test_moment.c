@@ -941,6 +941,7 @@ static void test_acting(void)
                 for (; t < start; t += 1.0 / 60) bot_pose(&b, t);
                 bot_mood_t mood = b.mood;
                 if (!quiet) bot_act_begin(&b, t);
+                else bot_read_moment(&b, true, t);
                 double t0 = t + (quiet ? 0 : WXM_PRE_S);
                 int i = 0, rim_dy = 0, last_k = -1;
                 bool have_rim = false, have_pose = false, any = false;
@@ -987,6 +988,7 @@ static void test_acting(void)
                               mood, seed, k, e.y1);
                     }
                 }
+                bot_read_moment(&b, false, t);
                 CHECK(!b.acting && b.act_eyes == -1, "%s: the act is over", KIND[m.kind]);
                 bot_pose_t p = bot_pose(&b, t);
                 CHECK(b.mood != mood || p.eyes == (mood == BOT_DONE ? BOT_EYES_HAPPY : BOT_EYES_DASH), "%s in mood %d: the mood's eyes back (%d)",

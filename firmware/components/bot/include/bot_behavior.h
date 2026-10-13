@@ -47,6 +47,8 @@ typedef struct {
     double next_saccade_at;
     double fix_x, fix_y, next_micro_at;
     double read_x;
+    int rd_line, rd_lines, rd_steps;
+    bool rd_turn, rd_moment;
 
     bool blinking, blink_heavy;
     double blink_start, blink_lag, blink_speed, blink_hold;
@@ -98,6 +100,8 @@ void bot_track_end(bot_t *b, double t);
 void bot_blink(bot_t *b, double t);
 void bot_look_still(bot_t *b, double x, double y, double t);
 void bot_hold_gaze(bot_t *b, double until);
+/* A quiet weather moment on: working's gaze stays in y -0.19..0.15 from this frame (lines 0-2, no mark, turns at the viewer). */
+void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */
 void bot_hop(bot_t *b, double t);

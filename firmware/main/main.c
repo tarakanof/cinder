@@ -947,6 +947,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
     if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, pg->frame == page_bot_frame);
     else if (!ds.view_on && s_scene_resume_at == 0) moment_tick(t, have_wx ? &wx : NULL, calm, pg->frame == page_bot_frame);
+    bot_read_moment(&s_bot, moment_view_busy(), t);
 
     float gdeg;
     bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);

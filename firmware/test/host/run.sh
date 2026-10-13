@@ -347,6 +347,8 @@ done
 body "$MAINC" ota_frame | grep -qF 'moment_unact(now_s());' || WIRING="$WIRING ota_frame-ends-the-act"
 fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, pg->frame == page_bot_frame\);/ {m = NR} /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && m < p)}' ||
     WIRING="$WIRING page_tick-runs-moment_tick-before-the-chase-and-the-pose"
+fbody "$MAINC" page_tick | awk '/^    else if \(!ds\.view_on && s_scene_resume_at == 0\) moment_tick\(/ {m = NR} /^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && r == m + 1 && r < p)}' ||
+    WIRING="$WIRING page_tick-reads-around-a-moment-before-the-pose"
 MT="$(fbody "$MAINC" moment_tick)"
 for L in 'if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();' 'if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
     'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,' \
@@ -415,7 +417,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL weather moment wiring:$WIRING" >&2
     exit 1
 fi
-echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change"
+echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
 body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_client_service\(/ {n = NR} END {exit !(r && n && r < n)}' ||
     WIRING="$WIRING demo-ready-before-the-art-fetch"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&

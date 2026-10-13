@@ -165,6 +165,7 @@ Effort: S under a day, M one to three days, L more. All new state is a few dozen
 
 **Shipped:** P1, P5 and P8 in 0.9.68 (#111; design and tests in [`features.md`](features.md), bot face). P8 took BotNext's fixes: the badge drawn under the eyes at its old size, and no tool mark in error.
 P2 in 0.9.69 (#112; design and tests in [`features.md`](features.md), bot face).
+P3 in 0.9.70 (#113; design and tests in [`features.md`](features.md), bot face), with BotNext's 7 % viewer and 5 % mark glances.
 
 ## Measured: proposed vs today
 
