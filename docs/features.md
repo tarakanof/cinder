@@ -1244,3 +1244,9 @@ Ember plays scripted scenes on the knob (the bot moods, the weather moments and 
 
   The poll context in PSRAM grows by a second `knob_view_t` (the scene's view) and the query buffers.
 - **On the knob** (to do): every Ember scene once Ember#457 ships; an input mid-scene; a hold cleared by the server; a chase in an idle mood; a moment with moments off.
+
+## Invalidated-area count (#118)
+
+- **What**: the 30 s serial stats log adds one line per window, `invalidated: <areas> areas (<n>/s), <px> px (<n> px/s) in <refreshes> refreshes over <s> s`, next to the per-kind `refresh <kind>` lines (which now also come from `components/refr_stats`, host-tested in `test_refr.c`). Areas and px are LVGL's invalid areas at `LV_EVENT_REFR_START`, before `lv_refr_join_area`, so overlapping areas count twice: the same basis as the per-kind `avg px` and `max areas`. A refresh counts in the window it ends in; refreshes with no area (0 px) don't count.
+- **Why serial only**: a checkin `stats` field would reach Ember's 1-min stats points without USB, but a new checkin request field starts in Ember (`docs/workflow.md`, "New checkin request fields"): Ember adds it to its server and `checkin_req_*` goldens first, the cinder sync commit lists it in `NOT_YET_SENT`, and the firmware PR that sends it removes the entry. Until then the per-mood numbers in #111, #112 and #113 ("Invalidated areas/s") need a USB stats log per mood.
+- **Cost** (`idf.py size` against main at c253309): image +512 B, DIRAM +40 B (an area total per kind), a few integer adds per refresh.

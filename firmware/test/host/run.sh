@@ -16,6 +16,7 @@ LS="$D/../../components/link_state"
 CP="$D/../../components/caps"
 RT="$D/../../components/rotation"
 DM="$D/../../components/demo"
+RS="$D/../../components/refr_stats"
 IDF="${IDF_PATH:?source the ESP-IDF export script first (IDF_PATH)}"
 J="$IDF/components/json/cJSON"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cinder_test.XXXXXX")"
@@ -329,7 +330,7 @@ body "$BVC" label_draw | grep -qF 'bool marked = bot_label_mark(s_rim_mood);' &&
     body "$BVC" label_draw | grep -qF 'const uint8_t *mark = marked ? tool_mark(' &&
     body "$BVC" label_draw | grep -qF 'bool icon = marked && (' || WIRING="$WIRING label-icon-from-bot_label_mark"
 body "$BVC" bot_view_create | awk '/s_badge_gap = circle_create\(/ {g = NR} /s_badge_dot = circle_create\(/ {d = NR}
-    /s_eye\[e\]\.canvas = canvas_create\(/ {e = NR} END {exit !(g && d && e && g < e && d < e)}' || WIRING="$WIRING badge-created-before-the-eye-canvases"
+    /s_eye\[e\]\.canvas = canvas_create\(/ {e = NR} END {exit !(g && d && e && g < d && d < e)}' || WIRING="$WIRING badge-created-before-the-eye-canvases"
 body "$BVC" bot_view_update | grep -qF 'if (shape != s_rim_shape || p->mood != s_rim_mood || p->asleep != s_rim_asleep) {' &&
     body "$BVC" bot_view_update | grep -qF 'int tone = bot_rim_tone(p->mood, p->asleep);' &&
     body "$BVC" bot_view_update | grep -qF 'rim_job_new(&s_rim, shape, tone);' || WIRING="$WIRING outline-re-renders-on-asleep"
@@ -476,6 +477,7 @@ cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
 cc $CFLAGS -I"$RT/include" "$RT/knob_rotation.c" "$D/test_rotation.c" -o "${OUT}_rotation"
 cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$D/test_link.c" -o "${OUT}_link"
+cc $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
 cc $CFLAGS -I"$G/include" "$G/touch_swipe.c" "$D/test_swipe.c" -lm -o "${OUT}_swipe"
 cc $CFLAGS -I"$G/include" -I"$V/include" -I"$J" "$G/cfg.c" "$V/improv.c" "$V/cinder_line.c" "$J/cJSON.c" \
     "$D/test_provision.c" -lm -o "${OUT}_provision"
@@ -547,6 +549,7 @@ fi
 "${OUT}_panel"
 "${OUT}_rotation"
 "${OUT}_link"
+"${OUT}_refr"
 "${OUT}_swipe"
 "${OUT}_provision" "$D/../vectors"
 "${OUT}_device"
