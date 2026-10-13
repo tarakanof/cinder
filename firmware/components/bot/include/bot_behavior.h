@@ -60,7 +60,7 @@ typedef struct {
     double pop_start, hop_start, next_hop_at;
     double hop_h, hop_len;
     int w_phase;
-    bool w_fast;
+    unsigned w_scene;
     double w_t0, burst_hop_at, burst_h, next_peek_at, next_nudge_at, next_rem_at, nudge_at, gaze_hold;
     double sleep_after_s;
     bool calm;
@@ -90,8 +90,7 @@ typedef struct {
 #define BOT_HOP_SQUASH 0.75
 /* The view's outline variants: steps -BOT_RIM_STEPS (squash) .. +BOT_RIM_STEPS (stretch), 0 the base. */
 #define BOT_RIM_STEPS 5
-/* Waiting phases, seconds since waiting began or restarted: A hops, B from _B_S hops and peeks, C from _C_S nudges
-   with a reminder every _REMIND_S. The demo's phase C and reminder fit its 60 s hold. */
+/* Seconds since waiting began or restarted; the _DEMO_ values apply while a demo scene plays. */
 #define BOT_WAIT_B_S 20.0
 #define BOT_WAIT_C_S 180.0
 #define BOT_WAIT_REMIND_S 300.0
@@ -117,10 +116,10 @@ void bot_hold_gaze(bot_t *b, double until);
 /* A quiet weather moment on: working's gaze stays in y -0.19..0.15 from this frame (lines 0-2, no mark, turns at the viewer). */
 void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
-/* Waiting starts again at phase A (the page shown, a new waiting host or lead); nothing in other moods. */
+/* Waiting back to phase A once a reminder period has passed since the last start; nothing in other moods. */
 void bot_wait_restart(bot_t *b, double t);
-/* A demo scene plays: waiting's demo timings; a change restarts waiting. */
-void bot_wait_demo(bot_t *b, bool on, double t);
+/* scene: the playing demo scene's number, 0 none; nonzero takes the demo timings, a change restarts waiting at A. */
+void bot_wait_scene(bot_t *b, unsigned scene, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */
 void bot_hop(bot_t *b, double t);
 void bot_pop(bot_t *b, double t);

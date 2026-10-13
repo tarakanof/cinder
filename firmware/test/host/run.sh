@@ -496,17 +496,20 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act"
-body "$MAINC" page_bot_show | awk '/^    if \(on && lv_obj_has_flag\(s_bot_page, LV_OBJ_FLAG_HIDDEN\)\) bot_wait_restart\(&s_bot, now_s\(\)\);$/ {w = NR} /^    if \(on\) lv_obj_remove_flag\(s_bot_page, LV_OBJ_FLAG_HIDDEN\);$/ {r = NR} END {exit !(w && r == w + 1)}' ||
-    WIRING="$WIRING page_bot_show-restarts-waiting-when-shown"
-body "$MAINC" page_bot_frame | grep -qxF '    if (bot_view_set_host(&host)) bot_wait_restart(&s_bot, t);' || WIRING="$WIRING page_bot_frame-restarts-waiting-on-a-new-host"
-fbody "$MAINC" page_tick | awk '/^    bot_wait_demo\(&s_bot, s_scene_on, t\);$/ {d = NR} /^    if \(s_scene_on && s_scene_act\.kind == DEMO_ACT_ASLEEP\) bot_sleep\(/ {m = NR} END {exit !(d && m == d + 1)}' ||
-    WIRING="$WIRING page_tick-sets-the-demo-waiting-timings-before-the-mood"
-body "$BVC" bot_view_set_host | grep -qxF '    return true;' || WIRING="$WIRING bot_view_set_host-reports-a-change"
+body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
+    WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
+body "$MAINC" page_bot_frame | awk '/^    if \(s_bot_shown \|\| ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t\);$/ {r = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && c == r + 1 && h == r + 2)}' ||
+    WIRING="$WIRING page_bot_frame-restarts-waiting-when-shown-or-on-a-new-lead"
+fbody "$MAINC" page_tick | awk '/^    bot_wait_scene\(&s_bot, s_scene_on \? s_scene_n : 0, t\);$/ {d = NR} /^    if \(s_scene_on && s_scene_act\.kind == DEMO_ACT_ASLEEP\) bot_sleep\(/ {m = NR} END {exit !(d && m == d + 1)}' ||
+    WIRING="$WIRING page_tick-sets-the-demo-scene-before-the-mood"
+body "$MAINC" scene_start | grep -qxF '    if (!++s_scene_n) s_scene_n = 1;' || WIRING="$WIRING scene_start-numbers-the-scene"
+grep -qxF '    host->hosts = v->hosts;' "$ECL" && grep -qxF '    ember_host_lead_label(v->source, v->lead, 1, host->lead, sizeof host->lead);' "$ECL" ||
+    WIRING="$WIRING view_host-fills-lead-and-hosts"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL waiting restart wiring:$WIRING" >&2
     exit 1
 fi
-echo "waiting restart wiring: page shown, new host, demo timings before the mood"
+echo "waiting restart wiring: page shown, new lead or more hosts, demo scene number before the mood"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"

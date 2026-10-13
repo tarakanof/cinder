@@ -472,13 +472,12 @@ static void host_sync(void)
     }
 }
 
-bool bot_view_set_host(const ember_host_info_t *host)
+void bot_view_set_host(const ember_host_info_t *host)
 {
-    if (strcmp(host->text, s_host.text) == 0 && host->color == s_host.color && host->tool == s_host.tool) return false;
+    if (strcmp(host->text, s_host.text) == 0 && host->color == s_host.color && host->tool == s_host.tool) return;
     s_host = *host;
     s_label_dirty = true;
     host_sync();
-    return true;
 }
 
 bool bot_view_icon_off(bool off, lv_area_t *a)

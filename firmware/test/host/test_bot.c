@@ -2112,7 +2112,7 @@ static uint64_t mood_hash(bot_mood_t m, uint64_t seed)
 static void test_reading_other_moods(void)
 {
     static const struct { bot_mood_t m; uint64_t h; } want[] = {
-        {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x861b3cbd40a47b95ULL},
+        {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x0ab701d14c52cd17ULL},
         {BOT_ERROR, 0xa42109cdb52734a4ULL}, {BOT_DONE, 0xb8d1bcbed2b40ef0ULL},
     };
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) {
@@ -2392,7 +2392,7 @@ typedef struct {
     wait_hop_t hop[400];
     wait_peek_t peek[200];
     double nudge[100];
-    int hops, peeks, nudges, aloft, outline[4];
+    int hops, peeks, nudges, snaps, overlap, outline[4];
     double outline_s[4];
 } wait_log_t;
 
@@ -2414,7 +2414,7 @@ static int outline_key(const bot_pose_t *p)
 static void wait_run(bot_t *b, double t0, double secs, double dt, wait_log_t *w)
 {
     memset(w, 0, sizeof *w);
-    int key = 1 << 30;
+    int key = 1 << 30, prev = 0;
     for (double t = t0; t < t0 + secs; t += dt) {
         bot_t was = *b;
         bot_pose_t p = bot_pose(b, t);
@@ -2422,7 +2422,10 @@ static void wait_run(bot_t *b, double t0, double secs, double dt, wait_log_t *w)
         int k = outline_key(&p);
         if (k != key && t > t0) w->outline[ph]++;
         w->outline_s[ph] += dt;
+        prev = key;
         key = k;
+        double nu = t - b->nudge_at;
+        w->overlap += nu >= 0 && nu < BOT_NUDGE_S && b->hopping;
         if (b->hop_start != was.hop_start && b->hopping && w->hops < 400) {
             wait_hop_t *h = &w->hop[w->hops++];
             h->t = t;
@@ -2430,7 +2433,7 @@ static void wait_run(bot_t *b, double t0, double secs, double dt, wait_log_t *w)
             h->len = b->hop_len;
             h->kind = t >= was.burst_hop_at ? HOP_BURST : t >= was.next_rem_at ? HOP_REMIND : HOP_PLAIN;
             h->gap = t - was.next_hop_at;
-            w->aloft += was.hopping && t - was.hop_start < was.hop_len * 0.46 / 0.62 - 1e-9;
+            w->snaps += t > t0 && prev != 0;
         }
         if (b->gaze_start != was.gaze_start && t >= was.next_peek_at && w->peeks < 200) {
             wait_peek_t *k2 = &w->peek[w->peeks++];
@@ -2467,7 +2470,8 @@ static void test_wait_phases(void)
         bot_init(&b, 0x3A17 + (uint64_t)seed, 0);
         bot_set_mood(&b, BOT_WAITING, 1);
         wait_run(&b, 1, 620, dt, &w);
-        CHECK(!w.aloft, "seed %d: %d hops started in the air", seed, w.aloft);
+        CHECK(!w.snaps && !w.overlap, "seed %d: %d hops started off the base outline, %d frames nudge during a hop", seed, w.snaps,
+              w.overlap);
         double prev = -1;
         for (int i = 0; i < w.hops; i++) {
             const wait_hop_t *h = &w.hop[i];
@@ -2476,7 +2480,7 @@ static void test_wait_phases(void)
                 hlo = fmin(hlo, h->h); hhi = fmax(hhi, h->h);
                 llo = fmin(llo, h->len); lhi = fmax(lhi, h->len);
                 if (i == 0) bad += fabs(el - 0.6) > dt;
-                bad += h->gap > dt;
+                bad += h->gap > 0.21;
                 if (el >= BOT_WAIT_C_S) bad++;
                 if (prev >= 0 && el < BOT_WAIT_B_S) gaps_a[na++] = h->t - prev;
                 if (prev >= 0 && prev - 1 >= BOT_WAIT_B_S && na + nb < 2400) gaps_b[nb++] = h->t - prev;
@@ -2487,9 +2491,9 @@ static void test_wait_phases(void)
                 bool first = f->kind == HOP_PLAIN;
                 if (first) {
                     dbl_a++;
-                    bad += f->t - 1 >= BOT_WAIT_B_S || fabs(h->t - f->t - 0.92 * f->len) > dt || h->h != 0.6;
+                    bad += f->t - 1 >= BOT_WAIT_B_S || h->t - f->t < f->len || h->t - f->t > f->len + 2 * dt || h->h != 0.6;
                 } else {
-                    bad += f->kind != HOP_REMIND || fabs(h->t - f->t - 1.05) > dt || h->h != 1;
+                    bad += f->kind != HOP_REMIND || h->t - f->t < fmax(1.05, f->len) || h->t - f->t > fmax(1.05, f->len) + 2 * dt || h->h != 1;
                 }
                 bad += h->len < 0.9 || h->len > 1.1;
             } else {
@@ -2549,9 +2553,9 @@ static void test_wait_phases(void)
     qsort(gaps_a, (size_t)na, sizeof gaps_a[0], cmp_dbl);
     qsort(gaps_b, (size_t)nb, sizeof gaps_b[0], cmp_dbl);
     qsort(ngap, (size_t)nn, sizeof ngap[0], cmp_dbl);
-    CHECK(na > 600 && gaps_a[0] >= 2 - dt && gaps_a[na - 1] <= 4.5 + dt && fabs(gaps_a[na / 2] - 2.8) < 0.15,
+    CHECK(na > 600 && gaps_a[0] >= 2 - dt && gaps_a[na - 1] <= 4.5 + 0.21 && fabs(gaps_a[na / 2] - 2.8) < 0.15,
           "phase A: %d gaps %.2f-%.2f s, median %.2f, want 2-4.5, about 2.8", na, gaps_a[0], gaps_a[na - 1], gaps_a[na / 2]);
-    CHECK(nb > 100 && gaps_b[0] >= 5 - dt && gaps_b[nb - 1] <= 14 + dt && fabs(gaps_b[nb / 2] - 8) < 0.8,
+    CHECK(nb > 100 && gaps_b[0] >= 5 - dt && gaps_b[nb - 1] <= 14 + 0.21 && fabs(gaps_b[nb / 2] - 8) < 0.8,
           "phase B: %d gaps %.2f-%.2f s, median %.2f, want 5-14, about 8", nb, gaps_b[0], gaps_b[nb - 1], gaps_b[nb / 2]);
     double share = (double)dbl_a / plain_a;
     CHECK(share > 0.21 && share < 0.29, "phase A: %d double hops of %d, %.2f, want about 0.25", dbl_a, plain_a, share);
@@ -2595,6 +2599,14 @@ static void test_wait_nudge(void)
     CHECK(fabs(peak - 1.18) < 1e-3 && fabs(peak_at - BOT_NUDGE_S / 2) < 0.002, "badge pulse peaks at %.4f at %.3f s", peak, peak_at);
     CHECK(fabs(m2x - 1.03) < 1e-12 && fabs(m2y - 0.958) < 1e-12 && fabs(p1x - 0.9895) < 1e-12 && fabs(p1y - 1.015) < 1e-12,
           "variant -2 %.4f x %.4f, +1 %.4f x %.4f", m2x, m2y, p1x, p1y);
+
+    double n1 = b.next_nudge_at;
+    for (t = n0 + 0.5; t < n1 + 0.02; t += 1.0 / 60) bot_pose(&b, t);
+    CHECK(b.nudge_at > n0, "a second nudge");
+    double nt = b.nudge_at;
+    bot_set_mood(&b, BOT_DONE, nt + 0.05);
+    bot_pose_t q = bot_pose(&b, nt + 0.06);
+    CHECK(fabs(q.scale_y / q.scale_x - 1) < 1e-9, "a mood change ends the nudge (ratio %.4f)", q.scale_y / q.scale_x);
 }
 
 static void wait_to(bot_t *b, double *t, double until)
@@ -2612,6 +2624,9 @@ static void test_wait_restart(void)
     wait_to(&b, &t, 200);
     CHECK(b.w_phase == 3, "phase C at 200 s, got %d", b.w_phase);
     bot_wait_restart(&b, t);
+    CHECK(b.w_t0 == 0, "phase C before a reminder period: no restart");
+    wait_to(&b, &t, 320);
+    bot_wait_restart(&b, t);
     wait_run(&b, t, 25, 1.0 / 120, &w);
     CHECK(w.hops >= 5 && fabs(w.hop[0].t - t - 0.6) < 0.01 && w.nudges == 0 && b.w_phase == 2,
           "restart: phase A again, first hop %.2f s after, %d hops, %d nudges", w.hops ? w.hop[0].t - t : -1, w.hops, w.nudges);
@@ -2619,13 +2634,45 @@ static void test_wait_restart(void)
     bot_init(&b, 0x65, 0);
     bot_set_mood(&b, BOT_WAITING, 0);
     t = 0;
+    wait_to(&b, &t, 10);
+    double w0 = b.w_t0;
+    bot_wait_restart(&b, t);
+    wait_to(&b, &t, 100);
+    bot_wait_restart(&b, t);
+    CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart");
+    wait_to(&b, &t, BOT_WAIT_REMIND_S - 1);
     double h0 = b.hop_start;
     for (; b.hop_start == h0; t += 1.0 / 120) bot_pose(&b, t);
     bot_wait_restart(&b, b.hop_start + 0.05);
-    double first = b.hop_start, land = first + b.hop_len * 0.46 / 0.62;
+    double first = b.hop_start, end = first + b.hop_len;
     wait_run(&b, t, 3, 1.0 / 120, &w);
-    CHECK(!w.aloft && w.hops >= 1 && w.hop[0].t >= land - 1e-9 && w.hop[0].t < land + 0.02,
-          "a restart in the air: the next hop waits for the landing (%.3f s, lands %.3f s)", w.hops ? w.hop[0].t - first : -1, land - first);
+    CHECK(!w.snaps && w.hops >= 1 && w.hop[0].t >= end - 1e-9 && w.hop[0].t < end + 0.02 && b.burst_hop_at == INFINITY,
+          "a restart mid-reminder: the reminder's second hop dropped, the next hop after its end (%.3f s, ends %.3f s)",
+          w.hops ? w.hop[0].t - first : -1, end - first);
+
+    static const double every[] = {0.5, 2.5, 7.5, 60};
+    for (size_t i = 0; i < sizeof every / sizeof every[0]; i++) {
+        int hops = 0, c_seen = 0;
+        for (int seed = 0; seed < 4; seed++) {
+            bot_init(&b, 0x66 + (uint64_t)seed, 0);
+            bot_set_mood(&b, BOT_WAITING, 0);
+            double next = every[i];
+            for (t = 0; t < 1200; t += 1.0 / 60) {
+                bot_t was = b;
+                bot_pose(&b, t);
+                hops += b.hop_start != was.hop_start && b.hopping;
+                c_seen += b.w_phase == 3 && was.w_phase != 3;
+                if (t >= next) {
+                    bot_wait_restart(&b, t);
+                    next += every[i];
+                }
+            }
+        }
+        double rate = hops / (4 * 1200.0);
+        printf("waiting with a restart every %.1f s: %.3f hops/s (0.9.72 about 0.22), phase C reached %d times in 4 x 20 min\n", every[i], rate,
+               c_seen);
+        CHECK(rate < 0.12 && c_seen >= 4 * 3, "restart every %.1f s: %.3f hops/s, phase C %d times", every[i], rate, c_seen);
+    }
 
     bot_t o;
     bot_init(&o, 0x5F, 0);
@@ -2695,7 +2742,7 @@ static void test_wait_demo(void)
     for (int seed = 0; seed < 20; seed++) {
         bot_t b;
         bot_init(&b, 0x70 + (uint64_t)seed, 0);
-        bot_wait_demo(&b, true, 0);
+        bot_wait_scene(&b, 1, 0);
         bot_set_mood(&b, BOT_WAITING, 0);
         wait_run(&b, 0, 60, 1.0 / 120, &w);
         int rem = 0, ph3 = 0;
@@ -2715,14 +2762,19 @@ static void test_wait_demo(void)
     bot_set_mood(&b, BOT_WAITING, 0);
     double t = 0;
     wait_to(&b, &t, 10);
-    bot_wait_demo(&b, true, t);
-    CHECK(b.w_t0 == t && b.w_fast, "a demo starting mid-waiting restarts it");
+    bot_wait_scene(&b, 1, t);
+    CHECK(b.w_t0 == t && b.w_scene == 1, "a demo starting mid-waiting restarts it");
     double t0 = t;
-    bot_wait_demo(&b, true, t + 5);
-    CHECK(b.w_t0 == t0, "the same demo state: no restart");
+    bot_wait_scene(&b, 1, t + 5);
+    CHECK(b.w_t0 == t0, "the same scene: no restart");
     wait_to(&b, &t, t0 + 40);
     CHECK(b.w_phase == 3, "demo: phase C at 40 s");
-    bot_wait_demo(&b, false, t);
+    bot_wait_scene(&b, 2, t);
+    double t2 = t;
+    wait_to(&b, &t, t2 + 1);
+    CHECK(b.w_t0 == t2 && b.w_phase == 1, "a scene replaced by the next in the same frame: phase A again");
+    wait_to(&b, &t, t2 + 40);
+    bot_wait_scene(&b, 0, t);
     wait_to(&b, &t, t + 40);
     CHECK(b.w_phase == 2, "demo over: real timings again, phase B at 40 s");
 }

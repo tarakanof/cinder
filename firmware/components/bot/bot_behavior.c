@@ -26,9 +26,7 @@
 #define MARK_X 0.0
 #define COVER_AMP 0.6
 #define LID_SHUT 0.9
-#define HOP_AIR 0.46
 #define WAIT_FIRST_HOP_S 0.6
-#define BURST_AT 0.92
 #define BURST_H 0.6
 #define REMIND_GAP_S 1.05
 #define PULSE 0.18
@@ -409,13 +407,11 @@ static void start_hop(bot_t *b, double t, double h, double len)
     b->hop_len = len;
 }
 
-static bool hop_aloft(const bot_t *b, double t) { return b->hopping && t - b->hop_start < b->hop_len * HOP_AIR / HOP_CURVE_LEN; }
-
 static void wait_restart(bot_t *b, double t)
 {
     b->w_t0 = t;
     b->w_phase = 1;
-    b->next_hop_at = t + WAIT_FIRST_HOP_S;
+    b->next_hop_at = fmin(b->next_hop_at, t + WAIT_FIRST_HOP_S);
     b->burst_hop_at = b->next_peek_at = b->next_nudge_at = b->next_rem_at = INFINITY;
 }
 
@@ -430,7 +426,7 @@ static void peek(bot_t *b, double t)
 static void wait_tick(bot_t *b, double t)
 {
     if (b->mood != BOT_WAITING) return;
-    double c = b->w_fast ? BOT_WAIT_DEMO_C_S : BOT_WAIT_C_S, rem = b->w_fast ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
+    double c = b->w_scene ? BOT_WAIT_DEMO_C_S : BOT_WAIT_C_S, rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
     double el = t - b->w_t0;
     int ph = el < BOT_WAIT_B_S ? 1 : el < c ? 2 : 3;
     if (ph != b->w_phase) {
@@ -443,12 +439,12 @@ static void wait_tick(bot_t *b, double t)
         }
     }
     bool loud = bot_anim_allowed(BOT_ANIM_WAIT_HOP, b->calm);
-    if (t >= b->next_hop_at && !hop_aloft(b, t)) {
+    if (t >= b->next_hop_at && !b->hopping) {
         double h = rng_range(b, 0.8, 1.15), len = rng_range(b, 0.9, 1.1);
         if (loud) start_hop(b, t, h, len);
         if (ph == 1) {
             if (rng_unit(b) < 0.25 && loud) {
-                b->burst_hop_at = t + len * BURST_AT;
+                b->burst_hop_at = t + len;
                 b->burst_h = BURST_H;
             }
             b->next_hop_at = t + lognormal(b, 2.8, 0.25, 2, 4.5);
@@ -456,7 +452,7 @@ static void wait_tick(bot_t *b, double t)
             b->next_hop_at = ph == 2 ? t + lognormal(b, 8, 0.3, 5, 14) : INFINITY;
         }
     }
-    if (t >= b->burst_hop_at && !hop_aloft(b, t)) {
+    if (t >= b->burst_hop_at && !b->hopping) {
         double len = rng_range(b, 0.9, 1.1);
         if (loud) start_hop(b, t, b->burst_h, len);
         b->burst_hop_at = INFINITY;
@@ -465,15 +461,15 @@ static void wait_tick(bot_t *b, double t)
         peek(b, t);
         b->next_peek_at = t + rng_range(b, 4, 6);
     }
-    if (ph == 3 && t >= b->next_nudge_at && !b->hopping) {
+    if (ph == 3 && t >= b->next_nudge_at && !b->hopping && b->burst_hop_at == INFINITY) {
         if (loud) b->nudge_at = t;
         b->next_nudge_at = t + rng_range(b, 12, 20);
     }
-    if (ph == 3 && t >= b->next_rem_at && !hop_aloft(b, t) && t - b->nudge_at >= BOT_NUDGE_S) {
+    if (ph == 3 && t >= b->next_rem_at && !b->hopping && t - b->nudge_at >= BOT_NUDGE_S) {
         double len = rng_range(b, 0.9, 1.1);
         if (loud) {
             start_hop(b, t, 1, len);
-            b->burst_hop_at = t + REMIND_GAP_S;
+            b->burst_hop_at = t + fmax(REMIND_GAP_S, len);
             b->burst_h = 1;
         }
         b->next_rem_at += rem;
@@ -514,6 +510,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     start_saccade(b, t, true);
     b->w_phase = 0;
     b->next_hop_at = b->burst_hop_at = INFINITY;
+    b->nudge_at = -INFINITY;
     if (m == BOT_WAITING) wait_restart(b, t);
 }
 
@@ -537,14 +534,15 @@ void bot_set_calm(bot_t *b, bool calm, double t)
 
 void bot_wait_restart(bot_t *b, double t)
 {
-    if (b->mood == BOT_WAITING) wait_restart(b, t);
+    double rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
+    if (b->mood == BOT_WAITING && t - b->w_t0 >= rem) wait_restart(b, t);
 }
 
-void bot_wait_demo(bot_t *b, bool on, double t)
+void bot_wait_scene(bot_t *b, unsigned scene, double t)
 {
-    if (on == b->w_fast) return;
-    b->w_fast = on;
-    bot_wait_restart(b, t);
+    if (scene == b->w_scene) return;
+    b->w_scene = scene;
+    if (b->mood == BOT_WAITING) wait_restart(b, t);
 }
 
 void bot_init(bot_t *b, uint64_t seed, double now)

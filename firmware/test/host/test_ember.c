@@ -228,6 +228,21 @@ static void test_lead(void)
     ember_host_lead_label("", "m4", 2, small, sizeof small);
     CHECK(strlen(small) == 3, "cap respected (%s)", small);
 
+    ember_host_info_t was = {.lead = "STUDIO", .hosts = 1}, now = was;
+    CHECK(!ember_host_lead_new(&was, &now), "same lead and count: not new");
+    now.hosts = 2;
+    snprintf(now.text, sizeof now.text, "STUDIO +1");
+    CHECK(ember_host_lead_new(&was, &now), "one more host: new");
+    CHECK(!ember_host_lead_new(&now, &was), "one host fewer: not new");
+    now = was;
+    now.tool = 2;
+    now.color = 0x123456;
+    CHECK(!ember_host_lead_new(&was, &now), "tool or colour alone: not new");
+    snprintf(now.lead, sizeof now.lead, "M4");
+    CHECK(ember_host_lead_new(&was, &now), "another lead: new");
+    ember_host_info_t none = {0};
+    CHECK(ember_host_lead_new(&none, &was), "a first lead: new");
+
     CHECK(ember_host_color("#B48CFF") == 0xB48CFF, "upper");
     CHECK(ember_host_color("#b48cff") == 0xB48CFF, "lower");
     CHECK(ember_host_color("#000000") == 0, "black is a colour");

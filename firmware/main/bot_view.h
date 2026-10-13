@@ -10,8 +10,8 @@ void bot_view_create(lv_obj_t *parent);
 /* LVGL task only. */
 void bot_view_update(const bot_pose_t *p);
 double bot_view_radius_px(void);
-/* LVGL task only; text "" hides the label. True when the host changed. */
-bool bot_view_set_host(const ember_host_info_t *host);
+/* LVGL task only; text "" hides the label. */
+void bot_view_set_host(const ember_host_info_t *host);
 /* LVGL task only. */
 void bot_view_set_options(bool source_label, bool working_ring);
 /* LVGL task only: the link glyph under the face. */

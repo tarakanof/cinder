@@ -837,6 +837,8 @@ static int scene_mood(int real)
 static void view_host(const knob_view_t *v, ember_host_info_t *host)
 {
     ember_host_lead_label(v->source, v->lead, v->hosts, host->text, sizeof host->text);
+    ember_host_lead_label(v->source, v->lead, 1, host->lead, sizeof host->lead);
+    host->hosts = v->hosts;
     host->color = ember_host_color(v->lead_color);
     host->tool = (uint8_t)ember_host_tool(v->tool);
 }
