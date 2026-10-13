@@ -1053,7 +1053,7 @@ static const cJSON *at(const cJSON *o, const char *k) { return cJSON_GetObjectIt
 static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k)) ? at(o, k)->valuedouble : 0; }
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
 
-static const char *const NOT_YET_SENT[] = {NULL};
+static const char *const NOT_YET_SENT[] = {".stats.inv_areas", ".stats.inv_px"};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
