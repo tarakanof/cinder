@@ -74,7 +74,8 @@ typedef struct {
 
 #define BOT_SLEEP_AFTER_S 300.0
 #define BOT_ASLEEP_AFTER_S 600.0
-/* Body radii an eye point moves per unit of breath (awake, asleep) or of lid: bot_pose_same's half pixel. */
+/* bot_pose_same's half-pixel scale, body radii per unit: the eye centre's breath move (the edges move about twice that,
+   so about 1 px per redraw, ~2 redraws/s), the asleep bob, and an eye tip's travel per unit of lid. */
 #define BOT_BREATH_REACH 0.006
 #define BOT_BREATH_BOB 0.0077
 #define BOT_LID_REACH 0.2
@@ -104,9 +105,11 @@ void bot_hop(bot_t *b, double t);
 void bot_pop(bot_t *b, double t);
 /* A demo's sleepy mood undone: sleepy goes back to idle, which bot_set_mood never does. */
 void bot_wake(bot_t *b, double t);
-/* A demo's asleep: sleepy and asleep now. bot_stir: an asleep bot back to awake sleepy, asleep again after BOT_ASLEEP_AFTER_S. */
+/* A demo's asleep: sleepy and asleep now. */
 void bot_sleep(bot_t *b, double t);
-void bot_stir(bot_t *b, double t);
+/* Sleepy only: in <= 0 asleep now (eyes closing), else awake and asleep in s; bot_asleep_in reads it back (0 asleep or not sleepy). */
+void bot_sleep_in(bot_t *b, double in, double t);
+double bot_asleep_in(const bot_t *b, double t);
 /* Weather-moment acting. Begin glides to the viewer and leans as for it; acting gazes keep that lean, the bot makes
    no saccades of its own and ignores bot_look (a knob turn) and bot_push (its hop). act_eyes: a bot_eyes_t costume,
    or -1 for the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s

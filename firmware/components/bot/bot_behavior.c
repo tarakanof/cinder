@@ -289,6 +289,7 @@ static void fall_asleep(bot_t *b, double t)
 
 static void rouse(bot_t *b, double t)
 {
+    if (b->mood == BOT_SLEEPY && !b->asleep && b->asleep_at < t + BOT_ASLEEP_AFTER_S) b->asleep_at = t + BOT_ASLEEP_AFTER_S;
     if (!b->asleep) return;
     b->asleep = false;
     b->asleep_at = t + BOT_ASLEEP_AFTER_S;
@@ -300,7 +301,8 @@ static void rouse(bot_t *b, double t)
 
 static void enter(bot_t *b, bot_mood_t m, double t)
 {
-    bool waking = b->mood == BOT_SLEEPY, was_asleep = b->asleep;
+    bool waking = b->mood == BOT_SLEEPY;
+    bool shut = b->asleep || (b->blinking && b->blink_heavy && blink_lid(b, t - b->blink_start) >= 0.5);
     b->mood = m;
     b->mood_since = t;
     b->swap_eyes_on_close = true;
@@ -311,7 +313,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
         start_blink(b, t);
         b->blink_heavy = false;
         if (b->blink_speed < 1.6) b->blink_speed = 1.6;
-        if (was_asleep) b->blink_start = t - 0.075 * b->blink_speed;
+        if (shut) b->blink_start = t - 0.075 * b->blink_speed - b->blink_lag;
     } else {
         b->double_blink_pending = true;
     }
@@ -399,7 +401,7 @@ bool bot_set_mood_user(bot_t *b, bot_mood_t m, double t)
 bot_pose_t bot_pose(bot_t *b, double t)
 {
     if (b->mood == BOT_IDLE && b->sleep_after_s > 0 && t - b->mood_since >= b->sleep_after_s) enter(b, BOT_SLEEPY, t);
-    if (b->mood == BOT_SLEEPY && !b->asleep && t >= b->asleep_at) fall_asleep(b, t);
+    if (b->mood == BOT_SLEEPY && !b->asleep && !b->acting && !b->tracking && t >= b->asleep_at) fall_asleep(b, t);
     if (!b->blinking && t >= b->next_blink_at && !b->asleep) start_blink(b, t);
     if (t >= b->next_saccade_at && !b->acting && !b->asleep) start_saccade(b, t, false);
     bool moving = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
@@ -521,6 +523,7 @@ void bot_track_end(bot_t *b, double t)
     b->fix_y = b->trk_gy;
     b->next_saccade_at = t + 1.0;
     b->next_micro_at = t + MICRO_HOLD_S;
+    rouse(b, t);
 }
 
 void bot_blink(bot_t *b, double t)
@@ -590,7 +593,22 @@ void bot_sleep(bot_t *b, double t)
     if (!b->asleep) fall_asleep(b, t);
 }
 
-void bot_stir(bot_t *b, double t) { rouse(b, t); }
+void bot_sleep_in(bot_t *b, double in, double t)
+{
+    if (b->mood != BOT_SLEEPY) return;
+    if (in <= 0) {
+        if (!b->asleep) fall_asleep(b, t);
+        return;
+    }
+    rouse(b, t);
+    b->asleep_at = t + in;
+}
+
+double bot_asleep_in(const bot_t *b, double t)
+{
+    if (b->mood != BOT_SLEEPY || b->asleep) return 0;
+    return b->asleep_at > t ? b->asleep_at - t : 0;
+}
 
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
 {
@@ -654,7 +672,10 @@ void bot_act_eyes(bot_t *b, int eyes, double t)
     b->act_eyes = eyes;
     if (b->eyes == eyes_now(b)) return;
     b->swap_eyes_on_close = true;
-    if (!b->blinking) start_blink(b, t);
+    if (b->blinking) return;
+    start_blink(b, t);
+    b->blink_heavy = false;
+    if (b->blink_speed < 2.2 && b->mood == BOT_SLEEPY) b->blink_speed = 2.2;
 }
 
 void bot_act_blink(bot_t *b, double speed, double t)
@@ -679,6 +700,7 @@ void bot_act_end(bot_t *b, bool glide, double lid_dur, double t)
     bot_act_lid(b, 0, lid_dur, t);
     bot_act_eyes(b, -1, t);
     b->acting = false;
+    rouse(b, t);
 }
 
 void bot_act_drop(bot_t *b, double t)
@@ -687,4 +709,5 @@ void bot_act_drop(bot_t *b, double t)
     bot_act_lid(b, 0, 0.3, t);
     bot_act_eyes(b, -1, t);
     b->acting = false;
+    rouse(b, t);
 }

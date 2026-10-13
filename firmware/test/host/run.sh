@@ -349,7 +349,7 @@ fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, pg
     WIRING="$WIRING page_tick-runs-moment_tick-before-the-chase-and-the-pose"
 MT="$(fbody "$MAINC" moment_tick)"
 for L in 'if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();' 'if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
-    'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,' \
+    'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE || s_bot.asleep, .on = s_ks_lv->weather_moments,' \
     '.every_s = s_ks_lv->weather_every_min * 60};' '.bot_mood = (int)s_bot.mood, .shown = bot_page,' 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' 's_moment_mood = s_bot.mood;' \
     'wxm_shown(&s_wxm, &m, t);' 'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
     'while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);' 's_chase.hold = moment_view_busy();'; do
@@ -435,7 +435,9 @@ body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR}
     WIRING="$WIRING scene_end-restores-the-half-chase"
 fbody "$MAINC" page_tick | grep -qxF '    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);' ||
     WIRING="$WIRING page_tick-asleep-act-sleeps"
-body "$MAINC" scene_end | grep -qxF '    else if (s_scene_act.kind == DEMO_ACT_ASLEEP && !s_scene_asleep0) bot_stir(&s_bot, t);' &&
+body "$MAINC" scene_end | grep -qxF '    else if (s_scene_mood0 == BOT_SLEEPY) bot_sleep_in(&s_bot, s_scene_sleep_in, t);' &&
+    body "$MAINC" scene_start | grep -qxF '    s_scene_sleep_in = bot_asleep_in(&s_bot, t);' &&
+    body "$MAINC" scene_start | grep -qxF '    if (b->act.kind == DEMO_ACT_SLEEPY && s_bot.asleep) bot_sleep_in(&s_bot, BOT_ASLEEP_AFTER_S, t);' &&
     body "$MAINC" scene_end | grep -qF 'bool slept = s_scene_act.kind == DEMO_ACT_SLEEPY || s_scene_act.kind == DEMO_ACT_ASLEEP;' ||
     WIRING="$WIRING scene_end-wakes-after-asleep"
 fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);' &&
