@@ -69,6 +69,7 @@ static TaskHandle_t s_rim_task;
 static int s_rim_shown = RIM_BASE;
 static int s_rim_shape = -1;
 static bot_mood_t s_rim_mood = (bot_mood_t)-1;
+static bool s_rim_asleep;
 static int s_rim_dy;
 static lv_obj_t *s_badge_gap, *s_badge_dot;
 #define LABEL_W 340
@@ -174,7 +175,7 @@ typedef struct {
     bot_raster_scratch_t scratch;
 } rim_work_t;
 
-static void rim_raster(uint16_t *buf, int shape, bot_mood_t mood, float sx, float sy, rim_work_t *wk)
+static void rim_raster(uint16_t *buf, int shape, int tone, float sx, float sy, rim_work_t *wk)
 {
     double *bx = wk->bx, *by = wk->by;
     float *rx = wk->rx, *ry = wk->ry;
@@ -190,9 +191,8 @@ static void rim_raster(uint16_t *buf, int shape, bot_mood_t mood, float sx, floa
     }
     rx[BOT_RING_POINTS] = rx[0];
     ry[BOT_RING_POINTS] = ry[0];
-    bool dim = mood == BOT_IDLE || mood == BOT_SLEEPY;
     bot_raster_stroke(&wk->scratch, buf, NULL, SCREEN_W, SCREEN_H, 0, 0, rx, ry, BOT_RING_POINTS, segs,
-                      (float)(RIM_PX / 2), mood_rgb(mood), dim ? 0.55f : 1.0f);
+                      (float)(RIM_PX / 2), mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));
 }
 
 static void rim_task(void *arg)
@@ -202,12 +202,12 @@ static void rim_task(void *arg)
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         unsigned gen;
-        int shape, mood;
-        if (!rim_job_take(&s_rim, &gen, &shape, &mood)) continue;
+        int shape, tone;
+        if (!rim_job_take(&s_rim, &gen, &shape, &tone)) continue;
         for (int k = 0; k < RIM_VARIANTS - 1; k++) {
             if (!rim_job_live(&s_rim, gen)) break;
             int v = VAR_ORDER[k];
-            rim_raster(s_rim_buf[v], shape, (bot_mood_t)mood, VAR_SX[v], VAR_SY[v], &work);
+            rim_raster(s_rim_buf[v], shape, tone, VAR_SX[v], VAR_SY[v], &work);
             atomic_store(&s_var_ready_gen[v], gen);
             vTaskDelay(1);
         }
@@ -791,11 +791,13 @@ void bot_view_update(const bot_pose_t *p)
     static EXT_RAM_BSS_ATTR rim_work_t work;
 
     int shape = p->triangle >= 0.5 ? 1 : 0;
-    if (shape != s_rim_shape || p->mood != s_rim_mood) {
+    if (shape != s_rim_shape || p->mood != s_rim_mood || p->asleep != s_rim_asleep) {
+        int tone = bot_rim_tone(p->mood, p->asleep);
         s_rim_shape = shape;
         s_rim_mood = p->mood;
-        rim_job_new(&s_rim, shape, p->mood);
-        rim_raster(s_rim_buf[RIM_BASE], shape, p->mood, 1.0f, 1.0f, &work);
+        s_rim_asleep = p->asleep;
+        rim_job_new(&s_rim, shape, tone);
+        rim_raster(s_rim_buf[RIM_BASE], shape, tone, 1.0f, 1.0f, &work);
         rim_show(RIM_BASE);
         lv_obj_set_pos(s_rim_canvas, 0, s_rim_dy);
         lv_obj_remove_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN);

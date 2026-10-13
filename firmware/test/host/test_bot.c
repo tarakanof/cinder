@@ -496,6 +496,7 @@ static double chase_step_px(double fps, double orbit_on)
         bot_track(&b, cos(a) * m, -sin(a) * m, t);
         bot_pose_t p = bot_pose(&b, t);
         p.orbit = orbit_on;
+        p.lid_l = p.lid_r = 0;
         if (last >= 0 && t - last < 0.75 / fps) continue;
         double pts[4][2];
         eye_centres(&p, R, pts);
@@ -619,13 +620,34 @@ static void test_pose_same(void)
     p.gaze_x += 0.2 * px;
     p.scale_y += 0.1 * px;
     CHECK(bot_pose_same(&base, &p, R), "under half a pixel: no redraw");
-    double *fields[] = {&p.gaze_x, &p.gaze_y, &p.lid_l, &p.lid_r, &p.triangle, &p.slump, &p.badge,
+    double *fields[] = {&p.gaze_x, &p.gaze_y, &p.triangle, &p.slump, &p.badge,
                         &p.scale_x, &p.scale_y, &p.offset_x, &p.offset_y, &p.hop_dy, &p.orbit};
     for (size_t i = 0; i < sizeof fields / sizeof fields[0]; i++) {
         p = base;
         *fields[i] += 0.4 * px;
         CHECK(!bot_pose_same(&base, &p, R), "field %zu moved 0.4 px: redraw", i);
     }
+    struct { double *f; double reach; const char *name; } scaled[] = {
+        {&p.lid_l, BOT_LID_REACH, "lid_l"}, {&p.lid_r, BOT_LID_REACH, "lid_r"}, {&p.breath, BOT_BREATH_REACH, "breath"}};
+    for (size_t i = 0; i < sizeof scaled / sizeof scaled[0]; i++) {
+        p = base;
+        *scaled[i].f += 0.4 * px / scaled[i].reach;
+        CHECK(!bot_pose_same(&base, &p, R), "%s moved the eye 0.4 px: redraw", scaled[i].name);
+        p = base;
+        *scaled[i].f += 0.2 * px / scaled[i].reach;
+        CHECK(bot_pose_same(&base, &p, R), "%s moved the eye 0.2 px: no redraw", scaled[i].name);
+    }
+    p = base;
+    p.lid_l += 0.4 * px;
+    CHECK(bot_pose_same(&base, &p, R), "a lid step of 0.4 px in lid units moves the eye 0.08 px: no redraw");
+    bot_pose_t a = base, z = base;
+    a.asleep = z.asleep = true;
+    z.breath += 0.4 * px / BOT_BREATH_BOB;
+    CHECK(!bot_pose_same(&a, &z, R), "asleep: a 0.4 px bob redraws");
+    z = a;
+    z.breath += 0.2 * px / BOT_BREATH_BOB;
+    CHECK(bot_pose_same(&a, &z, R), "asleep: a 0.2 px bob does not");
+    CHECK(!bot_pose_same(&base, &a, R), "falling asleep: redraw");
     p = base;
     p.scale_x += 0.2 * px;
     CHECK(!bot_pose_same(&base, &p, R), "scale moved 0.2 px: redraw");
@@ -1128,8 +1150,8 @@ static void test_micro_saccades(void)
     bot_t b;
     bot_init(&b, 0xBEEF, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
-    micro_run(&b, 0, 1200, 0.006, 0.0125, s);
-    CHECK(s->micros >= 100, "sleepy: %d micro-saccades in 1200 s", s->micros);
+    micro_run(&b, 0, BOT_ASLEEP_AFTER_S - 10, 0.006, 0.0125, s);
+    CHECK(s->micros >= 100, "sleepy: %d micro-saccades before asleep", s->micros);
     CHECK(!s->bad_amp, "sleepy: half amplitude, got %.4f..%.4f", s->amp_lo, s->amp_hi);
     CHECK(s->gap_lo >= 0.8 - dt && s->gap_hi <= 5 + dt, "sleepy: gaps %.3f..%.3f outside 0.8..5 s", s->gap_lo, s->gap_hi);
     double med = micro_median(s);
@@ -1273,6 +1295,549 @@ static void test_badged_rest(void)
           "the label keeps its tool mark except in error");
 }
 
+typedef struct {
+    int cycles;
+    double lo, hi, mean, b_lo, b_hi;
+} breath_stats_t;
+
+static void breath_run(bot_t *b, double t0, double secs, breath_stats_t *s)
+{
+    const double dt = 1.0 / 120;
+    double prev = 0, last_up = -1, sum = 0;
+    int ups = 0;
+    *s = (breath_stats_t){.lo = 1e9, .b_lo = 1e9, .b_hi = -1e9};
+    for (double t = t0; t < t0 + secs; t += dt) {
+        bot_pose_t p = bot_pose(b, t);
+        s->b_lo = fmin(s->b_lo, p.breath);
+        s->b_hi = fmax(s->b_hi, p.breath);
+        if (t > t0 && prev < 0 && p.breath >= 0) {
+            if (ups >= 2) {
+                double per = t - last_up;
+                s->lo = fmin(s->lo, per);
+                s->hi = fmax(s->hi, per);
+                sum += per;
+                s->cycles++;
+            }
+            last_up = t;
+            ups++;
+        }
+        prev = p.breath;
+    }
+    s->mean = s->cycles ? sum / s->cycles : 0;
+}
+
+static void test_breath(void)
+{
+    static const struct { bot_mood_t m; double per; const char *name; } M[] = {
+        {BOT_IDLE, 4.2, "idle"}, {BOT_WORKING, 3.2, "working"}, {BOT_WAITING, 2.6, "waiting"},
+        {BOT_DONE, 3.6, "done"}, {BOT_SLEEPY, 5.5, "sleepy"}, {BOT_ERROR, 3.0, "error"}};
+    const double dt = 1.0 / 120;
+    for (size_t i = 0; i < sizeof M / sizeof M[0]; i++) {
+        bot_t b;
+        bot_init(&b, 0x5EED + i, 0);
+        bot_set_sleep_after(&b, 0);
+        if (M[i].m != BOT_IDLE) bot_set_mood(&b, M[i].m, 0);
+        breath_stats_t s;
+        breath_run(&b, 0, BOT_ASLEEP_AFTER_S - 20, &s);
+        CHECK(s.cycles > 80, "%s: %d breaths", M[i].name, s.cycles);
+        CHECK(s.lo >= 0.85 * M[i].per - 2 * dt && s.hi <= 1.15 * M[i].per + 2 * dt, "%s: periods %.2f..%.2f outside %.2f +-15 %%",
+              M[i].name, s.lo, s.hi, M[i].per);
+        CHECK(fabs(s.mean / M[i].per - 1) < 0.03, "%s: mean period %.3f, want %.1f", M[i].name, s.mean, M[i].per);
+        CHECK(s.hi - s.lo > 0.15 * M[i].per, "%s: jittered per cycle, periods %.2f..%.2f", M[i].name, s.lo, s.hi);
+        CHECK(s.b_lo >= -1 && s.b_hi <= 1 && s.b_lo < -0.99 && s.b_hi > 0.99, "%s: breath %.3f..%.3f", M[i].name, s.b_lo, s.b_hi);
+    }
+    bot_t b;
+    bot_init(&b, 0xA51EE9, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_pose(&b, BOT_ASLEEP_AFTER_S + 1);
+    breath_stats_t s;
+    breath_run(&b, BOT_ASLEEP_AFTER_S + 20, 1200, &s);
+    CHECK(b.asleep && s.cycles > 150, "asleep: %d breaths", s.cycles);
+    CHECK(s.lo >= 0.85 * 6 - 2 * dt && s.hi <= 1.15 * 6 + 2 * dt && fabs(s.mean / 6 - 1) < 0.03,
+          "asleep: a bob every 6 s, periods %.2f..%.2f mean %.2f", s.lo, s.hi, s.mean);
+
+    bot_init(&b, 9, 0);
+    bot_set_sleep_after(&b, 0);
+    bool scaled = false, breathed = false;
+    for (double t = 1; t < 120; t += 1.0 / 60) {
+        bot_pose_t p = bot_pose(&b, t);
+        scaled |= p.scale_x != 1 || p.scale_y != 1;
+        breathed |= fabs(p.breath) > 0.9;
+    }
+    CHECK(breathed && !scaled, "breath never goes into scale_x/y (outline variants)");
+}
+
+static void eye_geom(const bot_pose_t *p, double *cy, double *h)
+{
+    bot_stroke_t s[2];
+    bot_eye_strokes(p, 1.15, s);
+    double lo = 1e9, hi = -1e9, sum = 0;
+    for (int i = 0; i < s[0].n; i++) {
+        lo = fmin(lo, s[0].y[i]);
+        hi = fmax(hi, s[0].y[i]);
+        sum += s[0].y[i];
+    }
+    *cy = sum / s[0].n;
+    *h = hi - lo + s[0].width;
+}
+
+static void test_breath_eyes(void)
+{
+    static const bot_eyes_t E[] = {BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_ANGRY};
+    for (size_t i = 0; i < sizeof E / sizeof E[0]; i++) {
+        bot_pose_t p = {.eyes = E[i], .gaze_y = 0.1, .scale_x = 1, .scale_y = 1};
+        double c0, h0, c1, h1, c2, h2;
+        eye_geom(&p, &c0, &h0);
+        p.breath = 1;
+        eye_geom(&p, &c1, &h1);
+        p.breath = -1;
+        eye_geom(&p, &c2, &h2);
+        CHECK(fabs(c1 - c0 - 0.006) < 1e-9 && fabs(c2 - c0 + 0.006) < 1e-9, "eyes %d: centre +-0.006, got %+.5f %+.5f", E[i], c1 - c0,
+              c2 - c0);
+        bot_stroke_t a[2], b1[2];
+        p.breath = 0;
+        bot_eye_strokes(&p, 1.15, a);
+        p.breath = 1;
+        bot_eye_strokes(&p, 1.15, b1);
+        double ha = hypot(a[0].x[1] - a[0].x[0], a[0].y[1] - a[0].y[0]) + a[0].width;
+        double hb = hypot(b1[0].x[1] - b1[0].x[0], b1[0].y[1] - b1[0].y[0]) + b1[0].width;
+        CHECK(fabs(hb / ha - 1.025) < 1e-9, "eyes %d: height x1.025 on the inhale, got x%.5f", E[i], hb / ha);
+    }
+    bot_pose_t p = {.eyes = BOT_EYES_HAPPY, .scale_x = 1, .scale_y = 1};
+    double c0, h0, c1, h1;
+    eye_geom(&p, &c0, &h0);
+    p.breath = 1;
+    eye_geom(&p, &c1, &h1);
+    CHECK(c1 > c0 && h1 > h0, "happy eyes breathe too: centre %+.5f height %+.5f", c1 - c0, h1 - h0);
+
+    bot_pose_t z = {.eyes = BOT_EYES_DASH, .lid_l = 1, .lid_r = 1, .gaze_y = -0.35, .scale_x = 1, .scale_y = 1, .asleep = true};
+    eye_geom(&z, &c0, &h0);
+    z.breath = 1;
+    eye_geom(&z, &c1, &h1);
+    CHECK(fabs(c1 - c0 - BOT_BREATH_BOB) < 1e-9 && fabs(h1 - h0) < 1e-12, "asleep: a %.2f px bob, height unchanged (%+.6f)",
+          (c1 - c0) * 195.72, h1 - h0);
+    CHECK(BOT_BREATH_BOB * 195.72 > 1.45 && BOT_BREATH_BOB * 195.72 < 1.55, "the bob is 1.5 px");
+}
+
+static double redraws_per_s(bot_t *b, double t0, double secs, bool no_breath)
+{
+    bot_pose_t last = {0};
+    int n = 0;
+    bool drawn = false;
+    for (double t = t0; t < t0 + secs; t += 0.016) {
+        bot_pose_t p = bot_pose(b, t);
+        if (no_breath) p.breath = 0;
+        if (!drawn || !bot_pose_same(&p, &last, 195.72)) {
+            n += drawn;
+            last = p;
+            drawn = true;
+        }
+    }
+    return n / secs;
+}
+
+static void test_breath_redraws(void)
+{
+    bot_t b;
+    double with[3], without[3];
+    static const bot_mood_t M[] = {BOT_IDLE, BOT_WORKING, BOT_DONE};
+    for (int i = 0; i < 3; i++) {
+        bot_init(&b, 77, 0);
+        bot_set_sleep_after(&b, 0);
+        if (M[i] != BOT_IDLE) bot_set_mood(&b, M[i], 0);
+        with[i] = redraws_per_s(&b, 2, 280, false);
+        bot_init(&b, 77, 0);
+        bot_set_sleep_after(&b, 0);
+        if (M[i] != BOT_IDLE) bot_set_mood(&b, M[i], 0);
+        without[i] = redraws_per_s(&b, 2, 280, true);
+        CHECK(with[i] - without[i] > 1.0 && with[i] - without[i] < 3.0, "mood %d: breath adds %.2f redraws/s, want about 2", M[i],
+              with[i] - without[i]);
+    }
+    bot_init(&b, 77, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    double sleepy = redraws_per_s(&b, 2, BOT_ASLEEP_AFTER_S - 4, false);
+    double asleep = redraws_per_s(&b, BOT_ASLEEP_AFTER_S + 2, 1200, false);
+    printf("breath redraws/s: idle %.1f (%.1f without), working %.1f (%.1f), done %.1f (%.1f), sleepy %.1f, asleep %.1f\n", with[0],
+           without[0], with[1], without[1], with[2], without[2], sleepy, asleep);
+    CHECK(sleepy < 16, "sleepy: %.1f redraws/s, the breathing lid must not redraw every frame", sleepy);
+    CHECK(asleep > 1 && asleep < 2.5, "asleep: %.2f redraws/s, the bob alone", asleep);
+}
+
+static void test_sleepy_lid(void)
+{
+    bot_t b;
+    bot_init(&b, 31, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    double lo = 1, hi = 0, worst = 0;
+    int n = 0;
+    for (double t = 2; t < 300; t += 1.0 / 60) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (b.blinking || b.acting) continue;
+        double want = 0.80 + 0.12 * p.breath;
+        worst = fmax(worst, fmax(fabs(p.lid_l - want), fabs(p.lid_r - want)));
+        lo = fmin(lo, p.lid_l);
+        hi = fmax(hi, p.lid_l);
+        n++;
+    }
+    CHECK(n > 1000 && worst < 1e-9, "sleepy lid = 0.80 + 0.12 breath, off by %g", worst);
+    CHECK(lo < 0.69 && hi > 0.91, "sleepy lid breathes %.3f..%.3f", lo, hi);
+    bot_set_mood(&b, BOT_WORKING, 300);
+    bot_pose_t p = bot_pose(&b, 302);
+    CHECK(p.lid_l < 0.01 && p.lid_r < 0.01, "awake: no lid floor, got %.3f", p.lid_l);
+}
+
+static void test_heavy_blinks(void)
+{
+    bot_t b;
+    bot_init(&b, 0xB11C, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    const double dt = 1.0 / 240;
+    int closes = 0, bad_hold = 0, overshoots = 0, singles = 0, starts = 0;
+    double prev = 0, shut_at = -1, last_start = -1, gaps[256];
+    int ngaps = 0;
+    bool was = false, dipped = false;
+    double t_end = BOT_ASLEEP_AFTER_S - 5;
+    for (double t = 3; t < t_end; t += dt) {
+        bot_t before = b;
+        bot_pose_t p = bot_pose(&b, t);
+        if (b.blinking && (!was || b.blink_start != before.blink_start)) {
+            starts++;
+            CHECK(b.blink_heavy, "sleepy blinks are heavy");
+            CHECK(b.blink_hold >= 0.4 && b.blink_hold <= 1.2, "hold %.2f outside 0.4..1.2 s", b.blink_hold);
+            if (last_start >= 0 && ngaps < 256) gaps[ngaps++] = b.blink_start - last_start;
+            last_start = b.blink_start;
+            dipped = false;
+        }
+        if (p.lid_l >= 1 - 1e-12 && prev < 1 - 1e-12) shut_at = t;
+        if (p.lid_l < 1 - 1e-12 && prev >= 1 - 1e-12 && shut_at >= 0) {
+            double hold = t - shut_at;
+            closes++;
+            bad_hold += hold < 0.4 - 2 * dt || hold > 1.2 + 2 * dt;
+            shut_at = -1;
+        }
+        if (b.blinking && t - b.blink_start > 0.55 + b.blink_hold - 0.25 && p.lid_l < 0.80 + 0.12 * p.breath - 0.005) dipped = true;
+        if (was && !b.blinking) {
+            overshoots += dipped;
+            singles++;
+        }
+        was = b.blinking;
+        prev = p.lid_l;
+    }
+    qsort(gaps, (size_t)ngaps, sizeof gaps[0], cmp_double);
+    double med = ngaps ? gaps[ngaps / 2] : 0, per_min = starts / ((t_end - 3) / 60);
+    printf("heavy blinks: %.1f/min, median gap %.1f s, %d closes\n", per_min, med, closes);
+    CHECK(per_min > 5 && per_min < 12, "sleepy: %.1f heavy blinks/min, want about 60/7", per_min);
+    CHECK(med > 5.5 && med < 9, "sleepy: median gap %.2f s, want about 7", med);
+    CHECK(ngaps && gaps[0] >= 1.2 - dt && gaps[ngaps - 1] <= 15 + 0.5, "sleepy: gaps %.2f..%.2f s", gaps[0], gaps[ngaps - 1]);
+    CHECK(closes >= starts - 1 && !bad_hold, "closed 0.4..1.2 s: %d of %d blinks off", bad_hold, closes);
+    CHECK(singles > 0 && overshoots > singles / 2, "reopens with EASE_OUT_BACK past the lid: %d of %d", overshoots, singles);
+}
+
+static int rim_tone_changes(bot_t *b, double t0, double secs, int *tone)
+{
+    int n = 0;
+    for (double t = t0; t < t0 + secs; t += 0.05) {
+        bot_pose_t p = bot_pose(b, t);
+        int k = bot_rim_tone(p.mood, p.asleep);
+        if (k != *tone) n++;
+        *tone = k;
+    }
+    return n;
+}
+
+static void test_asleep(void)
+{
+    bot_t b;
+    bot_init(&b, 0xA5, 0);
+    bot_pose(&b, BOT_SLEEP_AFTER_S + 0.1);
+    double s0 = b.mood_since;
+    CHECK(b.mood == BOT_SLEEPY, "sleepy after idle");
+    bot_pose_t p = bot_pose(&b, s0 + BOT_ASLEEP_AFTER_S - 0.1);
+    CHECK(!p.asleep && !b.asleep, "awake sleepy before 10 min");
+    p = bot_pose(&b, s0 + BOT_ASLEEP_AFTER_S + 0.01);
+    CHECK(p.asleep && p.mood == BOT_SLEEPY, "asleep after 10 min sleepy");
+    double ta = s0 + BOT_ASLEEP_AFTER_S + 1.3;
+    p = bot_pose(&b, ta);
+    CHECK(p.lid_l == 1 && p.lid_r == 1, "lids closed 1.2 s in: %.3f %.3f", p.lid_l, p.lid_r);
+    double gx = p.gaze_x, gy = p.gaze_y;
+    CHECK(fabs(gx) < 1e-9 && fabs(gy + 0.35) < 1e-9, "asleep gaze (0, -0.35): %.3f %.3f", gx, gy);
+    bool moved = false, opened = false, blinked = false;
+    for (double t = ta; t < ta + 3600; t += 1.0 / 30) {
+        p = bot_pose(&b, t);
+        moved |= p.gaze_x != gx || p.gaze_y != gy;
+        opened |= p.lid_l != 1 || p.lid_r != 1;
+        blinked |= b.blinking;
+    }
+    CHECK(!moved && !opened && !blinked && b.asleep, "asleep an hour: no saccade, micro-saccade or blink, lids shut");
+
+    bot_init(&b, 0xA6, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    int tone = bot_rim_tone(BOT_SLEEPY, false);
+    CHECK(rim_tone_changes(&b, 0, 2 * 3600, &tone) == 1 && tone == bot_rim_tone(BOT_SLEEPY, true),
+          "sleepy for 2 h: the outline re-renders once, at 25 %%");
+    CHECK(bot_rim_alpha(bot_rim_tone(BOT_SLEEPY, true)) == 0.25f && bot_rim_alpha(bot_rim_tone(BOT_SLEEPY, false)) == 0.55f &&
+              bot_rim_alpha(bot_rim_tone(BOT_IDLE, false)) == 0.55f,
+          "ring 25 %% asleep, 55 %% idle or sleepy");
+    for (int m = BOT_WORKING; m <= BOT_DONE; m++) {
+        CHECK(bot_rim_alpha(bot_rim_tone((bot_mood_t)m, false)) == 1.0f, "mood %d: full ring", m);
+        CHECK((int)bot_rim_mood(bot_rim_tone((bot_mood_t)m, true)) == m && (int)bot_rim_mood(bot_rim_tone((bot_mood_t)m, false)) == m,
+              "mood %d: the tone keeps the mood", m);
+    }
+}
+
+static void asleep_bot(bot_t *b, uint64_t seed)
+{
+    bot_init(b, seed, 0);
+    bot_set_mood(b, BOT_SLEEPY, 0);
+    bot_pose(b, BOT_ASLEEP_AFTER_S + 5);
+}
+
+static void test_wake_from_asleep(void)
+{
+    const double ta = BOT_ASLEEP_AFTER_S + 5;
+    bot_t b;
+    asleep_bot(&b, 1);
+    CHECK(b.asleep, "asleep");
+    CHECK(!bot_set_mood(&b, BOT_IDLE, ta + 1) && b.asleep, "an idle mood keeps it asleep, as it keeps sleepy");
+    CHECK(bot_set_mood(&b, BOT_WORKING, ta + 2), "a real mood wakes it");
+    bot_pose_t p = bot_pose(&b, ta + 2);
+    CHECK(!p.asleep && p.mood == BOT_WORKING, "awake and working");
+    double lo = 1;
+    for (double t = ta + 2; t < ta + 2.03; t += 1.0 / 240) {
+        bot_pose_t q = bot_pose(&b, t);
+        lo = fmin(lo, fmin(q.lid_l, q.lid_r));
+    }
+    CHECK(lo > 0.99, "the waking blink starts shut in both eyes: no open frame first (%.3f)", lo);
+    p = bot_pose(&b, ta + 4);
+    CHECK(p.lid_l < 0.05, "eyes open 2 s later: %.3f", p.lid_l);
+
+    asleep_bot(&b, 2);
+    bot_wake(&b, ta + 1);
+    p = bot_pose(&b, ta + 3);
+    CHECK(b.mood == BOT_IDLE && !p.asleep, "bot_wake: idle, awake");
+
+    for (int how = 0; how < 4; how++) {
+        asleep_bot(&b, 3 + how);
+        double t = ta + 1;
+        if (how == 0) bot_look(&b, 0.5, 0.2, t);
+        else if (how == 1) bot_push(&b, t);
+        else if (how == 2) bot_act_begin(&b, t);
+        else bot_track(&b, 0.3, 0.3, t);
+        p = bot_pose(&b, t);
+        CHECK(!p.asleep && p.mood == BOT_SLEEPY, "input %d: awake sleepy", how);
+        CHECK(bot_pose(&b, t + 0.05).lid_l > 0.95, "input %d: the lids open over time, not at once", how);
+        if (how == 2) bot_act_end(&b, true, 0.3, t + 1);
+        if (how == 3) bot_track_end(&b, t + 1);
+        bool reopened = false, moved = false;
+        double g0x = p.gaze_x, g0y = p.gaze_y;
+        for (double u = t; u < t + 30; u += 1.0 / 60) {
+            p = bot_pose(&b, u);
+            if (u > t + 1 && !b.blinking && fabs(p.lid_l - (0.80 + 0.12 * p.breath)) < 1e-9) reopened = true;
+            moved |= u > t + 3 && (p.gaze_x != g0x || p.gaze_y != g0y);
+        }
+        CHECK(reopened && moved, "input %d: breathing lid and saccades again (%d %d)", how, reopened, moved);
+        p = bot_pose(&b, t + BOT_ASLEEP_AFTER_S - 1);
+        CHECK(!p.asleep, "input %d: not asleep again before 10 min", how);
+        p = bot_pose(&b, t + BOT_ASLEEP_AFTER_S + 1);
+        CHECK(p.asleep, "input %d: asleep again 10 min later", how);
+    }
+
+    bot_init(&b, 8, 0);
+    bot_sleep(&b, 1);
+    p = bot_pose(&b, 1.01);
+    CHECK(p.mood == BOT_SLEEPY && p.asleep, "bot_sleep: sleepy and asleep at once");
+    p = bot_pose(&b, 2.3);
+    CHECK(p.lid_l == 1, "bot_sleep: lids shut within 1.2 s");
+    bot_sleep(&b, 3);
+    CHECK(b.asleep && b.sleep_lid.start == 1, "bot_sleep again changes nothing");
+    CHECK(bot_asleep_in(&b, 3.5) == 0, "asleep: nothing left");
+    bot_sleep_in(&b, 100, 4);
+    CHECK(!b.asleep && b.mood == BOT_SLEEPY && fabs(bot_asleep_in(&b, 4) - 100) < 1e-9, "bot_sleep_in: awake sleepy, asleep in 100 s");
+    CHECK(!bot_pose(&b, 103.9).asleep && bot_pose(&b, 104.1).asleep, "asleep when the time left runs out");
+    bot_sleep_in(&b, 0, 200);
+    CHECK(b.asleep, "bot_sleep_in 0: asleep");
+    bot_sleep_in(&b, INFINITY, 210);
+    CHECK(!b.asleep && !bot_pose(&b, 210 + 7200).asleep, "bot_sleep_in INFINITY: paused, awake for 2 h");
+    bot_act_begin(&b, 7500);
+    bot_act_drop(&b, 7600);
+    bot_sleep_in(&b, 5, 7600);
+    CHECK(!bot_pose(&b, 7604.9).asleep && bot_pose(&b, 7605.1).asleep, "and back to 5 s left");
+    bot_set_mood(&b, BOT_WORKING, 300);
+    bot_sleep_in(&b, 0, 301);
+    CHECK(!b.asleep && b.mood == BOT_WORKING && bot_asleep_in(&b, 301) == 0, "bot_sleep_in leaves other moods");
+}
+
+static void test_asleep_guards(void)
+{
+    bot_t b;
+    bot_init(&b, 41, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 2);
+    bool slept = false;
+    for (double t = BOT_ASLEEP_AFTER_S - 2; t < 700; t += 1.0 / 30) slept |= bot_pose(&b, t).asleep;
+    CHECK(!slept, "never falls asleep while acting");
+    CHECK(fabs(bot_asleep_in(&b, 700) - 2) < 1e-9, "an act pauses the countdown: 2 s left, got %g", bot_asleep_in(&b, 700));
+    bot_act_end(&b, true, 0.3, 700);
+    CHECK(!bot_pose(&b, 701.9).asleep && bot_pose(&b, 702.1).asleep, "the act's end resumes it: asleep 2 s later");
+
+    bot_init(&b, 44, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    double asleep_at = -1;
+    for (double t = 0; t < 1800 && asleep_at < 0; t += 1.0 / 30) {
+        double k = fmod(t, 60);
+        if (k < 1.0 / 30) bot_act_begin(&b, t);
+        if (fabs(k - 20) < 1.0 / 60) bot_act_drop(&b, t);
+        if (bot_pose(&b, t).asleep) asleep_at = t;
+    }
+    CHECK(asleep_at > 880 && asleep_at < 960, "a 20 s moment every minute: asleep after 10 min awake between them, at %.0f s", asleep_at);
+    bot_init(&b, 45, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, 100);
+    bot_act_drop(&b, 110);
+    bot_act_drop(&b, 400);
+    CHECK(!bot_pose(&b, 609.9).asleep && bot_pose(&b, 610.1).asleep, "a second end resumes nothing");
+
+    bot_init(&b, 42, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    slept = false;
+    for (double t = BOT_ASLEEP_AFTER_S - 2; t < 700; t += 1.0 / 30) {
+        bot_track(&b, 0.4, 0.1, t);
+        slept |= bot_pose(&b, t).asleep;
+    }
+    CHECK(!slept, "never falls asleep while tracking");
+    bot_track_end(&b, 700);
+    CHECK(!bot_pose(&b, 700 + BOT_ASLEEP_AFTER_S - 1).asleep && bot_pose(&b, 700 + BOT_ASLEEP_AFTER_S + 1).asleep,
+          "asleep 10 min after the chase");
+
+    for (int m = BOT_IDLE; m <= BOT_DONE; m++) {
+        if (m == BOT_SLEEPY) continue;
+        bot_init(&b, 50 + (uint64_t)m, 0);
+        bot_set_sleep_after(&b, 0);
+        if (m != BOT_IDLE) bot_set_mood(&b, (bot_mood_t)m, 0);
+        slept = false;
+        for (double t = 0; t < 1200; t += 0.25) slept |= bot_pose(&b, t).asleep;
+        CHECK(!slept, "mood %d: 20 min and never asleep, only sleepy falls asleep", m);
+    }
+
+    bot_init(&b, 43, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_pose(&b, 10);
+    bot_act_begin(&b, 10);
+    bot_act_eyes(&b, BOT_EYES_ROUND, 10.5);
+    CHECK(b.blinking && !b.blink_heavy && b.blink_speed == 2.2, "a costume blink in sleepy is not heavy, 2.2x as in 0.9.68");
+    bot_pose(&b, 12);
+    bot_act_end(&b, true, 0.3, 12);
+    CHECK(!b.blinking || !b.blink_heavy, "the costume blink back is not heavy");
+}
+
+static void test_sleepy_transitions(void)
+{
+    int shut = 0, bad = 0, entered = 0, early = 0, jumps = 0;
+    double worst = 1, jump_max = 0;
+    for (uint64_t seed = 1; seed <= 24; seed++) {
+        bot_t b;
+        bot_init(&b, seed * 977, 0);
+        bot_set_mood(&b, BOT_SLEEPY, 0);
+        double t = 3;
+        for (; t < 200; t += 1.0 / 240) {
+            bot_pose_t p = bot_pose(&b, t);
+            if (b.blinking && b.blink_heavy && p.lid_l >= 1 && p.lid_r >= 1 && t - b.blink_start > 0.35) break;
+        }
+        if (t >= 200) continue;
+        shut++;
+        bot_set_mood(&b, BOT_WORKING, t);
+        bad += b.blink_heavy;
+        for (double u = t; u < t + 0.03; u += 1.0 / 240) {
+            bot_pose_t p = bot_pose(&b, u);
+            worst = fmin(worst, fmin(p.lid_l, p.lid_r));
+            bad += p.lid_l < 0.99 || p.lid_r < 0.99;
+        }
+
+        bot_init(&b, seed * 31, 0);
+        bot_set_mood(&b, BOT_SLEEPY, 5);
+        entered++;
+        for (double u = 5; u < 8; u += 1.0 / 120) {
+            bot_t was = b;
+            bot_pose(&b, u);
+            early += u > 5.8 && b.blinking && (!was.blinking || b.blink_start != was.blink_start);
+        }
+
+        bot_init(&b, seed * 53, 0);
+        bot_set_mood(&b, BOT_SLEEPY, 0);
+        double prev = -1;
+        for (double u = BOT_ASLEEP_AFTER_S - 1; u < BOT_ASLEEP_AFTER_S + 1; u += 1.0 / 60) {
+            bot_pose_t p = bot_pose(&b, u);
+            if (prev >= 0 && !b.blinking) {
+                double d = fabs(p.lid_l - prev);
+                jump_max = fmax(jump_max, d);
+                jumps += d > 0.03;
+            }
+            prev = b.blinking ? -1 : p.lid_l;
+        }
+    }
+    CHECK(shut >= 20 && !bad, "a mood change in a heavy blink's hold keeps both eyes shut: %d of %d off, lid %.3f", bad, shut, worst);
+    CHECK(entered && !early, "entering sleepy: no blink 0.8-3 s after the mood blink (%d)", early);
+    int soon = 0;
+    for (uint64_t seed = 1; seed <= 40; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_blink(&b, 1);
+        bot_set_mood(&b, BOT_SLEEPY, 1.05);
+        soon += b.next_blink_at < 1.05 + 3;
+    }
+    CHECK(!soon, "entering sleepy mid-blink: the next blink is a sleepy one, 3 s or more away (%d early)", soon);
+    CHECK(!jumps, "falling asleep: the lid eases from where it is, %d jumps, max %.3f per frame", jumps, jump_max);
+    int half = 0, tried = 0;
+    for (uint64_t seed = 1; seed <= 12; seed++) {
+        for (int late = 0; late < 2; late++) {
+            bot_t b;
+            bot_init(&b, seed * 7, 0);
+            bot_set_mood(&b, BOT_SLEEPY, 0);
+            double t = 3, start = -1;
+            for (; t < 200; t += 1.0 / 240) {
+                bot_pose(&b, t);
+                if (b.blinking && b.blink_heavy) { start = b.blink_start; break; }
+            }
+            if (start < 0) continue;
+            double at = start + b.blink_lag + (late ? 0.2 : 0.1);
+            bot_pose(&b, at);
+            tried++;
+            bot_set_mood(&b, BOT_WORKING, at);
+            half += late ? b.blink_start < at : b.blink_start == at;
+        }
+    }
+    CHECK(tried >= 20 && half == tried, "a heavy blink past half closed (0.64) hands over shut, one at 0.16 does not: %d of %d", half,
+          tried);
+    bot_t b;
+    bot_init(&b, 3, 0);
+    bot_sleep(&b, 1);
+    CHECK(bot_pose(&b, 1.02).lid_l < 0.1, "bot_sleep from open eyes: the lid closes from open");
+}
+
+static void test_sleepy_still_redraws(void)
+{
+    bot_t b;
+    bot_init(&b, 66, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_pose_t last = {0};
+    int n = 0, frames = 0;
+    bool drawn = false;
+    for (double t = 3; t < 300; t += 0.016) {
+        bot_t was = b;
+        bot_pose_t p = bot_pose(&b, t);
+        bool still = !b.blinking && !was.blinking && p.gaze_x == last.gaze_x && p.gaze_y == last.gaze_y && drawn;
+        if (!drawn || !bot_pose_same(&p, &last, 195.72)) {
+            n += still;
+            last = p;
+            drawn = true;
+        }
+        frames += still;
+    }
+    double rate = n / (frames * 0.016);
+    printf("sleepy: %.1f redraws/s while the gaze and blinks are still\n", rate);
+    CHECK(rate > 4 && rate < 12, "sleepy holds: %.1f redraws/s, the breathing lid alone", rate);
+}
+
 int main(void)
 {
     test_micro_saccades();
@@ -1289,6 +1854,16 @@ int main(void)
     test_label_wipe();
     test_track_smooth();
     test_pose_same();
+    test_breath();
+    test_breath_eyes();
+    test_breath_redraws();
+    test_sleepy_lid();
+    test_heavy_blinks();
+    test_asleep();
+    test_wake_from_asleep();
+    test_asleep_guards();
+    test_sleepy_transitions();
+    test_sleepy_still_redraws();
     test_calm();
     test_glint_chase();
     test_ring_glint();

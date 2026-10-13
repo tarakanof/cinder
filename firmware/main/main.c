@@ -135,6 +135,7 @@ static double s_scene_t0;
 static bool s_scene_face, s_scene_chased;
 static int s_scene_face_saved;
 static bot_mood_t s_scene_mood0;
+static double s_scene_sleep_in;
 static EXT_RAM_BSS_ATTR glint_chase_t s_scene_chase;
 static half_chase_t s_scene_half;
 static int s_scene_chase_req = -1;
@@ -829,7 +830,7 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
         moment_view_abort(t);
         moment_unact(t);
     }
-    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page,
+    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page && !s_bot.asleep,
                    .blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,
                    .every_s = s_ks_lv->weather_every_min * 60};
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
@@ -884,7 +885,8 @@ static __attribute__((noinline)) void scene_act(double t, const wx_obs_t *wx, bo
 {
     const demo_act_t *a = &s_scene_act;
     s_chase.hold = a->kind != DEMO_ACT_CHASE;
-    if (a->kind == DEMO_ACT_NONE || a->kind == DEMO_ACT_SLEEPY || s_scene_act_st == SCENE_ACT_DONE) return;
+    if (a->kind == DEMO_ACT_NONE || a->kind == DEMO_ACT_SLEEPY || a->kind == DEMO_ACT_ASLEEP || s_scene_act_st == SCENE_ACT_DONE)
+        return;
     bool wait = s_scene_act_st == SCENE_ACT_WAIT;
     switch (a->kind) {
     case DEMO_ACT_MOMENT:
@@ -939,7 +941,8 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
-    if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
+    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);
+    else if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
     else if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
     if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, pg->frame == page_bot_frame);
@@ -1042,7 +1045,9 @@ static void scene_end(double t)
         bot_view_glint_force(false);
         s_scene_chased = false;
     }
-    if (s_scene_act.kind == DEMO_ACT_SLEEPY && s_scene_mood0 != BOT_SLEEPY) bot_wake(&s_bot, t);
+    bool slept = s_scene_act.kind == DEMO_ACT_SLEEPY || s_scene_act.kind == DEMO_ACT_ASLEEP;
+    if (slept && s_scene_mood0 != BOT_SLEEPY) bot_wake(&s_bot, t);
+    else if (s_scene_mood0 == BOT_SLEEPY) bot_sleep_in(&s_bot, s_scene_sleep_in, t);
     if (s_scene_face) temp_face_pick(s_scene_face_saved);
     s_scene_face = false;
     s_scene_resume_at = t + SCENE_NEXT_S;
@@ -1056,6 +1061,7 @@ static void scene_start(const demo_block_t *b, double t)
     s_scene_act_st = SCENE_ACT_WAIT;
     s_scene_t0 = t;
     s_scene_mood0 = s_bot.mood;
+    s_scene_sleep_in = bot_asleep_in(&s_bot, t);
     s_scene_chase = s_chase;
     s_scene_half = s_half;
     gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);
@@ -1078,6 +1084,7 @@ static void scene_start(const demo_block_t *b, double t)
         bot_view_glint_force(true);
         s_scene_chased = true;
     }
+    if (!s_bot.asleep || b->act.kind == DEMO_ACT_SLEEPY) bot_sleep_in(&s_bot, INFINITY, t);
 }
 
 static void scene_frame(double t)

@@ -27,7 +27,8 @@ typedef enum {
     DEMO_ACT_HOP,
     DEMO_ACT_POP,
     DEMO_ACT_BLINK,
-    DEMO_ACT_SLEEPY
+    DEMO_ACT_SLEEPY,
+    DEMO_ACT_ASLEEP
 } demo_act_kind_t;
 
 /* moment: 1 glance .. 9 storm, wxm_kind_t's order; chase_style: GC_STYLE_FULL 0, GC_STYLE_HALF 1. */

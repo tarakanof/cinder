@@ -9,7 +9,7 @@ typedef struct {
     atomic_int shape, mood;
 } rim_job_t;
 
-/* LVGL task: a new outline job for shape and mood; the rim task drops any older one at its next variant. */
+/* LVGL task: a new outline job for shape and mood (a bot_rim_tone); the rim task drops any older one at its next variant. */
 void rim_job_new(rim_job_t *j, int shape, int mood);
 /* LVGL task: drops the running job and starts none until rim_job_release. */
 void rim_job_hold(rim_job_t *j);

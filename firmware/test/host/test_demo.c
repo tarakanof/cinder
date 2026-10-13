@@ -51,9 +51,10 @@ static void test_act(void)
     CHECK(demo_act_parse("pop", &a) && a.kind == DEMO_ACT_POP, "pop");
     CHECK(demo_act_parse("blink", &a) && a.kind == DEMO_ACT_BLINK, "blink");
     CHECK(demo_act_parse("sleepy", &a) && a.kind == DEMO_ACT_SLEEPY, "sleepy");
+    CHECK(demo_act_parse("asleep", &a) && a.kind == DEMO_ACT_ASLEEP, "asleep");
     static const char *const BAD[] = {"", "moment", "moment:", "moment:storm", "moment:storm:", "moment:storm:loud",
                                       "moment:hail:full", "moment::full", "chase", "chase:quarter", "Hop", "hop ",
-                                      "moment:storm:full:x", "blinks", "Sleepy", "sleepy:full"};
+                                      "moment:storm:full:x", "blinks", "Sleepy", "sleepy:full", "Asleep", "asleep:full", "asleep "};
     for (size_t i = 0; i < sizeof BAD / sizeof BAD[0]; i++)
         CHECK(!demo_act_parse(BAD[i], &a) && a.kind == DEMO_ACT_NONE, "bad act '%s'", BAD[i]);
     CHECK(!demo_act_parse(NULL, &a), "NULL act");
@@ -259,6 +260,16 @@ static void test_timing(void)
     demo_offer(&d, &sl, 900);
     demo_ready(&d, 900);
     CHECK(!demo_tick(&d, 907.9) && demo_tick(&d, 908.0), "sleepy has no natural end: it plays 8 s, view or not");
+
+    demo_block_t as = block("asleep", DEMO_PAGE_BOT, DEMO_ACT_ASLEEP, false, false);
+    demo_offer(&d, &as, 1000);
+    demo_ready(&d, 1000);
+    CHECK(!demo_tick(&d, 1007.9) && demo_tick(&d, 1008.0), "asleep has no natural end either: 8 s");
+    demo_block_t asv = block("asleep-view", DEMO_PAGE_BOT, DEMO_ACT_ASLEEP, true, false);
+    demo_offer(&d, &asv, 1100);
+    demo_ready(&d, 1100);
+    demo_act_finished(&d, d.gen);
+    CHECK(!demo_tick(&d, 1107.9) && demo_tick(&d, 1108.0), "asleep with a view: 8 s, an act report changes nothing");
 }
 
 static void test_stale_act(void)
@@ -434,6 +445,24 @@ static int parse_dir(const char *dir, bool need)
     return n;
 }
 
+static void ember_asleep(const char *dir)
+{
+    char *j = load(dir, "bot.asleep.json");
+    CHECK(j != NULL, "Ember's bot.asleep scene");
+    if (!j) return;
+    static knob_view_t v, dv;
+    CHECK(knob_view_read_full(j, &v, NULL, &dv) == KNOB_VIEW_OK, "bot.asleep parses");
+    CHECK(v.demo.present && v.demo.page == DEMO_PAGE_BOT && v.demo.has_view && v.demo.act.kind == DEMO_ACT_ASLEEP,
+          "bot.asleep: the bot page, a view and the asleep act");
+    demo_t d;
+    demo_init(&d);
+    CHECK(demo_offer(&d, &v.demo, 50) == DEMO_EV_START, "bot.asleep starts");
+    demo_ready(&d, 50);
+    demo_act_finished(&d, d.gen);
+    CHECK(!demo_tick(&d, 57.9) && demo_tick(&d, 58.0), "bot.asleep plays 8 s, as sleepy");
+    free(j);
+}
+
 int main(int argc, char **argv)
 {
     test_act();
@@ -450,6 +479,7 @@ int main(int argc, char **argv)
     test_gate();
     if (argc > 1) CHECK(parse_dir(argv[1], true) >= 4, "own demo fixtures");
     int ember = argc > 2 ? parse_dir(argv[2], false) : 0;
+    if (ember) ember_asleep(argv[2]);
     if (failures) {
         printf("demo: %d failure(s)\n", failures);
         return 1;
