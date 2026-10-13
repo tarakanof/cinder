@@ -502,6 +502,7 @@ static void page_fx_frame(double t)
 void page_bot_show(bool on)
 {
     if (!s_bot_page) return;
+    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) bot_wait_restart(&s_bot, now_s());
     if (on) lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     if (on) s_drawn = false;
@@ -774,7 +775,7 @@ void page_bot_frame(const page_frame_t *f)
     const gc_out_t *chase = &f->chase;
     ember_host_info_t host;
     ember_client_host(&host);
-    bot_view_set_host(&host);
+    if (bot_view_set_host(&host)) bot_wait_restart(&s_bot, t);
     bot_view_set_offline(f->offline);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps)) pose = false;
@@ -936,6 +937,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
+    bot_wait_demo(&s_bot, s_scene_on, t);
     if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);
     else if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
     else if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);

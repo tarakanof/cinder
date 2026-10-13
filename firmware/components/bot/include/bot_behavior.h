@@ -58,6 +58,10 @@ typedef struct {
     bot_tween_t triangle, slump, badge, lean_x, lean_y;
     bool popping, hopping;
     double pop_start, hop_start, next_hop_at;
+    double hop_h, hop_len;
+    int w_phase;
+    bool w_fast;
+    double w_t0, burst_hop_at, burst_h, next_peek_at, next_nudge_at, next_rem_at, nudge_at, gaze_hold;
     double sleep_after_s;
     bool calm;
 
@@ -84,6 +88,16 @@ typedef struct {
 #define BOT_RIM_ASLEEP 0x100
 #define BOT_HOP_DURATION_S 1.0
 #define BOT_HOP_SQUASH 0.75
+/* The view's outline variants: steps -BOT_RIM_STEPS (squash) .. +BOT_RIM_STEPS (stretch), 0 the base. */
+#define BOT_RIM_STEPS 5
+/* Waiting phases, seconds since waiting began or restarted: A hops, B from _B_S hops and peeks, C from _C_S nudges
+   with a reminder every _REMIND_S. The demo's phase C and reminder fit its 60 s hold. */
+#define BOT_WAIT_B_S 20.0
+#define BOT_WAIT_C_S 180.0
+#define BOT_WAIT_REMIND_S 300.0
+#define BOT_WAIT_DEMO_C_S 35.0
+#define BOT_WAIT_DEMO_REMIND_S 50.0
+#define BOT_NUDGE_S 0.35
 
 void bot_init(bot_t *b, uint64_t seed, double now);
 bool bot_set_mood(bot_t *b, bot_mood_t m, double t);
@@ -103,6 +117,10 @@ void bot_hold_gaze(bot_t *b, double until);
 /* A quiet weather moment on: working's gaze stays in y -0.19..0.15 from this frame (lines 0-2, no mark, turns at the viewer). */
 void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
+/* Waiting starts again at phase A (the page shown, a new waiting host or lead); nothing in other moods. */
+void bot_wait_restart(bot_t *b, double t);
+/* A demo scene plays: waiting's demo timings; a change restarts waiting. */
+void bot_wait_demo(bot_t *b, bool on, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */
 void bot_hop(bot_t *b, double t);
 void bot_pop(bot_t *b, double t);
@@ -131,6 +149,7 @@ void bot_act_drop(bot_t *b, double t);
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px);
 /* Screen px the outline moves for p's hop alone: the nearest even px, ties away from 0, so a mirrored hop gives -n. */
 int bot_rim_dy(const bot_pose_t *p, double radius_px, double hop_scale);
+void bot_rim_variant(int step, double *sx, double *sy);
 bool bot_label_mark(bot_mood_t m);
 /* The outline's colour and opacity key: the mood, | BOT_RIM_ASLEEP while asleep. */
 int bot_rim_tone(bot_mood_t m, bool asleep);
