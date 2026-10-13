@@ -68,15 +68,17 @@ echo "$REFR" | grep -qxF '        refr_stats_begin(&s_refr, s_frame_kind);' || W
 echo "$REFR" | grep -qxF '        refr_stats_render(&s_refr, s_refr_areas, disp->inv_area_joined, n);' || WIRING="$WIRING refr_stats_render-at-RENDER_START"
 echo "$REFR" | grep -qxF '    bool drew = refr_stats_end(&s_refr, d);' &&
     echo "$REFR" | grep -qxF '    if (drew) ota_client_note_frame();' || WIRING="$WIRING refr_stats_end-gates-ota_client_note_frame"
-[ "$(echo "$REFR" | grep -c 'taskENTER_CRITICAL(&s_refr_mux);')" -eq 1 ] &&
-    [ "$(body "$MAINC" stats_task | grep -c 'taskENTER_CRITICAL(&s_refr_mux);')" -eq 1 ] &&
-    body "$MAINC" stats_task | grep -qF 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);' ||
-    WIRING="$WIRING refr-end-and-take-under-s_refr_mux"
+in_refr_lock() { awk -v want="$1" '/taskENTER_CRITICAL\(&s_refr_mux\);/ {l=1; e++} /taskEXIT_CRITICAL\(&s_refr_mux\);/ {l=0}
+    /refr_stats_(end|take)\(|s_refr_(count|total_us|max_us)/ { if (!l) bad=1 }
+    index($0, want) { if (l) w++ } END {exit !(e == 1 && !l && w == 1 && !bad)}'; }
+echo "$REFR" | in_refr_lock 'bool drew = refr_stats_end(&s_refr, d);' &&
+    body "$MAINC" stats_task | in_refr_lock 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);' ||
+    WIRING="$WIRING refr-end-and-take-inside-the-s_refr_mux-section"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL refresh stats wiring:$WIRING" >&2
     exit 1
 fi
-echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end and take under s_refr_mux"
+echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section"
 DIAGC="$D/../../main/diag.c"
 APP="$(body "$MAINC" app_main)"
 echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -e '    diag_attach_refr(&s_refr, &s_refr_mux);' \
@@ -85,18 +87,19 @@ echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -
     WIRING="$WIRING refr-init-and-attach-before-ember_client_start-and-refr_cb"
 [ "$(grep -c 'refr_stats_init(' "$MAINC")" -eq 1 ] || WIRING="$WIRING refr_stats_init-once"
 WS="$(body "$DIAGC" window_start)"
-echo "$WS" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0}
+echo "$WS" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
     l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
     /^    s_win_start_us = now;$/ {s=1} END {exit !(r && s)}' &&
     [ "$(echo "$WS" | grep -c 's_win_start_us = ')" -eq 1 ] ||
     WIRING="$WIRING window_start-stamps-and-resets-the-refr-window-in-one-s_refr_mux-section"
 SAMPLE="$(body "$DIAGC" diag_sample)"
-echo "$SAMPLE" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0}
+echo "$SAMPLE" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
     l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
     /^    int64_t period_us = now - s_win_start_us;$/ && r {p=1} END {exit !p}' ||
     WIRING="$WIRING diag_sample-reads-the-refr-window-at-now-in-one-s_refr_mux-section"
 echo "$SAMPLE" | awk '/^    if \(level == KS_DIAG_FULL\) \{$/ {f=1; d=0}
     { line=$0; o=gsub(/\{/, "{", line); cl=gsub(/\}/, "}", line) }
+    f && d == 1 && /^ *\} *else/ {f=0}
     /st->(has_inv|inv_areas|inv_px) = / { if (f) n++; else bad=1 }
     f { d += o - cl; if (d == 0) f=0 }
     END {exit !(n == 3 && !bad)}' || WIRING="$WIRING inv-fields-set-only-inside-the-full-block"
