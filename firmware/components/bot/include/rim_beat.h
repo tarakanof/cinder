@@ -30,7 +30,7 @@ void rim_beat_init(rim_beat_t *r);
 /* want: the pose's mood outline; show: its face's; ready: job's base is rendered; m1, p1: its variants -1 and +1 are;
    still: the pose asks for the base variant. */
 void rim_beat_step(rim_beat_t *r, int want, int show, bool ready, bool m1, bool p1, bool still, double t, rim_beat_out_t *out);
-/* Whether job is mood's outline and its base can show (rendered: ready, or shown already). */
+/* Whether job is mood's outline and its base can show (rendered: ready, or the outline on screen already). */
 bool rim_beat_ready(const rim_beat_t *r, int mood, bool ready);
 
 #ifdef __cplusplus

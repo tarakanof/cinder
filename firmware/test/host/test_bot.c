@@ -3140,6 +3140,31 @@ static void test_rim_beat(void)
     rim_beat_step(&r, err, err, true, false, false, true, 7.17, &o);
     rim_beat_step(&r, err, err, true, true, true, true, 7.3, &o);
     CHECK(o.own && !o.settle, "the same outline again: shown, no settle");
+
+    rim_beat_init(&r);
+    rim_beat_step(&r, idle, idle, false, false, false, true, 10.0, &o);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 10.12, &o);
+    rim_beat_step(&r, work, idle, false, false, false, true, 11.0, &o);
+    rim_beat_step(&r, idle, idle, false, false, false, true, 11.1, &o);
+    CHECK(o.start && !o.own && rim_beat_ready(&r, BOT_IDLE, false),
+          "A, B never shown, A again: A's base is on screen, so the beat back to A waits for nothing");
+    rim_beat_step(&r, idle, idle, false, false, false, true, 11.15, &o);
+    CHECK(!o.swap && !o.own, "and its variants stay off until the job's own base is rendered");
+    rim_beat_step(&r, idle, idle, true, false, false, true, 11.22, &o);
+    CHECK(o.swap && o.own && !o.settle, "then it swaps in place, no settle");
+
+    rim_beat_init(&r);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 20.0, &o);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 20.12, &o);
+    rim_beat_step(&r, work, idle, false, false, false, true, 21.0, &o);
+    rim_beat_step(&r, work, idle, true, true, true, true, 21.36, &o);
+    CHECK(!o.swap && !o.settle, "a late beat: the base and both settle variants rendered before it");
+    rim_beat_step(&r, work, work, true, true, true, true, 21.4, &o);
+    CHECK(o.swap && o.settle == -1, "the settle starts in the swap frame itself (-1 behind the lids)");
+    rim_beat_step(&r, work, work, true, true, true, true, 21.4 + RIM_SETTLE_M1_S + 0.001, &o);
+    CHECK(o.settle == 1, "then +1");
+    rim_beat_step(&r, work, work, true, true, true, true, 21.4 + RIM_SETTLE_S + 0.001, &o);
+    CHECK(!o.settle, "then the base");
 }
 
 typedef struct {

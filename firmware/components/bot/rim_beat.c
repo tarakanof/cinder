@@ -34,5 +34,5 @@ void rim_beat_step(rim_beat_t *r, int want, int show, bool ready, bool m1, bool 
 
 bool rim_beat_ready(const rim_beat_t *r, int mood, bool ready)
 {
-    return r->job >= 0 && (int)bot_rim_mood(r->job) == mood && (r->own || ready);
+    return r->job >= 0 && (int)bot_rim_mood(r->job) == mood && (r->own || ready || r->shown == r->job);
 }
