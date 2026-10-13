@@ -3059,6 +3059,47 @@ static void test_done_reward(void)
         for (double t = t0; t < t0 + 8; t += 0.004) any |= bot_pose(&b, t).lap || (b.hopping && b.hop_h == BOT_DONE_HOP_H);
     }
     CHECK(!any, "only done has the reward");
+
+    bot_init(&b, 11, 0);
+    t0 = settle_open(&b, 0);
+    bot_set_mood(&b, BOT_DONE, t0);
+    double lap_at = -1, back = -1;
+    int steps = 0, last = -1, first = -1;
+    bool constant = true;
+    for (double t = t0; t < t0 + 7; t += 1.0 / 60) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (p.lap && lap_at < 0) {
+            lap_at = p.lap_at;
+            back = lap_at + BOT_LAP_S / 2;
+        }
+        if (p.lap) constant &= p.lap_at == lap_at;
+        if (back < 0 || t < back) continue;
+        int k = p.lap ? bot_lap_step(p.lap_at, t, BOT_LAP_S / 45, 45) : -1;
+        if (k >= 0 && first < 0) first = k;
+        if (k >= 0 && k != last) steps++;
+        if (k >= 0) last = k;
+    }
+    CHECK(constant && lap_at >= t0, "the pose carries the lap's start, the same all lap");
+    CHECK(first >= 21 && first <= 23 && last == 44 && steps == 45 - first,
+          "back on the bot page halfway through: the lap goes on from its step %d to its end (%d, %d steps), not from 0", first, last, steps);
+    CHECK(bot_lap_step(10, 9.99, 0.1, 30) == -1 && bot_lap_step(10, 10, 0.1, 30) == 0 && bot_lap_step(10, 12.95, 0.1, 30) == 29 &&
+              bot_lap_step(10, 13.0, 0.1, 30) == -1,
+          "lap steps: 0 at the start, the last before its end, none outside");
+
+    bot_init(&b, 11, 0);
+    bot_set_ring(&b, false);
+    t0 = settle_open(&b, 0);
+    bot_set_mood(&b, BOT_DONE, t0);
+    any = false;
+    bool idle_after = true;
+    for (double t = t0; t < t0 + 7; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (t > t0 + 0.5 && !b.blinking) b.next_blink_at = INFINITY;
+        if (t > t0 + 0.5) b.next_saccade_at = b.next_micro_at = INFINITY;
+        any |= p.lap;
+        if (t > t0 + BOT_GIGGLE_S + 1) idle_after &= !b.animating || b.hopping;
+    }
+    CHECK(!any && idle_after, "working ring off: no lap, and nothing keeps the frame rate up for it");
 }
 
 static void test_rim_beat(void)

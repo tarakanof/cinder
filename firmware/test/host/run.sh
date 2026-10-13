@@ -400,6 +400,8 @@ body "$BVC" rim_swap | awk '/s_rim_buf\[RIM_SPARE\] = old;/ {p = NR} /atomic_sto
     WIRING="$WIRING rim_swap-badge-and-label-with-the-outline"
 body "$BVC" bot_view_tick | sed -n 3,4p | grep -qxF '    rim_sync();' || WIRING="$WIRING bot_view_tick-syncs-the-outline-first"
 grep -qxF '    d.recolor = lv_color_hex(ring_glint_color(mood_rgb(s_rim_mood), GLINT_MIX));' "$BVC" || WIRING="$WIRING glint-in-the-outline-colour"
+body "$BVC" lap_step | grep -qxF '    return bot_lap_step(s_lap_at, t, GLINT_STEP_S, GLINT_STEPS);' &&
+    body "$BVC" bot_view_update | grep -qxF '    s_lap_at = p->lap_at;' || WIRING="$WIRING lap-from-the-pose-start"
 body "$BVC" rim_raster | grep -qF 'mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));' || WIRING="$WIRING outline-alpha-from-bot_rim_alpha"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL bot view wiring:$WIRING" >&2
@@ -530,6 +532,8 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "waiting restart wiring: page shown, new lead or more hosts, demo scene number before the mood"
+grep -A1 -F '    bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);' "$MAINC" | grep -qxF '    bot_set_ring(&s_bot, s_ks_lv->working_ring);' ||
+    WIRING="$WIRING bot-told-the-working-ring-setting"
 fbody "$MAINC" page_tick | awk '/^    bot_rim_ready\(&s_bot, pg->frame != page_bot_frame \|\| bot_view_rim_ready\(s_bot\.mood\)\);$/ {r = NR} /^    f\.pose = bot_pose\(&s_bot, t\);$/ {p = NR} END {exit !(r && p == r + 1)}' ||
     WIRING="$WIRING page_tick-feeds-the-outline-before-the-pose"
 if [ -n "$WIRING" ]; then

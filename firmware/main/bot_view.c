@@ -594,7 +594,7 @@ void bot_view_label_fx(float opa, int shift_x, int shift_y)
 
 static bool s_glint_force;
 static bool s_lap_on;
-static double s_lap_t0 = -1;
+static double s_lap_at;
 
 void bot_view_glint_force(bool on) { s_glint_force = on; }
 
@@ -608,9 +608,7 @@ static int glint_step(double t) { return (int)fmod(floor(t / GLINT_STEP_S), GLIN
 static int lap_step(double t)
 {
     if (!s_lap_on || !s_opt_glint || s_rim_mood != BOT_DONE || s_rim_shape != 0) return -1;
-    if (s_lap_t0 < 0) s_lap_t0 = t;
-    int idx = (int)floor((t - s_lap_t0) / GLINT_STEP_S);
-    return idx < GLINT_STEPS ? idx : -1;
+    return bot_lap_step(s_lap_at, t, GLINT_STEP_S, GLINT_STEPS);
 }
 
 bool bot_view_glint_deg(double t, float *deg)
@@ -873,10 +871,8 @@ void bot_view_update(const bot_pose_t *p)
     /* Outline variants swap as one area in a single sweep (docs/features.md, bot face). */
     int dy = bot_rim_dy(p, s_r, HOP_SCALE);
     s_rim_pose_dy = dy;
-    if (p->lap != s_lap_on) {
-        s_lap_on = p->lap;
-        s_lap_t0 = -1;
-    }
+    s_lap_on = p->lap;
+    s_lap_at = p->lap_at;
     rim_sync();
 
     bot_eye_strokes(p, BOT_VIEW_EYE_SCALE, st);

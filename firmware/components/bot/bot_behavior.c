@@ -589,7 +589,7 @@ void bot_init(bot_t *b, uint64_t seed, double now)
     b->rng = seed;
     b->mood = b->face = BOT_IDLE;
     b->eyes = BOT_EYES_DASH;
-    b->rim_ready = true;
+    b->rim_ready = b->ring = true;
     b->done_hop_at = b->giggle_at = b->lap_at = INFINITY;
     b->mood_since = now;
     b->sleep_after_s = BOT_SLEEP_AFTER_S;
@@ -627,6 +627,8 @@ bool bot_set_mood(bot_t *b, bot_mood_t m, double t)
 }
 
 void bot_rim_ready(bot_t *b, bool ready) { b->rim_ready = ready; }
+
+void bot_set_ring(bot_t *b, bool on) { b->ring = on; }
 
 bool bot_set_mood_user(bot_t *b, bot_mood_t m, double t)
 {
@@ -700,7 +702,8 @@ bot_pose_t bot_pose(bot_t *b, double t)
     double giggle = loud ? giggle_lid(b, t) : 0;
     p.lid_l = fmax(p.lid_l, giggle);
     p.lid_r = fmax(p.lid_r, giggle);
-    p.lap = loud && lap_on(b, t);
+    p.lap = loud && b->ring && lap_on(b, t);
+    if (p.lap) p.lap_at = b->lap_at;
 
     bool sac_active = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
     current_gaze(b, t, &p.gaze_x, &p.gaze_y);
@@ -932,6 +935,12 @@ bool bot_label_mark(bot_mood_t m) { return m != BOT_ERROR; }
 int bot_rim_tone(bot_mood_t m, bool asleep) { return (int)m | (asleep ? BOT_RIM_ASLEEP : 0); }
 
 int bot_rim_key(bot_mood_t m, bool asleep) { return bot_rim_tone(m, asleep) | (m == BOT_ERROR ? BOT_RIM_TRIANGLE : 0); }
+
+int bot_lap_step(double lap_at, double t, double step_s, int steps)
+{
+    double idx = floor((t - lap_at) / step_s);
+    return idx >= 0 && idx < steps ? (int)idx : -1;
+}
 
 bot_mood_t bot_rim_mood(int tone) { return (bot_mood_t)(tone & ~(BOT_RIM_ASLEEP | BOT_RIM_TRIANGLE)); }
 

@@ -28,6 +28,7 @@ typedef struct {
     double breath;  /* -1..1: eye height and centre awake, the centre's bob asleep */
     bool asleep;
     bool lap;       /* done's glint lap runs */
+    double lap_at;  /* while lap: when it started, on bot_pose's clock */
 } bot_pose_t;
 
 typedef struct {
@@ -66,7 +67,7 @@ typedef struct {
     double w_t0, burst_hop_at, burst_h, next_peek_at, next_nudge_at, next_rem_at, nudge_at, gaze_hold;
     double sleep_after_s;
     bool calm;
-    bool rim_ready;
+    bool rim_ready, ring;
     double done_hop_at, giggle_at, lap_at, beat_by;
 
     double breath, breath_ph, breath_per, breath_t;
@@ -121,6 +122,8 @@ bool bot_set_mood(bot_t *b, bot_mood_t m, double t);
 /* Before bot_pose: whether the view holds the base outline of b->mood ready (true when it draws none). A mood beat (the
    new eyes, badge and outline together) waits behind closed lids for it, at most BOT_BEAT_MAX_S after the change. */
 void bot_rim_ready(bot_t *b, bool ready);
+/* The working ring setting: off, done's reward runs no glint lap. */
+void bot_set_ring(bot_t *b, bool on);
 bot_pose_t bot_pose(bot_t *b, double t);
 void bot_set_sleep_after(bot_t *b, double s);
 bool bot_calm(bool quiet, bool calm_setting);
@@ -175,6 +178,8 @@ bool bot_label_mark(bot_mood_t m);
 int bot_rim_tone(bot_mood_t m, bool asleep);
 /* The whole outline: bot_rim_tone | BOT_RIM_TRIANGLE in error. */
 int bot_rim_key(bot_mood_t m, bool asleep);
+/* The glint lap's step at t for a lap from lap_at (bot_pose_t.lap_at), steps of step_s seconds; -1 outside the lap. */
+int bot_lap_step(double lap_at, double t, double step_s, int steps);
 bot_mood_t bot_rim_mood(int tone);
 float bot_rim_alpha(int tone);
 

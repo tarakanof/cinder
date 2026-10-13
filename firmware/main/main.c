@@ -678,6 +678,7 @@ static void settings_frame(double t)
     bot_set_sleep_after(&s_bot, s_ks_lv->sleepy_after_s);
     s_demo_hold_s = s_ks_lv->demo_hold_s;
     bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);
+    bot_set_ring(&s_bot, s_ks_lv->working_ring);
     bsp_knob_15_md50et_set_rotation(s_ks_lv->rotation);
     if (s_demo_until > t + s_demo_hold_s) s_demo_until = t + s_demo_hold_s;
 }
