@@ -132,6 +132,50 @@ The maintainer saw occasional tearing on the eyes in 0.9.70. There is no tear sy
   | Internal free | 85.1 KB (84.4–86.2) | 85.7 KB (85.5–85.9) |
   | Tearing seen in Demo › Working | yes (the report) | less (maintainer, 0.9.72) |
 
+### Waiting escalates, then calms down (#114, review P4, 0.9.73)
+
+The fourth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design/faces/canvas/BotNext.dc.html`, its waiting schedule and constants). Before, waiting hopped every lognormal(4.5 s, 2.5-9 s) forever.
+
+- **Phases** (`bot_behavior.c` `wait_tick`; `w_t0`, `w_phase` in `bot_t`), timed from when waiting began or restarted:
+  - A, 0-20 s (`BOT_WAIT_B_S`): the first hop at 0.6 s as before, then a hop every lognormal(2.8 s, σ 0.25, 2-4.5 s). 25 % are double hops: the second starts at 0.92 × the first's length (on the ground, in its landing squash) at height 0.6.
+  - B, 20 s-3 min (`BOT_WAIT_C_S`): a hop every lognormal(8 s, σ 0.3, 5-14 s), and a peek every 4-6 s, the first 1.5-3 s into B.
+  - C, after 3 min: no hops. A nudge every 12-20 s, the first 1-3 s into C. A reminder every 5 min of waiting (`BOT_WAIT_REMIND_S`, the first at 300 s): two hops at height 1, 1.05 s apart.
+  - Hop jitter: each phase hop draws a height × 0.8-1.15 and a length of 0.9-1.1 s (`hop_h`, `hop_len`). The pose's `hop_dy` carries the height, and the curve stretches to the length. Other hops (a push, a demo's `hop`, a weather act's hop) stay 1 × 1 s.
+- **Hops start on the ground**: a hop that comes due while another is in the air (the lift, the first 0.46/0.62 of its length) waits for that landing, so the outline's dy never jumps. A nudge waits until no hop runs; a reminder waits for the end of a nudge (0.35 s).
+- **Peek**: a saccade to the viewer (± 0.05) with a double blink. A peek over 0.6 (from the sides) moves behind the lids like #127's covered jumps (`SAC_PEEK` takes `blink_cover`: the saccade starts once both lids are 0.9 closed, 0-91 ms later); a shorter one moves at once with the blink starting. The second blink follows 60 ms after the first, as any double blink does. A peek is skipped, the next one 4-6 s later, while acting, tracking or holding the gaze (`gaze_hold`: a knob turn or `bot_look_still` 2.5 s, a half chase's `bot_hold_gaze`, the end of a track 1 s), so a peek never cuts a knob look short.
+- **Nudge**: outline variant −2 for 0.1 s, +1 for 0.1 s, then the base (3 swaps), with the badge × 1 + 0.18·sin(π·u / 0.35 s) (peak 1.18 at 0.175 s). That is BotNext's curve; the review's `EASE_OUT_BACK` 1 → 1.18 does not come back to 1. The scale comes from `bot_rim_variant`, which now also builds the view's 11 variants, so the nudge hits variants −2 and +1 exactly. The eyes squash with it, as in BotNext. No new pose field: the nudge moves `scale_x/y` and `badge`, and the hop height moves `hop_dy`, all already in `bot_pose_same`.
+- **Restart at phase A** (`bot_wait_restart`, nothing outside waiting): on entering waiting; when the bot page is shown after being hidden (`page_bot_show`: a page step, a demo scene that switches to it, the return from the OTA face); when the host label changes while the bot page shows (`bot_view_set_host` now reports a change of the label's text, colour or tool, i.e. the lead source, its colour or tool, or the host count; `page_bot_frame`); when quiet calm ends (0.9.72 hopped 0.6 s later, now the whole schedule restarts); and when a demo scene starts or ends (below). A label that changes off the bot page restarts waiting when the page is shown.
+- **Calm**: phase hops, double hops, nudges and reminders keep their schedule but do not show (`BOT_ANIM_WAIT_HOP`); peeks go on, since calm stops no saccade. 0.9.72 cleared the hop schedule instead.
+- **Demo** (`bot_wait_demo`, called with `s_scene_on` on every `page_tick`, just before the mood is set): while a scene plays, phase C starts at 35 s instead of 3 min and the reminder comes every 50 s instead of 5 min (`BOT_WAIT_DEMO_C_S`, `BOT_WAIT_DEMO_REMIND_S`). Phase A keeps its real 20 s, so its loudness (the issue's open decision) shows as it is. Devices › Demo › Waiting with Hold (60 s) shows A (0-20 s), B (20-35 s: about 2 hops and 3 peeks) and C (35-60 s: 2 nudges and the 2-hop reminder at 50 s). A change of the flag restarts waiting, so a scene starts at phase A even when the real mood was waiting already, and real waiting restarts at A when the scene ends. Without Hold a scene plays 8 s, so phase A only. No Ember or protocol change: the knob already knows a scene is playing.
+- **RNG**: the new draws happen only in waiting; idle, sleepy, working, error and done give the same poses as 0.9.72 for the same seed (`test_reading_other_moods`' hashes; waiting's is re-recorded).
+- **Tests** (`test_bot.c`):
+  - `test_wait_phases`: 12 seeds × 620 s at 120 Hz, plus 150 seeds × phase A. First hop at 0.6 s. Phase A gaps 2-4.5 s, median 2.80 s (1,001 gaps). B gaps 5-14 s, median 7.71 s. No plain hop in C. Double hops 26 %, only in A, the second at 0.92 × the first's length and height 0.6. Heights 0.8-1.15, lengths 0.9-1.1. Two reminders in 620 s, at 300 s and 600 s (late by at most a nudge's 0.35 s), both hops at height 1, 1.05 s apart. Peeks only in B, the first 1.5-3 s in, then every 4-6 s, at the viewer, each with a double blink pending; the 86 of 382 over 0.6 start with both lids ≥ 0.9, 0-92 ms late, the rest at once. Nudges only in C, the first 1-3 s in, gaps 12-20 s (up to 2.5 s more behind a reminder). No hop starts in the air. Outline moves per minute: C under A/20, B under A/2.
+  - `test_wait_nudge` (1 ms steps): the exact −2, +1 and base scale in each window, no outline dy, the badge peaking at 1.18 at 0.175 s and 1 after; the variant table's −2 and +1 values.
+  - `test_wait_restart`: from C back to A, first hop at 0.6 s; a restart in the air waits for the landing; outside waiting the whole `bot_t` is unchanged; a new waiting mood starts at A; calm: no hop or nudge for 400 s (a reminder due included), peeks go on, calm off restarts A; a knob look holds a due peek for 2.5 s and skips it; no peeks while acting.
+  - `test_wait_demo`: 20 seeds × a 60 s hold: no plain hop after 35 s, the first nudge at 36-38 s, 2 nudges, the reminder at 50 s, peeks in 20-35 s; a scene starting mid-waiting restarts it, the same flag again does not, the real timings come back after it.
+  - `test_micro_saccades` counts peeks as saccades.
+  - Mutants, each failing: a hop starting in the air, a peek not covered, nudge variant −1 instead of −2, no gaze hold on peeks, no restart on calm off, the reminder timed from phase C.
+  - `run.sh` checks the wiring: `page_bot_show` restarts only from hidden to shown, `page_bot_frame` restarts on a host change, `page_tick` sets the demo timings right before the mood, `bot_view_set_host` reports a change.
+- **Host sim** (60 fps, seeds 777, 1234 and 99, 600 s of waiting; redraws after `bot_pose_same`, outline included; an outline move is a change of variant or dy, as in the review's table). 0.9.72 → 0.9.73:
+
+  | Window | Redraws/s | Outline moves/min |
+  |---|---|---|
+  | 0-20 s (A) | 23.7 → 31.6 | 480 → 927 |
+  | 20-180 s (B) | 21.9 → 21.2 | 525 → 305 |
+  | 180-600 s (C) | 21.6 → 12.8 | 516 → 22 |
+  | 0-600 s | 21.8 → 15.6 | 517 → 128 |
+
+  BotNext in the review: 483 → 132 a minute over 0-600 s, and about twice today's moves in the first 20 s.
+- **Cost**: (`idf.py size`, origin/main 0.9.72 at 1fdca91 → this branch, same machine, IDF 5.5.5): image 1,712,631 → 1,716,899 B (+4,268, flash `.text`); DIRAM 102,575 → 102,663 B (`.bss` +88: the new `bot_t` fields); PSRAM `.bss` unchanged. `stack_walk.py`: every task unchanged (`lvgl` 8,608, margin 1,888; `orbit` 2,192; `moment` 3,424).
+- **On the knob** (to do after the release): invalidated areas/s, fps, core 0 and internal RAM per phase with Devices › Demo › Waiting (Hold), against 0.9.72's held waiting (20.8 areas/s, 14.1 fps, core 0 39.5 %, "Invalidated-area count (#118)"); and the open decision whether phase A is too loud.
+
+  | | 0.9.72 (Demo › Waiting, held) | 0.9.73 A (0-20 s) | 0.9.73 B (20-35 s) | 0.9.73 C (35-60 s) |
+  |---|---|---|---|---|
+  | Invalidated areas/s | 20.8 (14.3–29.7) | TODO | TODO | TODO |
+  | Render fps | 14.1 | TODO | TODO | TODO |
+  | Core 0 load | 39.5 % | TODO | TODO | TODO |
+  | Internal free | 85.7 KB (1 h aggregate) | TODO | TODO | TODO |
+
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
 `main/ember_client.c`: Wi-Fi STA + poll `GET /state` every 2 s on core 1; mood = Ember's render priority on `render.{waiting,errors,running,done}`. Long hold = demo mood for 20 s, then Ember again. Credentials + URL in NVS since #6; the git-ignored `firmware/sdkconfig.secrets` is only the opt-in dev seed since 0.9.16 (see "Secret-free builds"). Ember on the LAN, e.g. `http://ember.local:3627` (from `~/.config/ember/producer.env`).
