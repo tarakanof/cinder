@@ -618,8 +618,10 @@ void bot_read_moment(bot_t *b, bool on, double t)
     if (!on || b->mood != BOT_WORKING || b->acting || b->tracking) return;
     double gx, gy;
     current_gaze(b, t, &gx, &gy);
-    if (fmin(gy, b->fix_y) >= READ_MOMENT_FLOOR && fmax(gy, b->fix_y) <= READ_MOMENT_TOP) return;
-    start_saccade(b, t, false);
+    bool moving = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
+    double lo = fmin(fmin(gy, b->fix_y), b->gaze_to_y), hi = fmax(fmax(gy, b->fix_y), b->gaze_to_y);
+    if (lo < READ_MOMENT_FLOOR || hi > READ_MOMENT_TOP) start_saccade(b, t, false);
+    else if (!moving) return;
     b->gaze_start = t - b->gaze_dur;
 }
 

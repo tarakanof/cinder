@@ -2049,21 +2049,21 @@ static void test_reading_moment(void)
     const double dt = 1.0 / 120;
     int marks_on = 0, marks_off = 0, low_off = 0, retargets = 0, lowered = 0, on_frames = 0, turns_on = 0, up_on = 0;
     double y_on = 1e9, top_on = -1e9;
-    for (int seed = 0; seed < 6; seed++) {
+    for (int seed = 0; seed < 24; seed++) {
         bot_t b;
         bot_init(&b, 0x5B0 + (uint64_t)seed, 0);
         bot_set_mood(&b, BOT_WORKING, 0);
         double last_y = 0;
         bool was_turn = false;
-        for (double t = dt; t < 600; t += dt) {
-            bool on = t > 5 && fmod(t + seed * 3.1, 20) < 5;
+        for (double t = dt; t < 300; t += dt) {
+            bool on = t > 5 && fmod(t + seed * 0.37, 9.7) < 4.5;
             if (on != b.rd_moment) {
                 bool low = fmin(b.fix_y, last_y) < -0.19 || fmax(b.fix_y, last_y) > 0.15;
                 double gs = b.gaze_start;
                 bot_read_moment(&b, on, t);
                 if (on && low) {
                     lowered++;
-                    retargets += b.gaze_start != gs && b.gaze_start + b.gaze_dur == t && b.fix_y >= -0.19 - 1e-9 && b.fix_y <= 0.15;
+                    retargets += b.gaze_start != gs && fabs(b.gaze_start + b.gaze_dur - t) < 1e-9 && b.fix_y >= -0.19 - 1e-9 && b.fix_y <= 0.15;
                 }
             }
             double nsa = b.next_saccade_at;
@@ -2097,6 +2097,42 @@ static void test_reading_moment(void)
     CHECK(!marks_on && marks_off > 20, "reading moment: %d mark glances while on, %d off", marks_on, marks_off);
     CHECK(low_off > 100, "reading moment: lines 3-4 again once off (%d targets below -0.21)", low_off);
     CHECK(lowered > 10 && retargets == lowered, "reading moment: %d of %d gazes off the band moved at once", retargets, lowered);
+
+    const double fine = 1.0 / 600;
+    int clones = 0, risky_micro = 0, risky_sacc = 0, bad = 0;
+    double worst = 0;
+    for (int seed = 0; seed < 12; seed++) {
+        bot_t b;
+        bot_init(&b, 0x1F0 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WORKING, 0);
+        for (double t = dt; t < 200; t += dt) {
+            bot_pose(&b, t);
+            double tn = t + dt / 2, end = b.gaze_start + b.gaze_dur;
+            if (b.gaze_start < 0 || tn >= end) continue;
+            bot_t off = b, on = b;
+            double gy = bot_pose(&off, tn).gaze_y, low = gy;
+            for (double u = tn + fine; u < end + fine; u += fine) low = fmin(low, bot_pose(&off, u).gaze_y);
+            if (gy >= -0.19 && b.fix_y >= -0.19 && low < -0.19) {
+                if (b.gaze_dur > 0.0251) risky_sacc++;
+                else risky_micro++;
+            }
+            bot_read_moment(&on, true, tn);
+            clones++;
+            for (double u = tn; u < tn + 1.0; u += fine) {
+                double y = bot_pose(&on, u).gaze_y;
+                if (y < -0.19 - 1e-9 || y > 0.15 + 1e-9) {
+                    bad++;
+                    worst = fmin(worst, y);
+                    break;
+                }
+            }
+        }
+    }
+    printf("reading moment in flight: %d moves turned on mid-flight, %d micro and %d saccades would leave the band, %d did\n", clones,
+           risky_micro, risky_sacc, bad);
+    CHECK(risky_micro > 0 && risky_sacc > 0, "reading moment: no in-flight move would leave the band (%d micro, %d saccades)", risky_micro,
+          risky_sacc);
+    CHECK(!bad, "reading moment: %d of %d moves in flight when it turned on left the band (worst y %.4f)", bad, clones, worst);
 
     bot_t b;
     bot_init(&b, 3, 0);
