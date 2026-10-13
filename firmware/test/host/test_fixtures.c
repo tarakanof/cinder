@@ -1053,7 +1053,7 @@ static const cJSON *at(const cJSON *o, const char *k) { return cJSON_GetObjectIt
 static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k)) ? at(o, k)->valuedouble : 0; }
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
 
-static const char *const NOT_YET_SENT[] = {".stats.inv_areas", ".stats.inv_px"};
+static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
@@ -1237,7 +1237,9 @@ static void test_checkin_req_full(void)
                       .req_ok = (uint32_t)num(sj, "req_ok"), .req_fail = (uint32_t)num(sj, "req_fail"),
                       .req_ms_avg = (float)num(sj, "req_ms_avg"), .req_ms_max = (uint32_t)num(sj, "req_ms_max"),
                       .has_frames = at(sj, "fps") != NULL, .fps = (float)num(sj, "fps"),
-                      .frame_ms_avg = (float)num(sj, "frame_ms_avg"), .frame_ms_max = (uint32_t)num(sj, "frame_ms_max")};
+                      .frame_ms_avg = (float)num(sj, "frame_ms_avg"), .frame_ms_max = (uint32_t)num(sj, "frame_ms_max"),
+                      .has_inv = at(sj, "inv_areas") != NULL, .inv_areas = (int64_t)num(sj, "inv_areas"),
+                      .inv_px = (int64_t)num(sj, "inv_px")};
     cJSON_ArrayForEach(t, at(sj, "cpu_pct"))
     {
         if (st.n_cpu < DEV_STATS_MAX_CPU) st.cpu_pct[st.n_cpu++] = (float)t->valuedouble;

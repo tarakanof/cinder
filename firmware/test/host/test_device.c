@@ -338,6 +338,25 @@ static void test_diagnostics(void)
     CHECK(strstr(out, "\"stats\":{\"fps\":29.5,\"frame_ms_avg\":12.25,\"frame_ms_max\":40,\"period_ms\":1,"
                       "\"req_fail\":2,\"req_ms_avg\":35.5,\"req_ms_max\":120,\"req_ok\":28}") != NULL,
           "full stats body: %s", out);
+    dev_stats_t iv = f;
+    iv.period_ms = 30000;
+    iv.has_inv = true;
+    iv.inv_areas = 2700;
+    iv.inv_px = 1728000;
+    dev_checkin_body(&c, &iv, out, sizeof out);
+    CHECK(strstr(out, "\"frame_ms_max\":40,\"inv_areas\":2700,\"inv_px\":1728000,\"period_ms\":30000,") != NULL,
+          "full stats with invalidated areas: %s", out);
+    iv.inv_areas = -1;
+    iv.inv_px = 30000000000LL;
+    dev_checkin_body(&c, &iv, out, sizeof out);
+    CHECK(strstr(out, "\"inv_areas\":0,\"inv_px\":30000000000,") != NULL, "negative clamps to 0, 64-bit px: %s", out);
+    iv.has_inv = false;
+    dev_checkin_body(&c, &iv, out, sizeof out);
+    CHECK(strstr(out, "inv_") == NULL, "not measured: no inv keys: %s", out);
+    iv.has_inv = true;
+    iv.no_window = true;
+    dev_checkin_body(&c, &iv, out, sizeof out);
+    CHECK(strstr(out, "inv_") == NULL, "no window: no inv keys: %s", out);
     dev_stats_t z = {.period_ms = 5000, .has_req = true};
     dev_checkin_body(&c, &z, out, sizeof out);
     CHECK(strstr(out, "\"stats\":{\"period_ms\":5000,\"req_fail\":0,\"req_ok\":0}") != NULL, "no requests: no avg/max: %s",

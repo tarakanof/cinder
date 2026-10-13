@@ -106,6 +106,56 @@ static void test_empty_and_bad_kind(void)
           k[0].n, (long long)k[0].areas);
 }
 
+static void test_checkin_window_independent(void)
+{
+    static refr_stats_t s;
+    refr_kind_t k[REFR_KINDS], t;
+    refr_stats_init(&s, 0);
+    refr_win_t w = refr_stats_win_read(&s);
+    CHECK(w.start_us == 0 && w.areas == 0 && w.px == 0, "init leaves the checkin window unstarted");
+    refr_stats_win_reset(&s, 1000000);
+    refresh(&s, 1, 2, 20, 4000);
+    refr_stats_take(&s, 30000000, k, &t);
+    CHECK(t.areas == 2 && t.px == 800, "serial take: %lld areas %lld px", (long long)t.areas, (long long)t.px);
+    refresh(&s, 2, 3, 10, 2000);
+    refr_stats_take(&s, 60000000, k, &t);
+    CHECK(t.areas == 3 && t.px == 300, "second serial take: %lld areas %lld px", (long long)t.areas, (long long)t.px);
+    w = refr_stats_win_read(&s);
+    CHECK(w.start_us == 1000000 && w.areas == 5 && w.px == 1100,
+          "checkin window spans both serial takes: start %lld, %lld areas, %lld px", (long long)w.start_us,
+          (long long)w.areas, (long long)w.px);
+    w = refr_stats_win_read(&s);
+    CHECK(w.areas == 5 && w.px == 1100, "a read does not reset: a failed checkin keeps its window");
+    refr_stats_win_reset(&s, 61000000);
+    w = refr_stats_win_read(&s);
+    CHECK(w.start_us == 61000000 && w.areas == 0 && w.px == 0, "reset starts the next window");
+    refresh(&s, 0, 1, 10, 100);
+    refr_stats_take(&s, 90000000, k, &t);
+    w = refr_stats_win_read(&s);
+    CHECK(w.areas == 1 && w.px == 100, "next window: %lld areas %lld px", (long long)w.areas, (long long)w.px);
+}
+
+static void test_checkin_window_skips_empty(void)
+{
+    static refr_stats_t s;
+    refr_stats_init(&s, 0);
+    refr_stats_win_reset(&s, 5);
+    refr_stats_begin(&s, 1);
+    refr_stats_end(&s, 700);
+    const refr_area_t a = {0, 0, 9, 19};
+    const uint8_t joined[1] = {1};
+    refr_stats_begin(&s, 1);
+    refr_stats_render(&s, &a, joined, 1);
+    refr_stats_end(&s, 700);
+    refr_stats_begin(&s, 1);
+    refr_stats_render(&s, &a, NULL, 1);
+    refr_stats_win_reset(&s, 9);
+    CHECK(refr_stats_end(&s, 500), "refresh in flight lost at the checkin window boundary");
+    refr_win_t w = refr_stats_win_read(&s);
+    CHECK(w.areas == 1 && w.px == 200, "empty and joined refreshes add nothing, the in-flight one counts where it ends: "
+          "%lld areas %lld px", (long long)w.areas, (long long)w.px);
+}
+
 int main(void)
 {
     test_window_totals();
@@ -113,6 +163,8 @@ int main(void)
     test_move_only_refresh();
     test_take_resets();
     test_empty_and_bad_kind();
+    test_checkin_window_independent();
+    test_checkin_window_skips_empty();
     if (failures) {
         printf("refr: %d failures\n", failures);
         return 1;

@@ -11,9 +11,14 @@ typedef struct {
 } refr_kind_t;
 
 typedef struct {
+    int64_t areas, px, start_us;
+} refr_win_t;
+
+typedef struct {
     refr_kind_t kind[REFR_KINDS];
     int cur, cur_areas;
     int64_t cur_px, since_us;
+    refr_win_t win;
 } refr_stats_t;
 
 typedef struct {
@@ -25,3 +30,5 @@ void refr_stats_begin(refr_stats_t *s, int kind);
 void refr_stats_render(refr_stats_t *s, const refr_area_t *areas, const uint8_t *joined, int n);
 bool refr_stats_end(refr_stats_t *s, int64_t us);
 int64_t refr_stats_take(refr_stats_t *s, int64_t now_us, refr_kind_t out[REFR_KINDS], refr_kind_t *total);
+void refr_stats_win_reset(refr_stats_t *s, int64_t start_us);
+refr_win_t refr_stats_win_read(const refr_stats_t *s);

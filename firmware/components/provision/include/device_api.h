@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 #define DEV_TOKEN_MAX 64
-#define DEV_CHECKIN_BODY_MAX 2048
+#define DEV_CHECKIN_BODY_MAX 2304
 #define DEV_CAPS_PAGE_MAX 16
 #define DEV_CAPS_FEATURE_MAX 32
 
@@ -132,6 +132,8 @@ typedef struct {
     bool has_frames;
     float fps, frame_ms_avg;
     uint32_t frame_ms_max;
+    bool has_inv;
+    int64_t inv_areas, inv_px;
 } dev_stats_t;
 
 size_t dev_checkin_body(const dev_checkin_t *c, const dev_stats_t *stats, char *out, size_t cap);

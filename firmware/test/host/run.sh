@@ -77,6 +77,35 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end and take under s_refr_mux"
+DIAGC="$D/../../main/diag.c"
+APP="$(body "$MAINC" app_main)"
+echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -e '    diag_attach_refr(&s_refr, &s_refr_mux);' \
+    -e '    ember_client_start();' -e 'lv_display_add_event_cb(handles.disp, refr_cb' | cut -d: -f2- | sed 's/(.*//' | uniq |
+    tr -d ' \n' | grep -qx 'refr_stats_initdiag_attach_refrember_client_startlv_display_add_event_cb' ||
+    WIRING="$WIRING refr-init-and-attach-before-ember_client_start-and-refr_cb"
+[ "$(grep -c 'refr_stats_init(' "$MAINC")" -eq 1 ] || WIRING="$WIRING refr_stats_init-once"
+WS="$(body "$DIAGC" window_start)"
+echo "$WS" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0}
+    l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
+    /^    s_win_start_us = now;$/ {s=1} END {exit !(r && s)}' &&
+    [ "$(echo "$WS" | grep -c 's_win_start_us = ')" -eq 1 ] ||
+    WIRING="$WIRING window_start-stamps-and-resets-the-refr-window-in-one-s_refr_mux-section"
+SAMPLE="$(body "$DIAGC" diag_sample)"
+echo "$SAMPLE" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0}
+    l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
+    /^    int64_t period_us = now - s_win_start_us;$/ && r {p=1} END {exit !p}' ||
+    WIRING="$WIRING diag_sample-reads-the-refr-window-at-now-in-one-s_refr_mux-section"
+echo "$SAMPLE" | awk '/^    if \(level == KS_DIAG_FULL\) \{$/ {f=1; d=0}
+    { line=$0; o=gsub(/\{/, "{", line); cl=gsub(/\}/, "}", line) }
+    /st->(has_inv|inv_areas|inv_px) = / { if (f) n++; else bad=1 }
+    f { d += o - cl; if (d == 0) f=0 }
+    END {exit !(n == 3 && !bad)}' || WIRING="$WIRING inv-fields-set-only-inside-the-full-block"
+[ "$(grep -c 'has_inv' "$DIAGC")" -eq 1 ] || WIRING="$WIRING has_inv-set-once"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL checkin area window wiring:$WIRING" >&2
+    exit 1
+fi
+echo "checkin area window wiring: attached before the ember task; window stamp with reset and sample time with read, each in one s_refr_mux section; inv fields only inside the full block"
 WXC="$D/../../main/weather_client.c"
 body "$WXC" weather_client_get | awk '/xSemaphoreTake\(s_lock/ {lock=1} /xSemaphoreGive\(s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
     WIRING="$WIRING weather_client_get-reads-the-timer-under-the-lock"

@@ -10,6 +10,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "diag.h"
+#include "diag_refr.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -1263,6 +1264,8 @@ void app_main(void)
     http_conn_quiet_idf_logs();
     config_store_init();
     diag_boot();
+    refr_stats_init(&s_refr, esp_timer_get_time());
+    diag_attach_refr(&s_refr, &s_refr_mux);
     ota_client_boot();
     s_setup = !config_store_provisioned();
     s_ks_lv = heap_caps_calloc(1, sizeof *s_ks_lv, MALLOC_CAP_SPIRAM);
@@ -1327,7 +1330,6 @@ void app_main(void)
     wxm_init(&s_wxm);
     bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
     lv_timer_create(frame_cb, 16, handles.disp);
-    refr_stats_init(&s_refr, esp_timer_get_time());
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_START, NULL);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_READY, NULL);
