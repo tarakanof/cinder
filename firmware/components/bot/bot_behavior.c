@@ -24,9 +24,11 @@
 #define READ_MOMENT_TOP 0.15
 #define READ_OVERSHOOT 0.071
 #define MARK_X 0.0
+#define COVER_AMP 0.6
+#define LID_SHUT 0.9
 
 enum { EASE_IN_OUT, EASE_OUT_BACK };
-enum { SAC_NORMAL, SAC_GLIDE, SAC_MICRO };
+enum { SAC_NORMAL, SAC_GLIDE, SAC_MICRO, SAC_SWEEP, SAC_TURN };
 
 static uint64_t rng_next(bot_t *b)
 {
@@ -105,7 +107,12 @@ static double heavy_curve(double u, double hold)
 static double blink_length(const bot_t *b) { return b->blink_heavy ? 0.55 + b->blink_hold : (0.075 + 0.035 + 0.15) * b->blink_speed; }
 static bool blink_on(const bot_t *b, double t)
 {
-    return b->blinking && (b->double_blink_pending || t - b->blink_start - b->blink_lag < blink_length(b));
+    return b->blinking && (b->double_blink_pending || t - b->blink_start - fmax(b->blink_lag, 0) < blink_length(b));
+}
+static double blink_shut_at(const bot_t *b) { return b->blink_start + fmax(b->blink_lag, 0) + 0.075 * b->blink_speed * sqrt(LID_SHUT); }
+static double blink_opens_at(const bot_t *b)
+{
+    return b->blink_start + fmin(b->blink_lag, 0) + (0.075 + 0.035 + 0.15 * (1 - sqrt(LID_SHUT))) * b->blink_speed;
 }
 static double blink_lid(const bot_t *b, double u) { return b->blink_heavy ? heavy_curve(u, b->blink_hold) : lid_curve(u, b->blink_speed); }
 
@@ -290,6 +297,22 @@ static double micro_gap(bot_t *b)
     return b->mood == BOT_SLEEPY ? lognormal(b, 2, 0.4, 0.8, 5) : lognormal(b, 0.8, 0.4, 0.3, 2.5);
 }
 
+static double blink_cover(bot_t *b, double t)
+{
+    if (!blink_on(b, t)) {
+        start_blink(b, t);
+        b->double_blink_pending = false;
+    } else if (t > blink_opens_at(b)) {
+        double c = 0.075 * b->blink_speed, u = t - b->blink_start;
+        double l = sqrt(lid_curve(u, b->blink_speed)), r = sqrt(lid_curve(u - b->blink_lag, b->blink_speed));
+        b->blink_start = t - c * l;
+        b->blink_lag = c * (l - r);
+        b->last_blink_at = t;
+        b->double_blink_pending = false;
+    }
+    return fmax(0, blink_shut_at(b) - t);
+}
+
 static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
 {
     bool glide = kind == SAC_GLIDE;
@@ -308,14 +331,17 @@ static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
     b->fix_x = tx; b->fix_y = ty;
     b->gaze_dur = glide ? 0.42 : 0.025 + 0.045 * amp;
     b->gaze_ease = glide ? EASE_IN_OUT : EASE_OUT_BACK;
-    if (!glide && amp > 0.8 && !b->blinking && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
+    if (kind == SAC_TURN || (kind == SAC_SWEEP && amp > COVER_AMP)) {
+        double lead = blink_cover(b, t);
+        if (amp > COVER_AMP) b->gaze_start += lead;
+    } else if (!glide && amp > 0.8 && !b->blinking && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
         start_blink(b, t);
     }
-    double lean_dur = glide ? 0.5 : 0.2;
-    b->lean_x = tween(tween_value(&b->lean_x, t), tx * 0.045, t + 0.03, lean_dur, EASE_IN_OUT);
-    b->lean_y = tween(tween_value(&b->lean_y, t), ty * 0.03, t + 0.03, lean_dur, EASE_IN_OUT);
-    b->next_saccade_at = t + b->gaze_dur + fixation(b);
-    b->next_micro_at = t + b->gaze_dur + fmax(MICRO_HOLD_S, micro_gap(b));
+    double s = b->gaze_start, lean_dur = glide ? 0.5 : 0.2;
+    b->lean_x = tween(tween_value(&b->lean_x, t), tx * 0.045, s + 0.03, lean_dur, EASE_IN_OUT);
+    b->lean_y = tween(tween_value(&b->lean_y, t), ty * 0.03, s + 0.03, lean_dur, EASE_IN_OUT);
+    b->next_saccade_at = s + b->gaze_dur + fixation(b);
+    b->next_micro_at = s + b->gaze_dur + fmax(MICRO_HOLD_S, micro_gap(b));
 }
 
 static void start_saccade(bot_t *b, double t, bool glide)
@@ -324,13 +350,12 @@ static void start_saccade(bot_t *b, double t, bool glide)
     bool blink = false;
     if (b->mood == BOT_WORKING) read_target(b, &tx, &ty, &fix, &mul, &blink);
     else next_target(b, &tx, &ty);
-    start_saccade_to(b, t, glide ? SAC_GLIDE : SAC_NORMAL, tx, ty);
+    start_saccade_to(b, t, glide ? SAC_GLIDE : blink ? SAC_TURN : mul != 1 ? SAC_SWEEP : SAC_NORMAL, tx, ty);
     if (fix >= 0 || mul != 1) {
-        double hold = b->next_saccade_at - t - b->gaze_dur;
-        b->next_saccade_at = t + b->gaze_dur + (fix >= 0 ? fix : hold * mul);
+        double hold = b->next_saccade_at - b->gaze_start - b->gaze_dur;
+        b->next_saccade_at = b->gaze_start + b->gaze_dur + (fix >= 0 ? fix : hold * mul);
     }
     if (b->mood == BOT_WORKING && !glide && ty - READ_OVERSHOOT * (b->gaze_from_y - ty) < read_floor(b)) b->gaze_ease = EASE_IN_OUT;
-    if (blink && !blink_on(b, t)) start_blink(b, t);
 }
 
 static void start_micro(bot_t *b, double t)
@@ -499,7 +524,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
         bl = blink_lid(b, u);
         br = blink_lid(b, u - b->blink_lag);
         if (b->swap_eyes_on_close && fmax(bl, br) >= 0.9) { b->eyes = eyes_now(b); b->swap_eyes_on_close = false; }
-        if (u - b->blink_lag >= blink_length(b)) {
+        if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
             if (b->swap_eyes_on_close && !b->double_blink_pending) { b->eyes = eyes_now(b); b->swap_eyes_on_close = false; }
             b->blinking = false;
             if (b->double_blink_pending) {
