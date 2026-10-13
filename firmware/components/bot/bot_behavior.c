@@ -110,10 +110,6 @@ static bool blink_on(const bot_t *b, double t)
     return b->blinking && (b->double_blink_pending || t - b->blink_start - fmax(b->blink_lag, 0) < blink_length(b));
 }
 static double blink_shut_at(const bot_t *b) { return b->blink_start + fmax(b->blink_lag, 0) + 0.075 * b->blink_speed * sqrt(LID_SHUT); }
-static double blink_opens_at(const bot_t *b)
-{
-    return b->blink_start + fmin(b->blink_lag, 0) + (0.075 + 0.035 + 0.15 * (1 - sqrt(LID_SHUT))) * b->blink_speed;
-}
 static double blink_lid(const bot_t *b, double u) { return b->blink_heavy ? heavy_curve(u, b->blink_hold) : lid_curve(u, b->blink_speed); }
 
 static void hop_curve(double u, double *sx, double *sy, double *dy)
@@ -301,15 +297,16 @@ static double blink_cover(bot_t *b, double t)
 {
     if (!blink_on(b, t)) {
         start_blink(b, t);
-        b->double_blink_pending = false;
-    } else if (t > blink_opens_at(b)) {
+    } else if (b->blink_start > t) {
+        b->blink_start = t;
+    } else if (t > blink_shut_at(b)) {
         double c = 0.075 * b->blink_speed, u = t - b->blink_start;
         double l = sqrt(lid_curve(u, b->blink_speed)), r = sqrt(lid_curve(u - b->blink_lag, b->blink_speed));
         b->blink_start = t - c * l;
         b->blink_lag = c * (l - r);
         b->last_blink_at = t;
-        b->double_blink_pending = false;
     }
+    b->double_blink_pending = false;
     return fmax(0, blink_shut_at(b) - t);
 }
 
@@ -652,6 +649,11 @@ void bot_read_moment(bot_t *b, bool on, double t)
     double lo = fmin(fmin(gy, b->fix_y), b->gaze_to_y), hi = fmax(fmax(gy, b->fix_y), b->gaze_to_y);
     if (lo < READ_MOMENT_FLOOR || hi > READ_MOMENT_TOP) start_saccade(b, t, false);
     else if (!moving) return;
+    if (t < b->gaze_start && gy >= READ_MOMENT_FLOOR && gy <= READ_MOMENT_TOP) {
+        double over = b->gaze_to_y - READ_OVERSHOOT * (gy - b->gaze_to_y);
+        if (over < READ_MOMENT_FLOOR || over > READ_MOMENT_TOP) b->gaze_ease = EASE_IN_OUT;
+        return;
+    }
     b->gaze_start = t - b->gaze_dur;
 }
 
