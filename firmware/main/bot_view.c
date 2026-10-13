@@ -31,7 +31,7 @@
 #define EYE_BUF_W 220
 #define EYE_BUF_H 260
 
-#define RIM_STEPS 5
+#define RIM_STEPS BOT_RIM_STEPS
 #define RIM_VARIANTS (2 * RIM_STEPS + 1)
 #define RIM_BASE RIM_STEPS
 static float VAR_SX[RIM_VARIANTS], VAR_SY[RIM_VARIANTS];
@@ -40,10 +40,10 @@ static int VAR_ORDER[RIM_VARIANTS - 1];
 static void variants_init(void)
 {
     for (int k = 0; k < RIM_VARIANTS; k++) {
-        float t = (float)(k - RIM_BASE) / RIM_STEPS;
-        float q = (float)BOT_HOP_SQUASH;
-        VAR_SX[k] = t < 0 ? 1 - 0.10f * q * t : 1 - 0.07f * q * t;
-        VAR_SY[k] = t < 0 ? 1 + 0.14f * q * t : 1 + 0.10f * q * t;
+        double sx, sy;
+        bot_rim_variant(k - RIM_BASE, &sx, &sy);
+        VAR_SX[k] = (float)sx;
+        VAR_SY[k] = (float)sy;
     }
     for (int d = 1, n = 0; d <= RIM_STEPS; d++) {
         VAR_ORDER[n++] = RIM_BASE - d;

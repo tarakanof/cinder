@@ -1082,7 +1082,7 @@ static void micro_run(bot_t *b, double t0, double secs, double amp_lo, double am
             if (t > fix_from && b->mood == was.mood) s->drift_max = fmax(s->drift_max, hypot(p.gaze_x - fix_x, p.gaze_y - fix_y));
             continue;
         }
-        if (t >= was.next_saccade_at) {
+        if (t >= was.next_saccade_at || (b->mood == BOT_WAITING && t >= was.next_peek_at)) {
             s->saccades++;
             fix_x = b->gaze_to_x;
             fix_y = b->gaze_to_y;
@@ -2112,12 +2112,12 @@ static uint64_t mood_hash(bot_mood_t m, uint64_t seed)
 static void test_reading_other_moods(void)
 {
     static const struct { bot_mood_t m; uint64_t h; } want[] = {
-        {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x4641994f2776c598ULL},
+        {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x0ab701d14c52cd17ULL},
         {BOT_ERROR, 0xa42109cdb52734a4ULL}, {BOT_DONE, 0xb8d1bcbed2b40ef0ULL},
     };
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) {
         uint64_t h = mood_hash(want[i].m, 0x5A5A + i);
-        CHECK(h == want[i].h, "mood %d: poses differ from 0.9.69 (hash %016llx)", want[i].m, (unsigned long long)h);
+        CHECK(h == want[i].h, "mood %d: poses differ from the recorded ones (0.9.69; waiting 0.9.73) (hash %016llx)", want[i].m, (unsigned long long)h);
     }
     bot_t a;
     bot_init(&a, 9, 0);
@@ -2385,8 +2385,406 @@ static void test_reading_entry(void)
     CHECK(lo >= 1.3 * 0.35 - 1e-9 && hi <= 1.3 * 2 + 1e-9 && hi > 2.0, "reading: entering working holds %.2f-%.2f s, want 1.3 x 0.35-2", lo, hi);
 }
 
+enum { HOP_PLAIN, HOP_BURST, HOP_REMIND };
+typedef struct { double t, h, len; int kind; double gap; } wait_hop_t;
+typedef struct { double t, x, y, amp, lead; bool shut, dbl; } wait_peek_t;
+typedef struct {
+    wait_hop_t hop[400];
+    wait_peek_t peek[200];
+    double nudge[100];
+    int hops, peeks, nudges, snaps, overlap, outline[4];
+    double outline_s[4];
+} wait_log_t;
+
+static int outline_key(const bot_pose_t *p)
+{
+    double ratio = p->scale_y / p->scale_x;
+    int v = 0;
+    if (fabs(ratio - 1) >= 0.015) {
+        double best = fabs(ratio - 1);
+        for (int k = -BOT_RIM_STEPS; k <= BOT_RIM_STEPS; k++) {
+            double sx, sy;
+            bot_rim_variant(k, &sx, &sy);
+            if (fabs(ratio - sy / sx) < best) { best = fabs(ratio - sy / sx); v = k; }
+        }
+    }
+    return v * 1000 + bot_rim_dy(p, 196, 0.45);
+}
+
+static void wait_run(bot_t *b, double t0, double secs, double dt, wait_log_t *w)
+{
+    memset(w, 0, sizeof *w);
+    int key = 1 << 30, prev = 0;
+    for (double t = t0; t < t0 + secs; t += dt) {
+        bot_t was = *b;
+        bot_pose_t p = bot_pose(b, t);
+        int ph = b->w_phase;
+        int k = outline_key(&p);
+        if (k != key && t > t0) w->outline[ph]++;
+        w->outline_s[ph] += dt;
+        prev = key;
+        key = k;
+        double nu = t - b->nudge_at;
+        w->overlap += nu >= 0 && nu < BOT_NUDGE_S && b->hopping;
+        if (b->hop_start != was.hop_start && b->hopping && w->hops < 400) {
+            wait_hop_t *h = &w->hop[w->hops++];
+            h->t = t;
+            h->h = b->hop_h;
+            h->len = b->hop_len;
+            h->kind = t >= was.burst_hop_at ? HOP_BURST : t >= was.next_rem_at ? HOP_REMIND : HOP_PLAIN;
+            h->gap = t - was.next_hop_at;
+            w->snaps += t > t0 && prev != 0;
+        }
+        if (b->gaze_start != was.gaze_start && t >= was.next_peek_at && w->peeks < 200) {
+            wait_peek_t *k2 = &w->peek[w->peeks++];
+            k2->t = t;
+            k2->x = b->gaze_to_x;
+            k2->y = b->gaze_to_y;
+            k2->amp = hypot(b->gaze_to_x - b->gaze_from_x, b->gaze_to_y - b->gaze_from_y);
+            k2->lead = b->gaze_start - t;
+            k2->dbl = b->blinking && b->double_blink_pending;
+            bot_t c = *b;
+            bot_pose_t q = bot_pose(&c, b->gaze_start + 1e-6);
+            k2->shut = q.lid_l >= 0.9 - 1e-9 && q.lid_r >= 0.9 - 1e-9;
+        }
+        if (b->nudge_at != was.nudge_at && w->nudges < 100) w->nudge[w->nudges++] = t;
+    }
+}
+
+static int cmp_dbl(const void *a, const void *b)
+{
+    double x = *(const double *)a, y = *(const double *)b;
+    return x < y ? -1 : x > y;
+}
+
+static void test_wait_phases(void)
+{
+    static wait_log_t w;
+    const double dt = 1.0 / 120;
+    int plain_a = 0, dbl_a = 0, bad = 0, peeks = 0, covered = 0, nudges = 0;
+    double gaps_a[2000], gaps_b[400], ngap[400];
+    int na = 0, nb = 0, nn = 0;
+    double hlo = 9, hhi = 0, llo = 9, lhi = 0, out_s[4] = {0}, out_n[4] = {0};
+    for (int seed = 0; seed < 12; seed++) {
+        bot_t b;
+        bot_init(&b, 0x3A17 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WAITING, 1);
+        wait_run(&b, 1, 620, dt, &w);
+        CHECK(!w.snaps && !w.overlap, "seed %d: %d hops started off the base outline, %d frames nudge during a hop", seed, w.snaps,
+              w.overlap);
+        double prev = -1;
+        for (int i = 0; i < w.hops; i++) {
+            const wait_hop_t *h = &w.hop[i];
+            double el = h->t - 1;
+            if (h->kind == HOP_PLAIN) {
+                hlo = fmin(hlo, h->h); hhi = fmax(hhi, h->h);
+                llo = fmin(llo, h->len); lhi = fmax(lhi, h->len);
+                if (i == 0) bad += fabs(el - 0.6) > dt;
+                bad += h->gap > 0.21;
+                if (el >= BOT_WAIT_C_S) bad++;
+                if (prev >= 0 && el < BOT_WAIT_B_S) gaps_a[na++] = h->t - prev;
+                if (prev >= 0 && prev - 1 >= BOT_WAIT_B_S && na + nb < 2400) gaps_b[nb++] = h->t - prev;
+                if (el < BOT_WAIT_B_S) plain_a++;
+                prev = h->t;
+            } else if (h->kind == HOP_BURST) {
+                const wait_hop_t *f = &w.hop[i - 1];
+                bool first = f->kind == HOP_PLAIN;
+                if (first) {
+                    dbl_a++;
+                    bad += f->t - 1 >= BOT_WAIT_B_S || h->t - f->t < f->len || h->t - f->t > f->len + 2 * dt || h->h != 0.6;
+                } else {
+                    bad += f->kind != HOP_REMIND || h->t - f->t < fmax(1.05, f->len) || h->t - f->t > fmax(1.05, f->len) + 2 * dt || h->h != 1;
+                }
+                bad += h->len < 0.9 || h->len > 1.1;
+            } else {
+                double r = fmod(el, BOT_WAIT_REMIND_S);
+                bad += el < BOT_WAIT_REMIND_S - dt || (r > BOT_NUDGE_S + dt && r < BOT_WAIT_REMIND_S - dt) || h->h != 1;
+            }
+        }
+        int rem = 0;
+        for (int i = 0; i < w.hops; i++) rem += w.hop[i].kind == HOP_REMIND;
+        CHECK(rem == 2, "seed %d: %d reminders in 620 s, want 2 (300 s and 600 s)", seed, rem);
+        double lastp = -1;
+        for (int i = 0; i < w.peeks; i++) {
+            const wait_peek_t *k = &w.peek[i];
+            double el = k->t - 1;
+            peeks++;
+            bad += el < BOT_WAIT_B_S + 1.5 - dt || el >= BOT_WAIT_C_S;
+            if (i == 0) bad += el > BOT_WAIT_B_S + 3 + dt;
+            if (lastp >= 0) bad += k->t - lastp < 4 - dt || k->t - lastp > 6 + dt;
+            lastp = k->t;
+            bad += fabs(k->x) > 0.05 + 1e-9 || fabs(k->y - 0.1) > 0.05 + 1e-9 || !k->dbl;
+            if (k->amp > 0.6) {
+                covered++;
+                bad += !k->shut || k->lead < 0 || k->lead > 0.092;
+            } else {
+                bad += k->lead != 0;
+            }
+        }
+        double lastn = -1;
+        for (int i = 0; i < w.nudges; i++) {
+            double el = w.nudge[i] - 1;
+            nudges++;
+            bad += el < BOT_WAIT_C_S + 1 - dt;
+            if (i == 0) bad += el > BOT_WAIT_C_S + 3 + dt;
+            if (lastn >= 0) ngap[nn++] = w.nudge[i] - lastn;
+            lastn = w.nudge[i];
+        }
+        for (int ph = 1; ph <= 3; ph++) { out_n[ph] += w.outline[ph]; out_s[ph] += w.outline_s[ph]; }
+    }
+    for (int seed = 0; seed < 150; seed++) {
+        bot_t b;
+        bot_init(&b, 0x3B00 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WAITING, 1);
+        wait_run(&b, 1, BOT_WAIT_B_S, dt, &w);
+        double prev = -1;
+        for (int i = 0; i < w.hops; i++) {
+            const wait_hop_t *h = &w.hop[i];
+            if (h->kind == HOP_PLAIN) {
+                plain_a++;
+                if (prev >= 0 && na < 2000) gaps_a[na++] = h->t - prev;
+                prev = h->t;
+            } else {
+                dbl_a += h->kind == HOP_BURST;
+            }
+        }
+    }
+    CHECK(!bad, "waiting phases: %d events off schedule", bad);
+    qsort(gaps_a, (size_t)na, sizeof gaps_a[0], cmp_dbl);
+    qsort(gaps_b, (size_t)nb, sizeof gaps_b[0], cmp_dbl);
+    qsort(ngap, (size_t)nn, sizeof ngap[0], cmp_dbl);
+    CHECK(na > 600 && gaps_a[0] >= 2 - dt && gaps_a[na - 1] <= 4.5 + 0.21 && fabs(gaps_a[na / 2] - 2.8) < 0.15,
+          "phase A: %d gaps %.2f-%.2f s, median %.2f, want 2-4.5, about 2.8", na, gaps_a[0], gaps_a[na - 1], gaps_a[na / 2]);
+    CHECK(nb > 100 && gaps_b[0] >= 5 - dt && gaps_b[nb - 1] <= 14 + 0.21 && fabs(gaps_b[nb / 2] - 8) < 0.8,
+          "phase B: %d gaps %.2f-%.2f s, median %.2f, want 5-14, about 8", nb, gaps_b[0], gaps_b[nb - 1], gaps_b[nb / 2]);
+    double share = (double)dbl_a / plain_a;
+    CHECK(share > 0.21 && share < 0.29, "phase A: %d double hops of %d, %.2f, want about 0.25", dbl_a, plain_a, share);
+    CHECK(hlo >= 0.8 && hhi <= 1.15 && hhi - hlo > 0.3 && llo >= 0.9 && lhi <= 1.1 && lhi - llo > 0.17,
+          "hop jitter: height %.3f-%.3f, length %.3f-%.3f", hlo, hhi, llo, lhi);
+    CHECK(peeks > 12 * 25 && covered > 0, "phase B: %d peeks, %d covered", peeks, covered);
+    CHECK(nn > 100 && ngap[0] >= 12 - dt && ngap[nn - 1] <= 20 + 2.5 && nudges > 12 * 20, "phase C: %d nudges, gaps %.2f-%.2f s", nudges,
+          ngap[0], ngap[nn - 1]);
+    double a = out_n[1] / out_s[1] * 60, bm = out_n[2] / out_s[2] * 60, c = out_n[3] / out_s[3] * 60;
+    double all = (out_n[1] + out_n[2] + out_n[3]) / (out_s[1] + out_s[2] + out_s[3]) * 60;
+    printf("waiting: hop gaps A median %.2f s (%d), B %.2f s (%d), %.0f %% double; %d peeks (%d covered), %d nudges %.1f-%.1f s apart; "
+           "outline moves/min A %.0f, B %.0f, C %.1f, 0-620 s %.1f\n",
+           gaps_a[na / 2], na, gaps_b[nb / 2], nb, 100 * share, peeks, covered, nudges, ngap[0], ngap[nn - 1], a, bm, c, all);
+    CHECK(c < a / 20 && bm < a / 2 && all < 200, "outline moves/min: A %.0f, B %.0f, C %.1f, all %.1f", a, bm, c, all);
+}
+
+static void test_wait_nudge(void)
+{
+    bot_t b;
+    bot_init(&b, 0x4E, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    double t = 0, dt = 1.0 / 1000;
+    for (; t < BOT_WAIT_C_S + 30 && b.nudge_at < 0; t += 1.0 / 60) bot_pose(&b, t);
+    CHECK(b.nudge_at >= BOT_WAIT_C_S + 1 && b.nudge_at <= BOT_WAIT_C_S + 3 + 0.02, "first nudge at %.2f s", b.nudge_at);
+    double n0 = b.nudge_at, m2x, m2y, p1x, p1y, peak = 0, peak_at = 0;
+    bot_rim_variant(-2, &m2x, &m2y);
+    bot_rim_variant(1, &p1x, &p1y);
+    int bad = 0, keys[3] = {0};
+    for (t = n0; t < n0 + 0.5; t += dt) {
+        bot_pose_t p = bot_pose(&b, t);
+        double u = t - n0;
+        int k = u < 0.1 ? 0 : u < 0.2 ? 1 : 2;
+        double sx = k == 0 ? m2x : k == 1 ? p1x : 1, sy = k == 0 ? m2y : k == 1 ? p1y : 1;
+        bad += fabs(p.scale_x - sx) > 1e-12 || fabs(p.scale_y - sy) > 1e-12 || p.hop_dy != 0 || bot_rim_dy(&p, 196, 0.45) != 0;
+        keys[k] = outline_key(&p);
+        if (p.badge > peak) { peak = p.badge; peak_at = u; }
+        if (u >= BOT_NUDGE_S) bad += p.badge != 1;
+    }
+    CHECK(!bad, "nudge: %d frames off the -2, +1, base sequence or the badge", bad);
+    CHECK(keys[0] == -2000 && keys[1] == 1000 && keys[2] == 0, "nudge: outline variants %d, %d, %d", keys[0], keys[1], keys[2]);
+    CHECK(fabs(peak - 1.18) < 1e-3 && fabs(peak_at - BOT_NUDGE_S / 2) < 0.002, "badge pulse peaks at %.4f at %.3f s", peak, peak_at);
+    CHECK(fabs(m2x - 1.03) < 1e-12 && fabs(m2y - 0.958) < 1e-12 && fabs(p1x - 0.9895) < 1e-12 && fabs(p1y - 1.015) < 1e-12,
+          "variant -2 %.4f x %.4f, +1 %.4f x %.4f", m2x, m2y, p1x, p1y);
+
+    double n1 = b.next_nudge_at;
+    for (t = n0 + 0.5; t < n1 + 0.02; t += 1.0 / 60) bot_pose(&b, t);
+    CHECK(b.nudge_at > n0, "a second nudge");
+    double nt = b.nudge_at;
+    bot_set_mood(&b, BOT_DONE, nt + 0.05);
+    bot_pose_t q = bot_pose(&b, nt + 0.06);
+    CHECK(fabs(q.scale_y / q.scale_x - 1) < 1e-9, "a mood change ends the nudge (ratio %.4f)", q.scale_y / q.scale_x);
+}
+
+static void wait_to(bot_t *b, double *t, double until)
+{
+    for (; *t < until; *t += 1.0 / 60) bot_pose(b, *t);
+}
+
+static void test_wait_restart(void)
+{
+    static wait_log_t w;
+    bot_t b;
+    bot_init(&b, 0x5E, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    double t = 0;
+    wait_to(&b, &t, 200);
+    CHECK(b.w_phase == 3, "phase C at 200 s, got %d", b.w_phase);
+    bot_wait_restart(&b, t);
+    CHECK(b.w_t0 == 0, "phase C before a reminder period: no restart");
+    wait_to(&b, &t, 320);
+    bot_wait_restart(&b, t);
+    wait_run(&b, t, 25, 1.0 / 120, &w);
+    CHECK(w.hops >= 5 && fabs(w.hop[0].t - t - 0.6) < 0.01 && w.nudges == 0 && b.w_phase == 2,
+          "restart: phase A again, first hop %.2f s after, %d hops, %d nudges", w.hops ? w.hop[0].t - t : -1, w.hops, w.nudges);
+
+    bot_init(&b, 0x65, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
+    wait_to(&b, &t, 10);
+    double w0 = b.w_t0;
+    bot_wait_restart(&b, t);
+    wait_to(&b, &t, 100);
+    bot_wait_restart(&b, t);
+    CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart");
+    wait_to(&b, &t, BOT_WAIT_REMIND_S - 1);
+    double h0 = b.hop_start;
+    for (; b.hop_start == h0; t += 1.0 / 120) bot_pose(&b, t);
+    bot_wait_restart(&b, b.hop_start + 0.05);
+    double first = b.hop_start, end = first + b.hop_len;
+    wait_run(&b, t, 3, 1.0 / 120, &w);
+    CHECK(!w.snaps && w.hops >= 1 && w.hop[0].t >= end - 1e-9 && w.hop[0].t < end + 0.02 && b.burst_hop_at == INFINITY,
+          "a restart mid-reminder: the reminder's second hop dropped, the next hop after its end (%.3f s, ends %.3f s)",
+          w.hops ? w.hop[0].t - first : -1, end - first);
+
+    static const double every[] = {0.5, 2.5, 7.5, 60};
+    for (size_t i = 0; i < sizeof every / sizeof every[0]; i++) {
+        int hops = 0, c_seen = 0;
+        for (int seed = 0; seed < 4; seed++) {
+            bot_init(&b, 0x66 + (uint64_t)seed, 0);
+            bot_set_mood(&b, BOT_WAITING, 0);
+            double next = every[i];
+            for (t = 0; t < 1200; t += 1.0 / 60) {
+                bot_t was = b;
+                bot_pose(&b, t);
+                hops += b.hop_start != was.hop_start && b.hopping;
+                c_seen += b.w_phase == 3 && was.w_phase != 3;
+                if (t >= next) {
+                    bot_wait_restart(&b, t);
+                    next += every[i];
+                }
+            }
+        }
+        double rate = hops / (4 * 1200.0);
+        printf("waiting with a restart every %.1f s: %.3f hops/s (0.9.72 about 0.22), phase C reached %d times in 4 x 20 min\n", every[i], rate,
+               c_seen);
+        CHECK(rate < 0.12 && c_seen >= 4 * 3, "restart every %.1f s: %.3f hops/s, phase C %d times", every[i], rate, c_seen);
+    }
+
+    bot_t o;
+    bot_init(&o, 0x5F, 0);
+    bot_set_mood(&o, BOT_ERROR, 0);
+    for (t = 0; t < 30; t += 1.0 / 60) bot_pose(&o, t);
+    bot_t c = o;
+    bot_wait_restart(&o, t);
+    CHECK(memcmp(&c, &o, sizeof c) == 0, "restart outside waiting changes nothing");
+
+    bot_init(&b, 0x60, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
+    wait_to(&b, &t, 200);
+    bot_set_mood(&b, BOT_DONE, t);
+    wait_to(&b, &t, 205);
+    bot_set_mood(&b, BOT_WAITING, t);
+    double t1 = t;
+    wait_to(&b, &t, t1 + 1);
+    CHECK(b.w_phase == 1 && b.w_t0 == t1, "a new waiting mood starts at phase A");
+
+    bot_init(&b, 0x61, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
+    wait_to(&b, &t, 200);
+    bot_set_calm(&b, true, t);
+    wait_run(&b, t, 400, 1.0 / 60, &w);
+    CHECK(w.hops == 0 && w.nudges == 0, "calm: %d hops and %d nudges (a reminder at 300 s too)", w.hops, w.nudges);
+    t += 400;
+    bot_set_calm(&b, false, t);
+    wait_run(&b, t, 30, 1.0 / 60, &w);
+    CHECK(w.hops >= 5 && fabs(w.hop[0].t - t - 0.6) < 0.02 && w.peeks >= 1, "calm off: phase A again (%d hops), then B (%d peeks)",
+          w.hops, w.peeks);
+    bot_init(&b, 0x62, 0);
+    bot_set_calm(&b, true, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    wait_run(&b, 0, 60, 1.0 / 60, &w);
+    CHECK(w.hops == 0 && w.peeks >= 5, "calm: peeks go on (%d), hops don't (%d)", w.peeks, w.hops);
+
+    bot_init(&b, 0x63, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
+    wait_to(&b, &t, 30);
+    double tl = t;
+    bot_look(&b, 0.8, 0.5, tl);
+    b.next_peek_at = tl + 1;
+    int moved = 0;
+    for (; t < tl + 2.5; t += 1.0 / 120) {
+        bot_t was = b;
+        bot_pose(&b, t);
+        moved += b.gaze_start != was.gaze_start && t >= was.next_peek_at;
+    }
+    CHECK(!moved && b.next_peek_at >= tl + 5 - 0.01 && b.next_peek_at <= tl + 7 + 0.01,
+          "a knob look holds peeks for 2.5 s (%d moved), the peek skipped to %.2f s after", moved, b.next_peek_at - tl);
+    bot_init(&b, 0x64, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
+    wait_to(&b, &t, 25);
+    bot_act_begin(&b, t);
+    wait_run(&b, t, 20, 1.0 / 120, &w);
+    CHECK(w.peeks == 0, "acting: no peeks (%d)", w.peeks);
+}
+
+static void test_wait_demo(void)
+{
+    static wait_log_t w;
+    int nudged = 0, reminded = 0, peeked = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        bot_t b;
+        bot_init(&b, 0x70 + (uint64_t)seed, 0);
+        bot_wait_scene(&b, 1, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        wait_run(&b, 0, 60, 1.0 / 120, &w);
+        int rem = 0, ph3 = 0;
+        for (int i = 0; i < w.hops; i++) rem += w.hop[i].kind == HOP_REMIND && w.hop[i].t >= BOT_WAIT_DEMO_REMIND_S && w.hop[i].t < BOT_WAIT_DEMO_REMIND_S + BOT_NUDGE_S + 0.01;
+        for (int i = 0; i < w.hops; i++) ph3 += w.hop[i].kind == HOP_PLAIN && w.hop[i].t >= BOT_WAIT_DEMO_C_S;
+        CHECK(!ph3 && w.nudge[0] >= BOT_WAIT_DEMO_C_S + 1 && w.nudge[0] <= BOT_WAIT_DEMO_C_S + 3 + 0.01,
+              "demo seed %d: phase C from 35 s (first nudge %.2f, %d hops after)", seed, w.nudges ? w.nudge[0] : -1, ph3);
+        for (int i = 0; i < w.peeks; i++) peeked += w.peek[i].t >= BOT_WAIT_B_S && w.peek[i].t < BOT_WAIT_DEMO_C_S;
+        nudged += w.nudges >= 2;
+        reminded += rem == 1;
+    }
+    CHECK(nudged == 20 && reminded == 20 && peeked >= 20 * 2,
+          "demo, 60 s hold: %d of 20 with 2 nudges, %d with the reminder at 50 s, %d peeks in phase B", nudged, reminded, peeked);
+
+    bot_t b;
+    bot_init(&b, 0x90, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    double t = 0;
+    wait_to(&b, &t, 10);
+    bot_wait_scene(&b, 1, t);
+    CHECK(b.w_t0 == t && b.w_scene == 1, "a demo starting mid-waiting restarts it");
+    double t0 = t;
+    bot_wait_scene(&b, 1, t + 5);
+    CHECK(b.w_t0 == t0, "the same scene: no restart");
+    wait_to(&b, &t, t0 + 40);
+    CHECK(b.w_phase == 3, "demo: phase C at 40 s");
+    bot_wait_scene(&b, 2, t);
+    double t2 = t;
+    wait_to(&b, &t, t2 + 1);
+    CHECK(b.w_t0 == t2 && b.w_phase == 1, "a scene replaced by the next in the same frame: phase A again");
+    wait_to(&b, &t, t2 + 40);
+    bot_wait_scene(&b, 0, t);
+    wait_to(&b, &t, t + 40);
+    CHECK(b.w_phase == 2, "demo over: real timings again, phase B at 40 s");
+}
+
 int main(void)
 {
+    test_wait_phases();
+    test_wait_nudge();
+    test_wait_restart();
+    test_wait_demo();
     test_reading();
     test_reading_redraws();
     test_reading_open_steps();

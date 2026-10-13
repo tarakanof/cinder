@@ -32,11 +32,16 @@ typedef struct {
     char text[EMBER_HOST_MAX + 1];
     int32_t color;   /* 0xRRGGBB; -1 = use the mood colour */
     uint8_t tool;
+    char lead[EMBER_HOST_MAX + 1];
+    int hosts;
 } ember_host_info_t;
 
 void ember_host_lead_label(const char *source, const char *lead, int hosts, char *out, size_t cap);
 
 int32_t ember_host_color(const char *hex);
+
+/* A new lead name, or more hosts than before. */
+bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now);
 
 ember_tool_t ember_host_tool(const char *s);
 

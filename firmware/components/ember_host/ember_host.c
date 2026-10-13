@@ -144,6 +144,11 @@ void ember_host_lead_label(const char *source, const char *lead, int hosts, char
     strlcat_(out, suffix, cap);
 }
 
+bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now)
+{
+    return strcmp(was->lead, now->lead) != 0 || now->hosts > was->hosts;
+}
+
 int32_t ember_host_color(const char *hex)
 {
     if (!hex || hex[0] != '#' || strlen(hex) != 7) return -1;

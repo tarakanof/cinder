@@ -26,9 +26,13 @@
 #define MARK_X 0.0
 #define COVER_AMP 0.6
 #define LID_SHUT 0.9
+#define WAIT_FIRST_HOP_S 0.6
+#define BURST_H 0.6
+#define REMIND_GAP_S 1.05
+#define PULSE 0.18
 
 enum { EASE_IN_OUT, EASE_OUT_BACK };
-enum { SAC_NORMAL, SAC_GLIDE, SAC_MICRO, SAC_SWEEP, SAC_TURN };
+enum { SAC_NORMAL, SAC_GLIDE, SAC_MICRO, SAC_SWEEP, SAC_TURN, SAC_PEEK };
 
 static uint64_t rng_next(bot_t *b)
 {
@@ -328,7 +332,7 @@ static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
     b->fix_x = tx; b->fix_y = ty;
     b->gaze_dur = glide ? 0.42 : 0.025 + 0.045 * amp;
     b->gaze_ease = glide ? EASE_IN_OUT : EASE_OUT_BACK;
-    if (kind == SAC_TURN || (kind == SAC_SWEEP && amp > COVER_AMP)) {
+    if (kind == SAC_TURN || kind == SAC_PEEK || (kind == SAC_SWEEP && amp > COVER_AMP)) {
         double lead = blink_cover(b, t);
         if (amp > COVER_AMP) b->gaze_start += lead;
     } else if (!glide && amp > 0.8 && !b->blinking && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
@@ -395,6 +399,83 @@ static void sleep_resume(bot_t *b, double t)
     b->sleep_left = -1;
 }
 
+static void start_hop(bot_t *b, double t, double h, double len)
+{
+    b->hopping = true;
+    b->hop_start = t;
+    b->hop_h = h;
+    b->hop_len = len;
+}
+
+static void wait_restart(bot_t *b, double t)
+{
+    b->w_t0 = t;
+    b->w_phase = 1;
+    b->next_hop_at = fmin(b->next_hop_at, t + WAIT_FIRST_HOP_S);
+    b->burst_hop_at = b->next_peek_at = b->next_nudge_at = b->next_rem_at = INFINITY;
+}
+
+static void peek(bot_t *b, double t)
+{
+    double x = VIEWER_X + jitter(b, 0.05), y = VIEWER_Y + jitter(b, 0.05);
+    if (b->acting || b->tracking || t < b->gaze_hold) return;
+    start_saccade_to(b, t, SAC_PEEK, x, y);
+    b->double_blink_pending = true;
+}
+
+static void wait_tick(bot_t *b, double t)
+{
+    if (b->mood != BOT_WAITING) return;
+    double c = b->w_scene ? BOT_WAIT_DEMO_C_S : BOT_WAIT_C_S, rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
+    double el = t - b->w_t0;
+    int ph = el < BOT_WAIT_B_S ? 1 : el < c ? 2 : 3;
+    if (ph != b->w_phase) {
+        b->w_phase = ph;
+        if (ph == 2) b->next_peek_at = t + rng_range(b, 1.5, 3);
+        if (ph == 3) {
+            b->next_hop_at = b->next_peek_at = INFINITY;
+            b->next_nudge_at = t + rng_range(b, 1, 3);
+            b->next_rem_at = b->w_t0 + rem;
+        }
+    }
+    bool loud = bot_anim_allowed(BOT_ANIM_WAIT_HOP, b->calm);
+    if (t >= b->next_hop_at && !b->hopping) {
+        double h = rng_range(b, 0.8, 1.15), len = rng_range(b, 0.9, 1.1);
+        if (loud) start_hop(b, t, h, len);
+        if (ph == 1) {
+            if (rng_unit(b) < 0.25 && loud) {
+                b->burst_hop_at = t + len;
+                b->burst_h = BURST_H;
+            }
+            b->next_hop_at = t + lognormal(b, 2.8, 0.25, 2, 4.5);
+        } else {
+            b->next_hop_at = ph == 2 ? t + lognormal(b, 8, 0.3, 5, 14) : INFINITY;
+        }
+    }
+    if (t >= b->burst_hop_at && !b->hopping) {
+        double len = rng_range(b, 0.9, 1.1);
+        if (loud) start_hop(b, t, b->burst_h, len);
+        b->burst_hop_at = INFINITY;
+    }
+    if (ph == 2 && t >= b->next_peek_at) {
+        peek(b, t);
+        b->next_peek_at = t + rng_range(b, 4, 6);
+    }
+    if (ph == 3 && t >= b->next_nudge_at && !b->hopping && b->burst_hop_at == INFINITY) {
+        if (loud) b->nudge_at = t;
+        b->next_nudge_at = t + rng_range(b, 12, 20);
+    }
+    if (ph == 3 && t >= b->next_rem_at && !b->hopping && t - b->nudge_at >= BOT_NUDGE_S) {
+        double len = rng_range(b, 0.9, 1.1);
+        if (loud) {
+            start_hop(b, t, 1, len);
+            b->burst_hop_at = t + fmax(REMIND_GAP_S, len);
+            b->burst_h = 1;
+        }
+        b->next_rem_at += rem;
+    }
+}
+
 static void enter(bot_t *b, bot_mood_t m, double t)
 {
     bool waking = b->mood == BOT_SLEEPY;
@@ -427,7 +508,10 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     b->pop_start = t;
     if (m == BOT_WORKING) b->rd_turn = true;
     start_saccade(b, t, true);
-    b->next_hop_at = m == BOT_WAITING && bot_anim_allowed(BOT_ANIM_WAIT_HOP, b->calm) ? t + 0.6 : INFINITY;
+    b->w_phase = 0;
+    b->next_hop_at = b->burst_hop_at = INFINITY;
+    b->nudge_at = -INFINITY;
+    if (m == BOT_WAITING) wait_restart(b, t);
 }
 
 void bot_set_sleep_after(bot_t *b, double s) { b->sleep_after_s = s < 0 ? 0 : s; }
@@ -445,8 +529,20 @@ void bot_set_calm(bot_t *b, bool calm, double t)
 {
     if (calm == b->calm) return;
     b->calm = calm;
-    if (calm) b->next_hop_at = INFINITY;
-    else if (b->mood == BOT_WAITING) b->next_hop_at = t + 0.6;
+    if (!calm) bot_wait_restart(b, t);
+}
+
+void bot_wait_restart(bot_t *b, double t)
+{
+    double rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
+    if (b->mood == BOT_WAITING && t - b->w_t0 >= rem) wait_restart(b, t);
+}
+
+void bot_wait_scene(bot_t *b, unsigned scene, double t)
+{
+    if (scene == b->w_scene) return;
+    b->w_scene = scene;
+    if (b->mood == BOT_WAITING) wait_restart(b, t);
 }
 
 void bot_init(bot_t *b, uint64_t seed, double now)
@@ -475,7 +571,11 @@ void bot_init(bot_t *b, uint64_t seed, double now)
     b->asleep_at = INFINITY;
     b->sleep_left = -1;
     b->act_eyes = -1;
-    b->next_hop_at = INFINITY;
+    b->next_hop_at = b->burst_hop_at = INFINITY;
+    b->next_peek_at = b->next_nudge_at = b->next_rem_at = INFINITY;
+    b->nudge_at = b->gaze_hold = -INFINITY;
+    b->hop_h = 1;
+    b->hop_len = HOP_LEN_S;
     b->animating = true;
 }
 
@@ -507,11 +607,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
         if (t + 0.05 < b->next_saccade_at) start_micro(b, t);
         else b->next_micro_at = b->next_saccade_at + MICRO_HOLD_S;
     }
-    if (t >= b->next_hop_at) {
-        b->hopping = true;
-        b->hop_start = t;
-        b->next_hop_at = t + lognormal(b, 4.5, 0.35, 2.5, 9);
-    }
+    wait_tick(b, t);
 
     breathe(b, t);
     bot_pose_t p = {.mood = b->mood, .scale_x = 1, .scale_y = 1, .breath = b->breath, .asleep = b->asleep};
@@ -555,13 +651,13 @@ bot_pose_t bot_pose(bot_t *b, double t)
 
     if (b->hopping) {
         double u = t - b->hop_start;
-        if (u < HOP_LEN_S) {
+        if (u < b->hop_len) {
             double sx, sy, dy;
-            hop_curve(u * HOP_CURVE_LEN / HOP_LEN_S, &sx, &sy, &dy);
+            hop_curve(u * HOP_CURVE_LEN / b->hop_len, &sx, &sy, &dy);
             p.scale_x *= 1 + (sx - 1) * BOT_HOP_SQUASH;
             p.scale_y *= 1 + (sy - 1) * BOT_HOP_SQUASH;
-            p.offset_y += dy;
-            p.hop_dy = dy;
+            p.offset_y += dy * b->hop_h;
+            p.hop_dy = dy * b->hop_h;
         } else {
             b->hopping = false;
         }
@@ -575,7 +671,17 @@ bot_pose_t bot_pose(bot_t *b, double t)
             b->popping = false;
         }
     }
-    b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping ||
+    double nu = t - b->nudge_at;
+    bool nudging = nu >= 0 && nu < BOT_NUDGE_S;
+    if (nudging) {
+        double sx = 1, sy = 1;
+        if (nu < 0.1) bot_rim_variant(-2, &sx, &sy);
+        else if (nu < 0.2) bot_rim_variant(1, &sx, &sy);
+        p.scale_x *= sx;
+        p.scale_y *= sy;
+        p.badge *= 1 + PULSE * sin(M_PI * nu / BOT_NUDGE_S);
+    }
+    b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping || nudging ||
                    tween_active(&b->triangle, t) || tween_active(&b->slump, t) || tween_active(&b->badge, t) ||
                    tween_active(&b->lean_x, t) || tween_active(&b->lean_y, t) || tween_active(&b->act_lid, t) ||
                    tween_active(&b->sleep_lid, t);
@@ -588,7 +694,7 @@ void bot_look(bot_t *b, double x, double y, double t)
     if (b->acting) return;
     rouse(b, t);
     start_saccade_to(b, t, SAC_NORMAL, x, y);
-    b->next_saccade_at = t + 2.5;
+    b->next_saccade_at = b->gaze_hold = t + 2.5;
 }
 
 #define TRACK_OMEGA 14.0
@@ -606,7 +712,7 @@ void bot_track(bot_t *b, double x, double y, double t)
     }
     b->trk_x = x;
     b->trk_y = y;
-    b->next_saccade_at = t + 2.5;
+    b->next_saccade_at = b->gaze_hold = t + 2.5;
 }
 
 void bot_track_end(bot_t *b, double t)
@@ -619,7 +725,7 @@ void bot_track_end(bot_t *b, double t)
     b->gaze_dur = 0;
     b->fix_x = b->trk_gx;
     b->fix_y = b->trk_gy;
-    b->next_saccade_at = t + 1.0;
+    b->next_saccade_at = b->gaze_hold = t + 1.0;
     b->next_micro_at = t + MICRO_HOLD_S;
 }
 
@@ -634,7 +740,7 @@ void bot_look_still(bot_t *b, double x, double y, double t)
     start_saccade_to(b, t, SAC_NORMAL, x, y);
     b->lean_x = tween(tween_value(&b->lean_x, t), 0, t, 0.2, EASE_IN_OUT);
     b->lean_y = tween(tween_value(&b->lean_y, t), 0, t, 0.2, EASE_IN_OUT);
-    b->next_saccade_at = t + 2.5;
+    b->next_saccade_at = b->gaze_hold = t + 2.5;
 }
 
 void bot_read_moment(bot_t *b, bool on, double t)
@@ -661,6 +767,7 @@ void bot_hold_gaze(bot_t *b, double until)
 {
     if (b->next_saccade_at < until) b->next_saccade_at = until;
     if (b->next_micro_at < until) b->next_micro_at = until;
+    if (b->gaze_hold < until) b->gaze_hold = until;
 }
 
 static void track_step(bot_t *b, double t)
@@ -683,15 +790,11 @@ void bot_push(bot_t *b, double t)
 {
     if (b->acting || !bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
     rouse(b, t);
-    b->hopping = true; b->hop_start = t;
+    start_hop(b, t, 1, HOP_LEN_S);
     b->popping = true; b->pop_start = t;
 }
 
-void bot_hop(bot_t *b, double t)
-{
-    b->hopping = true;
-    b->hop_start = t;
-}
+void bot_hop(bot_t *b, double t) { start_hop(b, t, 1, HOP_LEN_S); }
 
 void bot_pop(bot_t *b, double t)
 {
@@ -749,6 +852,13 @@ int bot_rim_dy(const bot_pose_t *p, double radius_px, double hop_scale)
     double x = -radius_px * p->hop_dy * hop_scale;
     int even = 2 * (int)floor(fabs(x) / 2 + 0.5);
     return x < 0 ? -even : even;
+}
+
+void bot_rim_variant(int step, double *sx, double *sy)
+{
+    double u = (double)step / BOT_RIM_STEPS, q = BOT_HOP_SQUASH;
+    *sx = u < 0 ? 1 - 0.10 * q * u : 1 - 0.07 * q * u;
+    *sy = u < 0 ? 1 + 0.14 * q * u : 1 + 0.10 * q * u;
 }
 
 bool bot_label_mark(bot_mood_t m) { return m != BOT_ERROR; }
@@ -810,11 +920,7 @@ void bot_act_blink(bot_t *b, double speed, double t)
     b->double_blink_pending = false;
 }
 
-void bot_act_hop(bot_t *b, double t)
-{
-    b->hopping = true;
-    b->hop_start = t;
-}
+void bot_act_hop(bot_t *b, double t) { start_hop(b, t, 1, HOP_LEN_S); }
 
 void bot_act_end(bot_t *b, bool glide, double lid_dur, double t)
 {

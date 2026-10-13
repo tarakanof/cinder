@@ -130,6 +130,9 @@ _Static_assert(WXM_GLANCE == 1 && WXM_STORM == 9 && WXF_TEMP == 0 && WXF_AIR == 
 #define SCENE_NEXT_S 1.5
 typedef enum { SCENE_ACT_WAIT, SCENE_ACT_RUN, SCENE_ACT_DONE } scene_act_st_t;
 static bool s_scene_on;
+static unsigned s_scene_n;
+static bool s_bot_shown;
+static ember_host_info_t s_wait_host;
 static unsigned s_scene_gen;
 static demo_act_t s_scene_act;
 static scene_act_st_t s_scene_act_st;
@@ -502,6 +505,7 @@ static void page_fx_frame(double t)
 void page_bot_show(bool on)
 {
     if (!s_bot_page) return;
+    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;
     if (on) lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     if (on) s_drawn = false;
@@ -774,6 +778,9 @@ void page_bot_frame(const page_frame_t *f)
     const gc_out_t *chase = &f->chase;
     ember_host_info_t host;
     ember_client_host(&host);
+    if (s_bot_shown || ember_host_lead_new(&s_wait_host, &host)) bot_wait_restart(&s_bot, t);
+    s_bot_shown = false;
+    s_wait_host = host;
     bot_view_set_host(&host);
     bot_view_set_offline(f->offline);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
@@ -936,6 +943,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
+    bot_wait_scene(&s_bot, s_scene_on ? s_scene_n : 0, t);
     if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);
     else if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
     else if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
@@ -1052,6 +1060,7 @@ static void scene_end(double t)
 static void scene_start(const demo_block_t *b, double t)
 {
     s_scene_on = true;
+    if (!++s_scene_n) s_scene_n = 1;
     s_scene_resume_at = 0;
     s_scene_act = b->act;
     s_scene_act_st = SCENE_ACT_WAIT;
