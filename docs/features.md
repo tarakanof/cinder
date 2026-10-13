@@ -74,7 +74,7 @@ The second batch of [`bot-review.md`](bot-review.md), matched to BotNext (`desig
 
 The third batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design/faces/canvas/BotNext.dc.html`, its `workingTarget`).
 
-- **Lines** (`bot_behavior.c` `read_target`, `rd_line`, `rd_lines`, `rd_steps`, `rd_turn` in `bot_t`): a line is 3-6 forward steps (`rd_steps`, uniform) of +0.18-0.38 from x −0.65 ± 0.03, capped at 0.7; it ends when the steps run out or x reaches 0.7. Right of x −0.35 a step is a regression instead 12 % of the time: x −0.10-0.22, not counted as a step. Line y is −0.05 − 0.06·line (± 0.02 on every line, a new page's line 0 too), lines 0-4; a page's sixth line reads at line 4's y (BotNext lets it reach −0.35 ± 0.02, below the mark's bound). The return sweep to the next line's start (and a new page's first line, also on entering working) holds 1.3 × the usual working fixation (lognormal 0.9 s, so 0.46-2.6 s); being a big saccade it keeps the existing blink coupling (amplitude over 0.8, 60 %). x stays within the old reading range (±0.7).
+- **Lines** (`bot_behavior.c` `read_target`, `rd_line`, `rd_lines`, `rd_steps`, `rd_turn` in `bot_t`): a line is 3-6 forward steps (`rd_steps`, uniform) of +0.18-0.38 from x −0.65 ± 0.03, capped at 0.7; it ends when the steps run out or x reaches 0.7. Right of x −0.35 a step is a regression instead 12 % of the time: x −0.10-0.22, not counted as a step. Line y is −0.05 − 0.06·line (± 0.02 on every line, a new page's line 0 too), lines 0-4; a page's sixth line reads at line 4's y (BotNext lets it reach −0.35 ± 0.02, below the mark's bound). The return sweep to the next line's start (and a new page's first line, also on entering working) holds 1.3 × the usual working fixation (lognormal 0.9 s, so 0.46-2.6 s); being a big saccade it keeps the existing blink coupling (amplitude over 0.8, 60 %; since 0.9.71 a blink always covers it, #127 below). x stays within the old reading range (±0.7).
 - **Page turn**: after 4-6 lines (`rd_lines`, uniform) the bot glances up (x ± 0.08, y 0.3) or at the viewer (y 0.1), half each, for 1.2 s, with a blink (the coupled one, else a forced one when no blink is showing at that moment: a blink that ended between frames still has its flag set until later in the same `bot_pose`); the next saccade starts a new page at line 0. Entering working counts as a page turn already made, so its glide goes to line 0's start (BotNext rolls the entry like any saccade).
 - **Glances**: each saccade except a new page's first is 7 % at the viewer and 5 % at the Clawd mark (x ± 0.04, y −0.35, 0.6-1.0 s), BotNext's split; 0.9.69 had 10 % at the viewer and no mark. The gaze never goes below y −0.35: the working saccades whose `EASE_OUT_BACK` overshoot (7 % of the move) would cross it, every glance down to the mark among them, ease in-out instead, and a micro-saccade that would cross it flips its vertical step (same amplitude). BotNext overshoots to about −0.38 there.
 - **Rate**: the same saccade rate as 0.9.69 (a one-off host run of 20 seeds × 600 s: 0.982 → 0.956/s, −3 %: the longer return holds against shorter steps; `test_reading`'s 8 seeds give 0.959), so the device cost is unchanged or lower (redraws below). RNG: the reading state is drawn only on entering working, so every other mood gives the same poses as 0.9.69 for the same seed. No new pose field: the reading moves `gaze_x/y` and the lean, which `bot_pose_same` already quantises.
@@ -93,6 +93,44 @@ The third batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design
   | Frame max | median 47 ms (15–54) | to measure |
   | Internal free | 85.4 KB (85.1–85.5) | to measure |
   | Invalidated areas/s | not measured (#118) | not measured (#118) |
+
+### Big reading jumps behind a blink (#127, 0.9.71)
+
+The maintainer saw occasional tearing on the eyes in 0.9.70. There is no tear sync (#42), and a saccade lands 35-115 px in one 16 ms frame. 0.9.70 does not step more than 0.9.69, but its biggest moves are the return sweep (6.8/min, about 96 px), the new page (1.6/min, about 74 px) and the page turn (1.6/min, about 60 px, diagonal), and the page turn's forced blink did not hide its jump: the 54 ms saccade ended before the 75 ms lid close.
+
+- **Covered jumps** (`bot_behavior.c` `start_saccade_to`, `SAC_SWEEP` and `SAC_TURN`, `blink_cover`): a return sweep, a new page's first saccade or a page turn whose amplitude is over 0.6 (`COVER_AMP`) always blinks, and its saccade starts once both lids are 0.9 closed (`LID_SHUT`): 0.075 · √0.9 = 71 ms after the blink starts, plus the right eye's lag (0-20 ms), so 71-91 ms (79 ms on average). Duration (25 ms + 45 ms × amplitude) and `EASE_OUT_BACK` stay; the lean starts with the saccade, the fixation counts from its end. The blink is a fresh one without a double blink, the one already closing, or, when that one is already reopening, the same blink closed again from where each lid is (each eye's lid is continuous, so the right eye can lead: a negative `blink_lag`, which `blink_on` and the blink's end now handle; it is never negative in other moods). Covered jumps skip the old coupling (amplitude over 0.8, 60 %, which checked the stale `blinking` flag, #124); everything else keeps it.
+- **Page turns at 0.6 or less** (36 % of turns) keep their blink at the saccade's start, but now also get a fresh or re-closed blink when the one showing is past its close, so every turn shows both lids at 0.9 (#126: in 1.9 % of 0.9.70's turns a reopening blink suppressed the forced one).
+- **Unchanged**: forward steps, regressions, the mark and viewer glances (28 % of glances are over 0.6 and still move with open eyes; covering them would clash with BotNext), the entry glide, quiet weather moments (a covered jump that a moment cuts short lands at once, as before), the y ≥ −0.35 bound and every other mood (no RNG draw changes outside working; the 0.9.69 pose hashes still match).
+- **Steps** (host analysis, 20 seeds × 600 s of working at 16 ms, per redraw after `bot_pose_same`, worst eye bounding-box edge in px at r 195.7; "open" = an eye more than half open in both frames; per minute):
+
+  | Cause | 0.9.70 open > 8 px | 0.9.71 open > 8 px |
+  |---|---|---|
+  | Forward step | 37.9 | 37.6 |
+  | Regression | 3.1 | 3.2 |
+  | Return sweep | 16.9 | 0.15 |
+  | New page | 3.3 | 0.2 |
+  | Page turn | 2.9 | 0.95 |
+  | Viewer glance | 5.0 | 4.8 |
+  | Mark glance | 5.3 | 5.8 |
+  | Blink (lids) | 12.1 | 14.4 |
+  | Entry glide | 0.2 | 0.2 |
+  | **All** | **86.7** | **67.3** |
+
+  All steps over 8 px, open or shut: 111.9 → 122.2 a minute (the jumps now happen behind the lids). Edge step p99 75.4 → 62.4 px. Blinks 12.95 → 15.56 a minute. Saccades 0.950 → 0.941/s (−1.0 %: each covered jump waits 79 ms for the lids); `test_reading`'s 8 seeds: 0.959 → 0.946/s.
+- **Tests** (`test_bot.c`): `test_reading` now checks every return sweep, new page and page turn over 0.6 (747 in 8 seeds × 600 s): it blinks, both lids are ≥ 0.9 when it starts (pose at `gaze_start`), it starts 0-91 ms after it is chosen with the gaze and lean still where they were, its duration and easing are unchanged, no other saccade waits, and every page turn closes both lids to 0.9 (replacing the 50-70 % return-sweep blink check and the `blinking` flag count). `test_reading_open_steps` (10 seeds × 600 s at 16 ms after `bot_pose_same`, gaze, lean and scale steps only, at least one eye open): return sweeps and new pages under 1 a minute (0.24 and 0.12; 0.9.70 16.98 and 3.33), page turns under 1.5 (0.66; 2.86), all under 62 (53.3; 75.4). `test_reading_turn_blink` now turns pages on blinks of every phase (expired, reopening, closed, closing) and lag (0-20 ms), half of them from x 0.6 so the turn is over 0.6: both lids reach 0.9, those over 0.6 start shut, no lid moves more than 0.06 per ms or snaps open, and the blink ends within 0.6 s. `test_reading_redraws` now holds to 0.9.70's 13.51. Against 0.9.70's `bot_behavior.c` 8 checks fail. Mutants, each failing: no lead, a lead without the right eye's lag, no re-close, a re-close that restarts the blink (lid pops), a blink end that ignores a negative lag (lid snaps open), threshold 0.8, glances covered, the fixation or the turn's hold counted from the choice, the lean not delayed, double blinks kept (13.66 redraws/s), covering in every mood (pose hashes), small turns not closed, in-out easing.
+- **Redraws** (host sim): `test_reading_redraws` (10 seeds × 600 s) 13.51 → 13.39/s; the 20-seed analysis 13.51 → 13.31; `test_breath_redraws` (seed 77, 280 s) working 13.7 → 13.5 (11.7 → 11.5 without breath). Without the double-blink cut it was 13.65.
+- **Cost** (`idf.py size`, origin/main 0.9.70 at c253309 → this branch, same machine, IDF 5.5.5): image 1,709,703 → 1,710,971 B (+1,268, flash `.text`); DIRAM 102,479 B and PSRAM `.bss` unchanged (no new state). `stack_walk.py`: `lvgl` 8,608 (margin 1,888), `orbit` 2,192 and `moment` 3,424 unchanged.
+- **On the knob**: after the release, the same way as 0.9.70 (Ember's full diagnostics, 1 h, points after the first 5 min of uptime), plus Devices › Demo › Working (Hold on), watching return sweeps and page turns for tearing.
+
+  | | 0.9.70 (aggregate, 1 h) | 0.9.71 (aggregate, 1 h) |
+  |---|---|---|
+  | Core 0 load | to measure | to measure |
+  | Core 1 load | to measure | to measure |
+  | Render fps | to measure | to measure |
+  | Frame avg | to measure | to measure |
+  | Frame max | to measure | to measure |
+  | Internal free | to measure | to measure |
+  | Tearing seen in Demo › Working | yes (the report) | to check |
 
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
