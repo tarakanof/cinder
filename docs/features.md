@@ -167,7 +167,7 @@ The fourth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`desig
 
   BotNext in the review: 483 → 132 a minute over 0-600 s, and about twice today's moves in the first 20 s.
 - **Cost** (`idf.py size`, origin/main 0.9.72 at 1fdca91 → this branch, same machine, IDF 5.5.5): image 1,712,631 → 1,716,979 B (+4,348, flash `.text`); DIRAM 102,575 → 102,719 B (`.bss` +144: the new `bot_t` fields, the last lead seen and the scene number); PSRAM `.bss` unchanged. `stack_walk.py`: `lvgl` 8,608 (margin 1,888), `orbit` 2,192 and `moment` 3,424 unchanged; `ember` 5,120 (margin 1,792).
-- **On the knob** (0.9.73, 2026-10-14): Devices › Demo › Waiting (Hold) three times, 60 s each, live stats in 5 s samples; phases at demo timings (C from 35 s, reminder at 50 s). 0.9.72 is its held waiting from "Invalidated-area count (#118)". Every cell is the median of the 5 s samples (ranges in brackets), frame max is the highest.
+- **On the knob** (0.9.73, 2026-10-14): Devices › Demo › Waiting (Hold) three times, 60 s each, live stats in 5 s samples; phases at demo timings (C from 35 s, reminder at 50 s). 0.9.72 is its held waiting from "Invalidated-area count (#118)". Every cell is the median of the 5 s samples (ranges in brackets), frame max is the highest. Samples by end time after the demo start: A 4-21 s (9), B 24-36 s (6), C 39-64 s (14); samples straddling a phase boundary are left out.
 
   | | 0.9.72 (Demo › Waiting, held) | 0.9.73 A (0-20 s) | 0.9.73 B (20-35 s) | 0.9.73 C (35-60 s) |
   |---|---|---|---|---|
@@ -178,7 +178,7 @@ The fourth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`desig
   | Frame max | 45 ms | 46 ms | 52 ms | 43 ms |
   | Internal free | 85.8 KB | 85.7 KB | 85.7 KB | 85.7 KB |
 
-  Phase A costs about 1.7× 0.9.72's pixels and 10 points more core 0, as designed (twice the hops). B and C cost less than 0.9.72. The demo's C includes the 50 s reminder, so a real wait after 3 min sits at or below this C column. Areas/s stays about flat because blinks, saccades and nudges keep small areas going in every phase (peeks in B); the saving is in area size (the outline).
+  Phase A costs about 1.7× 0.9.72's pixels and 10 points more core 0, as designed (twice the hops). B and C cost less than 0.9.72. The demo's C includes the 50 s reminder, so a real wait after 3 min sits at or below this C column. Areas/s stays about flat because blinks, saccades and micro-saccades keep small areas going in every phase (peeks in B); the saving is in area size (the outline).
 
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
