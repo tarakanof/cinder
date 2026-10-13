@@ -92,15 +92,17 @@ echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -
 WS="$(body "$DIAGC" window_start)"
 echo "$WS" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
     l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
-    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++}
-    /^    s_win_start_us = now;$/ {s=1} END {exit !(r && s && a == 2)}' &&
+    /^    \} else \{$/ {x=1} /^    \}$/ {x=0}
+    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x) o++}
+    /^    s_win_start_us = now;$/ {s=1} END {exit !(r && s && a == 2 && !o)}' &&
     [ "$(echo "$WS" | grep -c 's_win_start_us = ')" -eq 1 ] ||
     WIRING="$WIRING window_start-stamps-and-resets-the-refr-window-in-one-s_refr_mux-section"
 SAMPLE="$(body "$DIAGC" diag_sample)"
 echo "$SAMPLE" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
     l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
-    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++}
-    /^    int64_t period_us = now - s_win_start_us;$/ && r {p=1} END {exit !(p && a == 2)}' ||
+    /^    \} else \{$/ {x=1} /^    \}$/ {x=0}
+    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x) o++}
+    /^    int64_t period_us = now - s_win_start_us;$/ && r {p=1} END {exit !(p && a == 2 && !o)}' ||
     WIRING="$WIRING diag_sample-reads-the-refr-window-at-now-in-one-s_refr_mux-section"
 echo "$SAMPLE" | awk '/^    if \(level == KS_DIAG_FULL\) \{$/ {f=1; d=0}
     { line=$0; o=gsub(/\{/, "{", line); cl=gsub(/\}/, "}", line) }
