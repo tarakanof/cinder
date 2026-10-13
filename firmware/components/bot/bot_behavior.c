@@ -103,6 +103,10 @@ static double heavy_curve(double u, double hold)
     return 0;
 }
 static double blink_length(const bot_t *b) { return b->blink_heavy ? 0.55 + b->blink_hold : (0.075 + 0.035 + 0.15) * b->blink_speed; }
+static bool blink_on(const bot_t *b, double t)
+{
+    return b->blinking && (b->double_blink_pending || t - b->blink_start - b->blink_lag < blink_length(b));
+}
 static double blink_lid(const bot_t *b, double u) { return b->blink_heavy ? heavy_curve(u, b->blink_hold) : lid_curve(u, b->blink_speed); }
 
 static void hop_curve(double u, double *sx, double *sy, double *dy)
@@ -326,7 +330,7 @@ static void start_saccade(bot_t *b, double t, bool glide)
         b->next_saccade_at = t + b->gaze_dur + (fix >= 0 ? fix : hold * mul);
     }
     if (b->mood == BOT_WORKING && !glide && ty - READ_OVERSHOOT * (b->gaze_from_y - ty) < read_floor(b)) b->gaze_ease = EASE_IN_OUT;
-    if (blink && !b->blinking) start_blink(b, t);
+    if (blink && !blink_on(b, t)) start_blink(b, t);
 }
 
 static void start_micro(bot_t *b, double t)

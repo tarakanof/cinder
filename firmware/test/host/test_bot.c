@@ -2144,12 +2144,43 @@ static void test_reading_moment(void)
     CHECK(b.gaze_start == gs, "reading moment: no saccade outside working");
 }
 
+static void test_reading_turn_blink(void)
+{
+    const double dt = 1.0 / 120;
+    int turns = 0, blinked = 0;
+    for (int seed = 0; seed < 80 && turns < 20; seed++) {
+        bot_t b;
+        bot_init(&b, 0x7B00 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WORKING, 0);
+        double t = 0;
+        for (; t < 3; t += dt) bot_pose(&b, t);
+        b.rd_line = b.rd_lines - 1;
+        b.rd_steps = 0;
+        b.rd_turn = false;
+        b.blinking = true;
+        b.blink_heavy = b.double_blink_pending = false;
+        b.blink_speed = 1;
+        b.blink_lag = 0;
+        b.blink_start = b.last_blink_at = t - 0.5;
+        b.next_blink_at = t + 100;
+        b.next_saccade_at = t;
+        bot_pose(&b, t);
+        if (!b.rd_turn) continue;
+        turns++;
+        double shut = 0;
+        for (double u = t; u < t + 0.4; u += dt / 2) shut = fmax(shut, bot_pose(&b, u).lid_l);
+        blinked += shut >= 0.9;
+    }
+    CHECK(turns >= 10 && blinked == turns, "reading: %d of %d page turns blink when the last blink expires on the same frame", blinked, turns);
+}
+
 int main(void)
 {
     test_reading();
     test_reading_redraws();
     test_reading_other_moods();
     test_reading_moment();
+    test_reading_turn_blink();
     test_micro_saccades();
     test_outline_dy();
     test_badged_rest();
