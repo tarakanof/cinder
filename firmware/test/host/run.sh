@@ -60,6 +60,23 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
+REFR="$(body "$MAINC" refr_cb)"
+for EV in REFR_START RENDER_START REFR_READY; do
+    grep -qxF "    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_$EV, NULL);" "$MAINC" || WIRING="$WIRING refr_cb-on-$EV"
+done
+echo "$REFR" | grep -qxF '        refr_stats_begin(&s_refr, s_frame_kind);' || WIRING="$WIRING refr_stats_begin-at-REFR_START"
+echo "$REFR" | grep -qxF '        refr_stats_render(&s_refr, s_refr_areas, disp->inv_area_joined, n);' || WIRING="$WIRING refr_stats_render-at-RENDER_START"
+echo "$REFR" | grep -qxF '    bool drew = refr_stats_end(&s_refr, d);' &&
+    echo "$REFR" | grep -qxF '    if (drew) ota_client_note_frame();' || WIRING="$WIRING refr_stats_end-gates-ota_client_note_frame"
+[ "$(echo "$REFR" | grep -c 'taskENTER_CRITICAL(&s_refr_mux);')" -eq 1 ] &&
+    [ "$(body "$MAINC" stats_task | grep -c 'taskENTER_CRITICAL(&s_refr_mux);')" -eq 1 ] &&
+    body "$MAINC" stats_task | grep -qF 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);' ||
+    WIRING="$WIRING refr-end-and-take-under-s_refr_mux"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL refresh stats wiring:$WIRING" >&2
+    exit 1
+fi
+echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end and take under s_refr_mux"
 WXC="$D/../../main/weather_client.c"
 body "$WXC" weather_client_get | awk '/xSemaphoreTake\(s_lock/ {lock=1} /xSemaphoreGive\(s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
     WIRING="$WIRING weather_client_get-reads-the-timer-under-the-lock"
