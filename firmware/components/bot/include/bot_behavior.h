@@ -47,6 +47,8 @@ typedef struct {
     double next_saccade_at;
     double fix_x, fix_y, next_micro_at;
     double read_x;
+    int rd_line, rd_lines, rd_steps;
+    bool rd_turn, rd_moment;
 
     bool blinking, blink_heavy;
     double blink_start, blink_lag, blink_speed, blink_hold;
@@ -98,6 +100,10 @@ void bot_track_end(bot_t *b, double t);
 void bot_blink(bot_t *b, double t);
 void bot_look_still(bot_t *b, double x, double y, double t);
 void bot_hold_gaze(bot_t *b, double until);
+/* While a quiet weather moment's sprite and text line cover the page's top and bottom, working reads lines 0-2 only
+   (y >= -0.19), skips the mark glance and turns pages at the viewer. Turning it on puts a gaze below that or above
+   0.15 on a reading target at once, already landed, since the moment can show on the next frame. */
+void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */
 void bot_hop(bot_t *b, double t);
