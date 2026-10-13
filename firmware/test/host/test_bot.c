@@ -1842,8 +1842,8 @@ typedef struct {
     int saccades, forward, regress, regress_chance, returns, pages, turns, turns_up, marks, viewers, other;
     int line_steps[7], page_lines[7], lines_seen[6];
     int bad_step, bad_regress, bad_y, bad_x, bad_page, bad_turn, bad_mark, bad_end, bad_hold;
-    int turn_blinks, return_eligible, return_blinks, page_jitter;
-    double fwd_hold, ret_hold, ret_lo, ret_hi, mark_lo, mark_hi, y_min, gap_lo, gap_hi, gap_sum;
+    int turn_shut, page_jitter, covers, cover_open, cover_lead, cover_moved, cover_shape, delayed;
+    double fwd_hold, ret_hold, ret_lo, ret_hi, mark_lo, mark_hi, y_min, gap_lo, gap_hi, gap_sum, lead_sum;
     int gaps;
 } read_stats_t;
 
@@ -1863,9 +1863,36 @@ static void read_run(uint64_t seed, double secs, read_stats_t *s)
         s->saccades++;
         double x = b.gaze_to_x, y = b.gaze_to_y, hold = b.next_saccade_at - b.gaze_start - b.gaze_dur;
         double line_y = -0.05 - 0.06 * (b.rd_line < 4 ? b.rd_line : 4);
-        bool blinked = b.blinking && b.blink_start == t;
         if (fabs(x) > 0.7 + E || y < -0.35 - E) s->bad_x++;
-        bool ret = w.rd_turn || (b.rd_line == w.rd_line + 1 && !b.rd_turn);
+        bool ret = w.rd_turn || (b.rd_line == w.rd_line + 1 && !b.rd_turn), turn = b.rd_turn && !w.rd_turn;
+        double amp = hypot(x - b.gaze_from_x, y - b.gaze_from_y), lead = b.gaze_start - t;
+        if ((ret || turn) && amp > 0.6) {
+            bot_t c = b;
+            bot_pose_t q = bot_pose(&c, b.gaze_start);
+            s->covers++;
+            s->lead_sum += lead;
+            bool open = !b.blinking;
+            for (double u = b.gaze_start; u < b.gaze_start + 0.025; u += 0.001) {
+                bot_pose_t o = u == b.gaze_start ? q : bot_pose(&c, u);
+                open |= fmin(o.lid_l, o.lid_r) < 0.9 - E;
+            }
+            s->cover_open += open;
+            s->cover_lead += lead < 0 || lead > 0.075 * sqrt(0.9) + 0.02 + E;
+            s->cover_moved += fabs(q.gaze_x - b.gaze_from_x) > E || fabs(q.gaze_y - b.gaze_from_y) > E || fabs(q.offset_x - p.offset_x) > E ||
+                              fabs(q.offset_y - p.offset_y) > E;
+            s->cover_shape += fabs(b.gaze_dur - (0.025 + 0.045 * amp)) > E || (b.gaze_ease != 1 && y - 0.071 * (b.gaze_from_y - y) >= -0.35);
+        } else {
+            s->delayed += lead != 0;
+        }
+        if (turn) {
+            bot_t c = b;
+            double shut = 0;
+            for (double u = t; u < t + 0.4; u += dt / 4) {
+                bot_pose_t q = bot_pose(&c, u);
+                shut = fmax(shut, fmin(q.lid_l, q.lid_r));
+            }
+            s->turn_shut += shut >= 0.9 - E;
+        }
         if ((ret || b.rd_turn) && !w.rd_turn && w.rd_steps != 0 && w.read_x < 0.7) s->bad_end++;
         if (w.rd_turn) {
             s->pages++;
@@ -1876,7 +1903,6 @@ static void read_run(uint64_t seed, double secs, read_stats_t *s)
             s->turns++;
             s->turns_up += y == 0.3;
             if (fabs(x) > 0.08 + E || (y != 0.3 && y != 0.1) || fabs(hold - 1.2) > E) s->bad_turn++;
-            s->turn_blinks += b.blinking;
             if (page_returns + 1 != w.rd_lines) s->bad_turn++;
             if (w.rd_lines >= 0 && w.rd_lines <= 6) s->page_lines[w.rd_lines]++;
             if (last_turn >= 0) {
@@ -1927,11 +1953,6 @@ static void read_run(uint64_t seed, double secs, read_stats_t *s)
         s->ret_lo = fmin(s->ret_lo, hold);
         s->ret_hi = fmax(s->ret_hi, hold);
         if (hold < 1.3 * 0.35 - E || hold > 1.3 * 2 + E) s->bad_hold++;
-        double amp = hypot(x - b.gaze_from_x, y - b.gaze_from_y);
-        if (amp > 0.8 && !w.blinking && t - w.last_blink_at > 1.2) {
-            s->return_eligible++;
-            s->return_blinks += blinked;
-        }
     }
 }
 
@@ -1949,9 +1970,9 @@ static void test_reading(void)
     double ret_mul = s->returns + s->pages && s->forward ? (s->ret_hold / (s->returns + s->pages)) / (s->fwd_hold / s->forward) : 0;
     double gap = s->gaps ? s->gap_sum / s->gaps : 0;
     printf("reading: %d saccades (%.3f/s), %d forward, %d regressions (%.3f), %d returns, %d page turns (%d up) every %.1f s (%.1f-%.1f), "
-           "%d marks (%.3f), %d viewer (%.3f), return hold x%.2f, return blinks %d of %d eligible, y min %.4f\n",
+           "%d marks (%.3f), %d viewer (%.3f), return hold x%.2f, %d jumps over 0.6 behind a blink (lead %.1f ms), y min %.4f\n",
            s->saccades, rate, s->forward, s->regress, regress, s->returns, s->turns, s->turns_up, gap, s->gap_lo, s->gap_hi, s->marks,
-           mark, s->viewers, viewer, ret_mul, s->return_blinks, s->return_eligible, s->y_min);
+           mark, s->viewers, viewer, ret_mul, s->covers, s->covers ? 1000 * s->lead_sum / s->covers : 0, s->y_min);
     CHECK(!s->other, "reading: %d saccades of no reading kind", s->other);
     for (int k = 3; k <= 6; k++) {
         int n = s->line_steps[k], all = s->line_steps[3] + s->line_steps[4] + s->line_steps[5] + s->line_steps[6];
@@ -1969,11 +1990,14 @@ static void test_reading(void)
     CHECK(s->page_jitter > s->pages / 2, "reading: %d of %d new pages jitter their line 0 y", s->page_jitter, s->pages);
     CHECK(ret_mul > 1.2 && ret_mul < 1.4, "reading: the fixation after a return sweep is x%.2f, want x1.3", ret_mul);
     CHECK(!s->bad_hold && s->ret_hi > 2.0, "reading: return holds %.2f-%.2f, %d outside 1.3 x 0.35-2 s", s->ret_lo, s->ret_hi, s->bad_hold);
-    CHECK(s->return_eligible > 100 && (double)s->return_blinks / s->return_eligible > 0.5 &&
-              (double)s->return_blinks / s->return_eligible < 0.7,
-          "reading: return sweeps blink %d of %d eligible, want about 60 %%", s->return_blinks, s->return_eligible);
+    CHECK(s->covers > s->returns * 9 / 10 && !s->cover_open, "reading: %d of %d jumps over 0.6 start with a lid under 0.9", s->cover_open,
+          s->covers);
+    CHECK(!s->cover_lead && !s->cover_moved, "reading: %d jumps start off the lids' 0.9 close, %d move before it", s->cover_lead,
+          s->cover_moved);
+    CHECK(!s->cover_shape, "reading: %d jumps over 0.6 change their duration or easing", s->cover_shape);
+    CHECK(!s->delayed, "reading: %d forward steps, regressions, glances or small sweeps wait for a blink", s->delayed);
     CHECK(s->turns > 100 && !s->bad_turn, "reading: %d page turns, %d off target, hold or line count", s->turns, s->bad_turn);
-    CHECK(s->turn_blinks == s->turns, "reading: %d of %d page turns blink", s->turn_blinks, s->turns);
+    CHECK(s->turn_shut == s->turns, "reading: %d of %d page turns close both lids to 0.9", s->turn_shut, s->turns);
     CHECK(s->turns_up > s->turns * 4 / 10 && s->turns_up < s->turns * 6 / 10, "reading: %d of %d page turns look up, want half",
           s->turns_up, s->turns);
     for (int k = 4; k <= 6; k++) {
@@ -2003,8 +2027,67 @@ static void test_reading_redraws(void)
         bot_set_mood(&b, BOT_WORKING, 0);
         sum += redraws_per_s(&b, 2, 600, false);
     }
-    printf("reading: working %.2f redraws/s (0.9.69: 14.65)\n", sum / 10);
-    CHECK(sum / 10 < 14.65 * 1.05, "reading: working %.2f redraws/s, 0.9.69 made 14.65", sum / 10);
+    printf("reading: working %.2f redraws/s (0.9.69: 14.65, 0.9.70: 13.51)\n", sum / 10);
+    CHECK(sum / 10 < 13.51, "reading: working %.2f redraws/s, 0.9.70 made 13.51", sum / 10);
+}
+
+static double eye_step_px(const bot_pose_t *a, const bot_pose_t *b)
+{
+    const double R = 195.72;
+    const bot_pose_t *p[2] = {a, b};
+    double pts[2][4][2], step = 0;
+    for (int j = 0; j < 2; j++) {
+        eye_centres(p[j], 1, pts[j]);
+        for (int k = 0; k < 4; k++) {
+            pts[j][k][0] = (p[j]->offset_x + p[j]->scale_x * pts[j][k][0]) * R;
+            pts[j][k][1] = (p[j]->offset_y * 0.45 - (1 - p[j]->scale_y) + p[j]->scale_y * pts[j][k][1]) * R;
+        }
+    }
+    for (int k = 0; k < 4; k++) step = fmax(step, hypot(pts[0][k][0] - pts[1][k][0], pts[0][k][1] - pts[1][k][1]));
+    return step;
+}
+
+static void test_reading_open_steps(void)
+{
+    enum { FWD, RET, PAGE, TURN, GLANCE, KINDS };
+    static const char *name[KINDS] = {"steps", "return sweeps", "new pages", "page turns", "glances"};
+    double n[KINDS] = {0}, all = 0, mins = 0;
+    for (int seed = 0; seed < 10; seed++) {
+        bot_t b;
+        bot_init(&b, 0x0E7E + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WORKING, 0);
+        bot_pose_t last = {0};
+        bool drawn = false;
+        int kind = FWD;
+        double end = -1;
+        for (double t = 2; t < 600; t += 0.016) {
+            bot_t w = b;
+            bot_pose_t p = bot_pose(&b, t);
+            if (b.next_saccade_at != w.next_saccade_at) {
+                bool glance = b.read_x == w.read_x && b.rd_steps == w.rd_steps && b.rd_line == w.rd_line && !b.rd_turn && !w.rd_turn;
+                kind = w.rd_turn ? PAGE : b.rd_turn ? TURN : b.rd_line != w.rd_line ? RET : glance ? GLANCE : FWD;
+                end = b.gaze_start + b.gaze_dur + 0.016;
+            }
+            if (drawn && bot_pose_same(&p, &last, 195.72)) continue;
+            bot_pose_t moved = p;
+            moved.lid_l = last.lid_l;
+            moved.lid_r = last.lid_r;
+            if (drawn && eye_step_px(&moved, &last) > 8 && fmin(p.lid_l, p.lid_r) < 0.5 && fmin(last.lid_l, last.lid_r) < 0.5) {
+                all++;
+                if (t <= end) n[kind]++;
+            }
+            last = p;
+            drawn = true;
+        }
+        mins += 598 / 60.0;
+    }
+    printf("reading: open-eye steps over 8 px %.1f/min:", all / mins);
+    for (int k = 0; k < KINDS; k++) printf(" %s %.2f", name[k], n[k] / mins);
+    printf("\n");
+    CHECK(n[RET] / mins < 1 && n[PAGE] / mins < 1, "reading: %.2f return sweeps and %.2f new pages a minute jump with open eyes",
+          n[RET] / mins, n[PAGE] / mins);
+    CHECK(n[TURN] / mins < 1.5, "reading: %.2f page turns a minute jump with open eyes", n[TURN] / mins);
+    CHECK(all / mins < 62, "reading: %.1f open-eye steps over 8 px a minute", all / mins);
 }
 
 static uint64_t mood_hash(bot_mood_t m, uint64_t seed)
@@ -2064,11 +2147,11 @@ static void test_reading_moment(void)
             bool on = t > 5 && fmod(t + seed * 0.37, 9.7) < 4.5;
             if (on != b.rd_moment) {
                 bool low = fmin(b.fix_y, last_y) < -0.19 || fmax(b.fix_y, last_y) > 0.15;
-                double gs = b.gaze_start;
                 bot_read_moment(&b, on, t);
                 if (on && low) {
                     lowered++;
-                    retargets += b.gaze_start != gs && fabs(b.gaze_start + b.gaze_dur - t) < 1e-9 && b.fix_y >= -0.19 - 1e-9 && b.fix_y <= 0.15;
+                    retargets += (fabs(b.gaze_start + b.gaze_dur - t) < 1e-9 || (b.gaze_start > t && last_y >= -0.19 && b.fix_y != w.fix_y)) &&
+                                 b.fix_y >= -0.19 - 1e-9 && b.fix_y <= 0.15;
                 }
             }
             bot_pose_t p = bot_pose(&b, t);
@@ -2152,6 +2235,40 @@ static void test_reading_moment(void)
           risky_sacc);
     CHECK(!bad, "reading moment: %d of %d moves in flight when it turned on left the band (worst y %.4f)", bad, clones, worst);
 
+    int leads = 0, kept = 0, opened = 0, left = 0;
+    for (int seed = 0; seed < 12; seed++) {
+        bot_t b;
+        bot_init(&b, 0x1E0 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WORKING, 0);
+        for (double t = dt; t < 300; t += dt) {
+            bot_pose_t p = bot_pose(&b, t);
+            double tn = t + dt / 2;
+            if (tn >= b.gaze_start) continue;
+            bool band = p.gaze_y >= -0.19 && p.gaze_y <= 0.15 && b.gaze_to_y >= -0.19 && b.gaze_to_y <= 0.15 && b.fix_y >= -0.19;
+            bot_t on = b;
+            bot_read_moment(&on, true, tn);
+            leads++;
+            bool moved = false;
+            for (double u = tn; u < tn + 0.5; u += fine) {
+                bot_pose_t q = bot_pose(&on, u);
+                if (q.gaze_y < -0.19 - 1e-9 || q.gaze_y > 0.15 + 1e-9) {
+                    left++;
+                    break;
+                }
+                if (band && !moved && hypot(q.gaze_x - p.gaze_x, q.gaze_y - p.gaze_y) > 0.01) {
+                    moved = true;
+                    kept++;
+                    opened += fmin(q.lid_l, q.lid_r) < 0.9 - 1e-9;
+                }
+            }
+        }
+    }
+    printf("reading moment in a lead: %d jumps waiting for the lids, %d in the band, %d move with a lid under 0.9, %d leave the band\n", leads,
+           kept, opened, left);
+    CHECK(kept > 100 && !opened, "reading moment: %d of %d jumps in the band move before both lids are at 0.9 when it turns on in the lead",
+          opened, kept);
+    CHECK(!left, "reading moment: %d jumps in a lead leave the band", left);
+
     bot_t b;
     bot_init(&b, 3, 0);
     bot_set_mood(&b, BOT_DONE, 0);
@@ -2162,34 +2279,90 @@ static void test_reading_moment(void)
     CHECK(b.gaze_start == gs, "reading moment: no saccade outside working");
 }
 
-static void test_reading_turn_blink(void)
+static void test_reading_blink_phases(void)
 {
-    const double dt = 1.0 / 120;
-    int turns = 0, blinked = 0;
-    for (int seed = 0; seed < 80 && turns < 20; seed++) {
+    static const double ages[] = {0.5, 0.26, 0.2, 0.15, 0.125, 0.116, 0.112, 0.105, 0.1, 0.085, 0.06, 0.0, -0.03, -0.059};
+    static const double lags[] = {0, 0.01, 0.02};
+    enum { AGES = sizeof ages / sizeof ages[0] };
+    const double dt = 1.0 / 120, fine = 1.0 / 1000, shut_at = 0.075 * sqrt(0.9) + 0.02;
+    int jumps = 0, turns = 0, shut = 0, need = 0, covered = 0, open_at = 0, late = 0, pops = 0, cuts = 0, stuck = 0, doubles = 0;
+    double worst_pop = 0, worst_cut = 0, worst_lead = 0;
+    for (int seed = 0; seed < AGES * 24; seed++) {
+        double age = ages[seed % AGES], lag = lags[seed / AGES % 3];
+        bool pending = seed / AGES / 3 % 2 && age >= 0, far = seed / AGES / 6 % 2, turn = seed / AGES / 12 % 2;
         bot_t b;
         bot_init(&b, 0x7B00 + (uint64_t)seed, 0);
         bot_set_mood(&b, BOT_WORKING, 0);
         double t = 0;
         for (; t < 3; t += dt) bot_pose(&b, t);
-        b.rd_line = b.rd_lines - 1;
+        b.rd_line = turn ? b.rd_lines - 1 : 0;
         b.rd_steps = 0;
         b.rd_turn = false;
         b.blinking = true;
-        b.blink_heavy = b.double_blink_pending = false;
+        b.blink_heavy = false;
+        b.double_blink_pending = pending;
         b.blink_speed = 1;
-        b.blink_lag = 0;
-        b.blink_start = b.last_blink_at = t - 0.5;
+        b.blink_lag = lag;
+        b.blink_start = b.last_blink_at = t - age;
         b.next_blink_at = t + 100;
         b.next_saccade_at = t;
+        if (far) {
+            b.gaze_from_x = b.gaze_to_x = b.fix_x = 0.6;
+            b.gaze_from_y = b.gaze_to_y = b.fix_y = turn ? -0.25 : -0.05;
+            b.gaze_start = t - 1;
+        }
+        bot_t w = b;
+        bot_pose_t was = bot_pose(&w, t - fine);
         bot_pose(&b, t);
-        if (!b.rd_turn) continue;
-        turns++;
-        double shut = 0;
-        for (double u = t; u < t + 0.4; u += dt / 2) shut = fmax(shut, bot_pose(&b, u).lid_l);
-        blinked += shut >= 0.9;
+        if (turn ? !b.rd_turn : b.rd_line != 1) continue;
+        jumps++;
+        turns += turn;
+        double amp = hypot(b.gaze_to_x - b.gaze_from_x, b.gaze_to_y - b.gaze_from_y), lead = b.gaze_start - t, most = 0, low = 1;
+        bool cover = amp > 0.6, reopened = false, again = false;
+        if (cover) {
+            covered++;
+            worst_lead = fmax(worst_lead, lead);
+            late += lead < 0 || lead > shut_at + 1e-9;
+            bot_t c = b;
+            bool open = false;
+            for (double u = b.gaze_start; u < b.gaze_start + 0.025; u += fine) {
+                bot_pose_t q = bot_pose(&c, u);
+                open |= fmin(q.lid_l, q.lid_r) < 0.9 - 1e-9;
+            }
+            open_at += open;
+        }
+        for (double u = t; u < t + 0.8; u += fine) {
+            bot_pose_t q = bot_pose(&b, u);
+            double l[2] = {q.lid_l, q.lid_r}, k[2] = {was.lid_l, was.lid_r};
+            for (int e = 0; e < 2; e++) {
+                double d = fabs(l[e] - k[e]);
+                if (d > 0.06) { pops++; worst_pop = fmax(worst_pop, d); }
+                if (l[e] == 0 && k[e] > 0.002) { cuts++; worst_cut = fmax(worst_cut, k[e]); }
+            }
+            most = fmax(most, fmin(q.lid_l, q.lid_r));
+            if (most >= 0.9) low = fmin(low, fmax(q.lid_l, q.lid_r));
+            if (low <= 0.01) reopened = true;
+            if (reopened && fmax(q.lid_l, q.lid_r) > 0.1) again = true;
+            was = q;
+        }
+        if (turn || cover) {
+            need++;
+            shut += most >= 0.9 - 1e-9;
+            doubles += again;
+
+        }
+        stuck += b.blinking || was.lid_l != 0 || was.lid_r != 0;
     }
-    CHECK(turns >= 10 && blinked == turns, "reading: %d of %d page turns blink when the last blink expires on the same frame", blinked, turns);
+    printf("reading: %d jumps (%d page turns) on a blink of every phase, %d of %d close both lids to 0.9, %d over 0.6 start shut, lead up to %.1f ms\n",
+           jumps, turns, shut, need, covered - open_at, 1000 * worst_lead);
+    CHECK(turns > 100 && jumps - turns > 100 && shut == need, "reading: %d of %d page turns and covered jumps close both lids to 0.9 whatever blink was showing",
+          shut, need);
+    CHECK(covered > 150 && !open_at, "reading: %d of %d jumps over 0.6 open a lid under 0.9 within 25 ms of their start", open_at, covered);
+    CHECK(!late, "reading: %d jumps over 0.6 wait outside 0-%.0f ms (worst %.1f ms)", late, 1000 * shut_at, 1000 * worst_lead);
+    CHECK(!doubles, "reading: %d covering blinks blink again", doubles);
+    CHECK(!pops && !cuts, "reading: the blink jumps a lid %d times (worst %.3f), snaps it open %d times (worst %.4f)", pops, worst_pop, cuts,
+          worst_cut);
+    CHECK(!stuck, "reading: %d jumps leave a blink unfinished", stuck);
 }
 
 static void test_reading_entry(void)
@@ -2216,9 +2389,10 @@ int main(void)
 {
     test_reading();
     test_reading_redraws();
+    test_reading_open_steps();
     test_reading_other_moods();
     test_reading_moment();
-    test_reading_turn_blink();
+    test_reading_blink_phases();
     test_reading_entry();
     test_micro_saccades();
     test_outline_dy();
