@@ -1842,7 +1842,7 @@ typedef struct {
     int saccades, forward, regress, regress_chance, returns, pages, turns, turns_up, marks, viewers, other;
     int line_steps[7], page_lines[7], lines_seen[6];
     int bad_step, bad_regress, bad_y, bad_x, bad_page, bad_turn, bad_mark, bad_end, bad_hold;
-    int turn_blinks, return_eligible, return_blinks;
+    int turn_blinks, return_eligible, return_blinks, page_jitter;
     double fwd_hold, ret_hold, ret_lo, ret_hi, mark_lo, mark_hi, y_min, gap_lo, gap_hi, gap_sum;
     int gaps;
 } read_stats_t;
@@ -1870,7 +1870,8 @@ static void read_run(uint64_t seed, double secs, read_stats_t *s)
         if (w.rd_turn) {
             s->pages++;
             page_returns = 0;
-            if (b.rd_turn || b.rd_line != 0 || y != -0.05 || b.rd_lines < 4 || b.rd_lines > 6) s->bad_page++;
+            if (b.rd_turn || b.rd_line != 0 || fabs(y + 0.05) > 0.02 + E || b.rd_lines < 4 || b.rd_lines > 6) s->bad_page++;
+            s->page_jitter += y != -0.05;
         } else if (b.rd_turn) {
             s->turns++;
             s->turns_up += y == 0.3;
@@ -1965,6 +1966,7 @@ static void test_reading(void)
     CHECK(!s->bad_y, "reading: %d targets off their line's y (-0.05 - 0.06 line, +/-0.02)", s->bad_y);
     for (int l = 0; l <= 5; l++) CHECK(s->lines_seen[l] > 0, "reading: line %d never read", l);
     CHECK(!s->bad_page, "reading: %d return sweeps or new pages off the left margin or line 0", s->bad_page);
+    CHECK(s->page_jitter > s->pages / 2, "reading: %d of %d new pages jitter their line 0 y", s->page_jitter, s->pages);
     CHECK(ret_mul > 1.2 && ret_mul < 1.4, "reading: the fixation after a return sweep is x%.2f, want x1.3", ret_mul);
     CHECK(!s->bad_hold && s->ret_hi > 2.0, "reading: return holds %.2f-%.2f, %d outside 1.3 x 0.35-2 s", s->ret_lo, s->ret_hi, s->bad_hold);
     CHECK(s->return_eligible > 100 && (double)s->return_blinks / s->return_eligible > 0.5 &&
@@ -2174,6 +2176,26 @@ static void test_reading_turn_blink(void)
     CHECK(turns >= 10 && blinked == turns, "reading: %d of %d page turns blink when the last blink expires on the same frame", blinked, turns);
 }
 
+static void test_reading_entry(void)
+{
+    int n = 0, bad = 0, glances = 0;
+    double lo = 1e9, hi = 0;
+    for (int seed = 0; seed < 300; seed++) {
+        bot_t b;
+        bot_init(&b, 0xE17 + (uint64_t)seed, 0);
+        bot_pose(&b, 0.5);
+        bot_set_mood(&b, BOT_WORKING, 1);
+        double x = b.gaze_to_x, y = b.gaze_to_y, hold = b.next_saccade_at - b.gaze_start - b.gaze_dur;
+        n++;
+        glances += y == 0.1 || y == -0.35;
+        if (b.rd_turn || b.rd_line != 0 || x < -0.68 - 1e-9 || x > -0.62 + 1e-9 || x != b.read_x || fabs(y + 0.05) > 0.02 + 1e-9) bad++;
+        lo = fmin(lo, hold);
+        hi = fmax(hi, hold);
+    }
+    CHECK(!bad && !glances, "reading: entering working, %d of %d first targets off line 0's start, %d glances", bad, n, glances);
+    CHECK(lo >= 1.3 * 0.35 - 1e-9 && hi <= 1.3 * 2 + 1e-9 && hi > 2.0, "reading: entering working holds %.2f-%.2f s, want 1.3 x 0.35-2", lo, hi);
+}
+
 int main(void)
 {
     test_reading();
@@ -2181,6 +2203,7 @@ int main(void)
     test_reading_other_moods();
     test_reading_moment();
     test_reading_turn_blink();
+    test_reading_entry();
     test_micro_saccades();
     test_outline_dy();
     test_badged_rest();

@@ -192,7 +192,7 @@ static void read_target(bot_t *b, double *x, double *y, double *fix, double *mul
 {
     if (b->rd_turn) {
         read_new_page(b);
-        *x = b->read_x; *y = read_line_y(b); *mul = 1.3;
+        *x = b->read_x; *y = read_line_y(b) + jitter(b, 0.02); *mul = 1.3;
         return;
     }
     double r = rng_unit(b);
@@ -403,7 +403,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
                      badged ? EASE_OUT_BACK : EASE_IN_OUT);
     b->popping = m != BOT_SLEEPY && bot_anim_allowed(BOT_ANIM_MOOD_POP, b->calm);
     b->pop_start = t;
-    if (m == BOT_WORKING) read_new_page(b);
+    if (m == BOT_WORKING) b->rd_turn = true;
     start_saccade(b, t, true);
     b->next_hop_at = m == BOT_WAITING && bot_anim_allowed(BOT_ANIM_WAIT_HOP, b->calm) ? t + 0.6 : INFINITY;
 }
