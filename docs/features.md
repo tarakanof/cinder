@@ -120,17 +120,17 @@ The maintainer saw occasional tearing on the eyes in 0.9.70. There is no tear sy
 - **Tests** (`test_bot.c`): `test_reading` now checks every return sweep, new page and page turn over 0.6 (747 in 8 seeds × 600 s): it blinks, both lids are ≥ 0.9 for the first 25 ms from `gaze_start` (1 ms poses), it starts 0-91 ms after it is chosen with the gaze and lean still where they were, its duration and easing are unchanged, no other saccade waits, and every page turn closes both lids to 0.9 (replacing the 50-70 % return-sweep blink check and the `blinking` flag count). `test_reading_open_steps` (10 seeds × 600 s at 16 ms after `bot_pose_same`, gaze, lean and scale steps only, at least one eye open): return sweeps and new pages under 1 a minute (0.24 and 0.12; 0.9.70 16.98 and 3.33), page turns under 1.5 (0.66; 2.86), all under 62 (53.3; 75.4). `test_reading_blink_phases` (was `test_reading_turn_blink`) makes page turns and return sweeps on blinks of every phase: expired, reopening, late and early in the hold, closing, and in a double blink's gap. It sweeps each phase × lag (0-20 ms) × a pending double blink or not × gaze from x 0.6 (jumps over 0.6) or not, 336 cases, so no case depends on the seed. Both lids reach 0.9 on every turn and covered jump. Covered jumps wait 0-91 ms and keep both lids ≥ 0.9 for their first 25 ms. No covering blink blinks again. No lid moves more than 0.06 per ms or snaps open, and the blink ends within 0.8 s. `test_reading_moment` now also turns the moment on in every lead (12 seeds × 300 s, 5,430 cases): the 2,259 jumps whose gaze and target are in the band don't move before both lids are at 0.9, and none leaves the band. `test_reading_redraws` now holds to 0.9.70's 13.51. Against 0.9.70's `bot_behavior.c` 9 checks fail; against this PR's first head (e10a851), the review's tests fail 5 checks. Mutants, each failing: no lead, a lead without the right eye's lag, no re-close, a re-close that restarts the blink (lid pops), a blink end that ignores a negative lag (lid snaps open), threshold 0.8, glances covered, the fixation or the turn's hold counted from the choice, the lean not delayed, double blinks kept (13.66 redraws/s), covering in every mood (pose hashes), small turns not closed, in-out easing; after the review: a reused blink keeping its double, no pull-forward in the gap (150 ms lead), re-closing only once reopening, a moment landing every lead at once, keeping the lead with the gaze off the band, and no easing switch.
 - **Redraws** (host sim): `test_reading_redraws` (10 seeds × 600 s) 13.51 → 13.38/s; the 20-seed analysis 13.51 → 13.31; `test_breath_redraws` (seed 77, 280 s) working 13.7 → 13.5 (11.7 → 11.5 without breath). Without the double-blink cut it was 13.65.
 - **Cost** (`idf.py size`, origin/main 0.9.70 at c253309 → this branch, same machine, IDF 5.5.5): image 1,709,703 → 1,711,175 B (+1,472, flash `.text`); DIRAM 102,479 B and PSRAM `.bss` unchanged (no new state). `stack_walk.py`: `lvgl` 8,608 (margin 1,888), `orbit` 2,192 and `moment` 3,424 unchanged.
-- **On the knob**: after the release, the same way as 0.9.70 (Ember's full diagnostics, 1 h, points after the first 5 min of uptime), plus Devices › Demo › Working (Hold on), watching return sweeps and page turns for tearing.
+- **On the knob**: measured on 0.9.72 (0.9.71 plus the area counter, #128/#133; no bot change), the same way as 0.9.70 (Ember's full diagnostics, 1 h, points after the first 5 min of uptime), 2026-10-13 18:52-19:52 UTC, 59 points. The bot was asleep for most of that hour (median 2.6 fps, 4.1 areas/s), so the aggregate is not comparable with 0.9.70's mixed hour; matched fps bands are thin (25-32 fps: 16 → 5 points, core 0 29.2 → 30.1 %, frame avg 5.66 → 6.11 ms; 11-17 fps: 22 → 17 points, 22.0 → 19.3 %, 7.55 → 6.33 ms). Working held in Demo on 0.9.72 ("Invalidated-area count (#118)"): 26.9 fps, 39.8 areas/s, core 0 28.1 %, in line with 0.9.70's 25-32 fps band. Confirmed by the maintainer on the knob with Devices › Demo › Working: tearing looks better.
 
-  | | 0.9.70 (aggregate, 1 h) | 0.9.71 (aggregate, 1 h) |
+  | | 0.9.70 (aggregate, 1 h) | 0.9.72 (aggregate, 1 h) |
   |---|---|---|
-  | Core 0 load | to measure | to measure |
-  | Core 1 load | to measure | to measure |
-  | Render fps | to measure | to measure |
-  | Frame avg | to measure | to measure |
-  | Frame max | to measure | to measure |
-  | Internal free | to measure | to measure |
-  | Tearing seen in Demo › Working | yes (the report) | to check |
+  | Core 0 load | median 26.4 % (8.2–38.9) | median 8.5 % (7.6–35.8), mostly asleep |
+  | Core 1 load | median 10.4 % (5.2–20.7) | median 5.7 % (5.4–19.7) |
+  | Render fps | median 15.2 (2.4–32.9) | median 2.6 (2.4–28.5) |
+  | Frame avg | 5.69 ms (4.39–16.6) | 4.79 ms (4.65–15.8) |
+  | Frame max | median 17 ms (9–56) | median 12 ms (8–55) |
+  | Internal free | 85.1 KB (84.4–86.2) | 85.7 KB (85.5–85.9) |
+  | Tearing seen in Demo › Working | yes (the report) | less (maintainer, 0.9.72) |
 
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
