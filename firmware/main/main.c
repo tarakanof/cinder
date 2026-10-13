@@ -830,8 +830,8 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
         moment_view_abort(t);
         moment_unact(t);
     }
-    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page,
-                   .blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE || s_bot.asleep, .on = s_ks_lv->weather_moments,
+    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page && !s_bot.asleep,
+                   .blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,
                    .every_s = s_ks_lv->weather_every_min * 60};
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
     if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
@@ -1062,7 +1062,6 @@ static void scene_start(const demo_block_t *b, double t)
     s_scene_t0 = t;
     s_scene_mood0 = s_bot.mood;
     s_scene_sleep_in = bot_asleep_in(&s_bot, t);
-    if (b->act.kind == DEMO_ACT_SLEEPY && s_bot.asleep) bot_sleep_in(&s_bot, BOT_ASLEEP_AFTER_S, t);
     s_scene_chase = s_chase;
     s_scene_half = s_half;
     gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);
@@ -1085,6 +1084,7 @@ static void scene_start(const demo_block_t *b, double t)
         bot_view_glint_force(true);
         s_scene_chased = true;
     }
+    if (!s_bot.asleep || b->act.kind == DEMO_ACT_SLEEPY) bot_sleep_in(&s_bot, INFINITY, t);
 }
 
 static void scene_frame(double t)

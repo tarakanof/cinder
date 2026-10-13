@@ -1656,6 +1656,12 @@ static void test_wake_from_asleep(void)
     CHECK(!bot_pose(&b, 103.9).asleep && bot_pose(&b, 104.1).asleep, "asleep when the time left runs out");
     bot_sleep_in(&b, 0, 200);
     CHECK(b.asleep, "bot_sleep_in 0: asleep");
+    bot_sleep_in(&b, INFINITY, 210);
+    CHECK(!b.asleep && !bot_pose(&b, 210 + 7200).asleep, "bot_sleep_in INFINITY: paused, awake for 2 h");
+    bot_act_begin(&b, 7500);
+    bot_act_drop(&b, 7600);
+    bot_sleep_in(&b, 5, 7600);
+    CHECK(!bot_pose(&b, 7604.9).asleep && bot_pose(&b, 7605.1).asleep, "and back to 5 s left");
     bot_set_mood(&b, BOT_WORKING, 300);
     bot_sleep_in(&b, 0, 301);
     CHECK(!b.asleep && b.mood == BOT_WORKING && bot_asleep_in(&b, 301) == 0, "bot_sleep_in leaves other moods");
@@ -1670,9 +1676,26 @@ static void test_asleep_guards(void)
     bool slept = false;
     for (double t = BOT_ASLEEP_AFTER_S - 2; t < 700; t += 1.0 / 30) slept |= bot_pose(&b, t).asleep;
     CHECK(!slept, "never falls asleep while acting");
+    CHECK(fabs(bot_asleep_in(&b, 700) - 2) < 1e-9, "an act pauses the countdown: 2 s left, got %g", bot_asleep_in(&b, 700));
     bot_act_end(&b, true, 0.3, 700);
-    CHECK(!bot_pose(&b, 700 + BOT_ASLEEP_AFTER_S - 1).asleep && bot_pose(&b, 700 + BOT_ASLEEP_AFTER_S + 1).asleep,
-          "asleep 10 min after the act ends");
+    CHECK(!bot_pose(&b, 701.9).asleep && bot_pose(&b, 702.1).asleep, "the act's end resumes it: asleep 2 s later");
+
+    bot_init(&b, 44, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    double asleep_at = -1;
+    for (double t = 0; t < 1800 && asleep_at < 0; t += 1.0 / 30) {
+        double k = fmod(t, 60);
+        if (k < 1.0 / 30) bot_act_begin(&b, t);
+        if (fabs(k - 20) < 1.0 / 60) bot_act_drop(&b, t);
+        if (bot_pose(&b, t).asleep) asleep_at = t;
+    }
+    CHECK(asleep_at > 880 && asleep_at < 960, "a 20 s moment every minute: asleep after 10 min awake between them, at %.0f s", asleep_at);
+    bot_init(&b, 45, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, 100);
+    bot_act_drop(&b, 110);
+    bot_act_drop(&b, 400);
+    CHECK(!bot_pose(&b, 609.9).asleep && bot_pose(&b, 610.1).asleep, "a second end resumes nothing");
 
     bot_init(&b, 42, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
@@ -1701,7 +1724,7 @@ static void test_asleep_guards(void)
     bot_pose(&b, 10);
     bot_act_begin(&b, 10);
     bot_act_eyes(&b, BOT_EYES_ROUND, 10.5);
-    CHECK(b.blinking && !b.blink_heavy, "a costume blink in sleepy is not heavy");
+    CHECK(b.blinking && !b.blink_heavy && b.blink_speed == 2.2, "a costume blink in sleepy is not heavy, 2.2x as in 0.9.68");
     bot_pose(&b, 12);
     bot_act_end(&b, true, 0.3, 12);
     CHECK(!b.blinking || !b.blink_heavy, "the costume blink back is not heavy");
@@ -1764,6 +1787,27 @@ static void test_sleepy_transitions(void)
     }
     CHECK(!soon, "entering sleepy mid-blink: the next blink is a sleepy one, 3 s or more away (%d early)", soon);
     CHECK(!jumps, "falling asleep: the lid eases from where it is, %d jumps, max %.3f per frame", jumps, jump_max);
+    int half = 0, tried = 0;
+    for (uint64_t seed = 1; seed <= 12; seed++) {
+        for (int late = 0; late < 2; late++) {
+            bot_t b;
+            bot_init(&b, seed * 7, 0);
+            bot_set_mood(&b, BOT_SLEEPY, 0);
+            double t = 3, start = -1;
+            for (; t < 200; t += 1.0 / 240) {
+                bot_pose(&b, t);
+                if (b.blinking && b.blink_heavy) { start = b.blink_start; break; }
+            }
+            if (start < 0) continue;
+            double at = start + b.blink_lag + (late ? 0.2 : 0.1);
+            bot_pose(&b, at);
+            tried++;
+            bot_set_mood(&b, BOT_WORKING, at);
+            half += late ? b.blink_start < at : b.blink_start == at;
+        }
+    }
+    CHECK(tried >= 20 && half == tried, "a heavy blink past half closed (0.64) hands over shut, one at 0.16 does not: %d of %d", half,
+          tried);
     bot_t b;
     bot_init(&b, 3, 0);
     bot_sleep(&b, 1);

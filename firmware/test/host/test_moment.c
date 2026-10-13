@@ -476,6 +476,20 @@ static void test_trigger(void)
     s_rig.o = obs("0", 9);
     s_rig.o.night = true;
     CHECK(run(1802, 1, &k, NULL) == 1 && k == WXM_NIGHT, "periodic at a clear night: night");
+
+    rig(1800);
+    run(10, 1, NULL, NULL);
+    s_rig.in.shown = false;
+    CHECK(run(7200, 1, NULL, NULL) == 0, "asleep (not shown): no periodic moment");
+    s_rig.in.shown = true;
+    CHECK(run(7200 + 1798, 1, NULL, NULL) == 0, "waking: the overdue glance waits its full interval");
+    CHECK(run(7200 + 1802, 1, &k, &at) == 1 && fabs(at - (7200 + 1800)) <= 1, "then it comes (%.0f)", at);
+    rig(1800);
+    run(10, 1, NULL, NULL);
+    s_rig.in.blocked = true;
+    run(7200, 1, NULL, NULL);
+    s_rig.in.blocked = false;
+    CHECK(run(7202, 1, &k, &at) == 1 && at == 7200, "blocked alone would fire the overdue glance at once (%.0f)", at);
 }
 
 static void test_frames(void)
