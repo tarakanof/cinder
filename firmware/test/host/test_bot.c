@@ -2049,15 +2049,18 @@ static void test_reading_other_moods(void)
 static void test_reading_moment(void)
 {
     const double dt = 1.0 / 120;
-    int marks_on = 0, marks_off = 0, low_off = 0, retargets = 0, lowered = 0, on_frames = 0, turns_on = 0, up_on = 0;
+    int marks_on = 0, marks_off = 0, low_off = 0, retargets = 0, lowered = 0, on_frames = 0, turns_on = 0, up_on = 0, in_line = 0, jumps = 0;
+    double worst_jump = 0;
     double y_on = 1e9, top_on = -1e9;
     for (int seed = 0; seed < 24; seed++) {
         bot_t b;
         bot_init(&b, 0x5B0 + (uint64_t)seed, 0);
         bot_set_mood(&b, BOT_WORKING, 0);
-        double last_y = 0;
+        double last_y = 0, line_y = NAN;
         bool was_turn = false;
         for (double t = dt; t < 300; t += dt) {
+            bot_t w = b;
+            double nsa = b.next_saccade_at;
             bool on = t > 5 && fmod(t + seed * 0.37, 9.7) < 4.5;
             if (on != b.rd_moment) {
                 bool low = fmin(b.fix_y, last_y) < -0.19 || fmax(b.fix_y, last_y) > 0.15;
@@ -2068,7 +2071,6 @@ static void test_reading_moment(void)
                     retargets += b.gaze_start != gs && fabs(b.gaze_start + b.gaze_dur - t) < 1e-9 && b.fix_y >= -0.19 - 1e-9 && b.fix_y <= 0.15;
                 }
             }
-            double nsa = b.next_saccade_at;
             bot_pose_t p = bot_pose(&b, t);
             last_y = p.gaze_y;
             if (on) {
@@ -2079,6 +2081,18 @@ static void test_reading_moment(void)
             bool turn = b.rd_turn && !was_turn;
             was_turn = b.rd_turn;
             if (b.next_saccade_at == nsa) continue;
+            bool glance = b.read_x == w.read_x && b.rd_line == w.rd_line && !b.rd_turn && !w.rd_turn &&
+                          (b.gaze_to_y == 0.1 || b.gaze_to_y == -0.35);
+            if (b.rd_turn || w.rd_turn || b.rd_line != w.rd_line) line_y = NAN;
+            if (!glance && !b.rd_turn) {
+                if (!isnan(line_y)) {
+                    in_line++;
+                    double d = fabs(b.gaze_to_y - line_y);
+                    worst_jump = fmax(worst_jump, d);
+                    jumps += d > 0.04 + 1e-9;
+                }
+                line_y = b.gaze_to_y;
+            }
             if (on && turn) {
                 turns_on++;
                 up_on += b.gaze_to_y != 0.1;
@@ -2098,6 +2112,8 @@ static void test_reading_moment(void)
     CHECK(turns_on > 5 && !up_on, "reading moment: %d of %d page turns look up", up_on, turns_on);
     CHECK(!marks_on && marks_off > 20, "reading moment: %d mark glances while on, %d off", marks_on, marks_off);
     CHECK(low_off > 100, "reading moment: lines 3-4 again once off (%d targets below -0.21)", low_off);
+    CHECK(in_line > 1000 && !jumps, "reading moment: %d of %d steps along a line jump y by more than the jitter (worst %.3f)", jumps, in_line,
+          worst_jump);
     CHECK(lowered > 10 && retargets == lowered, "reading moment: %d of %d gazes off the band moved at once", retargets, lowered);
 
     const double fine = 1.0 / 600;

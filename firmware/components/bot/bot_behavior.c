@@ -619,6 +619,7 @@ void bot_read_moment(bot_t *b, bool on, double t)
 {
     if (on == b->rd_moment) return;
     b->rd_moment = on;
+    if (b->rd_line > 2) b->rd_steps = 0;
     if (!on || b->mood != BOT_WORKING || b->acting || b->tracking) return;
     double gx, gy;
     current_gaze(b, t, &gx, &gy);
