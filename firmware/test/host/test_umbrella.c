@@ -183,8 +183,8 @@ static void test_face(bool alpha)
         wx_paint_umbrella(&g);
         ref_umbrella(&w);
         int i = first_diff(&g, &w);
-        CHECK(i < 0, "%s (%s): first diff at (%d, %d) %04X want %04X", what, noise ? "noise" : "cleared", i % WX_FACE, i / WX_FACE,
-              i < 0 ? 0 : got[i], i < 0 ? 0 : want[i]);
+        CHECK(i < 0, "%s (%s): first diff at (%d, %d) %04X a %d want %04X a %d", what, noise ? "noise" : "cleared", i % WX_FACE,
+              i / WX_FACE, i < 0 ? 0 : got[i], i < 0 || !alpha ? -1 : got_a[i], i < 0 ? 0 : want[i], i < 0 || !alpha ? -1 : want_a[i]);
         if (alpha && !noise) {
             CHECK(got_a[190 * WX_FACE + 233] == 255 && got_a[185 * WX_FACE + 233] > 0 && got_a[200 * WX_FACE + 233] > 0,
                   "face RGBA: the handle/canopy overlap near (233, 185) is painted");
