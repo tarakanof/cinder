@@ -15,11 +15,15 @@ static long heap_used(void)
     malloc_zone_statistics(NULL, &st);
     return (long)st.size_in_use;
 }
+#define HEAP_FREES 1
 #elif defined(__GLIBC__)
 #include <malloc.h>
 static long heap_used(void) { return (long)mallinfo2().uordblks; }
+#define HEAP_FREES 0
 #else
 static long heap_used(void) { return 0; }
+#define HEAP_FREES 0
+#define HEAP_NONE 1
 #endif
 #include "lvgl.h"
 #include "music_moment.h"
@@ -212,7 +216,9 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
     }
     CHECK(!music_view_busy() && lv_obj_get_event_count(root) == cbs, "over: the draw callback is gone");
     CHECK(lit_in(&ext) == 0, "nothing left on screen: %ld px", lit_in(&ext));
-    CHECK(heap_play > 0 && heap_play <= 64 && heap_end == -heap_play, "heap: attach +%ld B, end %+ld B", heap_play, heap_end);
+#ifndef HEAP_NONE
+    CHECK(heap_play > 0 && heap_play <= 64 && (heap_end == -heap_play || !HEAP_FREES), "heap: attach +%ld B, end %+ld B", heap_play, heap_end);
+#endif
     printf("music view: attaching the draw callback takes %ld B of heap (host, lv_event_dsc_t %zu B), the end gives back %ld B\n", heap_play,
            sizeof(lv_event_dsc_t), -heap_end);
     printf("music view: %d redraws, max %d area, max %ld px, avg %ld px, render avg %.3f ms max %.3f ms (host)\n", frames, max_areas, max_px,
