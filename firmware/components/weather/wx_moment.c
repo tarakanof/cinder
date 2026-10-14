@@ -372,7 +372,7 @@ static const wxm_cue_t WIND[] = {
 };
 static const wxm_cue_t HEAT[] = {{2 * F, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.4f, WXM_GLIDE, 0, 0.2f, 0}, {H, WXM_END, 1, 0.3f, 0}};
 static const wxm_cue_t NIGHT[] = {
-    {F, WXM_GLIDE, -0.1f, -0.15f, 0}, {F, WXM_LID, 0.4f, 0.6f, 0}, {2.2f, WXM_BLINK, 2.2f, 0, 0}, {H, WXM_END, 1, 0.4f, 0},
+    {F, WXM_GLIDE, -0.1f, -0.07f, 0}, {F, WXM_LID, 0.4f, 0.6f, 0}, {2.2f, WXM_BLINK, 2.2f, 0, 0}, {H, WXM_END, 1, 0.4f, 0},
 };
 static const wxm_cue_t AFTERRAIN[] = {
     {2 * F, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.4f, WXM_GLIDE, 0, 0.12f, 0}, {1.2f, WXM_HOP, 0, 0, 0}, {H, WXM_END, 1, 0.3f, 0},

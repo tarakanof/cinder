@@ -328,7 +328,7 @@ def script(kind):
         return dict(moves=[(0.4, 0.42, 0.0, 0.2, GLIDE), back], lids=blink(2 * F) + blink(HOLD_END) + plain,
                     swaps=[(2 * F + 0.0925, 'costume'), (HOLD_END + 0.0925, 'base')], costume='happy')
     if kind == 'night':
-        return dict(moves=[(F, 0.42, -0.1, -0.15, GLIDE), back],
+        return dict(moves=[(F, 0.42, -0.1, -0.07, GLIDE), back],
                     lids=[(F, 0.0, GLIDE), (0.7, 0.4, 'linear')] + blink(2.2, 2.2, 0.4) + [(HOLD_END, 0.4, GLIDE), (HOLD_END + 0.4, 0.0, 'linear')] + plain)
     if kind == 'afterrain':
         return dict(moves=[(0.4, 0.42, 0.0, 0.12, GLIDE), back], lids=blink(2 * F) + blink(HOLD_END) + plain,

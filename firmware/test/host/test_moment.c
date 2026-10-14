@@ -821,7 +821,7 @@ static void test_script_design(void)
                            {1.7f, WXM_SACCADE, 0.33f, 0.08f, 0}, {2.5f, WXM_SACCADE, 0.46f, 0.1f, 0}, {3.2f, WXM_SACCADE, 0.36f, 0.12f, 0},
                            {h, WXM_END, 0, 0.3f, 0}};
     const want_t heat[] = {{2 * f, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.4f, WXM_GLIDE, 0, 0.2f, 0}, {h, WXM_END, 1, 0.3f, 0}};
-    const want_t night[] = {{f, WXM_GLIDE, -0.1f, -0.15f, 0}, {f, WXM_LID, 0.4f, 0.6f, 0}, {2.2f, WXM_BLINK, 2.2f, 0, 0}, {h, WXM_END, 1, 0.4f, 0}};
+    const want_t night[] = {{f, WXM_GLIDE, -0.1f, -0.07f, 0}, {f, WXM_LID, 0.4f, 0.6f, 0}, {2.2f, WXM_BLINK, 2.2f, 0, 0}, {h, WXM_END, 1, 0.4f, 0}};
     const want_t after[] = {{2 * f, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.4f, WXM_GLIDE, 0, 0.12f, 0}, {1.2f, WXM_HOP, 0, 0, 0}, {h, WXM_END, 1, 0.3f, 0}};
 #define SAME(k, w) same_script(k, w, (int)(sizeof w / sizeof w[0]))
     SAME(WXM_GLANCE, glance);
