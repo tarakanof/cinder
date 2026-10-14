@@ -2486,13 +2486,17 @@ static void test_reading_moment_glide(void)
 static void test_coupled_blink_expired(void)
 {
     int big = 0, coupled = 0, stale = 0;
-    for (int seed = 0; seed < 40; seed++) {
+    for (int seed = 0; seed < 120; seed++) {
+        static const bot_mood_t moods[] = {BOT_SLEEPY, BOT_IDLE, BOT_ERROR};
+        bot_mood_t m = moods[seed % 3];
         bot_t b;
         bot_init(&b, 0xC0B1 + (uint64_t)seed, 0);
-        bot_set_mood(&b, BOT_SLEEPY, 0);
+        if (m != BOT_IDLE) bot_set_mood(&b, m, 0);
         double t = 0;
         for (; t < 4; t += 1.0 / 60) bot_pose(&b, t);
-        b.blinking = b.blink_heavy = true;
+        b.blinking = true;
+        b.blink_heavy = m == BOT_SLEEPY;
+        b.blink_speed = 1;
         b.double_blink_pending = false;
         b.blink_hold = 0.5;
         b.blink_lag = 0;
@@ -2508,9 +2512,9 @@ static void test_coupled_blink_expired(void)
         coupled += b.last_blink_at == t;
         stale += b.blinking && b.blink_start < t;
     }
-    printf("coupled blink: %d of %d big sleepy saccades blink on the frame an expired heavy blink is still flagged\n", coupled, big);
-    CHECK(big == 40 && coupled >= 16 && coupled <= 32 && !stale,
-          "a heavy blink over before a big saccade's frame: the saccade's 60 %% coupled blink still draws (%d of %d, %d stale)", coupled, big,
+    printf("coupled blink: %d of %d big saccades (sleepy, idle, error) blink on the frame an expired blink is still flagged\n", coupled, big);
+    CHECK(big >= 80 && coupled >= big * 4 / 10 && coupled <= big * 8 / 10 && !stale,
+          "a blink over before a big saccade's frame: the saccade's 60 %% coupled blink still draws (%d of %d, %d stale)", coupled, big,
           stale);
 }
 
