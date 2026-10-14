@@ -167,9 +167,7 @@ static bool due(np_art_plan_t *plan)
     bool built = S->built_valid && strcmp(S->built, plan->version) == 0;
     xSemaphoreGive(s_lock);
     if (built) return false;
-    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms &&
-        !np_art_gave_up(&S->retry, plan->version))
-        return false;
+    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms) return false;
     return true;
 }
 
@@ -366,8 +364,10 @@ void np_client_service(http_conn_t *conn, const char *base)
     int64_t t0 = esp_timer_get_time(), dec_us = 0;
     int bytes = 0;
     bool failed = false, bad = false;
-    uint8_t *jpg = plan.version[0] ? heap_caps_malloc(JPEG_MAX, MALLOC_CAP_SPIRAM) : NULL;
-    if (plan.version[0] && !jpg) failed = true;
+    bool fetch = false;
+    for (int k = 0; k < NP_ART_KINDS; k++) fetch |= plan.want[k];
+    uint8_t *jpg = fetch ? heap_caps_malloc(JPEG_MAX, MALLOC_CAP_SPIRAM) : NULL;
+    if (fetch && !jpg) failed = true;
     for (int k = 0; k < NP_ART_KINDS && !failed; k++) {
         if (!plan.want[k] ||
             !np_art_url(base, (np_art_kind_t)k, np_art_plan_version(&plan, (np_art_kind_t)k), S->url, sizeof S->url))

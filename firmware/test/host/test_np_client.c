@@ -18,12 +18,19 @@ static int failures;
 typedef enum { ANS_GOOD, ANS_OVER, ANS_UNDECODABLE, ANS_500 } answer_t;
 
 static int64_t s_us = 1000000;
-static answer_t s_cover = ANS_GOOD;
-static int s_cover_gets, s_artist_gets;
+static answer_t s_cover = ANS_GOOD, s_artist = ANS_GOOD;
+static int s_cover_gets, s_artist_gets, s_jpg_allocs;
+static bool s_jpg_fail;
 static UINT s_px;
 static JRESULT s_jd;
 
 int64_t esp_timer_get_time(void) { return s_us; }
+int host_heap_fail(size_t n)
+{
+    if (n != 96 * 1024) return 0;
+    s_jpg_allocs++;
+    return s_jpg_fail;
+}
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...) { (void)level, (void)tag, (void)fmt; }
 uint32_t esp_random(void) { return 4; }
 void ember_client_wake(void) {}
@@ -45,6 +52,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
         a = s_cover;
     } else {
         s_artist_gets++;
+        a = s_artist;
     }
     if (a == ANS_500) return 500;
     if (o->on_header) o->on_header("Cache-Control", "public, max-age=86400, immutable", o->hdr_ctx);
@@ -169,11 +177,86 @@ static void test_success_resets(void)
     np_art_set_free(&set);
 }
 
+static void give_up(const np_info_t *np)
+{
+    np_art_set_t set;
+    np_client_feed(np);
+    s_cover = ANS_OVER;
+    service_at(60000);
+    service_at(5000);
+    service_at(10000);
+    CHECK(take(&set) && set.no_cover, "given up on %s", np->cover_version);
+    np_art_set_free(&set);
+}
+
+static void back_from_idle(const np_info_t *np)
+{
+    np_art_set_t set;
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none);
+    service_at(1000);
+    if (take(&set)) np_art_set_free(&set);
+    np_client_feed(np);
+    np_client_forget_art();
+}
+
+static void test_avatar_retry(void)
+{
+    np_art_set_t set;
+    np_info_t a = block("bad1-r1");
+    give_up(&a);
+    back_from_idle(&a);
+    s_artist = ANS_500;
+    int artist = s_artist_gets, cover = s_cover_gets;
+    service_at(10);
+    CHECK(s_artist_gets == artist + 1 && !take(&set), "given up, the avatar fails: nothing published");
+    service_at(1000);
+    CHECK(s_artist_gets == artist + 1, "the avatar retry backs off");
+    service_at(4000);
+    CHECK(s_artist_gets == artist + 2 && !take(&set), "and tries again after 5 s");
+    s_artist = ANS_GOOD;
+    service_at(10000);
+    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && set.avatar && !set.cover,
+          "the avatar comes: no_cover with it");
+    np_art_set_free(&set);
+    service_at(120000);
+    CHECK(s_cover_gets == cover && s_artist_gets == artist + 3 && !np_client_pending(), "then nothing more");
+
+    back_from_idle(&a);
+    s_jpg_fail = true;
+    service_at(10);
+    CHECK(!take(&set), "given up, no buffer for the avatar: nothing published");
+    s_jpg_fail = false;
+    service_at(5000);
+    CHECK(take(&set) && set.no_cover && set.avatar, "the avatar on the retry");
+    np_art_set_free(&set);
+    back_from_idle(&a);
+    service_at(10);
+    CHECK(take(&set) && set.no_cover && set.avatar, "back from idle: no_cover at once");
+    np_art_set_free(&set);
+}
+
+static void test_no_buffer_when_nothing_to_fetch(void)
+{
+    np_art_set_t set;
+    np_info_t a = block("bad2-r1");
+    a.artist_art = false;
+    give_up(&a);
+    back_from_idle(&a);
+    int allocs = s_jpg_allocs, gets = s_cover_gets + s_artist_gets;
+    service_at(10);
+    CHECK(take(&set) && set.no_cover && !set.avatar, "given up, no artist picture: no_cover");
+    CHECK(s_jpg_allocs == allocs && s_cover_gets + s_artist_gets == gets, "and no JPEG buffer (%d allocs)", s_jpg_allocs - allocs);
+    np_art_set_free(&set);
+}
+
 int main(void)
 {
     np_client_init();
     test_give_up();
     test_success_resets();
+    test_avatar_retry();
+    test_no_buffer_when_nothing_to_fetch();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);
         return 1;
