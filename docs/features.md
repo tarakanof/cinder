@@ -229,7 +229,7 @@ The fifth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design
   | Core 1 | n/a | 10.7 % | 43.1 % | 16.5 % | 18.3 % |
   | Internal free | 85.7 KB (0.9.73 waiting) | 85.6 KB | 85.6 KB | 85.6 KB | 85.6 KB |
 
-  No sample around the change reaches 120 ms: the entry's 47-50 ms is the range of the hop's full-outline frames (0.9.73 waiting hops: 43-52 ms), and the highest sample before is 21 ms and after 16 ms. Whether 0.9.73's stall would have shown in a 5 s frame max is not measured (its P4 run dropped the samples holding a mood change). The reward costs about +20 points of core 0 and 2.5× the pixels for one sample; core 1 rises to ~43 % in that sample (the `rim` task rendering the outline and its variants), then settles at 16-18 %, above working's 11 %; the cause is not measured. Core 0 settles about level with working. Internal free and largest block (31.7 KB) unchanged.
+  No sample around the change reaches 120 ms: the entry's 47-50 ms is the range of the hop's full-outline frames (0.9.73 waiting hops: 43-52 ms), and the highest sample before is 21 ms and after 16 ms. Whether 0.9.73's stall would have shown in a 5 s frame max is not measured (its P4 run dropped the samples holding a mood change). The reward costs about +20 points of core 0 and 2.5× the pixels for one sample; core 1 rises to ~43 % in that sample (likely the `rim` task rendering the outline and its variants), then settles at 16-18 %, above working's 11 %; the cause is not measured. Core 0 settles about level with working. Internal free and largest block (31.7 KB) unchanged.
 
 ### Bot review leftovers (#121, #124, #125, #139, #146, 0.9.76)
 
