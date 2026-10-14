@@ -251,9 +251,24 @@ static void test_turn_face(void)
     CHECK(wx_job_face(&J) == WXF_TEMP, "while it bakes black, a turn steps from the face last shown, not the one coming");
     bake();
     CHECK(wx_job_step(&J, &r, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && wx_job_face(&J) == WXF_RAIN, "then Rain now");
+    CHECK(fade_out(&a) == (WX_DO_BAKE | WX_DO_DETACH), "dry again: fade out, black for the Temperature bake");
+    CHECK(wx_job_take(&J) != NULL && wx_job_show(&J, false) == 0, "hidden while it runs: the buffers stay");
+    CHECK(wx_job_show(&J, true) == 0 && wx_job_face(&J) == -1, "reopened before it lands: black, no face of the last visit");
+    wx_job_done(&J, 4);
+    CHECK(wx_job_step(&J, &a, 1.0 / 30) == (WX_DO_APPLY | WX_DO_PAINT) && wx_job_face(&J) == WXF_TEMP, "then Temperature lands");
     CHECK(wx_job_show(&J, false) == WX_DO_RELEASE, "hide");
     wx_job_released(&J);
     CHECK(wx_job_face(&J) == -1, "released: nothing on screen");
+
+    wx_temp_t ac = key(-2, 12, 1);
+    baked(a);
+    while (J.opa < 255) wx_job_step(&J, &a, 1.0 / 30);
+    CHECK((wx_job_step(&J, &ac, 1.0 / 30) & ~WX_DO_PAINT) == WX_DO_BAKE && IO.kind == WX_BAKE_RING, "a ring bake");
+    CHECK(wx_job_take(&J) != NULL && wx_job_show(&J, false) == 0, "hidden while it runs");
+    CHECK(wx_job_show(&J, true) == 0 && wx_job_face(&J) == WXF_TEMP, "reopened: the attached face stays");
+    wx_job_done(&J, 5);
+    wx_job_step(&J, &ac, 1.0 / 30);
+    CHECK(wx_job_face(&J) == WXF_TEMP, "the ring landing keeps Temperature");
 }
 
 static void test_partial_during_fade_in(void)
