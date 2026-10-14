@@ -2382,6 +2382,41 @@ static void test_reading_blink_phases(void)
     CHECK(!stuck, "reading: %d jumps leave a blink unfinished", stuck);
 }
 
+static void test_reading_moment_glide(void)
+{
+    const double fine = 1.0 / 1000;
+    int n = 0, jumps = 0, out = 0;
+    double worst = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        for (double on = 0.05; on < 0.36; on += 0.1) {
+            bot_t b;
+            bot_init(&b, 0x61D + (uint64_t)seed, 0);
+            bot_look(&b, 0.5, 0.0, 0.5);
+            double t = 0.5;
+            for (; t < 1.5; t += fine) bot_pose(&b, t);
+            bot_set_mood(&b, BOT_WORKING, t);
+            if (b.gaze_ease != 0 || b.gaze_to_y < -0.19 || b.gaze_to_y > 0.15) continue;
+            n++;
+            double prev_x = NAN, prev_y = NAN, t_on = t + on, end = b.gaze_start + b.gaze_dur;
+            for (; t < end + 0.05; t += fine) {
+                if (!b.rd_moment && t >= t_on) bot_read_moment(&b, true, t);
+                bot_pose_t p = bot_pose(&b, t);
+                if (!isnan(prev_x)) {
+                    double d = hypot(p.gaze_x - prev_x, p.gaze_y - prev_y);
+                    worst = fmax(worst, d);
+                    jumps += d > 0.02;
+                }
+                out += b.rd_moment && (p.gaze_y < -0.19 - 1e-9 || p.gaze_y > 0.15 + 1e-9);
+                prev_x = p.gaze_x;
+                prev_y = p.gaze_y;
+            }
+        }
+    }
+    printf("reading moment: on mid entry glide, %d cases, largest gaze step %.4f per ms\n", n, worst);
+    CHECK(n >= 60 && !jumps && !out, "a quiet moment on mid entry glide: the glide goes on (%d jumps over 0.02 per ms, worst %.3f, %d out of band, %d cases)",
+          jumps, worst, out, n);
+}
+
 static void test_coupled_blink_expired(void)
 {
     int big = 0, coupled = 0, stale = 0;
@@ -3609,6 +3644,7 @@ int main(void)
     test_reading_blink_phases();
     test_reading_entry();
     test_coupled_blink_expired();
+    test_reading_moment_glide();
     test_micro_saccades();
     test_outline_dy();
     test_badged_rest();

@@ -823,7 +823,7 @@ void bot_read_moment(bot_t *b, bool on, double t)
     bool moving = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
     double lo = fmin(fmin(gy, b->fix_y), b->gaze_to_y), hi = fmax(fmax(gy, b->fix_y), b->gaze_to_y);
     if (lo < READ_MOMENT_FLOOR || hi > READ_MOMENT_TOP) start_saccade(b, t, false);
-    else if (!moving) return;
+    else if (!moving || b->gaze_ease != EASE_OUT_BACK) return;
     if (t < b->gaze_start && gy >= READ_MOMENT_FLOOR && gy <= READ_MOMENT_TOP) {
         double over = b->gaze_to_y - READ_OVERSHOOT * (gy - b->gaze_to_y);
         if (over < READ_MOMENT_FLOOR || over > READ_MOMENT_TOP) b->gaze_ease = EASE_IN_OUT;
