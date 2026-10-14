@@ -111,12 +111,18 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
 
     for (int e = 0; e < 2; e++) {
         double side = e == 0 ? -1 : 1, lid = e == 0 ? p->lid_l : p->lid_r;
-        double lc = lid < 0 ? 0 : (lid > 1 ? 1 : lid), droop = p->eyes == BOT_EYES_HAPPY ? 0 : BOT_LID_DROOP * lc;
+        double blink = e == 0 ? p->blink_l : p->blink_r;
+        double hide = blink / BOT_BLINK_HIDE;
+        hide = hide < 0 ? 0 : (hide > 1 ? 1 : hide);
+        double lc = lid < 0 ? 0 : (lid > 1 ? 1 : lid);
+        lc = fmax(lc, hide);
+        double droop = p->eyes == BOT_EYES_HAPPY ? 0 : BOT_LID_DROOP * lc;
         double rise = p->eyes == BOT_EYES_DASH ? 0.04 * side * lean * sg : 0;
         double ex = cx + side * sep / 2, ey = cy + rise + by - droop, ffx = fx * scale, ffy = fy * scale, fh = ffy * bh;
 #define L(a, b) ((a) + ((b) - (a)) * lid)
         bot_stroke_t *s = &out[e];
-        s->lid = p->eyes == BOT_EYES_HAPPY ? 0 : lc;
+        s->lid = p->eyes == BOT_EYES_HAPPY ? hide : lc;
+        s->keep = p->eyes == BOT_EYES_HAPPY ? 0 : BOT_LID_KEEP * (1 - hide);
         switch (p->eyes) {
         case BOT_EYES_DASH:
             capsule(s, ex, ey, 0.14 * (1 + 0.35 * lc) * ffx, 0.38 * fh, 27 * lean * sg * deg);
@@ -144,7 +150,7 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
     }
 }
 
-double bot_lid_line_y(const double *ys, int n, double width, double lid)
+double bot_lid_line_y(const double *ys, int n, double width, double lid, double keep)
 {
     if (!(lid > 0)) return -INFINITY;
     double top = INFINITY, bot = -INFINITY;
@@ -152,9 +158,9 @@ double bot_lid_line_y(const double *ys, int n, double width, double lid)
         top = fmin(top, ys[i]);
         bot = fmax(bot, ys[i]);
     }
-    top -= width / 2;
-    bot += width / 2;
-    return top + (bot - BOT_LID_KEEP * width - top) * (lid > 1 ? 1 : lid);
+    top -= width / 2 + 1;
+    bot += width / 2 + 1;
+    return top + (bot - keep * width - top) * (lid > 1 ? 1 : lid);
 }
 
 double bot_eyes_extent(const bot_stroke_t eyes[2])

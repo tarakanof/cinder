@@ -223,7 +223,7 @@ static void test_lid_shape(void)
     bot_pose_t h = {.eyes = BOT_EYES_HAPPY, .scale_x = 1, .scale_y = 1, .lid_l = 0.6, .lid_r = 0.6};
     bot_stroke_t hs[2];
     bot_eye_strokes(&h, 1.15, hs);
-    CHECK(hs[0].lid == 0 && hs[1].lid == 0, "lid: happy eyes flatten with the lid and are never clipped");
+    CHECK(hs[0].lid == 0 && hs[1].lid == 0, "lid: happy eyes flatten with the lid; only a blink clips them");
     bot_pose_t d = {.eyes = BOT_EYES_DASH, .scale_x = 1, .scale_y = 1, .lid_l = 1.4, .lid_r = -0.2};
     bot_eye_strokes(&d, 1.15, hs);
     CHECK(hs[0].lid == 1 && hs[1].lid == 0, "lid: the clip fraction is the lid in 0..1");
@@ -232,15 +232,16 @@ static void test_lid_shape(void)
 static void test_lid_line(void)
 {
     const double ys[2] = {100, 160}, w = 30;
-    CHECK(bot_lid_line_y(ys, 2, w, 0) == -INFINITY && bot_lid_line_y(ys, 2, w, -0.1) == -INFINITY, "lid line: none when open");
-    CHECK(fabs(bot_lid_line_y(ys, 2, w, 1) - (175 - BOT_LID_KEEP * w)) < 1e-9 && fabs(bot_lid_line_y(ys, 2, w, 3) - (175 - BOT_LID_KEEP * w)) < 1e-9,
+    CHECK(bot_lid_line_y(ys, 2, w, 0, BOT_LID_KEEP) == -INFINITY && bot_lid_line_y(ys, 2, w, -0.1, BOT_LID_KEEP) == -INFINITY, "lid line: none when open");
+    CHECK(fabs(bot_lid_line_y(ys, 2, w, 1, BOT_LID_KEEP) - (176 - BOT_LID_KEEP * w)) < 1e-9 && fabs(bot_lid_line_y(ys, 2, w, 3, BOT_LID_KEEP) - (176 - BOT_LID_KEEP * w)) < 1e-9,
           "lid line: shut keeps a %.1f x width strip at the bottom", BOT_LID_KEEP);
-    CHECK(fabs(bot_lid_line_y(ys, 2, w, 0.5) - (85 + (175 - BOT_LID_KEEP * w - 85) / 2)) < 1e-9, "lid line: halfway at lid 0.5");
+    CHECK(bot_lid_line_y(ys, 2, w, 1, 0) == 176, "lid line: a shut blink (keep 0) hides the whole eye");
+    CHECK(fabs(bot_lid_line_y(ys, 2, w, 0.5, BOT_LID_KEEP) - (84 + (176 - BOT_LID_KEEP * w - 84) / 2)) < 1e-9, "lid line: halfway at lid 0.5");
     double prev = -INFINITY;
     bool down = true;
     for (double l = 0.05; l <= 1; l += 0.05) {
-        double y = bot_lid_line_y(ys, 2, w, l);
-        down = down && y > prev && y >= 85;
+        double y = bot_lid_line_y(ys, 2, w, l, BOT_LID_KEEP);
+        down = down && y > prev && y >= 84;
         prev = y;
     }
     CHECK(down, "lid line: comes down from the top as the lid closes");
@@ -1024,7 +1025,7 @@ static void test_act(void)
     CHECK(b.blink_start == bs, "a second costume change rides the same blink");
     bot_act_eyes(&b, BOT_EYES_ROUND, t + 0.01);
     CHECK(bot_pose(&b, t + 0.02).eyes == BOT_EYES_DASH, "the old eyes until the lids close");
-    CHECK(bot_pose(&b, t + 0.09).eyes == BOT_EYES_ROUND, "round once they close");
+    CHECK(bot_pose(&b, t + 0.11).eyes == BOT_EYES_ROUND, "round once both lids close (lag 20 ms at most)");
     for (double u = t + 0.1; u < t + 1; u += 0.016) bot_pose(&b, u);
     bot_set_mood(&b, BOT_DONE, t + 1);
     for (double u = t + 1; u < t + 2; u += 0.016) bot_pose(&b, u);
@@ -1613,7 +1614,7 @@ static void test_breath_redraws(void)
     double asleep = redraws_per_s(&b, BOT_ASLEEP_AFTER_S + 2, 1200, false);
     printf("breath redraws/s: idle %.1f (%.1f without), working %.1f (%.1f), done %.1f (%.1f), sleepy %.1f, asleep %.1f\n", with[0],
            without[0], with[1], without[1], with[2], without[2], sleepy, asleep);
-    CHECK(sleepy < 20, "sleepy: %.1f redraws/s, the breathing lid line must not redraw every frame", sleepy);
+    CHECK(sleepy < 16, "sleepy: %.1f redraws/s, the breathing lid must not redraw every frame", sleepy);
     CHECK(asleep > 1 && asleep < 2.5, "asleep: %.2f redraws/s, the bob alone", asleep);
 }
 
@@ -2056,7 +2057,7 @@ static void test_sleepy_still_redraws(void)
     }
     double rate = n / (frames * 0.016);
     printf("sleepy: %.1f redraws/s while the gaze and blinks are still\n", rate);
-    CHECK(rate > 4 && rate < 18, "sleepy holds: %.1f redraws/s, the breathing lid line alone", rate);
+    CHECK(rate > 4 && rate < 12, "sleepy holds: %.1f redraws/s, the breathing lid alone", rate);
 }
 
 typedef struct {
@@ -3392,12 +3393,12 @@ static void test_mood_beat_gaps(void)
         bot_pose_t p = bot_pose(&b, t);
         if (p.face == BOT_DONE) {
             at = t - b.blink_start;
-            blink = (lid_max(&p) - 0.8) / 0.2;
+            blink = fmin(p.blink_l, p.blink_r);
             worst = lid_max(&p);
         }
     }
-    CHECK(at >= 0 && worst >= 0.9 && blink < 0.6, "lids at 0.8 (an act's lid): the beat once the heavy lid and the blink reach 0.9 together "
-          "(lid %.2f, blink alone %.2f)", worst, blink);
+    CHECK(at >= 0 && worst >= 0.9 && blink >= BOT_BLINK_HIDE, "lids at 0.8 (an act's lid): the beat once the blink alone hides both eyes, "
+          "not when lid and blink reach 0.9 together, which leaves the clipped eyes' crescent showing (lid %.2f, blink %.2f)", worst, blink);
 }
 
 static void test_error_shake(void)
@@ -3516,11 +3517,188 @@ static void test_error_huff(void)
     for (double t = t0; t < t0 + 200; t += 1.0 / 60) calm += bot_pose(&b, t).eye_dy != 0;
     CHECK(!calm, "huff: none while calm (%d frames)", calm);
     bot_set_calm(&b, false, t0 + 200);
+    int after = 0;
+    bool was = false;
     for (double t = t0 + 200; t < t0 + 400; t += 1.0 / 60) {
         bot_pose_t p = bot_pose(&b, t);
         if (p.eye_dy != 0) animating += !b.animating;
+        after += p.eye_dy != 0 && !was;
+        was = p.eye_dy != 0;
     }
-    CHECK(!animating, "huff: counts as animating (%d frames not)", animating);
+    CHECK(!animating && after > 0, "huff: %d huffs after calm ends, each counted as animating (%d frames not)", after, animating);
+}
+
+static void test_error_exit_continuity(void)
+{
+    int bad_huff = 0, bad_calm = 0, bad_shake = 0, runs = 0;
+    for (int seed = 1; seed <= 12; seed++)
+        for (int how = 0; how < 2; how++) {
+            bot_t b;
+            bot_init(&b, seed, 0);
+            bot_set_sleep_after(&b, 0);
+            double t0 = settle_open(&b, 0), t = t0, left = -1, h0 = 0;
+            bot_set_mood(&b, BOT_ERROR, t0);
+            for (; t < t0 + 120; t += 1.0 / 120) {
+                bot_pose_t p = bot_pose(&b, t);
+                if (left < 0 && p.eye_dy < 0 && t - b.huff_at >= BOT_HUFF_S / 2) {
+                    left = t;
+                    h0 = b.huff_at;
+                    if (how == 0) bot_set_mood(&b, BOT_IDLE, t);
+                    else bot_set_calm(&b, true, t);
+                    continue;
+                }
+                if (left < 0) continue;
+                if (t - h0 >= BOT_HUFF_S) break;
+                double want = -BOT_HUFF_DIP * sin(M_PI * (t - h0) / BOT_HUFF_S), lid = fmin(p.lid_l, p.lid_r);
+                if (fabs(p.eye_dy - want) > 1e-9 || lid < BOT_HUFF_LID * -want / BOT_HUFF_DIP - 1e-9)
+                    *(how ? &bad_calm : &bad_huff) += 1;
+            }
+            runs += left > 0;
+        }
+    CHECK(runs == 24 && !bad_huff, "huff: leaving error at its peak lets it finish (%d frames snap, %d runs)", bad_huff, runs);
+    CHECK(!bad_calm, "huff: calm turning on at its peak lets it finish (%d frames snap)", bad_calm);
+
+    for (int seed = 1; seed <= 20; seed++) {
+        bot_t a, c;
+        bot_init(&a, seed, 0);
+        bot_init(&c, seed, 0);
+        double t0 = settle_open(&a, 0), tb = -1;
+        settle_open(&c, 0);
+        bot_set_calm(&c, true, 0);
+        bot_set_mood(&a, BOT_ERROR, t0);
+        bot_set_mood(&c, BOT_ERROR, t0);
+        bool left = false;
+        for (double t = t0; t < t0 + 3; t += 0.001) {
+            bot_pose_t p = bot_pose(&a, t), q = bot_pose(&c, t);
+            if (tb < 0 && p.face == BOT_ERROR) tb = t;
+            double u = tb < 0 ? -1 : (t - tb - BOT_SHAKE_AT_S) / BOT_SHAKE_S;
+            if (!left && u >= 0.5) {
+                bot_set_mood(&a, BOT_WORKING, t);
+                bot_set_mood(&c, BOT_WORKING, t);
+                left = true;
+                continue;
+            }
+            if (!left || u >= 1) continue;
+            double want = BOT_SHAKE_AMP * sin(2 * M_PI * BOT_SHAKE_CYCLES * u) * (1 - u);
+            if (fabs(p.offset_x - q.offset_x - want) > 1e-6) bad_shake++;
+        }
+    }
+    CHECK(!bad_shake, "shake: leaving error mid-shake lets it finish (%d frames snap)", bad_shake);
+}
+
+static void test_error_overlaps(void)
+{
+    int track_bad = 0, sac_bad = 0;
+    for (int seed = 1; seed <= 20; seed++) {
+        bot_t a, c;
+        bot_init(&a, seed, 0);
+        bot_init(&c, seed, 0);
+        double t0 = settle_open(&a, 0), tb = -1, track_at = -1;
+        settle_open(&c, 0);
+        bot_set_calm(&c, true, 0);
+        bot_set_mood(&a, BOT_ERROR, t0);
+        bot_set_mood(&c, BOT_ERROR, t0);
+        for (double t = t0; t < t0 + 4; t += 0.001) {
+            if (track_at > 0 && t - track_at < 2) {
+                bot_track(&a, 0.4, -0.2, t);
+                bot_track(&c, 0.4, -0.2, t);
+            }
+            bot_pose_t p = bot_pose(&a, t), q = bot_pose(&c, t);
+            if (tb < 0 && p.face == BOT_ERROR) tb = t;
+            if (track_at < 0 && tb > 0 && t >= tb + BOT_SHAKE_AT_S + 0.1) track_at = t;
+            if (track_at > 0 && t > track_at && t - track_at < 2) {
+                if (p.offset_x != q.offset_x) track_bad++;
+                if (fabs(a.gaze_to_x) >= 0.7 && a.gaze_start > track_at) sac_bad++;
+            }
+        }
+    }
+    CHECK(!track_bad, "error: touch tracking stops the shake (%d frames shake under the finger)", track_bad);
+    CHECK(!sac_bad, "error: no side darts while tracking");
+
+    int act_huffs = 0, free_huffs = 0;
+    for (int seed = 1; seed <= 8; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_set_sleep_after(&b, 0);
+        double t0 = settle_open(&b, 0);
+        bot_set_mood(&b, BOT_ERROR, t0);
+        for (double t = t0; t < t0 + 2; t += 1.0 / 60) bot_pose(&b, t);
+        bot_act_begin(&b, t0 + 2);
+        bot_act_lid(&b, 0.3, 0.2, t0 + 2);
+        for (double t = t0 + 2; t < t0 + 200; t += 1.0 / 60) act_huffs += bot_pose(&b, t).eye_dy != 0;
+        bot_act_end(&b, true, 0.3, t0 + 200);
+        for (double t = t0 + 200; t < t0 + 400; t += 1.0 / 60) free_huffs += bot_pose(&b, t).eye_dy != 0;
+    }
+    CHECK(!act_huffs && free_huffs > 0, "error: a scripted act gets no huff (%d frames), huffs come back after it (%d)", act_huffs, free_huffs);
+}
+
+#define BEAT_PX_W 160
+#define BEAT_PX_H 200
+
+static int eye_px(const bot_pose_t *p)
+{
+    static uint8_t a[BEAT_PX_W * BEAT_PX_H];
+    static bot_raster_scratch_t sc;
+    const double R = 195.72;
+    bot_stroke_t st[2];
+    bot_eye_strokes(p, 1.15, st);
+    int n = 0;
+    for (int e = 0; e < 2; e++) {
+        double xs[BOT_STROKE_MAX], ys[BOT_STROKE_MAX], wd = st[e].width * R * (p->scale_x + p->scale_y) / 2, x0 = 1e9, y0 = 1e9, y1 = -1e9;
+        float fx[BOT_STROKE_MAX], fy[BOT_STROKE_MAX];
+        int segs[BOT_STROKE_MAX];
+        for (int i = 0; i < st[e].n; i++) {
+            xs[i] = 236 + R * (p->offset_x + p->scale_x * st[e].x[i]);
+            ys[i] = 233 - R * (p->offset_y * 0.45 - (1 - p->scale_y) + p->scale_y * st[e].y[i]);
+            fx[i] = (float)xs[i];
+            fy[i] = (float)ys[i];
+            segs[i] = i;
+            x0 = fmin(x0, xs[i]);
+            y0 = fmin(y0, ys[i]);
+            y1 = fmax(y1, ys[i]);
+        }
+        int ox = ((int)floor(x0 - wd / 2 - 1)) & ~1, oy = ((int)floor(y0 - wd / 2 - 1)) & ~1, h = ((int)ceil(y1 + wd / 2 + 1) - oy + 1) & ~1;
+        if (h > BEAT_PX_H) h = BEAT_PX_H;
+        float line = (float)bot_lid_line_y(ys, st[e].n, wd, st[e].lid, st[e].keep);
+        bot_raster_lid_box(line, &oy, &h);
+        bot_raster_stroke_below(&sc, NULL, a, line, BEAT_PX_W, h, ox, oy, fx, fy, st[e].n - 1, segs, (float)wd / 2, 0xF4F4F2, 1.0f);
+        for (int i = 0; i < BEAT_PX_W * h; i++) n += a[i] != 0;
+    }
+    return n;
+}
+
+static void test_beat_hidden(void)
+{
+    static const bot_mood_t M[] = {BOT_IDLE, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE, BOT_SLEEPY};
+    int swaps = 0, shown = 0, worst = 0;
+    for (int seed = 1; seed <= 60; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_set_sleep_after(&b, 0);
+        double t = settle_open(&b, 0);
+        bot_eyes_t eyes = b.eyes;
+        uint64_t r = seed * 0x9E3779B97F4A7C15ULL;
+        for (int k = 0; k < 8; k++) {
+            r = r * 6364136223846793005ULL + 1442695040888963407ULL;
+            bot_mood_t m = M[(r >> 33) % 6];
+            double ready = ((r >> 20) % 61) / 100.0, at = t;
+            bot_rim_ready(&b, false);
+            bot_set_mood(&b, m, at);
+            for (; t < at + 2.5; t += 1.0 / 60) {
+                bot_rim_ready(&b, t - at >= ready);
+                bot_pose_t p = bot_pose(&b, t);
+                if (p.eyes != eyes) {
+                    int px = eye_px(&p);
+                    swaps++;
+                    shown += px > 0;
+                    if (px > worst) worst = px;
+                    eyes = p.eyes;
+                }
+            }
+        }
+    }
+    printf("beat: %d eye swaps, %d with eye pixels showing (worst %d px)\n", swaps, shown, worst);
+    CHECK(swaps > 200 && !shown, "beat: every eye swap lands with no eye pixel showing (%d of %d show, worst %d px)", shown, swaps, worst);
 }
 
 static void test_error_gaze(void)
@@ -4150,6 +4328,9 @@ int main(void)
     test_error_shake();
     test_error_huff();
     test_error_gaze();
+    test_error_exit_continuity();
+    test_error_overlaps();
+    test_beat_hidden();
     test_wait_phases();
     test_wait_nudge();
     test_wait_restart();

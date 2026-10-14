@@ -18,6 +18,7 @@ typedef struct {
     bot_eyes_t eyes;
     double gaze_x, gaze_y;
     double lid_l, lid_r;
+    double blink_l, blink_r; /* the blink's part of each lid, 0..1: from BOT_BLINK_HIDE the lid line hides the eye whole */
     double triangle;
     double slump;
     double badge;
@@ -88,10 +89,13 @@ typedef struct {
 
 #define BOT_SLEEP_AFTER_S 300.0
 #define BOT_ASLEEP_AFTER_S 600.0
-/* bot_pose_same's half pixel, body radii per unit: breath's eye centre (edges ~2x), the asleep bob, the lid line per lid. */
+/* bot_pose_same's half pixel, body radii per unit: breath's eye centre (edges ~2x), the asleep bob; half the lid line's
+   travel per lid (about 0.4), so a lid redraws per whole pixel of its line. */
 #define BOT_BREATH_REACH 0.006
 #define BOT_BREATH_BOB 0.0077
-#define BOT_LID_REACH 0.4
+#define BOT_LID_REACH 0.2
+/* A blink this far shut hides the eye whole (no bottom strip); eye shapes swap only then. */
+#define BOT_BLINK_HIDE 0.9
 /* bot_rim_tone's flag on top of the mood, and bot_rim_key's for the triangle outline. */
 #define BOT_RIM_ASLEEP 0x100
 #define BOT_RIM_TRIANGLE 0x200

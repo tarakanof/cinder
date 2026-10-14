@@ -15,7 +15,8 @@ typedef struct {
     int n;
     double x[BOT_STROKE_MAX], y[BOT_STROKE_MAX];
     double width;
-    double lid; /* 0..1: how far the lid line has come down (bot_lid_line_y); 0 for an eye no lid clips */
+    double lid;  /* 0..1: how far the lid line has come down (bot_lid_line_y); a happy arc's only from a blink */
+    double keep; /* the bottom strip a shut lid leaves, in widths: BOT_LID_KEEP, down to 0 as a blink shuts */
 } bot_stroke_t;
 
 /* Builds the shared triangle-body table; call once from one task before any bot_body_ring. */
@@ -26,9 +27,10 @@ void bot_body_ring(double k, double xs[BOT_RING_POINTS], double ys[BOT_RING_POIN
 
 void bot_eye_strokes(const bot_pose_t *p, double eye_scale, bot_stroke_t out[2]);
 
-/* Screen y (px, down) of the lid line for a stroke at screen ys and width px: the eye shows only below it.
- * -INFINITY with no lid; at lid 1 a bottom strip of BOT_LID_KEEP x width stays. */
-double bot_lid_line_y(const double *ys, int n, double width, double lid);
+/* Screen y (px, down) of the lid line for a stroke at screen ys and width px (every pixel row it touches included): the eye shows
+ * only below it.
+ * -INFINITY with no lid; at lid 1 a bottom strip of keep x width stays (0: none). */
+double bot_lid_line_y(const double *ys, int n, double width, double lid, double keep);
 
 /* Farthest point of both eyes from the body centre, stroke width included (body radii). */
 double bot_eyes_extent(const bot_stroke_t eyes[2]);

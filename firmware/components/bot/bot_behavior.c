@@ -25,7 +25,7 @@
 #define READ_OVERSHOOT 0.071
 #define MARK_X 0.0
 #define COVER_AMP 0.6
-#define LID_SHUT 0.9
+#define LID_SHUT BOT_BLINK_HIDE
 #define WAIT_FIRST_HOP_S 0.6
 #define BURST_H 0.6
 #define REMIND_GAP_S 1.05
@@ -570,7 +570,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     b->triangle = tween(tween_value(&b->triangle, t), m == BOT_ERROR ? 1 : 0, t, morph, EASE_IN_OUT);
     b->slump = tween(tween_value(&b->slump, t), m == BOT_SLEEPY ? 1 : 0, t, m == BOT_SLEEPY ? 1.6 : morph, EASE_IN_OUT);
     b->done_hop_at = b->giggle_at = b->lap_at = INFINITY;
-    b->shake_at = b->huff_at = -INFINITY;
+    if (t < b->shake_at) b->shake_at = -INFINITY;
     b->next_huff_at = INFINITY;
     b->popping = m != BOT_SLEEPY && bot_anim_allowed(BOT_ANIM_MOOD_POP, b->calm);
     b->pop_start = t;
@@ -696,10 +696,12 @@ bot_pose_t bot_pose(bot_t *b, double t)
         if (loud) start_hop(b, t, BOT_DONE_HOP_H, HOP_LEN_S);
         b->done_hop_at = INFINITY;
     }
+    bool fx = bot_anim_allowed(BOT_ANIM_ERROR_FX, b->calm);
     if (b->mood == BOT_ERROR && t >= b->next_huff_at) {
-        b->huff_at = t;
+        if (fx && !b->acting) b->huff_at = t;
         b->next_huff_at = t + huff_gap(b);
     }
+    if ((!fx && t < b->shake_at) || b->tracking) b->shake_at = -INFINITY;
 
     breathe(b, t);
     bot_pose_t p = {.mood = b->mood, .scale_x = 1, .scale_y = 1, .breath = b->breath, .asleep = b->asleep};
@@ -707,7 +709,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
     double bl = 0, br = 0;
     bool now = !due || b->rim_ready || t >= b->beat_by;
     if (due && !b->blinking) {
-        if (heavy >= 0.9 && now) swap_eyes(b, t);
+        if (b->asleep && heavy >= 0.9 && now) swap_eyes(b, t);
         else if (!b->asleep) reclose(b, t);
     }
     if (b->blinking) {
@@ -719,7 +721,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
         }
         bl = blink_lid(b, u);
         br = blink_lid(b, u - b->blink_lag);
-        if (b->swap_eyes_on_close && heavy + (1 - heavy) * fmax(bl, br) >= 0.9 && now) swap_eyes(b, t);
+        if (b->swap_eyes_on_close && fmin(bl, br) >= LID_SHUT && now) swap_eyes(b, t);
         if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
             bool beat_due = b->face != b->mood;
             if (b->swap_eyes_on_close && !b->double_blink_pending && !beat_due) swap_eyes(b, t);
@@ -737,6 +739,8 @@ bot_pose_t bot_pose(bot_t *b, double t)
     p.eyes = b->eyes;
     p.lid_l = heavy + (1 - heavy) * bl;
     p.lid_r = heavy + (1 - heavy) * br;
+    p.blink_l = bl;
+    p.blink_r = br;
     double giggle = loud ? giggle_lid(b, t) : 0;
     p.lid_l = fmax(p.lid_l, giggle);
     p.lid_r = fmax(p.lid_r, giggle);
@@ -788,9 +792,8 @@ bot_pose_t bot_pose(bot_t *b, double t)
         p.scale_y *= sy;
         p.badge *= 1 + PULSE * sin(M_PI * nu / BOT_NUDGE_S);
     }
-    bool fx = bot_anim_allowed(BOT_ANIM_ERROR_FX, b->calm);
     double su = (t - b->shake_at) / BOT_SHAKE_S, hu = (t - b->huff_at) / BOT_HUFF_S;
-    bool shaking = fx && su >= 0 && su < 1, huffing = fx && hu >= 0 && hu < 1;
+    bool shaking = su >= 0 && su < 1, huffing = hu >= 0 && hu < 1;
     if (shaking) p.offset_x += BOT_SHAKE_AMP * sin(2 * M_PI * BOT_SHAKE_CYCLES * su) * (1 - su);
     if (huffing) {
         double k = sin(M_PI * hu);
@@ -962,7 +965,7 @@ bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
     double breath = step / (a->asleep ? BOT_BREATH_BOB : BOT_BREATH_REACH), lid = step / BOT_LID_REACH;
 #define Q(v, s) round((v) / (s))
 #define SAME(f, s) (Q(a->f, s) == Q(b->f, s))
-    return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, lid) && SAME(lid_r, lid) && SAME(breath, breath) && SAME(eye_dy, step) &&
+    return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, lid) && SAME(lid_r, lid) && SAME(blink_l, lid) && SAME(blink_r, lid) && SAME(breath, breath) && SAME(eye_dy, step) &&
            SAME(triangle, step) && SAME(slump, step) && SAME(badge, step) && SAME(offset_x, step) &&
            SAME(offset_y, step) && SAME(hop_dy, step) && SAME(orbit, step) && SAME(scale_x, step / 2) &&
            SAME(scale_y, step / 2);
