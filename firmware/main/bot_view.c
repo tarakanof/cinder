@@ -53,14 +53,16 @@ static bot_mood_t s_rim_mood = (bot_mood_t)-1;
 static int s_rim_dy;
 static lv_obj_t *s_badge_gap, *s_badge_dot;
 #define LABEL_W 340
-#define LABEL_H 110
+#define LABEL_H 116
 #define LABEL_X ((int)CX - LABEL_W / 2)
-#define LABEL_Y 318
+#define LABEL_Y 312
 #define LABEL_R 176.0f
 #define LABEL_ICON_CELL 4
 #define LABEL_ICON_MAX_W TOOL_MARK_MAX_W
 #define LABEL_ICON_H TOOL_MARK_H
 #define LABEL_ICON_R 146
+#define LABEL_ICON_SUB_R 128
+#define LABEL_SUB_R 147.0f
 static lv_obj_t *s_label;
 static uint16_t *s_label_buf;
 static int s_label_cx, s_label_cy;
@@ -380,24 +382,39 @@ static void label_crop(const uint32_t *src)
     label_place();
 }
 
+static void arc_line(lv_layer_t *layer, const lv_font_t *font, const char *text, float r, uint32_t rgb)
+{
+    float w[EMBER_LABEL_MAX];
+    arc_item_t it[EMBER_LABEL_MAX];
+    int n = 0;
+    for (const char *p = text; *p && n < EMBER_LABEL_MAX; p++)
+        w[n++] = (float)lv_font_get_glyph_width(font, (uint8_t)p[0], (uint8_t)p[1]);
+    if (!n) return;
+    arc_text_layout((float)(CX - LABEL_X), (float)(CY - LABEL_Y), r, w, n, it);
+    for (int i = 0; i < n; i++) {
+        lv_draw_letter_dsc_t d;
+        lv_draw_letter_dsc_init(&d);
+        d.font = font;
+        d.color = lv_color_hex(rgb);
+        d.opa = LV_OPA_COVER;
+        d.unicode = (uint8_t)text[i];
+        d.rotation = (int32_t)lroundf(it[i].rot_deg * 10);
+        lv_point_t pt = {(int32_t)lroundf(it[i].x), (int32_t)lroundf(it[i].y)};
+        lv_draw_letter(layer, &d, &pt);
+    }
+}
+
 static void label_draw(void)
 {
-    static const lv_font_t *const font = &lv_font_montserrat_30;
     uint32_t mood_c = mood_rgb(s_rim_mood);
     uint32_t text_c = s_host.color >= 0 ? (uint32_t)s_host.color : mood_c;
-    float w[EMBER_HOST_MAX];
-    arc_item_t it[EMBER_HOST_MAX];
     uint8_t body[8], feat[8];
-    int n = 0;
     uint32_t mark_rgb = 0;
     int mark_w = 0, mark_h = 0;
     bool marked = bot_label_mark(s_rim_mood);
     const uint8_t *mark = marked ? tool_mark(s_host.tool, &mark_rgb, &mark_w, &mark_h) : NULL;
     bool icon = marked && (mark || arc_tool_icon(s_host.tool, body, feat));
-    int first = n;
-    for (const char *p = s_host.text; *p && n < EMBER_HOST_MAX; p++)
-        w[n++] = (float)lv_font_get_glyph_width(font, (uint8_t)p[0], (uint8_t)p[1]);
-    arc_text_layout((float)(CX - LABEL_X), (float)(CY - LABEL_Y), LABEL_R, w, n, it);
+    const char *sub = s_rim_mood == BOT_WAITING ? s_host.sub : "";
 
     /* LVGL cannot render into RGB565A8: draw ARGB8888, keep the drawn bounds. */
     uint32_t *scratch = heap_caps_malloc(LABEL_W * LABEL_H * 4, MALLOC_CAP_SPIRAM);
@@ -421,24 +438,15 @@ static void label_draw(void)
         lv_draw_image_dsc_t d;
         lv_draw_image_dsc_init(&d);
         d.src = &img;
-        int x = (int)(CX - LABEL_X), y = (int)(CY - LABEL_Y) + LABEL_ICON_R;
+        int x = (int)(CX - LABEL_X), y = (int)(CY - LABEL_Y) + (sub[0] ? LABEL_ICON_SUB_R : LABEL_ICON_R);
         lv_area_t a = {x - s_icon_w / 2, y - s_icon_h, x - s_icon_w / 2 + s_icon_w - 1, y - 1};
         lv_draw_image(&layer, &d, &a);
         s_icon_box = a;
     } else {
         s_icon_box = (lv_area_t){0, 0, -1, -1};
     }
-    for (int i = first; i < n; i++) {
-        lv_draw_letter_dsc_t d;
-        lv_draw_letter_dsc_init(&d);
-        d.font = font;
-        d.color = lv_color_hex(text_c);
-        d.opa = LV_OPA_COVER;
-        d.unicode = (uint8_t)s_host.text[i - first];
-        d.rotation = (int32_t)lroundf(it[i - first].rot_deg * 10);
-        lv_point_t pt = {(int32_t)lroundf(it[i - first].x), (int32_t)lroundf(it[i - first].y)};
-        lv_draw_letter(&layer, &d, &pt);
-    }
+    arc_line(&layer, &lv_font_montserrat_30, s_host.text, LABEL_R, text_c);
+    arc_line(&layer, &lv_font_montserrat_18, sub, LABEL_SUB_R, text_c);
     lv_canvas_finish_layer(tmp, &layer);
     lv_obj_delete(tmp);
     label_crop(scratch);
@@ -460,7 +468,9 @@ static void host_sync(void)
 
 void bot_view_set_host(const ember_host_info_t *host)
 {
-    if (strcmp(host->text, s_host.text) == 0 && host->color == s_host.color && host->tool == s_host.tool) return;
+    if (strcmp(host->text, s_host.text) == 0 && strcmp(host->sub, s_host.sub) == 0 && host->color == s_host.color &&
+        host->tool == s_host.tool)
+        return;
     s_host = *host;
     s_label_dirty = true;
     host_sync();

@@ -144,9 +144,62 @@ void ember_host_lead_label(const char *source, const char *lead, int hosts, char
     strlcat_(out, suffix, cap);
 }
 
+static size_t printable(const char *src, char *out, size_t cap)
+{
+    size_t k = 0;
+    for (const unsigned char *p = (const unsigned char *)(src ? src : ""); *p && k + 1 < cap; p++)
+        if (*p >= 0x20 && *p <= 0x7e && (k || *p != ' ')) out[k++] = (char)*p;
+    while (k && out[k - 1] == ' ') k--;
+    out[k] = 0;
+    return k;
+}
+
+void ember_host_project_label(const char *project, int others, char *out, size_t cap)
+{
+    char name[EMBER_PROJECT_SLOTS + 2];
+    out[0] = 0;
+    size_t n = printable(project, name, sizeof name);
+    if (!n) return;
+    char suffix[8] = "";
+    if (others > 0) snprintf(suffix, sizeof suffix, " +%d", others > 99 ? 99 : others);
+    size_t room = EMBER_LABEL_SLOTS - strlen(suffix);
+    if (room > EMBER_PROJECT_SLOTS) room = EMBER_PROJECT_SLOTS;
+    const char *cut = "";
+    if (n > room) {
+        n = room - 1;
+        while (n && name[n - 1] == ' ') n--;
+        cut = EMBER_ELLIPSIS;
+    }
+    snprintf(out, cap, "%.*s%s%s", (int)n, name, cut, suffix);
+}
+
+static uint32_t fnv(uint32_t h, const char *s)
+{
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) h = (h ^ *p) * 16777619u;
+    return (h ^ 0xff) * 16777619u;
+}
+
+void ember_host_lead_info(const char *source, const char *lead, int hosts, const char *project, int waiting,
+                          ember_host_info_t *out)
+{
+    char host[EMBER_HOST_MAX + 1];
+    ember_host_lead_label(source, lead, 1, host, sizeof host);
+    ember_host_project_label(project, waiting - 1, out->text, sizeof out->text);
+    out->sub[0] = 0;
+    if (out->text[0]) {
+        if (hosts > 1) snprintf(out->sub, sizeof out->sub, "%s", host);
+        out->lead = fnv(fnv(2166136261u, project), host) | 1;
+        out->count = waiting;
+        return;
+    }
+    ember_host_lead_label(source, lead, hosts, out->text, sizeof out->text);
+    out->lead = host[0] ? fnv(2166136261u, host) | 1 : 0;
+    out->count = hosts;
+}
+
 bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now)
 {
-    return strcmp(was->lead, now->lead) != 0 || now->hosts > was->hosts;
+    return was->lead != now->lead || now->count > was->count;
 }
 
 int32_t ember_host_color(const char *hex)

@@ -59,6 +59,26 @@ static void test_parse(void)
     CHECK(strcmp(v.lead, "M4") == 0 && v.hosts == 2 && strcmp(v.lead_color, "#B48CFF") == 0 &&
               strcmp(v.tool, "claude") == 0,
           "lead %s hosts %d colour %s tool %s", v.lead, v.hosts, v.lead_color, v.tool);
+    CHECK(v.lead_project[0] == 0, "no lead_project: empty");
+
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":2,\"errors\":0,\"running\":0,\"done\":0,\"source\":\"\","
+                          "\"lead\":\"M4\",\"lead_project\":\"learn-language\"}}",
+                          &v),
+          "lead_project parses");
+    CHECK(strcmp(v.lead_project, "learn-language") == 0, "lead_project %s", v.lead_project);
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":\"\\u0449\\u0438\\u0442 caf\\u00e9 \\ud83d\\ude42\"}}",
+                          &v),
+          "UTF-8 lead_project parses");
+    CHECK(strcmp(v.lead_project, "shchit cafe ?") == 0, "folded to ASCII: %s", v.lead_project);
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":7}}", &v) && v.lead_project[0] == 0,
+          "a non-string lead_project is ignored");
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":\"\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449"
+                          "\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449"
+                          "\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\\u0449\"}}",
+                          &v),
+          "32 wide letters parse");
+    CHECK(strlen(v.lead_project) == 64 && strspn(v.lead_project, "shc") == 64, "folded to the buffer in whole letters (%zu)",
+          strlen(v.lead_project));
 
     CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"pomo\":{\"phase\":\"short_break\",\"running\":true,\"paused\":true,"
                           "\"remaining_sec\":120,\"planned_sec\":300,\"round\":2}}",

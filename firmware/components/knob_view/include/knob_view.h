@@ -30,6 +30,7 @@ typedef struct {
     int hosts;
     char lead_color[16];
     char tool[16];
+    char lead_project[KNOB_VIEW_SOURCE_MAX + 1];   /* folded to ASCII */
 
     bool has_pomo;
     pomo_state_t pomo;

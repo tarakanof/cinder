@@ -224,6 +224,8 @@ static void parse_mood(const cJSON *mood, knob_view_t *out)
     out->hosts = num_int(mood, "hosts");
     str_copy(out->lead_color, sizeof out->lead_color, mood, "lead_color");
     str_copy(out->tool, sizeof out->tool, mood, "tool");
+    const cJSON *project = item(mood, "lead_project");
+    np_text_fold(cJSON_IsString(project) && project->valuestring ? project->valuestring : "", out->lead_project, sizeof out->lead_project);
 }
 
 static void read_body(const cJSON *root, knob_view_t *out)

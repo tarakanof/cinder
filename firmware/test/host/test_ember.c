@@ -228,20 +228,24 @@ static void test_lead(void)
     ember_host_lead_label("", "m4", 2, small, sizeof small);
     CHECK(strlen(small) == 3, "cap respected (%s)", small);
 
-    ember_host_info_t was = {.lead = "STUDIO", .hosts = 1}, now = was;
-    CHECK(!ember_host_lead_new(&was, &now), "same lead and count: not new");
-    now.hosts = 2;
-    snprintf(now.text, sizeof now.text, "STUDIO +1");
+    ember_host_info_t was, now;
+    ember_host_lead_info("", "studio", 0, "", 0, &was);
+    now = was;
+    CHECK(was.lead && !ember_host_lead_new(&was, &now), "same lead and count: not new");
+    ember_host_lead_info("", "studio", 2, "", 0, &now);
+    CHECK(strcmp(now.text, "STUDIO +1") == 0 && now.count == 2 && now.lead == was.lead, "one more host (%s)", now.text);
     CHECK(ember_host_lead_new(&was, &now), "one more host: new");
     CHECK(!ember_host_lead_new(&now, &was), "one host fewer: not new");
     now = was;
     now.tool = 2;
     now.color = 0x123456;
     CHECK(!ember_host_lead_new(&was, &now), "tool or colour alone: not new");
-    snprintf(now.lead, sizeof now.lead, "M4");
+    ember_host_lead_info("", "m4", 0, "", 0, &now);
     CHECK(ember_host_lead_new(&was, &now), "another lead: new");
     ember_host_info_t none = {0};
     CHECK(ember_host_lead_new(&none, &was), "a first lead: new");
+    ember_host_lead_info("", "", 0, NULL, 0, &now);
+    CHECK(now.lead == 0 && now.text[0] == 0 && !ember_host_lead_new(&none, &now), "no lead: nobody, not new");
 
     CHECK(ember_host_color("#B48CFF") == 0xB48CFF, "upper");
     CHECK(ember_host_color("#b48cff") == 0xB48CFF, "lower");
@@ -257,9 +261,80 @@ static void test_lead(void)
     CHECK(ember_host_tool("Claude") == EMBER_TOOL_NONE && ember_host_tool(NULL) == EMBER_TOOL_NONE, "other");
 }
 
+static void test_project(void)
+{
+    char out[EMBER_LABEL_MAX + 1];
+    ember_host_project_label("ember", 0, out, sizeof out);
+    CHECK(strcmp(out, "ember") == 0, "short, case kept (%s)", out);
+    ember_host_project_label("learn-langu", 0, out, sizeof out);
+    CHECK(strcmp(out, "learn-lan...") == 0, "11 chars: 9 and the ellipsis (%s)", out);
+    ember_host_project_label("learn-lang", 0, out, sizeof out);
+    CHECK(strcmp(out, "learn-lang") == 0, "exactly 10: whole (%s)", out);
+    ember_host_project_label("learn-language", 1, out, sizeof out);
+    CHECK(strcmp(out, "learn-la... +1") == 0, "+N takes slots from the name (%s)", out);
+    ember_host_project_label("learn-lan", 1, out, sizeof out);
+    CHECK(strcmp(out, "learn-lan +1") == 0, "9 and +1 fit whole (%s)", out);
+    ember_host_project_label("learn-language", 12, out, sizeof out);
+    CHECK(strcmp(out, "learn-l... +12") == 0, "two-digit N (%s)", out);
+    ember_host_project_label("learn-language", 250, out, sizeof out);
+    CHECK(strcmp(out, "learn-l... +99") == 0, "N capped at 99 (%s)", out);
+    CHECK(strlen(out) == EMBER_LABEL_MAX, "the longest text fills the buffer (%zu)", strlen(out));
+    ember_host_project_label("ember", -1, out, sizeof out);
+    CHECK(strcmp(out, "ember") == 0, "no others (%s)", out);
+    ember_host_project_label("my thread title", 0, out, sizeof out);
+    CHECK(strcmp(out, "my thread...") == 0, "no space before the ellipsis (%s)", out);
+    ember_host_project_label("  ember  ", 0, out, sizeof out);
+    CHECK(strcmp(out, "ember") == 0, "trimmed (%s)", out);
+    ember_host_project_label("\xd0\xbf\xd1\x80\xd0\xbe-x\xe2\x80\xa6", 0, out, sizeof out);
+    CHECK(strcmp(out, "-x") == 0, "UTF-8 sequences dropped whole, no stray byte (%s)", out);
+    ember_host_project_label("ab\xd0", 0, out, sizeof out);
+    CHECK(strcmp(out, "ab") == 0, "a cut sequence leaves nothing (%s)", out);
+    ember_host_project_label("abcdefghi\xd0\xbf\xd0\xbfjk", 0, out, sizeof out);
+    CHECK(strcmp(out, "abcdefghi...") == 0, "counted in shown characters, not bytes (%s)", out);
+    ember_host_project_label("\xf0\x9f\x99\x82", 3, out, sizeof out);
+    CHECK(out[0] == 0, "nothing printable: none, no bare +N (%s)", out);
+    ember_host_project_label(NULL, 1, out, sizeof out);
+    CHECK(out[0] == 0, "NULL");
+    char small[6];
+    ember_host_project_label("learn-language", 1, small, sizeof small);
+    CHECK(strcmp(small, "learn") == 0, "cap respected (%s)", small);
+
+    ember_host_info_t a, b;
+    ember_host_lead_info("", "m4", 0, "ember", 1, &a);
+    CHECK(strcmp(a.text, "ember") == 0 && a.sub[0] == 0 && a.count == 1, "one session, one host: no +N, no host line (%s|%s)",
+          a.text, a.sub);
+    ember_host_lead_info("", "m4", 0, "ember", 3, &a);
+    CHECK(strcmp(a.text, "ember +2") == 0 && a.sub[0] == 0 && a.count == 3, "+N counts the other sessions, not hosts (%s)",
+          a.text);
+    ember_host_lead_info("", "macbook-pro", 2, "learn-language", 3, &a);
+    CHECK(strcmp(a.text, "learn-la... +2") == 0 && strcmp(a.sub, "MACBOOK-PR") == 0, "two hosts: host line (%s|%s)", a.text,
+          a.sub);
+    ember_host_lead_info("m4", "", 2, "ember", 2, &a);
+    CHECK(strcmp(a.sub, "M4") == 0, "host line from source without a lead (%s)", a.sub);
+    ember_host_lead_info("", "m4", 3, "", 4, &a);
+    CHECK(strcmp(a.text, "M4 +2") == 0 && a.sub[0] == 0 && a.count == 3, "no project: today's label and host count (%s)",
+          a.text);
+    ember_host_lead_info("", "m4", 3, "\xf0\x9f\x99\x82", 4, &a);
+    CHECK(strcmp(a.text, "M4 +2") == 0 && a.count == 3, "unprintable project: today's label (%s)", a.text);
+
+    ember_host_lead_info("", "m4", 0, "ember", 1, &a);
+    ember_host_lead_info("", "m4", 2, "ember", 2, &b);
+    CHECK(a.lead == b.lead && ember_host_lead_new(&a, &b), "one more waiting session: new");
+    CHECK(!ember_host_lead_new(&b, &a), "one session fewer: not new");
+    ember_host_lead_info("", "m5", 2, "ember", 2, &a);
+    CHECK(!ember_host_lead_new(&b, &b) && ember_host_lead_new(&b, &a), "same project on another host: new");
+    ember_host_lead_info("", "m4", 2, "cinder", 2, &a);
+    CHECK(ember_host_lead_new(&b, &a), "another project: new");
+    ember_host_lead_info("", "m4", 5, "ember", 2, &a);
+    CHECK(!ember_host_lead_new(&b, &a), "more hosts, same sessions: not new");
+    ember_host_lead_info("", "m4", 2, "", 0, &a);
+    CHECK(ember_host_lead_new(&b, &a) && a.lead != b.lead, "project gone: another lead");
+}
+
 int main(void)
 {
     test_lead();
+    test_project();
     test_priority();
     test_time();
     test_pick();
