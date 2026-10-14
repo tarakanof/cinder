@@ -569,6 +569,42 @@ static void test_glint_chase(void)
     CHECK(follow > 0 && maxtarget <= 180, "target capped at 9 o'clock: %g", maxtarget);
     CHECK(snaps == 4 && blinks >= 8, "one snap per lap: %d, blinks %d", snaps, blinks);
     CHECK(passes_blinks[1] == 3 && passes_blinks[2] == 2, "3 then 2 blinks: %d %d", passes_blinks[1], passes_blinks[2]);
+    gc_half_chase_t hc, saved, back;
+    gc_half_chase_reset(&hc);
+    int snapped_at = 0, tracks = 0, nones = 0, stale = 0, resumed = 0;
+    for (int k = 0; k < 4 * 180; k++) {
+        double psi = -90 + 2 * k, deg = -1;
+        gc_half_out_t ho;
+        gc_aim_t aim = gc_half_chase_step(&hc, psi, 15, &ho, &deg);
+        double q = fmod(psi + 720, 360);
+        if (ho.follow) CHECK(aim == GC_AIM_TRACK && deg == ho.target_deg, "half chase follows its target at %g", q);
+        if (aim == GC_AIM_SNAP) {
+            snapped_at++;
+            saved = hc;
+            back = hc;
+            gc_half_chase_t mid = hc;
+            gc_half_chase_restore(&back, &saved);
+            CHECK(!back.snapped && back.hold_deg == 0, "a restored snapped half chase holds at 0 degrees");
+            double d1 = -1, d2 = -1;
+            gc_half_out_t o1, o2;
+            gc_aim_t a1 = gc_half_chase_step(&back, psi + 2, 15, &o1, &d1);
+            gc_aim_t a2 = gc_half_chase_step(&mid, psi + 2, 15, &o2, &d2);
+            resumed += !o1.follow && a1 == GC_AIM_TRACK && d1 == 0;
+            stale += !o2.follow && a2 == GC_AIM_NONE;
+        } else if (!ho.follow) {
+            if (aim == GC_AIM_TRACK) tracks++;
+            else nones++;
+        }
+    }
+    CHECK(snapped_at == 4 && resumed == 4, "a scene that caught the half chase after its snap re-aims at the snap point: %d of %d", resumed,
+          snapped_at);
+    CHECK(stale == 4 && nones > 0 && tracks > 0, "between its snap and the next follow the half chase holds still (%d stale, %d none, %d track)",
+          stale, nones, tracks);
+    saved = hc;
+    saved.snapped = false;
+    saved.hold_deg = 123;
+    gc_half_chase_restore(&back, &saved);
+    CHECK(!back.snapped && back.hold_deg == 123 && back.h.pass == saved.h.pass, "an unsnapped half chase comes back as it was");
     int halves = 0, autos = 0;
     for (uint32_t seed = 1; seed <= 400; seed++) {
         glint_chase_t ca;

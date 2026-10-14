@@ -114,12 +114,7 @@ static glint_chase_t s_chase;
 static atomic_int s_chase_status = 2;
 static atomic_int s_chase_req = -1;
 static atomic_int s_chase_fps = CHASE_FPS_DEFAULT;
-typedef struct {
-    gc_half_t h;
-    double hold_deg;
-    bool snapped;
-} half_chase_t;
-static half_chase_t s_half;
+static gc_half_chase_t s_half;
 static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;
 static const wxm_cue_t *s_cues;
 static int s_cue, s_cue_n;
@@ -143,7 +138,7 @@ static int s_scene_face_saved;
 static bot_mood_t s_scene_mood0;
 static double s_scene_sleep_in;
 static EXT_RAM_BSS_ATTR glint_chase_t s_scene_chase;
-static half_chase_t s_scene_half;
+static gc_half_chase_t s_scene_half;
 static int s_scene_chase_req = -1;
 static double s_scene_resume_at;
 static demo_gate_t s_scene_gate;
@@ -964,9 +959,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);
     s_scene_chase_req = -1;
     if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
-        gc_half_reset(&s_half.h);
-        s_half.hold_deg = 0;
-        s_half.snapped = false;
+        gc_half_chase_reset(&s_half);
     }
     page_frame_t f = {.t = t, .offline = offline};
     gc_out_t *chase = &f.chase;
@@ -976,21 +969,17 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
     if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
         gc_half_out_t h;
-        gc_half_step(&s_half.h, psi, CHASE_LEAD_DEG, &h);
-        if (h.follow) {
-            s_half.snapped = false;
-            s_half.hold_deg = h.target_deg;
-            chase_track(&ref, h.target_deg, chase->orbit, t);
-        } else {
+        double deg = 0;
+        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);
+        if (!h.follow) {
             bot_hold_gaze(&s_bot, t + 0.5);
             if (h.blink) bot_blink(&s_bot, t);
-            if (h.snap) {
-                if (s_bot.tracking) bot_track_end(&s_bot, t);
-                s_half.snapped = true;
-                bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
-            } else if (!s_half.snapped) {
-                chase_track(&ref, s_half.hold_deg, chase->orbit, t);
-            }
+        }
+        if (aim == GC_AIM_SNAP) {
+            if (s_bot.tracking) bot_track_end(&s_bot, t);
+            bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
+        } else if (aim == GC_AIM_TRACK) {
+            chase_track(&ref, deg, chase->orbit, t);
         }
     } else if (chase->chasing && glint) {
         chase_track(&ref, psi + CHASE_LEAD_DEG, chase->orbit, t);
@@ -1052,11 +1041,7 @@ static void scene_end(double t)
         moment_unact(t);
     }
     gc_restore(&s_chase, &s_scene_chase, s_scene_t0, t);
-    s_half = s_scene_half;
-    if (s_half.snapped) {
-        s_half.snapped = false;
-        s_half.hold_deg = 0;
-    }
+    gc_half_chase_restore(&s_half, &s_scene_half);
     if (s_scene_chased) {
         if (s_bot.tracking) bot_track_end(&s_bot, t);
         bot_view_glint_force(false);

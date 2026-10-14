@@ -544,7 +544,7 @@ body "$MAINC" scene_frame | grep -qxF '    } else if (ended && (s_scene_gate.on 
 body "$MAINC" scene_start | grep -qxF '    demo_gate_start(&s_scene_gate);' || WIRING="$WIRING scene_start-clears-the-gate"
 body "$MAINC" scene_start | grep -qxF '    s_scene_half = s_half;' && body "$MAINC" scene_start | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
     WIRING="$WIRING scene_start-pauses-the-chase"
-body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    s_half = s_scene_half;$/ {h = NR} END {exit !(r && h > r)}' ||
+body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    gc_half_chase_restore\(&s_half, &s_scene_half\);$/ {h = NR} END {exit !(r && h > r)}' ||
     WIRING="$WIRING scene_end-restores-the-half-chase"
 fbody "$MAINC" page_tick | grep -qxF '    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);' ||
     WIRING="$WIRING page_tick-asleep-act-sleeps"
@@ -558,9 +558,10 @@ fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_r
 fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
     body "$MAINC" scene_start | sed -n 3,4p | tr -d '\n' | grep -qxF '    s_scene_on = true;    atomic_store(&s_chase_status, 1);' &&
     [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 2 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
-body "$MAINC" scene_end | awk '/^    s_half = s_scene_half;$/ {h = NR} /^    if \(s_half\.snapped\) \{$/ {i = NR}
-    /^        s_half\.snapped = false;$/ {f = NR} /^        s_half\.hold_deg = 0;$/ {d = NR} END {exit !(h && i == h + 1 && f == i + 1 && d == f + 1)}' ||
-    WIRING="$WIRING scene_end-re-aims-a-snapped-half-chase"
+fbody "$MAINC" page_tick | awk '/^        gc_aim_t aim = gc_half_chase_step\(&s_half, psi, CHASE_LEAD_DEG, &h, &deg\);$/ {s = NR}
+    /^        if \(aim == GC_AIM_SNAP\) \{$/ {n = NR} /^        \} else if \(aim == GC_AIM_TRACK\) \{$/ {k = NR} /^            chase_track\(&ref, deg, chase->orbit, t\);$/ {c = NR}
+    END {exit !(s && n > s && k > n && c == k + 1)}' && [ "$(grep -c 'gc_half_chase_step(' "$MAINC")" -eq 1 ] && ! grep -q 's_half\.' "$MAINC" ||
+    WIRING="$WIRING half-chase-aims-through-gc_half_chase_step"
 body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
     /^            if \(s_scene_on\) scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
     END {exit !(p && i == p + 1 && e == i + 1 && r == e + 1 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-or-offered-demo"
@@ -568,7 +569,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy during a scene, a snapped half chase re-aimed, OTA ends a scene"
+echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy from scene_start, half chase through gc_half_chase_step, OTA ends a playing or offered demo"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
 body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||
