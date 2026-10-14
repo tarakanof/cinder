@@ -16,6 +16,13 @@ static inline SemaphoreHandle_t xSemaphoreCreateBinary(void)
     return s;
 }
 
+static inline SemaphoreHandle_t xSemaphoreCreateMutex(void)
+{
+    SemaphoreHandle_t s = xSemaphoreCreateBinary();
+    s->n = 1;
+    return s;
+}
+
 static inline BaseType_t xSemaphoreGive(SemaphoreHandle_t s)
 {
     pthread_mutex_lock(&s->m);

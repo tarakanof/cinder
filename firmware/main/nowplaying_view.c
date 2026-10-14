@@ -581,8 +581,7 @@ void np_view_update(double now, bool offline)
     int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
     set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
     if (np_client_take_art(&in)) {
-        bool pics = in.backdrop || in.album || in.artist || in.cover || in.avatar;
-        if (np_art_take(in.version, in.is_cover, pics, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
+        if (np_art_take(in.version, in.is_cover, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
             if (in.is_cover) npc_adopt(&in);
             else adopt_art(&in);
         }

@@ -31,7 +31,7 @@ static const char *const COVERED[] = {
     "config_custom.json",      "pomodoro_action.json",        "view_quiet.json",
     "checkin_req_caps.json",   "checkin_reply_caps.json",     "view_caps_limited.json",
     "view_faces.json",         "view_faces_met.json",         "view_faces_polar_dry.json",
-    "view_np_cover.json",
+    "view_np_cover.json",      "view_np_cover_light.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -782,6 +782,18 @@ static void test_view_np_cover(void)
     CHECK(!v.has_weather, "no weather block");
 }
 
+static void test_view_np_cover_light(void)
+{
+    knob_view_t v;
+    if (!view("view_np_cover_light.json", &v)) return;
+    CHECK(v.has_np && v.np.state == NP_PLAYING && v.np.cover_light, "light cover view: cover_light");
+    CHECK(v.np.has_accent && v.np.accent == 0xF4F4F2 && strcmp(v.np.cover_version, "2abfd7bdcb55-r1") == 0,
+          "light cover view: accent and cover_version");
+    knob_view_t d;
+    if (!view("view_np_cover.json", &d)) return;
+    CHECK(!d.np.cover_light, "the dark cover view has no cover_light");
+}
+
 static int hook_allocs, hook_frees;
 
 static void *count_malloc(size_t n)
@@ -1293,6 +1305,7 @@ int main(int argc, char **argv)
     test_view_air();
     test_view_legacy_weather();
     test_view_np_cover();
+    test_view_np_cover_light();
     test_json_hooks();
     test_obs_age_wiring();
     test_view_without_blocks();
