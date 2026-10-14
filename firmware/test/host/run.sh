@@ -88,6 +88,10 @@ echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "
     [ "$(grep -c 'refused_logged' "$MAINC")" -eq 3 ] &&
     body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        s_refused += wxm_paint(&s_m, &s_l, s_arena, bake_yield);' ||
     WIRING="$WIRING stats-logs-refused-moment-clouds-only-when-the-count-grows"
+WMP="$D/../../components/weather/wx_moment_paint.c"
+[ "$(grep -c 'cloud(&im' "$WMP")" -gt 0 ] && [ "$(grep -c 'cloud(&im' "$WMP")" -eq "$(grep -cxE ' +refused \+= cloud\(&im[^;]*\);' "$WMP")" ] &&
+    body "$WMP" cloud | grep -qxF '    bool ok = wx_cloud_shape(c, &sh);' && body "$WMP" cloud | tail -2 | head -1 | grep -qxF '    return !ok;' &&
+    body "$WMP" wxm_paint | tail -2 | head -1 | grep -qxF '    return refused;' || WIRING="$WIRING every-moment-cloud-counted-into-refused"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL refresh stats wiring:$WIRING" >&2
     exit 1
