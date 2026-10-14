@@ -217,15 +217,19 @@ The fifth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design
 
   0.9.73's error rendered twice (the mood, then the triangle at `triangle` 0.5), each a stall. The 3 extra moves are the settle; done's 37 more are the reward hop. BotNext in the review: done's first 6 s 12.7 → 24.7 redraws/s.
 - **Cost** (`idf.py size`, origin/main 0.9.73 at 6eb3768 → this branch, same machine, IDF 5.5.5): image 1,716,979 → 1,720,123 B (+3,144, flash `.text`); DIRAM 102,719 → 102,831 B (+112, `.bss` +80: the new `bot_t` fields and the view's beat state); PSRAM `.bss` 55,972 → 49,308 B (−6,664: the LVGL task's own outline scratch is gone; the `rim` task's stays); no new outline buffer. `stack_walk.py`: `lvgl` 8,608 (margin 1,888) unchanged, `rim` 1,328 → 1,376 (margin 1,184; the raster now through `rim_slots_run`'s callback, listed in `stack_walk.json`), `orbit` 2,192 → 2,224; every other task unchanged. The review fixes (`rim_slots`, the re-closure, `lap_at`, `ring`) moved DIRAM 102,831 → 102,839 B and left PSRAM `.bss` at 49,308 B.
-- **On the knob** (to do after the release): invalidated areas/s, fps, core 0 and internal RAM for a mood change into done (Devices › Demo, e.g. Error then Done, or Play all of the bot group) and the LVGL frame max at a mood change, against 0.9.73 (whose mood change stalled the LVGL task about 120 ms).
+- **On the knob** (0.9.76, 2026-10-14; 0.9.74's beat plus the #146 fixes): Devices › Demo › Working (Hold) for 25 s, then Done (Hold) for 40 s, three times, live stats every 5-7 s. Samples are binned by end time after Done was set: "Working" ends at or before the change (12), "Done entry" is the one sample per run whose window holds the change (ends at +2, +3 and +7 s, so it mixes the beat, the reward hop and giggle with a little working), then 6-12 s (3) and 15-40 s (13). The lap runs +1.8 to +4.8 s: run 1's entry sample holds all of it, runs 2 and 3 most of it in the next one. Medians; frame max is the highest sample. 0.9.73 was not measured on the knob before the update, so its column is the host figure: its mood change rendered the outline in the LVGL task, about 120 ms.
 
-  | | 0.9.73 | 0.9.74 |
-  |---|---|---|
-  | Frame max at a mood change | TODO | TODO |
-  | Invalidated areas/s, done's first 6 s | TODO | TODO |
-  | Render fps, done's first 6 s | TODO | TODO |
-  | Core 0 load, done's first 6 s | TODO | TODO |
-  | Internal free | TODO | TODO |
+  | | 0.9.73 | Working | Done entry (3) | Done 6-12 s | Done 15-40 s |
+  |---|---|---|---|---|---|
+  | Frame max | ~120 ms stall (host) | 21 ms | 50 ms | 16 ms | 15 ms |
+  | Invalidated areas/s | n/a | 41.5 | 42.3 | 11.1 | 11.3 |
+  | Invalidated px/s | n/a | 291k | 734k | 124k | 116k |
+  | Render fps | n/a | 27.3 | 27.8 | 11.2 | 10.7 |
+  | Core 0 | n/a | 29.7 % | 49.3 % | 24.4 % | 27.6 % |
+  | Core 1 | n/a | 10.7 % | 43.1 % | 16.5 % | 18.3 % |
+  | Internal free | 85.7 KB (0.9.73 waiting) | 85.6 KB | 85.6 KB | 85.6 KB | 85.6 KB |
+
+  No sample around the change reaches 120 ms: the entry's 47-50 ms is the range of the hop's full-outline frames (0.9.73 waiting hops: 43-52 ms), and the highest sample before is 21 ms and after 16 ms. Whether 0.9.73's stall would have shown in a 5 s frame max is not measured (its P4 run dropped the samples holding a mood change). The reward costs about +20 points of core 0 and 2.5× the pixels for one sample; core 1 rises to ~43 % in that sample (likely the `rim` task rendering the outline and its variants), then settles at 16-18 %, above working's 11 %; the cause is not measured. Core 0 settles about level with working. Internal free and largest block (31.7 KB) unchanged.
 
 ### Bot review leftovers (#121, #124, #125, #139, #146, 0.9.76)
 
