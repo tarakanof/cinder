@@ -236,8 +236,7 @@ static void test_avatar_retry(void)
     np_art_set_free(&set);
 
     service_at(4000);
-    CHECK(s_artist_gets == artist + 2 && take(&set) && set.no_cover && !set.avatar, "after 5 s the avatar fails again");
-    np_art_set_free(&set);
+    CHECK(s_artist_gets == artist + 2 && !take(&set), "after 5 s the avatar fails again: the no_cover on screen stays");
     service_at(5000);
     CHECK(s_artist_gets == artist + 2, "the backoff grows to 10 s");
     s_artist = ANS_GOOD;
@@ -252,6 +251,11 @@ static void test_avatar_retry(void)
     service_at(10);
     CHECK(take(&set) && set.no_cover && !set.avatar, "given up, no JPEG buffer: no_cover without the avatar");
     np_art_set_free(&set);
+    allocs = s_jpg_allocs;
+    service_at(5000);
+    CHECK(s_jpg_allocs == allocs + 1 && !take(&set), "no buffer again after 5 s");
+    service_at(5000);
+    CHECK(s_jpg_allocs == allocs + 1, "then a 10 s backoff");
     s_jpg_fail = false;
     service_at(5000);
     CHECK(take(&set) && set.no_cover && set.avatar, "the avatar on the retry");
@@ -259,6 +263,33 @@ static void test_avatar_retry(void)
     back_from_idle(&a);
     service_at(10);
     CHECK(take(&set) && set.no_cover && set.avatar, "back from idle: no_cover at once");
+    np_art_set_free(&set);
+}
+
+static void test_skip_back_while_held(void)
+{
+    np_art_set_t set;
+    np_info_t v = block("bad3-r1");
+    give_up(&v);
+    back_from_idle(&v);
+    s_artist = ANS_500;
+    service_at(10);
+    CHECK(take(&set) && set.no_cover && !set.avatar, "V given up, the avatar fails: no_cover");
+    np_art_set_free(&set);
+    s_artist = ANS_GOOD;
+    s_cover = ANS_GOOD;
+    np_info_t w = block("good3-r1");
+    np_client_feed(&w);
+    service_at(10);
+    CHECK(take(&set) && set.cover, "skip to W: its cover");
+    np_art_set_free(&set);
+    int gets = s_cover_gets + s_artist_gets;
+    np_client_feed(&v);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets && take(&set) && set.no_cover && !set.cover, "back to V in its backoff: no_cover at once");
+    np_art_set_free(&set);
+    service_at(5000);
+    CHECK(take(&set) && set.no_cover && set.avatar, "and the avatar after the backoff");
     np_art_set_free(&set);
 }
 
@@ -282,6 +313,7 @@ int main(void)
     test_give_up();
     test_success_resets();
     test_avatar_retry();
+    test_skip_back_while_held();
     test_no_buffer_when_nothing_to_fetch();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);

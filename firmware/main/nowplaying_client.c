@@ -445,14 +445,16 @@ void np_client_service(http_conn_t *conn, const char *base)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     np_art_plan_t now;
     np_art_plan(&S->last, &now);
-    if (strcmp(now.version, plan.version) != 0) {
+    bool retry = end == NP_ART_END_NO_COVER_RETRY;
+    if (strcmp(now.version, plan.version) != 0 ||
+        (retry && S->held_valid && strcmp(S->held, plan.version) == 0)) {
         np_art_set_free(&set);
     } else if (atomic_load(&s_visible)) {
         if (S->has_pending) np_art_set_free(&S->pending);
         S->pending = set;
         S->has_pending = true;
-        if (end == NP_ART_END_NO_COVER_RETRY) {
-            S->held_valid = true;
+        S->held_valid = retry;
+        if (retry) {
             strcpy(S->held, plan.version);
         } else {
             S->built_valid = true;
