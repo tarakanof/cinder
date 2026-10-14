@@ -18,6 +18,11 @@ static inline float clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
 static inline float cov(float d) { return clamp01(0.5f - d); }
 
+static void row(const wx_img_t *im)
+{
+    if (im->yield) im->yield();
+}
+
 static inline uint16_t mix(uint16_t d, uint16_t s, float a)
 {
     int dr = d >> 11, dg = (d >> 5) & 63, db = d & 31;
@@ -44,6 +49,7 @@ static void put(wx_img_t *im, int i, uint16_t c, float a)
 static void scale_alpha(wx_img_t *im, float k, float fade_from)
 {
     for (int y = 0; y < im->h; y++) {
+        row(im);
         float fy = (float)(im->y0 + y) + 0.5f - WX_FACE_C;
         for (int x = 0; x < im->w; x++) {
             int i = y * im->w + x;
@@ -115,11 +121,12 @@ typedef float (*ring_px_fn)(const void *ctx, float fx, float fy, float r2, uint1
 static void annulus(wx_ring_t *r, ring_px_fn fn, const void *ctx)
 {
     const float r_in = WX_RING_R - WX_RING_HW - 1, r_out = WX_RING_R + WX_RING_HW + 1;
-    wx_img_t face = {.w = WX_FACE, .h = WX_FACE};
+    wx_img_t face = {.w = WX_FACE, .h = WX_FACE, .yield = r->yield};
     int x0, y0, x1, y1;
     clip(&face, WX_FACE_C - r_out, WX_FACE_C - r_out, WX_FACE_C + r_out, WX_FACE_C + r_out, &x0, &y0, &x1, &y1);
     r->nrun = r->npx = 0;
     for (int y = y0; y < y1; y++) {
+        row(&face);
         float fy = (float)y + 0.5f, dy = fy - WX_FACE_C;
         bool in = false;
         for (int x = x0; x < x1; x++) {
@@ -249,6 +256,7 @@ void wx_paint_rays(wx_img_t *im)
     int x0, y0, x1, y1;
     clip(im, WX_FACE_C - RIM_R, WX_FACE_C - RIM_R, WX_FACE_C + RIM_R, WX_FACE_C + RIM_R, &x0, &y0, &x1, &y1);
     for (int y = y0; y < y1; y++) {
+        row(im);
         float fy = (float)(im->y0 + y) + 0.5f;
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f;
@@ -286,13 +294,15 @@ static void disc(wx_img_t *im, float cx, float cy, float r, uint16_t c, float al
 {
     int x0, y0, x1, y1;
     clip(im, cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             float a = cov(hypotf(fx - cx, fy - cy) - r) * alpha;
             if (fade_from > 0) a *= rim(fx, fy, fade_from);
             put(im, y * im->w + x, c, a);
         }
+    }
 }
 
 void wx_paint_face_dots(wx_img_t *im, int face, int n)
@@ -326,18 +336,21 @@ void wx_paint_thermo(wx_img_t *im)
     int x0, y0, x1, y1;
     clip(im, 212, 110 + WX_THERMO_DY, 254, 206 + WX_THERMO_DY, &x0, &y0, &x1, &y1);
     const uint16_t stroke = wx_rgb565(0x9AA4B0);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float d = thermo_d((float)(im->x0 + x) + 0.5f, (float)(im->y0 + y) + 0.5f);
             put(im, y * im->w + x, 0, cov(d));
             put(im, y * im->w + x, stroke, cov(fabsf(d) - 2.25f));
         }
+    }
 }
 
 static void sun(wx_img_t *im)
 {
     const uint16_t halo = wx_rgb565(0xFFB547);
-    for (int y = 0; y < im->h; y++)
+    for (int y = 0; y < im->h; y++) {
+        row(im);
         for (int x = 0; x < im->w; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             float d = hypotf(fx - SUN_C, fy - SUN_C);
@@ -349,6 +362,7 @@ static void sun(wx_img_t *im)
             put(im, i, wx_rgb565(c), cov(d - SUN_CORE));
             put(im, i, halo, cov(fabsf(d - SUN_CORE) - 0.75f));
         }
+    }
     scale_alpha(im, 0.88f, HERO_FADE);
 }
 
@@ -358,7 +372,8 @@ static void moon(wx_img_t *im, float cx, float cy, float r, float glow, int phas
     const float rx = fabsf(1 - 2 * il) * r;
     const float gcx = cx - sgn * r * 0.35f, gcy = cy - r * 0.2f, grr = r * 1.2f;
     const uint16_t gc = wx_rgb565(0xAFC4E0);
-    for (int y = 0; y < im->h; y++)
+    for (int y = 0; y < im->h; y++) {
+        row(im);
         for (int x = 0; x < im->w; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             float dx = fx - cx, dy = fy - cy, d = sqrtf(dx * dx + dy * dy);
@@ -383,6 +398,7 @@ static void moon(wx_img_t *im, float cx, float cy, float r, float glow, int phas
             uint32_t c = lerp_rgb(0xE8ECF2, 0xC9D2DC, hypotf(fx - gcx, fy - gcy) / grr);
             put(im, i, wx_rgb565(c), lit);
         }
+    }
     scale_alpha(im, 1, HERO_FADE);
 }
 
@@ -566,13 +582,15 @@ void wx_paint_clouds(wx_img_t *im, const wx_clouds_t *c)
         wx_cloud_shape(cl, &sh);
         int x0, y0, x1, y1;
         clip(im, bx0, by0, bx1, cl->base + 3, &x0, &y0, &x1, &y1);
-        for (int y = y0; y < y1; y++)
+        for (int y = y0; y < y1; y++) {
+            row(im);
             for (int x = x0; x < x1; x++) {
                 float d = wx_cloud_sd(&sh, (float)(im->x0 + x) + 0.5f, (float)(im->y0 + y) + 0.5f);
                 int idx = y * im->w + x;
                 put(im, idx, fill, cov(d));
                 put(im, idx, line, cov(fabsf(d) - 2.25f));
             }
+        }
     }
     scale_alpha(im, 1, c->fade_from);
 }
@@ -592,7 +610,8 @@ void wx_paint_mercury(wx_img_t *im, float top, uint32_t rgb)
     im->y0 = WX_THERMO_Y;
     wx_paint_clear(im);
     float cy = (top + WX_MERC_BOTTOM) / 2 + dy, hh = (WX_MERC_BOTTOM - top) / 2;
-    for (int y = 0; y < im->h; y++)
+    for (int y = 0; y < im->h; y++) {
+        row(im);
         for (int x = 0; x < im->w; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             float qx = fabsf(fx - 233) - 0, qy = fabsf(fy - cy) - (hh - 4 > 0 ? hh - 4 : 0);
@@ -603,6 +622,7 @@ void wx_paint_mercury(wx_img_t *im, float top, uint32_t rgb)
             for (int t = 0; t < 3; t++)
                 put(im, i, top <= TICKS[t] ? c : grey, cov(capsule(fx, fy, 253, 261, TICKS[t] + dy) - 1.5f));
         }
+    }
 }
 
 void wx_paint_marker(wx_img_t *im)
@@ -610,13 +630,15 @@ void wx_paint_marker(wx_img_t *im)
     const float m = WX_MARKER / 2.0f;
     wx_paint_clear(im);
     const uint16_t ring = wx_rgb565(0xF4F4F2);
-    for (int y = 0; y < im->h; y++)
+    for (int y = 0; y < im->h; y++) {
+        row(im);
         for (int x = 0; x < im->w; x++) {
             float d = hypotf((float)x + 0.5f - m, (float)y + 0.5f - m);
             int i = y * im->w + x;
             put(im, i, 0, cov(d - 17));
             put(im, i, ring, cov(fabsf(d - 10) - 2.5f));
         }
+    }
 }
 
 void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift)
@@ -645,12 +667,12 @@ int wx_clouds_max_px(bool drift)
     return m;
 }
 
-static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
+static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c, void (*yield)(void))
 {
     wx_box_t b = wx_clouds_box(c);
     if (!c->n || b.x1 <= b.x0) return (wx_box_t){0, 0, 0, 0};
     int w = b.x1 - b.x0, h = b.y1 - b.y0;
-    wx_img_t im = {.px = (uint16_t *)buf, .a = buf + (size_t)w * h * 2, .w = w, .h = h, .x0 = b.x0, .y0 = b.y0};
+    wx_img_t im = {.px = (uint16_t *)buf, .a = buf + (size_t)w * h * 2, .w = w, .h = h, .x0 = b.x0, .y0 = b.y0, .yield = yield};
     wx_paint_clouds(&im, c);
     return b;
 }
@@ -658,6 +680,8 @@ static wx_box_t layer(uint8_t *buf, const wx_clouds_t *c)
 static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
 static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
 static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out);
+static void paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4], void (*yield)(void));
+static void paint_sun_rays(uint8_t *a8, wx_box_t box, void (*yield)(void));
 
 static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
@@ -665,7 +689,7 @@ static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     if (kind & WX_BAKE_RING) wx_paint_ring_rain(b->ring, r->intensity, !r->has_pop, b->lut);
     if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
     if (!(kind & WX_BAKE_SCENE)) return;
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
     wx_paint_clear(&bg);
     wx_paint_umbrella(&bg);
     wx_paint_face_dots(&bg, t->face, WXF_N);
@@ -681,7 +705,7 @@ static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
         wx_box_t c = l.cover_box[s];
         int w = c.x1 - c.x0, h = c.y1 - c.y0;
         wx_img_t cv = {.px = (uint16_t *)(m + l.cover[s]), .a = m + l.cover[s] + (size_t)w * h * 2, .w = w, .h = h,
-                       .x0 = c.x0, .y0 = c.y0};
+                       .x0 = c.x0, .y0 = c.y0, .yield = b->yield};
         wx_paint_clear(&cv);
         wx_paint_umbrella(&cv);
     }
@@ -696,7 +720,7 @@ static void bake_cast(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     if (kind & WX_BAKE_RING) wx_paint_ring_cast(b->ring, c);
     if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
     if (!(kind & WX_BAKE_SCENE)) return;
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
     wx_paint_clear(&bg);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
@@ -709,7 +733,8 @@ static void bake_cast(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
         wx_box_t cb = l.cloud[s];
         int w = cb.x1 - cb.x0, h = cb.y1 - cb.y0;
         uint8_t *m = b->still + l.cloud_at[s];
-        wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = cb.x0, .y0 = cb.y0};
+        wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = cb.x0, .y0 = cb.y0,
+                       .yield = b->yield};
         wx_paint_clouds(&im, &cl);
         const wx_cast_sheet_t *sh = wx_cast_sheet(c->variant, s);
         wx_paint_cast_sheet(b->still + l.strip[s], sh, c->snow);
@@ -724,7 +749,7 @@ static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     if (kind & WX_BAKE_RING) wx_paint_ring_wind(b->ring, !w->have, b->lut);
     if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
     if (!(kind & WX_BAKE_SCENE)) return;
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
     wx_paint_clear(&bg);
     wx_paint_pole(&bg, w->level);
     wx_paint_face_dots(&bg, t->face, WXF_N);
@@ -735,7 +760,7 @@ static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     for (int p = 0; p < WX_WIND_POSES; p++) {
         wx_pt_t q[WX_WIND_QUADS][4];
         for (int k = 0; k < WX_WIND_QUADS; k++) wx_wind_quad(w->level, p, k, q[k]);
-        wx_paint_sock(b->still + l.fill[p], b->still + l.dark[p], l.sock, q);
+        paint_sock(b->still + l.fill[p], b->still + l.dark[p], l.sock, q, b->yield);
     }
     for (int r = 0; r < l.nrows; r++) wx_paint_streak(b->still + l.streak[r], w->level, r, l.streak_w[r]);
     for (int k = 0; l.nleaves && k < WX_LEAF_ROTS; k++) wx_paint_leaf(b->still + l.leaf[k], k);
@@ -743,6 +768,7 @@ static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
 
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
 {
+    b->ring->yield = b->yield;
     if (kind & WX_BAKE_SCENE) kind = WX_BAKE_FULL;
     if (t->sun.on) {
         bake_sun(t, kind, b, out);
@@ -770,7 +796,7 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
     }
     if (kind & WX_BAKE_RING) wx_paint_ring(b->ring, t->lo, t->hi, !t->have, b->lut);
     if (kind & WX_BAKE_SCENE) {
-        wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+        wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
         wx_paint_clear(&bg);
         if (t->hero == WX_HERO_SUN) wx_paint_rays(&bg);
         if (t->stars) wx_paint_stars(&bg);
@@ -780,14 +806,14 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
         wx_clouds_t all, still, drift;
         wx_clouds_for(t->cloud_band, t->night, &all);
         wx_clouds_split(&all, &still, &drift);
-        out->still = layer(b->still, &still);
-        out->drift = layer(b->drift, &drift);
+        out->still = layer(b->still, &still, b->yield);
+        out->drift = layer(b->drift, &drift, b->yield);
     }
     if (kind & WX_BAKE_HERO) {
         out->hero = (wx_box_t){0, 0, 0, 0};
         if (t->hero != WX_HERO_NONE) {
             wx_img_t h = {.px = (uint16_t *)b->hero, .a = b->hero + WX_HERO_BOX * WX_HERO_BOX * 2, .w = WX_HERO_BOX,
-                          .h = WX_HERO_BOX};
+                          .h = WX_HERO_BOX, .yield = b->yield};
             out->hero = wx_paint_hero(&h, t->hero, t->moon_phase, t->moon_illum);
         }
     }
@@ -897,11 +923,13 @@ static void umbrella_handle(wx_img_t *im, uint16_t c, float fy0, float fy1)
 {
     int x0, y0, x1, y1;
     clip(im, HANDLE_X - UMB_REACH - 1, fy0, HANDLE_X + 2 * HOOK_R + UMB_REACH + 1, fy1, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             put(im, y * im->w + x, c, cov(handle_d(fx, fy) - UMB_HW));
         }
+    }
 }
 
 static void umbrella_canopy(wx_img_t *im, uint16_t c)
@@ -911,6 +939,7 @@ static void umbrella_canopy(wx_img_t *im, uint16_t c)
     int x0, y0, x1, y1;
     clip(im, CANOPY_L - 4, CANOPY_RIM - CANOPY_RY - 8, CANOPY_R + 4, CANOPY_RIM + UMB_REACH + 1, &x0, &y0, &x1, &y1);
     for (int y = y0; y < y1; y++) {
+        row(im);
         float fy = (float)(im->y0 + y) + 0.5f, v = (fy - CANOPY_RIM) / CANOPY_RY;
         bool deep_row = CANOPY_RIM - fy >= scallop_reach;
         for (int x = x0; x < x1; x++) {
@@ -936,11 +965,13 @@ void wx_paint_umbrella(wx_img_t *im)
     umbrella_canopy(im, orange);
     int x0, y0, x1, y1;
     clip(im, HANDLE_X - UMB_REACH - 1, FERRULE_Y0 - UMB_REACH - 1, HANDLE_X + UMB_REACH + 1, FERRULE_Y1 + UMB_REACH + 1, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             put(im, y * im->w + x, orange, cov(seg_d(fx, fy, HANDLE_X, FERRULE_Y1, HANDLE_X, FERRULE_Y0) - UMB_HW));
         }
+    }
 }
 
 static float flake_d(float x, float y, float cx, float cy, float r)
@@ -1212,7 +1243,8 @@ wx_box_t wx_paint_drop(wx_img_t *im, float deg)
     wx_paint_clear(im);
     const float a = deg * DEG, ca = cosf(a), sa = sinf(a);
     const uint16_t blue = wx_rgb565(WX_CAST_RGB);
-    for (int y = 0; y < im->h; y++)
+    for (int y = 0; y < im->h; y++) {
+        row(im);
         for (int x = 0; x < im->w; x++) {
             float dx = (float)(im->x0 + x) + 0.5f - hx, dy = (float)(im->y0 + y) + 0.5f - hy;
             float lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
@@ -1223,6 +1255,7 @@ wx_box_t wx_paint_drop(wx_img_t *im, float deg)
             put(im, i, 0, cov(d - 1));
             put(im, i, blue, cov(d + 1));
         }
+    }
     return (wx_box_t){im->x0, im->y0, im->x0 + im->w, im->y0 + im->h};
 }
 
@@ -1246,12 +1279,14 @@ void wx_paint_pole(wx_img_t *im, int level)
     const uint16_t col = wx_rgb565(WX_WIND_POLE_RGB);
     int x0, y0, x1, y1;
     clip(im, px - 26, top - 7, px + WX_WIND_ARM + 2, base + 1, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f, d = 1e9f;
             for (int k = 0; k < 4; k++) d = fminf(d, rbox(fx, fy, B[k]));
             put(im, y * im->w + x, col, cov(d));
         }
+    }
 }
 
 #define SOCK_PAD 2
@@ -1325,7 +1360,7 @@ static bool in_quad(const wx_pt_t *p, float x, float y)
     return in;
 }
 
-void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4])
+static void paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4], void (*yield)(void))
 {
     float qb[WX_WIND_QUADS][4];
     for (int k = 0; k < WX_WIND_QUADS; k++) {
@@ -1339,7 +1374,8 @@ void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[W
         }
     }
     const int w = box_w(box), h = box_h(box);
-    for (int y = 0; y < h; y++)
+    for (int y = 0; y < h; y++) {
+        if (yield) yield();
         for (int x = 0; x < w; x++) {
             float fx = (float)(box.x0 + x), fy = (float)(box.y0 + y);
             int any = 0, odd = 0, near = 0;
@@ -1358,6 +1394,12 @@ void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[W
             fill[y * w + x] = (uint8_t)(odd == n ? 0 : (any - odd) * 255 / (n - odd));
             dark[y * w + x] = (uint8_t)(odd * 255 / (SOCK_SS * SOCK_SS));
         }
+    }
+}
+
+void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[WX_WIND_QUADS][4])
+{
+    paint_sock(fill, dark, box, q, NULL);
 }
 
 void wx_paint_streak(uint8_t *a8, int level, int r, int w)
@@ -1492,7 +1534,8 @@ void wx_paint_day_icon(wx_img_t *im, int icon, float ox, float oy)
     const uint16_t bolt = wx_rgb565(0xF0D040);
     wx_cloud_shape_t sh;
     wx_cloud_shape(&icon_cloud(icon)->cl, &sh);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f - ox, fy = (float)(im->y0 + y) + 0.5f - oy;
             int idx = y * im->w + x;
@@ -1503,6 +1546,7 @@ void wx_paint_day_icon(wx_img_t *im, int icon, float ox, float oy)
                 for (int sx = 0; sx < 4; sx++) in += in_poly(BOLT, 7, fx - 0.375f + 0.25f * sx, fy - 0.375f + 0.25f * sy);
             put(im, idx, bolt, in / 16.0f);
         }
+    }
 }
 
 void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_layout_t *l)
@@ -1518,7 +1562,8 @@ void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_lay
     const uint16_t track = wx_rgb565(WX_DAYS_TRACK_RGB);
     int x0, y0, x1, y1;
     clip(im, bx - 1, cy - hw - 1, bx + bw + 1, cy + hw + 1, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             int idx = y * im->w + x;
@@ -1528,6 +1573,7 @@ void wx_paint_day_row(wx_img_t *im, const wx_days_t *d, int i, const wx_days_lay
             float f = clamp01((fx - s0) / (s1 - s0));
             put(im, idx, wx_rgb565(wx_temp_rgb((float)r->lo + (float)(r->hi - r->lo) * f)), a);
         }
+    }
     wx_paint_day_icon(im, r->icon, (float)c->icon_x, cy - WX_DAYS_ICON / 2.0f);
 }
 
@@ -1537,7 +1583,7 @@ static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     if (kind & WX_BAKE_RING) wx_paint_ring_days(b->ring);
     if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
     if (!(kind & WX_BAKE_SCENE)) return;
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
     wx_paint_clear(&bg);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
@@ -1548,7 +1594,7 @@ static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     for (int i = 0; i < l.n; i++) {
         uint8_t *m = b->still + l.at[i];
         wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sprite.x0,
-                       .y0 = l.y[i] - WX_DAYS_ROW_UP};
+                       .y0 = l.y[i] - WX_DAYS_ROW_UP, .yield = b->yield};
         wx_paint_day_row(&im, d, i, &l);
     }
 }
@@ -1575,7 +1621,8 @@ void wx_paint_sun_scene(wx_img_t *im, const wx_sun_t *s)
     }
     int x0, y0, x1, y1;
     clip(im, 120, WX_SUN_HZ_Y - 4, 346, WX_SUN_HZ_Y + 12, &x0, &y0, &x1, &y1);
-    for (int y = y0; y < y1; y++)
+    for (int y = y0; y < y1; y++) {
+        row(im);
         for (int x = x0; x < x1; x++) {
             float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
             int i = y * im->w + x;
@@ -1583,14 +1630,17 @@ void wx_paint_sun_scene(wx_img_t *im, const wx_sun_t *s)
             float d = fminf(seg_d(fx, fy, 168, WX_SUN_HZ_Y + 8, 208, WX_SUN_HZ_Y + 8), seg_d(fx, fy, 258, WX_SUN_HZ_Y + 8, 298, WX_SUN_HZ_Y + 8));
             put(im, i, dash, cov(d - 1.5f));
         }
+    }
     for (int k = 0; s->have && k < 2; k++) {
         clip(im, fminf(tx[k][0], tx[k][1]) - 2, fminf(ty[k][0], ty[k][1]) - 2, fmaxf(tx[k][0], tx[k][1]) + 2,
              fmaxf(ty[k][0], ty[k][1]) + 2, &x0, &y0, &x1, &y1);
-        for (int y = y0; y < y1; y++)
+        for (int y = y0; y < y1; y++) {
+            row(im);
             for (int x = x0; x < x1; x++) {
                 float fx = (float)(im->x0 + x) + 0.5f, fy = (float)(im->y0 + y) + 0.5f;
                 put(im, y * im->w + x, tick, cov(seg_d(fx, fy, tx[k][0], ty[k][0], tx[k][1], ty[k][1]) - 1));
             }
+        }
     }
 }
 
@@ -1601,12 +1651,13 @@ static const float RAY_DIR[WX_SUN_RAYS][2] = {
     {0.978148f, -0.207912f},
 };
 
-void wx_paint_sun_rays(uint8_t *a8, wx_box_t box)
+static void paint_sun_rays(uint8_t *a8, wx_box_t box, void (*yield)(void))
 {
     const int w = box.x1 - box.x0, h = box.y1 - box.y0;
     const float cx = WX_SUN_CX, cy = WX_SUN_CY, r1 = WX_SUN_R + 12;
     memset(a8, 0, (size_t)w * h);
     for (int y = 0; y < h; y++) {
+        if (yield) yield();
         float fy = (float)(box.y0 + y) + 0.5f;
         for (int x = 0; x < w; x++) {
             float fx = (float)(box.x0 + x) + 0.5f;
@@ -1622,12 +1673,15 @@ void wx_paint_sun_rays(uint8_t *a8, wx_box_t box)
     }
 }
 
+void wx_paint_sun_rays(uint8_t *a8, wx_box_t box) { paint_sun_rays(a8, box, NULL); }
+
 void wx_paint_sun(wx_img_t *im)
 {
     const uint16_t gold = wx_rgb565(WX_SUN_GOLD_RGB);
     const float inner = WX_SUN_R / WX_SUN_GLOW;
     wx_paint_clear(im);
     for (int y = 0; y < im->h; y++) {
+        row(im);
         float fy = (float)(im->y0 + y) + 0.5f;
         if (fy >= WX_SUN_CLIP_Y) continue;
         for (int x = 0; x < im->w; x++) {
@@ -1647,7 +1701,7 @@ static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     if (kind & WX_BAKE_RING) wx_paint_ring_sun(b->ring, s, b->lut);
     if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
     if (!(kind & WX_BAKE_SCENE)) return;
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
     wx_paint_clear(&bg);
     wx_paint_sun_scene(&bg, s);
     wx_paint_face_dots(&bg, t->face, WXF_N);
@@ -1655,10 +1709,11 @@ static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     out->still = out->drift = (wx_box_t){0, 0, 0, 0};
     wx_sun_layout_t l;
     wx_sun_layout(&l);
-    wx_paint_sun_rays(b->still + l.rays_at, l.rays);
+    paint_sun_rays(b->still + l.rays_at, l.rays, b->yield);
     int w = l.sun.x1 - l.sun.x0, h = l.sun.y1 - l.sun.y0;
     uint8_t *m = b->still + l.sun_at;
-    wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sun.x0, .y0 = l.sun.y0};
+    wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sun.x0, .y0 = l.sun.y0,
+                   .yield = b->yield};
     wx_paint_sun(&im);
 }
 
@@ -1735,7 +1790,8 @@ static void shape(wx_img_t *im, const xf_t *f, int n, float x0, float y0, float 
     int cx0, cy0, cx1, cy1;
     clip(im, bx0 - pad, by0 - pad, bx1 + pad, by1 + pad, &cx0, &cy0, &cx1, &cy1);
     const uint16_t fill = wx_rgb565(ink->fill), line = wx_rgb565(ink->line);
-    for (int y = cy0; y < cy1; y++)
+    for (int y = cy0; y < cy1; y++) {
+        row(im);
         for (int x = cx0; x < cx1; x++) {
             float lx = (float)(im->x0 + x) + 0.5f, ly = (float)(im->y0 + y) + 0.5f;
             xf_in(f, n, &lx, &ly);
@@ -1744,6 +1800,7 @@ static void shape(wx_img_t *im, const xf_t *f, int n, float x0, float y0, float 
             if (ink->has_fill) put(im, i, ink->shade ? wx_rgb565(ink->shade(lx, ly)) : fill, ink->alpha * cov(d));
             if (ink->has_line) put(im, i, line, ink->alpha * cov(fabsf(d) - ink->hw * k));
         }
+    }
 }
 
 typedef struct {
@@ -1973,7 +2030,7 @@ static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     if (kind & WX_BAKE_RING) wx_paint_ring_air(b->ring, !a->have, b->lut);
     if (kind & WX_BAKE_HERO) out->hero = (wx_box_t){0, 0, 0, 0};
     if (!(kind & WX_BAKE_SCENE)) return;
-    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE};
+    wx_img_t bg = {.px = b->bg, .w = WX_FACE, .h = WX_FACE, .yield = b->yield};
     wx_paint_clear(&bg);
     wx_ring_blit(b->ring, b->bg);
     wx_paint_air_scene(&bg, a->wilted);
@@ -1981,7 +2038,8 @@ static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     out->still = out->drift = (wx_box_t){0, 0, 0, 0};
     for (int r = 0; a->wilted && r < WX_PETAL_ROTS; r++) {
         uint8_t *m = b->still + r * WX_PETAL_BOX * WX_PETAL_BOX * 3;
-        wx_img_t im = {.px = (uint16_t *)m, .a = m + WX_PETAL_BOX * WX_PETAL_BOX * 2, .w = WX_PETAL_BOX, .h = WX_PETAL_BOX};
+        wx_img_t im = {.px = (uint16_t *)m, .a = m + WX_PETAL_BOX * WX_PETAL_BOX * 2, .w = WX_PETAL_BOX, .h = WX_PETAL_BOX,
+                       .yield = b->yield};
         wx_paint_petal(&im, r);
     }
 }

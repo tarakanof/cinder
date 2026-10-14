@@ -153,15 +153,75 @@ static void test_offline(lv_display_t *d, int eye_bottom)
 #define CANVAS_Y0 BOT_VIEW_LABEL_Y
 #define CANVAS_Y1 (BOT_VIEW_LABEL_Y + BOT_VIEW_LABEL_H - 1)
 
+static const uint32_t MOOD_RGB[] = {[BOT_IDLE] = 0x888888, [BOT_SLEEPY] = 0x888888, [BOT_WORKING] = 0x2EE85E,
+                                     [BOT_WAITING] = 0xFFC14D, [BOT_ERROR] = 0xFF3A3A, [BOT_DONE] = 0x4FA9FF};
+#define N_MOODS ((int)(sizeof MOOD_RGB / sizeof MOOD_RGB[0]))
+
+static double hue(int r, int g, int b, int *chroma)
+{
+    int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    *chroma = mx - mn;
+    if (!*chroma) return 0;
+    double h = mx == r ? fmod((double)(g - b) / *chroma, 6) : mx == g ? (double)(b - r) / *chroma + 2 : (double)(r - g) / *chroma + 4;
+    return h < 0 ? h * 60 + 360 : h * 60;
+}
+
+static int pixel_mood(uint16_t v)
+{
+    int c, best = -1;
+    double h = hue((v >> 11) << 3, ((v >> 5) & 63) << 2, (v & 31) << 3, &c), gap = 25;
+    if (c < 48) return -1;
+    for (int m = 0; m < N_MOODS; m++) {
+        int mc;
+        double mh = hue((int)(MOOD_RGB[m] >> 16), (int)(MOOD_RGB[m] >> 8 & 0xFF), (int)(MOOD_RGB[m] & 0xFF), &mc);
+        double d = fabs(h - mh);
+        if (d > 180) d = 360 - d;
+        if (mc >= 48 && d < gap) gap = d, best = m;
+    }
+    return best < 0 ? N_MOODS : best;
+}
+
 static bool rim_in(bot_mood_t m)
 {
-    int amber = 0, blue = 0;
+    int n[N_MOODS + 1] = {0}, grey = 0;
     for (int k = 0; k < W * 150; k++) {
-        int r = s_fb[k] >> 11, b = s_fb[k] & 31;
-        amber += r > b + 8;
-        blue += b > r + 8;
+        if (!s_fb[k]) continue;
+        int pm = pixel_mood(s_fb[k]);
+        if (pm < 0) grey++;
+        else n[pm]++;
     }
-    return m == BOT_DONE ? blue > 500 && !amber : amber > 500 && !blue;
+    int hued = 0;
+    for (int k = 0; k <= N_MOODS; k++) hued += n[k];
+    int c, want = (hue((int)(MOOD_RGB[m] >> 16), (int)(MOOD_RGB[m] >> 8 & 0xFF), (int)(MOOD_RGB[m] & 0xFF), &c), c < 48) ? -1 : (int)m;
+    return want < 0 ? grey > 500 && !hued : n[want] > 500 && n[want] == hued;
+}
+
+static bool shown_rim(lv_display_t *d, bot_mood_t m)
+{
+    bot_pose_t p = {.mood = m, .face = m, .eyes = BOT_EYES_DASH, .scale_x = 1, .scale_y = 1};
+    for (int i = 0; i < 2000; i++) {
+        bot_view_rim_feed(m, false, true);
+        bot_view_update(&p, 100 + i * 0.01);
+        bot_view_rim_pose(&p, 100 + i * 0.01);
+        lv_refr_now(d);
+        if (rim_in(m)) return true;
+        usleep(5000);
+    }
+    return false;
+}
+
+static void test_rim_hue(lv_display_t *d)
+{
+    static const bot_mood_t M[] = {BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE, BOT_IDLE, BOT_WORKING};
+    for (size_t k = 0; k < sizeof M / sizeof M[0]; k++) {
+        bool in = shown_rim(d, M[k]);
+        CHECK(in, "rim %zu: no outline in mood %d's hue within 10 s", k, (int)M[k]);
+        int also = -1;
+        for (int m = 0; in && m < N_MOODS; m++)
+            if (m != (int)M[k] && MOOD_RGB[m] != MOOD_RGB[M[k]] && rim_in((bot_mood_t)m)) also = m;
+        CHECK(also < 0, "rim %zu: the mood %d outline also reads as mood %d", k, (int)M[k], also);
+    }
+    printf("rim hue: working, waiting, error, done and idle outlines each read as their own mood only\n");
 }
 
 static bool shown_label(lv_display_t *d, const ember_host_info_t *h, bot_mood_t m, bot_eyes_t eyes)
@@ -299,6 +359,7 @@ int main(void)
             }
     }
     test_offline(d, eye_bottom);
+    test_rim_hue(d);
     test_label(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;

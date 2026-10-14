@@ -1,4 +1,9 @@
+#include <fcntl.h>
+#include <signal.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "freertos/task.h"
@@ -6,7 +11,7 @@
 static pthread_mutex_t s_gate_m = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_gate_c = PTHREAD_COND_INITIALIZER;
 static int s_open;
-static volatile uint32_t s_took[2];
+static atomic_uint s_took[2];
 
 static void taker(void *arg)
 {
@@ -14,7 +19,7 @@ static void taker(void *arg)
     pthread_mutex_lock(&s_gate_m);
     while (!s_open) pthread_cond_wait(&s_gate_c, &s_gate_m);
     pthread_mutex_unlock(&s_gate_m);
-    s_took[i] = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    atomic_store(&s_took[i], ulTaskNotifyTake(pdTRUE, portMAX_DELAY));
 }
 
 int main(void)
@@ -32,17 +37,27 @@ int main(void)
     s_open = 1;
     pthread_cond_broadcast(&s_gate_c);
     pthread_mutex_unlock(&s_gate_m);
-    for (int i = 0; i < 200 && !(s_took[0] && s_took[1]); i++) usleep(10000);
-    printf("task stub: task a took %u, task b took %u\n", (unsigned)s_took[0], (unsigned)s_took[1]);
-    if (s_took[0] != 2 || s_took[1] != 1) {
+    for (int i = 0; i < 200 && !(atomic_load(&s_took[0]) && atomic_load(&s_took[1])); i++) usleep(10000);
+    unsigned ta = atomic_load(&s_took[0]), tb = atomic_load(&s_took[1]);
+    printf("task stub: task a took %u, task b took %u\n", ta, tb);
+    if (ta != 2 || tb != 1) {
         printf("FAIL task stub: each task takes only its own notifications (a 2, b 1)\n");
         failures++;
     }
-    xTaskNotifyGive(&host_task_shared);
-    uint32_t n = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    printf("task stub: a thread the stub did not create took %u\n", (unsigned)n);
-    if (n != 1) {
-        printf("FAIL task stub: a foreign thread takes from the shared slot (%u)\n", (unsigned)n);
+    fflush(stdout);
+    pid_t pid = fork();
+    if (pid == 0) {
+        int null = open("/dev/null", O_WRONLY);
+        if (null >= 0) dup2(null, STDERR_FILENO);
+        alarm(5);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        _exit(0);
+    }
+    int st = 0;
+    bool aborted = pid > 0 && waitpid(pid, &st, 0) == pid && WIFSIGNALED(st) && WTERMSIG(st) == SIGABRT;
+    printf("task stub: a take on a thread the stub did not create %s\n", aborted ? "aborts" : "does not abort");
+    if (!aborted) {
+        printf("FAIL task stub: a foreign thread's take aborts instead of waiting (status %d)\n", st);
         failures++;
     }
     return failures != 0;

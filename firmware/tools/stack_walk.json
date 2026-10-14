@@ -546,6 +546,68 @@
    "rim_canvas_show",
    "rim_wake",
    "rim_swapped"
+  ],
+  "annulus": [
+   "bake_yield",
+   "gauge_px",
+   "dial_px",
+   "ring_days_px"
+  ],
+  "shape": [
+   "bake_yield",
+   "poly_sd",
+   "ell_sd",
+   "bez_sd",
+   "lens_sd",
+   "petal_shade"
+  ],
+  "disc": [
+   "bake_yield"
+  ],
+  "moon": [
+   "bake_yield"
+  ],
+  "paint_sock": [
+   "bake_yield"
+  ],
+  "paint_sun_rays": [
+   "bake_yield"
+  ],
+  "scale_alpha": [
+   "bake_yield"
+  ],
+  "wx_paint_clouds": [
+   "bake_yield"
+  ],
+  "wx_paint_day_icon": [
+   "bake_yield"
+  ],
+  "wx_paint_day_row": [
+   "bake_yield"
+  ],
+  "wx_paint_hero": [
+   "bake_yield"
+  ],
+  "wx_paint_pole": [
+   "bake_yield"
+  ],
+  "wx_paint_rays": [
+   "bake_yield"
+  ],
+  "wx_paint_sun": [
+   "bake_yield"
+  ],
+  "wx_paint_sun_scene": [
+   "bake_yield"
+  ],
+  "wx_paint_thermo": [
+   "bake_yield"
+  ],
+  "wx_paint_umbrella": [
+   "bake_yield"
+  ],
+  "re:^umbrella_handle": [
+   "bake_yield"
   ]
  },
  "tasks": {

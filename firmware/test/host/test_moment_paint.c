@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,12 +58,24 @@ static int rows_of(const wxm_layout_t *l)
     return n;
 }
 
+static bool planes_apart(const wxm_layout_t *l)
+{
+    for (int i = 0; i < l->nl; i++)
+        for (int j = i + 1; j < l->nl; j++) {
+            const wxm_layer_t *p = &l->layer[i], *q = &l->layer[j];
+            int p0 = p->at + p->w * p->h * 2, p1 = p0 + p->w * p->h, q0 = q->at + q->w * q->h * 2, q1 = q0 + q->w * q->h;
+            if (p0 < q1 && q0 < p1) return false;
+        }
+    return true;
+}
+
 static void compare(const wxm_moment_t *m, const char *what)
 {
     wxm_layout_t l, rl;
     wxm_layout(m, &l);
     ref_wxm_layout(m, &rl);
     CHECK(!memcmp(&l, &rl, sizeof l), "%s %s: layout as before", KIND[m->kind], what);
+    CHECK(planes_apart(&l), "%s %s: two layers share alpha bytes, so the (layer, y) row key cannot tell them apart", KIND[m->kind], what);
     for (int fillv = 0; fillv < 2; fillv++) {
         memset(s_got, fillv ? 0xFF : 0, sizeof s_got);
         memset(s_ref, fillv ? 0xFF : 0, sizeof s_ref);

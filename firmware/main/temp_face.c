@@ -42,6 +42,7 @@ static const char *TAG = "tempface";
 #define BOLT_RGB 0xF0D040
 #define LABEL_GREY_RGB 0x8A8A8A
 #define SUB_RGB 0xBDBDBD
+#define BAKE_YIELD_US 25000
 
 #define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)
 
@@ -68,6 +69,7 @@ static EXT_RAM_BSS_ATTR wx_img_t s_drop_img;
 static EXT_RAM_BSS_ATTR wx_rain_layout_t s_lay;
 static EXT_RAM_BSS_ATTR bool s_rain;
 static EXT_RAM_BSS_ATTR wx_bake_buf_t s_buf;
+static EXT_RAM_BSS_ATTR int64_t s_yield_at;
 static uint8_t *s_thermo_buf, *s_marker_buf;
 static EXT_RAM_BSS_ATTR uint8_t *s_hero_buf[2];
 static EXT_RAM_BSS_ATTR int s_front;
@@ -244,6 +246,13 @@ static void air_create(void)
     s_apetal = canvas(s_abox, LV_COLOR_FORMAT_RGB565A8);
 }
 
+static void bake_yield(void)
+{
+    if (esp_timer_get_time() - s_yield_at < BAKE_YIELD_US) return;
+    vTaskDelay(1);
+    s_yield_at = esp_timer_get_time();
+}
+
 static void bake_task(void *arg)
 {
     (void)arg;
@@ -252,6 +261,7 @@ static void bake_task(void *arg)
         const wx_temp_t *t = wx_job_take(&s_job);
         if (!t) continue;
         int64_t t0 = esp_timer_get_time();
+        s_yield_at = t0;
         wx_bake(t, s_io.kind, &s_buf, &s_io.out);
         wx_job_done(&s_job, (int)((esp_timer_get_time() - t0) / 1000));
     }
@@ -261,6 +271,7 @@ void temp_face_create(lv_obj_t *parent)
 {
     if (s_root) return;
     wx_job_init(&s_job, &s_io);
+    s_buf.yield = bake_yield;
     if (xTaskCreatePinnedToCoreWithCaps(bake_task, "wxbake", 5120, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "bake task not created: the weather page stays black");
         return;
