@@ -407,11 +407,16 @@ grep -qxF '    d.recolor = lv_color_hex(ring_glint_color(mood_rgb(s_rim_mood), G
 body "$BVC" lap_step | grep -qxF '    return bot_lap_step(s_lap_at, t, GLINT_STEP_S, GLINT_STEPS);' &&
     body "$BVC" bot_view_update | grep -qxF '    s_lap_at = p->lap_at;' || WIRING="$WIRING lap-from-the-pose-start"
 body "$BVC" rim_raster | grep -qF 'mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));' || WIRING="$WIRING outline-alpha-from-bot_rim_alpha"
+body "$BVC" eye_raster | grep -qxF '    float lid_y = (float)bot_lid_line_y(j->ys, j->n, j->width, j->lid, j->keep);' &&
+    body "$BVC" eye_raster | grep -qxF '    bot_raster_lid_box(lid_y, &j->oy, &j->h);' &&
+    body "$BVC" eye_raster | grep -qF 'bot_raster_stroke_below(scratch, NULL, (uint8_t *)(eye->buf + w * h), lid_y, w, h,' &&
+    ! body "$BVC" eye_raster | grep -q 'bot_raster_stroke(' &&
+    body "$BVC" eyes_draw | grep -qF '.width = width[e], .lid = st[e].lid, .keep = st[e].keep};' || WIRING="$WIRING eyes-clipped-at-the-lid-line"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL bot view wiring:$WIRING" >&2
     exit 1
 fi
-echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115)"
+echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115), eyes clipped at the lid line (#116)"
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 for ARG in true false; do
@@ -629,6 +634,13 @@ if [ -d "$LV" ]; then
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" \
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$W/wx_moment.c" "$D/test_moment_label.c" -lm -o "${OUT}_moment_label"
+    LVDEF="-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -DLV_USE_STDLIB_MALLOC=LV_STDLIB_CLIB"
+    mkdir -p "$OUT_DIR/lv"
+    find "$LV/src" -name '*.c' -print0 | LVDEF="$LVDEF" LV="$LV" LVO="$OUT_DIR/lv" xargs -0 -P 8 -n 1 \
+        sh -c 'cc -std=c11 -O1 -w $LVDEF -I"$LV" -c "$1" -o "$LVO/$(printf "%s" "$1" | tr / _).o"' sh
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" "$D/../../main/bot_view.c" \
+        "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
+        "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -670,8 +682,9 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_sun_label"
     "${OUT}_air_label"
     "${OUT}_moment_label"
+    "${OUT}_eye_view"
 else
-    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye view test: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"

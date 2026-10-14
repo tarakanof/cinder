@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 typedef enum { BOT_IDLE, BOT_SLEEPY, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE } bot_mood_t;
-typedef enum { BOT_ANIM_WAIT_HOP, BOT_ANIM_MOOD_POP, BOT_ANIM_GLINT_CHASE, BOT_ANIM_USER_INPUT, BOT_ANIM_DONE_REWARD } bot_anim_t;
+typedef enum { BOT_ANIM_WAIT_HOP, BOT_ANIM_MOOD_POP, BOT_ANIM_GLINT_CHASE, BOT_ANIM_USER_INPUT, BOT_ANIM_DONE_REWARD, BOT_ANIM_ERROR_FX } bot_anim_t;
 typedef enum { BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_HAPPY, BOT_EYES_ANGRY } bot_eyes_t;
 
 /* Distances in body radii; times are monotonic seconds. */
@@ -18,6 +18,7 @@ typedef struct {
     bot_eyes_t eyes;
     double gaze_x, gaze_y;
     double lid_l, lid_r;
+    double blink_l, blink_r; /* the blink's part of each lid, 0..1 */
     double triangle;
     double slump;
     double badge;
@@ -26,7 +27,9 @@ typedef struct {
     double hop_dy;  /* the hop's lift alone, also in offset_y */
     double orbit;   /* 0..1 */
     double breath;  /* -1..1: eye height and centre awake, the centre's bob asleep */
+    double eye_dy;  /* the eye centres' shift, error's huff */
     bool asleep;
+    bool hide;      /* this blink carries an eye swap: from BOT_BLINK_HIDE it hides the eyes whole */
     bool lap;       /* done's glint lap runs */
     double lap_at;  /* while lap: when it started, on bot_pose's clock */
 } bot_pose_t;
@@ -53,7 +56,7 @@ typedef struct {
     int rd_line, rd_lines, rd_steps;
     bool rd_turn, rd_moment;
 
-    bool blinking, blink_heavy;
+    bool blinking, blink_heavy, blink_swap;
     double blink_start, blink_lag, blink_speed, blink_hold;
     bool double_blink_pending;
     double next_blink_at, last_blink_at;
@@ -70,6 +73,7 @@ typedef struct {
     bool calm;
     bool rim_ready, ring, beat_gapped, beat_held;
     double done_hop_at, giggle_at, lap_at, beat_by;
+    double shake_at, huff_at, next_huff_at;
 
     double breath, breath_ph, breath_per, breath_t;
     bool asleep;
@@ -86,10 +90,13 @@ typedef struct {
 
 #define BOT_SLEEP_AFTER_S 300.0
 #define BOT_ASLEEP_AFTER_S 600.0
-/* bot_pose_same's half pixel, body radii per unit: breath's eye centre (edges ~2x), the asleep bob, an eye tip per lid. */
+/* Body radii per unit that bot_pose_same quantises to half a pixel: breath's eye centre (edges ~2x), the asleep bob; for
+   the lids half the lid line's travel (dash and round about 0.4 per lid), so the line redraws per whole pixel. */
 #define BOT_BREATH_REACH 0.006
 #define BOT_BREATH_BOB 0.0077
 #define BOT_LID_REACH 0.2
+/* A blink carrying an eye swap hides the eyes whole from this far shut (no bottom strip); the shapes swap only then. */
+#define BOT_BLINK_HIDE 0.9
 /* bot_rim_tone's flag on top of the mood, and bot_rim_key's for the triangle outline. */
 #define BOT_RIM_ASLEEP 0x100
 #define BOT_RIM_TRIANGLE 0x200
@@ -117,6 +124,15 @@ typedef struct {
 #define BOT_GIGGLE_GAP_S 0.15
 #define BOT_LAP_AT_S 1.8
 #define BOT_LAP_S 3.0
+/* Error's frustration: a shake of the eyes after the beat, then a huff (eyes dip, lids squeeze) every lognormal. */
+#define BOT_SHAKE_AT_S 0.3
+#define BOT_SHAKE_S 0.4
+#define BOT_SHAKE_CYCLES 3
+#define BOT_SHAKE_AMP 0.0307
+#define BOT_HUFF_S 0.5
+#define BOT_HUFF_DIP 0.03
+#define BOT_HUFF_LID 0.45
+#define BOT_HUFF_MEDIAN_S 25.0
 
 void bot_init(bot_t *b, uint64_t seed, double now);
 bool bot_set_mood(bot_t *b, bot_mood_t m, double t);

@@ -26,7 +26,7 @@
 #define CY 233.0
 #define FILL 0.84
 #define HOP_SCALE 0.45
-#define RIM_PX 6.0
+#define RIM_PX 9.0
 
 #define EYE_BUF_W 220
 #define EYE_BUF_H 260
@@ -691,7 +691,7 @@ typedef struct {
     canvas_t *eye;
     const double *xs, *ys;
     int n;
-    double width;
+    double width, lid, keep;
     int ox, oy, w, h;
 } eye_job_t;
 
@@ -702,6 +702,8 @@ static void eye_raster(bot_raster_scratch_t *scratch, eye_job_t *j)
     canvas_t *eye = j->eye;
     float hw = (float)j->width / 2;
     eye_box(j->xs, j->ys, j->n, j->width, &j->ox, &j->oy, &j->w, &j->h);
+    float lid_y = (float)bot_lid_line_y(j->ys, j->n, j->width, j->lid, j->keep);
+    bot_raster_lid_box(lid_y, &j->oy, &j->h);
     int w = j->w, h = j->h;
     float fx[BOT_STROKE_MAX], fy[BOT_STROKE_MAX];
     int segs[BOT_STROKE_MAX];
@@ -713,8 +715,8 @@ static void eye_raster(bot_raster_scratch_t *scratch, eye_job_t *j)
         eye->w = w;
         eye->h = h;
     }
-    bot_raster_stroke(scratch, NULL, (uint8_t *)(eye->buf + w * h), w, h, j->ox, j->oy, fx, fy, j->n - 1, segs, hw,
-                      0xF4F4F2, 1.0f);
+    bot_raster_stroke_below(scratch, NULL, (uint8_t *)(eye->buf + w * h), lid_y, w, h, j->ox, j->oy, fx, fy, j->n - 1, segs,
+                            hw, 0xF4F4F2, 1.0f);
 }
 
 static void eye_show(const eye_job_t *j)
@@ -742,7 +744,7 @@ static void eyes_draw(const double ex[2][BOT_STROKE_MAX], const double ey[2][BOT
                       const double width[2])
 {
     static bot_raster_scratch_t scratch;
-    for (int e = 0; e < 2; e++) s_eye_job[e] = (eye_job_t){.eye = &s_eye[e], .xs = ex[e], .ys = ey[e], .n = st[e].n, .width = width[e]};
+    for (int e = 0; e < 2; e++) s_eye_job[e] = (eye_job_t){.eye = &s_eye[e], .xs = ex[e], .ys = ey[e], .n = st[e].n, .width = width[e], .lid = st[e].lid, .keep = st[e].keep};
     xSemaphoreGive(s_eye_go);
     eye_raster(&scratch, &s_eye_job[0]);
     if (xSemaphoreTake(s_eye_done, pdMS_TO_TICKS(1000)) != pdTRUE) esp_system_abort("bot_view: eye raster task stalled 1 s");
