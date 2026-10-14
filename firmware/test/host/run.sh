@@ -556,7 +556,8 @@ body "$MAINC" scene_end | grep -qxF '    else if (s_scene_mood0 == BOT_SLEEPY) b
 fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);' &&
     [ "$(grep -c 'atomic_store(&s_chase_req, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING server-chase-deferred-during-a-scene"
 fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
-    [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
+    body "$MAINC" scene_start | sed -n 3,4p | tr -d '\n' | grep -qxF '    s_scene_on = true;    atomic_store(&s_chase_status, 1);' &&
+    [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 2 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
 body "$MAINC" scene_end | awk '/^    s_half = s_scene_half;$/ {h = NR} /^    if \(s_half\.snapped\) \{$/ {i = NR}
     /^        s_half\.snapped = false;$/ {f = NR} /^        s_half\.hold_deg = 0;$/ {d = NR} END {exit !(h && i == h + 1 && f == i + 1 && d == f + 1)}' ||
     WIRING="$WIRING scene_end-re-aims-a-snapped-half-chase"

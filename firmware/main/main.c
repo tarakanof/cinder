@@ -1075,6 +1075,7 @@ static void scene_end(double t)
 static void scene_start(const demo_block_t *b, double t)
 {
     s_scene_on = true;
+    atomic_store(&s_chase_status, 1);
     if (!++s_scene_n) s_scene_n = 1;
     s_scene_resume_at = 0;
     s_scene_act = b->act;
