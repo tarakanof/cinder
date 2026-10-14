@@ -2517,30 +2517,35 @@ static void test_reading_blink_phases(void)
         double age = ages[seed % AGES], lag = lags[seed / AGES % 3];
         bool pending = seed / AGES / 3 % 2 && age >= 0, far = seed / AGES / 6 % 2, turn = seed / AGES / 12 % 2;
         bot_t b;
-        bot_init(&b, 0x7B00 + (uint64_t)seed, 0);
-        bot_set_mood(&b, BOT_WORKING, 0);
+        bot_pose_t was = {0};
         double t = 0;
-        for (; t < 3; t += dt) bot_pose(&b, t);
-        b.rd_line = turn ? b.rd_lines - 1 : 0;
-        b.rd_steps = 0;
-        b.rd_turn = false;
-        b.blinking = true;
-        b.blink_heavy = false;
-        b.double_blink_pending = pending;
-        b.blink_speed = 1;
-        b.blink_lag = lag;
-        b.blink_start = b.last_blink_at = t - age;
-        b.next_blink_at = t + 100;
-        b.next_saccade_at = t;
-        if (far) {
-            b.gaze_from_x = b.gaze_to_x = b.fix_x = 0.6;
-            b.gaze_from_y = b.gaze_to_y = b.fix_y = turn ? -0.25 : -0.05;
-            b.gaze_start = t - 1;
+        bool chosen = false;
+        for (int k = 0; k < 8 && !chosen; k++) {
+            bot_init(&b, 0x7B00 + (uint64_t)seed + (uint64_t)k * AGES * 24, 0);
+            bot_set_mood(&b, BOT_WORKING, 0);
+            for (t = 0; t < 3; t += dt) bot_pose(&b, t);
+            b.rd_line = turn ? b.rd_lines - 1 : 0;
+            b.rd_steps = 0;
+            b.rd_turn = false;
+            b.blinking = true;
+            b.blink_heavy = false;
+            b.double_blink_pending = pending;
+            b.blink_speed = 1;
+            b.blink_lag = lag;
+            b.blink_start = b.last_blink_at = t - age;
+            b.next_blink_at = t + 100;
+            b.next_saccade_at = t;
+            if (far) {
+                b.gaze_from_x = b.gaze_to_x = b.fix_x = 0.6;
+                b.gaze_from_y = b.gaze_to_y = b.fix_y = turn ? -0.25 : -0.05;
+                b.gaze_start = t - 1;
+            }
+            bot_t w = b;
+            was = bot_pose(&w, t - fine);
+            bot_pose(&b, t);
+            chosen = turn ? b.rd_turn : b.rd_line == 1;
         }
-        bot_t w = b;
-        bot_pose_t was = bot_pose(&w, t - fine);
-        bot_pose(&b, t);
-        if (turn ? !b.rd_turn : b.rd_line != 1) continue;
+        if (!chosen) continue;
         jumps++;
         turns += turn;
         double amp = hypot(b.gaze_to_x - b.gaze_from_x, b.gaze_to_y - b.gaze_from_y), lead = b.gaze_start - t, most = 0, low = 1;
@@ -2581,6 +2586,8 @@ static void test_reading_blink_phases(void)
     }
     printf("reading: %d jumps (%d page turns) on a blink of every phase, %d of %d close both lids to 0.9, %d over 0.6 start shut, lead up to %.1f ms\n",
            jumps, turns, shut, need, covered - open_at, 1000 * worst_lead);
+    CHECK(jumps == AGES * 24 && turns == AGES * 12, "reading: %d of %d blink cases make their jump (%d of %d page turns)", jumps, AGES * 24,
+          turns, AGES * 12);
     CHECK(turns > 100 && jumps - turns > 100 && shut == need, "reading: %d of %d page turns and covered jumps close both lids to 0.9 whatever blink was showing",
           shut, need);
     CHECK(covered > 150 && !open_at, "reading: %d of %d jumps over 0.6 open a lid under 0.9 within 25 ms of their start", open_at, covered);
