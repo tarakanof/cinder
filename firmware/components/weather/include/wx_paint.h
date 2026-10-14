@@ -9,13 +9,12 @@
 extern "C" {
 #endif
 
-/* RGB565 pixels, then (a non-NULL) an A8 plane: LVGL's RGB565A8. x0, y0: face coordinates of pixel 0. yield (NULL:
-   none) is called before every painted row. */
+/* RGB565 pixels, then (a non-NULL) an A8 plane: LVGL's RGB565A8. x0, y0: face coordinates of pixel 0. */
 typedef struct {
     uint16_t *px;
     uint8_t *a;
     int w, h, x0, y0;
-    void (*yield)(void);
+    void (*yield)(void); /* NULL: none; called before every painted row */
 } wx_img_t;
 
 #define WX_HERO_BOX 164

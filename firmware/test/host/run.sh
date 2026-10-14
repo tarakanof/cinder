@@ -166,6 +166,12 @@ body "$TFC" bake_task | awk '/s_yield_at = t0;/ {y = NR} /wx_bake\(/ {p = NR} EN
     body "$TFC" bake_yield | awk '/vTaskDelay\(1\);/ {d = NR} /s_yield_at = esp_timer_get_time\(\);/ {s = NR} END {exit !(d && s > d)}' &&
     WYUS=$(grep -o '^#define BAKE_YIELD_US [0-9]*' "$TFC" | awk '{print $3}') && [ "${WYUS:-0}" -ge 20000 ] && [ "$WYUS" -le 50000 ] ||
     WIRING="$WIRING wxbake-yields-a-tick-every-20-50-ms"
+WXP="$W/wx_paint.c"
+YROWS=$(awk '/^[a-z].*\(/ {sig = $0} /^[ ]+for \(int y = / {want = (sig ~ /wx_img_t \*im[,)]/) ? "row(im);" : (sig ~ /^static void annulus\(/) ? "row(&face);" : (sig ~ /^static void paint_(sock|sun_rays)\(/) ? "if (yield) yield();" : ""; if (want != "") {n++; getline nx; gsub(/^ +/, "", nx); if (nx != want) bad++}} END {print n + 0; exit !(n > 0 && !bad)}' "$WXP") ||
+    WIRING="$WIRING every-image-ring-sock-and-ray-row-loop-starts-with-the-yield-hook"
+YIMGS=$(awk '/^(static )?(void|wx_box_t) (bake_[a-z]+|wx_bake|layer)\(/ && !/;$/ {on = 1} on && /^}/ {on = 0} on && /wx_img_t [a-z]+ = \{/ {s = $0; while (s !~ /\};/) {getline l; s = s l} n++; if (s !~ /\.yield = (b->)?yield\}/) bad++} END {print n + 0; exit !(n > 0 && !bad)}' "$WXP") ||
+    WIRING="$WIRING every-bake-image-carries-the-yield-hook"
+body "$WXP" wx_bake | grep -qxF '    b->ring->yield = b->yield;' || WIRING="$WIRING wx_bake-hands-the-ring-the-hook"
 grep -qE 'wx_paint_(clear|ring|ring_rain|rays|stars|thermo|hero|clouds|umbrella|sheet|ramp|drip|splash|bolt|ring_days|day_icon|day_row|ring_sun|sun_scene|sun_rays|sun|ring_air|air_scene|petal)\(' "$TFC" &&
     WIRING="$WIRING no-bake-pass-on-the-LVGL-task"
 body "$TFC" bake_task | grep -qF 'const wx_temp_t *t = wx_job_take(&s_job);' || WIRING="$WIRING bake_task-takes-through-wx_job"
@@ -389,7 +395,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL temp face wiring:$WIRING" >&2
     exit 1
 fi
-echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, wxbake yielding a tick every ${WYUS} us, detach on re-bake, OTA hold, rain, forecast, wind, days, sun and air layers, face turns"
+echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, wxbake yielding a tick every ${WYUS} us (hook in ${YROWS} row loops and ${YIMGS} bake images), detach on re-bake, OTA hold, rain, forecast, wind, days, sun and air layers, face turns"
 WJC="$W/wx_job.c"
 body "$WJC" park | awk '/atomic_compare_exchange_strong\(&j->state, &queued, WX_JOB_IDLE\)/ {cas = NR} /atomic_load\(/ {if (!cas) early = 1; if ($0 ~ /atomic_load\(&j->state\) == WX_JOB_RUNNING/) run = 1} /atomic_store\(/ {st = 1} END {exit !(cas && run && !early && !st)}' ||
     WIRING="$WIRING park-cancels-by-CAS-then-loads-RUNNING"

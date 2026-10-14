@@ -263,6 +263,48 @@ static void count_yield(void)
     s_yields++;
 }
 
+static wx_obs_t moon(int cloud)
+{
+    wx_obs_t o = obs("clear", "0");
+    o.night = true;
+    o.has_moon = true;
+    o.moon_up = 1;
+    o.moon_phase = 80;
+    o.moon_illum = 30;
+    o.has_cloud = true;
+    o.cloud = cloud;
+    return o;
+}
+
+static wx_obs_t days(void)
+{
+    wx_obs_t o = obs("clear", "0");
+    static const int FACE[3] = {WX_PARTLY_CLOUDY, WX_RAIN, WX_CLEAR_DAY}, LO[3] = {8, 9, 6}, HI[3] = {15, 13, 17}, POP[3] = {10, 70, 0};
+    o.has_utc_offset = true;
+    o.utc_offset = 3600;
+    o.day_n = 3;
+    for (int i = 0; i < 3; i++)
+        o.day[i] = (wx_day_t){.t = OBSERVED + (i + 1) * 86400LL, .end = OBSERVED + (i + 2) * 86400LL, .face = (signed char)FACE[i],
+                              .pop = (signed char)POP[i], .min_c = (short)LO[i], .max_c = (short)HI[i]};
+    return o;
+}
+
+static void bake(const wx_temp_t *t, int k, uint16_t *bg, uint8_t *hero, uint8_t *still, size_t sn, uint8_t *drift, size_t dn,
+                 uint16_t *lut, wx_ring_t *ring, wx_bake_out_t *o)
+{
+    memset(bg, 0x5A, (size_t)WX_FACE * WX_FACE * 2);
+    memset(hero, 0x5A, (size_t)WX_HERO_BOX * WX_HERO_BOX * 3);
+    memset(still, 0x5A, sn);
+    memset(drift, 0x5A, dn);
+    memset(ring, 0, sizeof *ring);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = ring, .hero = hero, .still = still, .drift = drift, .yield = k ? count_yield : NULL};
+    s_yields = 0;
+    s_gap = 0;
+    s_since = cpu_ms();
+    wx_bake(t, WX_BAKE_FULL, &b, o);
+    if (k) count_yield();
+}
+
 static void test_bake_yield(void)
 {
     static uint16_t bg[2][WX_FACE * WX_FACE], lut[2][WX_RING_LUT];
@@ -270,7 +312,7 @@ static void test_bake_yield(void)
     static wx_ring_t ring[2];
     size_t sn = (size_t)wx_clouds_max_px(false) * 3, dn = (size_t)wx_clouds_max_px(true) * 3;
     uint8_t *still[2] = {calloc(1, sn), calloc(1, sn)}, *drift[2] = {calloc(1, dn), calloc(1, dn)};
-    wx_obs_t dry = obs("clear", "0"), rain = wet(), poor = obs("clear", "0");
+    wx_obs_t dry = obs("clear", "0"), rain = wet(), poor = obs("clear", "0"), night = moon(0), dim = moon(80), next = days();
     rain.has_now_rain = true;
     poor.has_aqi = true;
     poor.aqi = 120;
@@ -278,43 +320,36 @@ static void test_bake_yield(void)
         const wx_obs_t *o;
         int face;
         const char *what;
-    } C[] = {{&dry, WXF_TEMP, "Temperature"}, {&rain, WXF_TEMP, "Temperature while wet"}, {&dry, WXF_RAIN, "dry Rain now"},
-             {&rain, WXF_RAIN, "wet Rain now"}, {&rain, WXF_CAST, "wet Rain forecast"}, {&dry, WXF_CAST, "dry Rain forecast"},
-             {&dry, WXF_WIND, "Wind"}, {&dry, WXF_DAYS, "Next days"}, {&dry, WXF_SUN, "Sun"}, {&dry, WXF_AIR, "Air, no data"},
-             {&poor, WXF_AIR, "Air, wilted"}};
+    } C[] = {{&dry, WXF_TEMP, "Temperature"}, {&rain, WXF_TEMP, "Temperature while wet"}, {&night, WXF_TEMP, "Temperature, moon"},
+             {&dim, WXF_TEMP, "Temperature, small moon"}, {&dry, WXF_RAIN, "dry Rain now"}, {&rain, WXF_RAIN, "wet Rain now"},
+             {&rain, WXF_CAST, "wet Rain forecast"}, {&dry, WXF_CAST, "dry Rain forecast"}, {&dry, WXF_WIND, "Wind"},
+             {&dry, WXF_DAYS, "Next days, no days"}, {&next, WXF_DAYS, "Next days"}, {&dry, WXF_SUN, "Sun"},
+             {&dry, WXF_AIR, "Air, no data"}, {&poor, WXF_AIR, "Air, wilted"}};
     double worst = 0;
     for (int c = 0; c < (int)(sizeof C / sizeof C[0]); c++) {
         wx_temp_t t;
         wx_temp_face(C[c].o, NULL, C[c].face, &t);
+        if (C[c].o == &night) CHECK(t.hero == WX_HERO_MOON, "%s: the moon hero", C[c].what);
+        if (C[c].o == &dim) CHECK(t.hero == WX_HERO_MOON_SMALL, "%s: the small moon hero", C[c].what);
+        if (C[c].o == &next) CHECK(t.days.on && t.days.n == 3, "%s: three rows (%d)", C[c].what, t.days.n);
         wx_bake_out_t o[2];
-        double share = 1, gap = 0, total = 0;
+        double plain = INFINITY, gap = INFINITY;
         int calls = 0;
-        for (int run = 0; run < 6; run++) {
-            int k = run > 0;
-            memset(bg[k], 0x5A, sizeof bg[k]);
-            memset(hero[k], 0x5A, sizeof hero[k]);
-            memset(still[k], 0x5A, sn);
-            memset(drift[k], 0x5A, dn);
-            memset(&ring[k], 0, sizeof ring[k]);
-            wx_bake_buf_t b = {.bg = bg[k], .lut = lut[k], .ring = &ring[k], .hero = hero[k], .still = still[k], .drift = drift[k],
-                               .yield = k ? count_yield : NULL};
-            s_yields = 0;
-            s_gap = 0;
+        for (int run = 0; run < 8; run++) {
+            int k = run >= 3;
             double t0 = cpu_ms();
-            s_since = t0;
-            wx_bake(&t, WX_BAKE_FULL, &b, &o[k]);
-            if (!k) continue;
-            count_yield();
-            double all = cpu_ms() - t0;
-            if (all > 0 && s_gap / all < share) share = s_gap / all, gap = s_gap, total = all;
-            calls = s_yields - 1;
+            bake(&t, k, bg[k], hero[k], still[k], sn, drift[k], dn, lut[k], &ring[k], &o[k]);
+            if (!k && cpu_ms() - t0 < plain) plain = cpu_ms() - t0;
+            if (k && s_gap < gap) gap = s_gap;
+            if (k) calls = s_yields - 1;
         }
         CHECK(!memcmp(bg[0], bg[1], sizeof bg[0]) && !memcmp(hero[0], hero[1], sizeof hero[0]) && !memcmp(still[0], still[1], sn) &&
                   !memcmp(drift[0], drift[1], dn) && !memcmp(&o[0], &o[1], sizeof o[0]),
               "%s: a bake with the yield hook paints what one without it does", C[c].what);
+        double share = plain > 0 ? gap / plain : 1;
         if (share > worst) worst = share;
-        printf("bake yield %s: %d calls, %.2f ms CPU, longest stretch without one %.3f ms (%.0f %% of the bake, best of 5)\n",
-               C[c].what, calls, total, gap, 100 * share);
+        printf("bake yield %s: %d calls, %.2f ms CPU without the hook, longest stretch without a call %.3f ms (%.0f %%, best of 5)\n",
+               C[c].what, calls, plain, gap, 100 * share);
         CHECK(calls > 400, "%s: %d yield calls, want one before every painted row", C[c].what, calls);
         CHECK(share <= 0.12, "%s: %.0f %% of the bake ran without a yield call, want 12 %% at most", C[c].what, 100 * share);
     }

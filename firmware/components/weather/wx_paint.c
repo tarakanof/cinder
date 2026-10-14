@@ -1402,7 +1402,6 @@ void wx_paint_sock(uint8_t *fill, uint8_t *dark, wx_box_t box, const wx_pt_t q[W
     paint_sock(fill, dark, box, q, NULL);
 }
 
-
 void wx_paint_streak(uint8_t *a8, int level, int r, int w)
 {
     const wx_wind_geo_t *g = wx_wind_geo(level);
@@ -1675,7 +1674,6 @@ static void paint_sun_rays(uint8_t *a8, wx_box_t box, void (*yield)(void))
 }
 
 void wx_paint_sun_rays(uint8_t *a8, wx_box_t box) { paint_sun_rays(a8, box, NULL); }
-
 
 void wx_paint_sun(wx_img_t *im)
 {
