@@ -560,9 +560,11 @@ fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_r
 fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
     body "$MAINC" scene_start | sed -n 3,4p | tr -d '\n' | grep -qxF '    s_scene_on = true;    atomic_store(&s_chase_status, 1);' &&
     [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 2 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
-fbody "$MAINC" page_tick | awk '/^        gc_aim_t aim = gc_half_chase_step\(&s_half, psi, CHASE_LEAD_DEG, &h, &deg\);$/ {s = NR}
-    /^        if \(aim == GC_AIM_SNAP\) \{$/ {n = NR} /^        \} else if \(aim == GC_AIM_TRACK\) \{$/ {k = NR} /^            chase_track\(&ref, deg, chase->orbit, t\);$/ {c = NR}
-    END {exit !(s && n > s && k > n && c == k + 1)}' && [ "$(grep -c 'gc_half_chase_step(' "$MAINC")" -eq 1 ] && ! grep -q 's_half\.' "$MAINC" ||
+[ "$(fbody "$MAINC" page_tick | grep -A10 -xF '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);')" = "$(printf '%s\n' \
+    '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);' '        if (!h.follow) {' \
+    '            bot_hold_gaze(&s_bot, t + 0.5);' '            if (h.blink) bot_blink(&s_bot, t);' '        }' '        if (aim == GC_AIM_SNAP) {' \
+    '            if (s_bot.tracking) bot_track_end(&s_bot, t);' '            bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);' \
+    '        } else if (aim == GC_AIM_TRACK) {' '            chase_track(&ref, deg, chase->orbit, t);' '        }')" ] && [ "$(grep -c 'gc_half_chase_step(' "$MAINC")" -eq 1 ] && ! grep -q 's_half\.' "$MAINC" ||
     WIRING="$WIRING half-chase-aims-through-gc_half_chase_step"
 body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
     /^            if \(s_scene_on\) scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
