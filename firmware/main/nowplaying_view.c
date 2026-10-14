@@ -9,6 +9,8 @@
 #include "esp_timer.h"
 #include "np.h"
 #include "np_ctl.h"
+#include "np_cover.h"
+#include "np_cover_view.h"
 #include "nowplaying_client.h"
 
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
@@ -44,6 +46,7 @@
 static const np_ring_t RING = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = 198, .hw = 3};
 
 enum { MODE_UNSET = -1, MODE_IDLE, MODE_PLAYING, MODE_PAUSED };
+enum { KIND_NONE, KIND_LEGACY, KIND_COVER };
 
 static lv_obj_t *s_parent;
 static lv_obj_t *s_root, *s_face, *s_album, *s_album_ph, *s_avatar, *s_dot;
@@ -90,6 +93,7 @@ static int s_vol_shown = -2;
 static uint32_t s_result_seq;
 static int s_error;
 static double s_error_t = -1e9;
+static int s_kind = KIND_NONE;
 
 static lv_obj_t *label_create(const lv_font_t *font, int width, int dy, uint32_t col)
 {
@@ -132,7 +136,11 @@ void np_view_create(lv_obj_t *parent)
 {
     s_parent = parent;
     V = heap_caps_calloc(1, sizeof *V, MALLOC_CAP_SPIRAM);
-    if (!V) return;
+    if (!V || !npc_init()) {
+        free(V);
+        V = NULL;
+        return;
+    }
     dsc_init(&s_face_dsc, FACE, LV_COLOR_FORMAT_RGB565);
     dsc_init(&s_album_dsc, NP_ALBUM_PX, LV_COLOR_FORMAT_RGB565A8);
     dsc_init(&s_avatar_dsc, NP_ARTIST_PX, LV_COLOR_FORMAT_RGB565A8);
@@ -140,12 +148,6 @@ void np_view_create(lv_obj_t *parent)
 
 static void build(void)
 {
-    s_root = lv_obj_create(s_parent);
-    lv_obj_remove_style_all(s_root);
-    lv_obj_set_size(s_root, SCREEN_W, SCREEN_H);
-    lv_obj_set_pos(s_root, 0, 0);
-    lv_obj_remove_flag(s_root, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-
     s_face = lv_image_create(s_root);
     lv_obj_set_pos(s_face, FACE_X, 0);
     lv_obj_add_flag(s_face, LV_OBJ_FLAG_HIDDEN);
@@ -201,6 +203,7 @@ static void build(void)
 
 static void free_pictures(void)
 {
+    if (!s_face) return;
     lv_obj_add_flag(s_face, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_album, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
@@ -212,12 +215,44 @@ static void free_pictures(void)
     if (held) np_client_forget_art();
 }
 
+static void drop_kind(void)
+{
+    if (s_kind == KIND_LEGACY) free_pictures();
+    else if (s_kind == KIND_COVER) npc_destroy();
+    lv_obj_clean(s_root);
+    s_face = s_album = s_album_ph = s_avatar = s_dot = NULL;
+    s_title = s_sub = s_meta = s_idle = NULL;
+    s_vol_arc = s_badge = s_badge_lbl = NULL;
+    V->title[0] = V->sub[0] = V->meta[0] = V->idle[0] = V->badge[0] = 0;
+    s_kind = KIND_NONE;
+}
+
+static void set_kind(int kind)
+{
+    if (kind == s_kind) return;
+    bool had = s_kind != KIND_NONE;
+    drop_kind();
+    if (kind == KIND_LEGACY) build();
+    else npc_build(s_root);
+    s_kind = kind;
+    s_mode = MODE_UNSET;
+    s_vol_shown = -2;
+    s_dimmed = false;
+    s_avatar_frac = -1;
+    if (had) np_client_forget_art();
+}
+
 void np_view_show(bool show)
 {
     if (!V || show == s_shown) return;
     s_shown = show;
     if (show) {
-        build();
+        s_root = lv_obj_create(s_parent);
+        lv_obj_remove_style_all(s_root);
+        lv_obj_set_size(s_root, SCREEN_W, SCREEN_H);
+        lv_obj_set_pos(s_root, 0, 0);
+        lv_obj_remove_flag(s_root, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        s_kind = KIND_NONE;
         s_show_t = esp_timer_get_time() / 1e6;
         s_idle_drift = 0;
         s_idle_drift_t = s_show_t;
@@ -234,12 +269,9 @@ void np_view_show(bool show)
         np_client_control_result(&r);
         s_result_seq = r.seq;
     } else {
-        free_pictures();
+        drop_kind();
         lv_obj_delete(s_root);
-        s_root = s_face = s_album = s_album_ph = s_avatar = s_dot = NULL;
-        s_title = s_sub = s_meta = s_idle = NULL;
-        s_vol_arc = s_badge = s_badge_lbl = NULL;
-        V->title[0] = V->sub[0] = V->meta[0] = V->idle[0] = 0;
+        s_root = NULL;
         np_client_set_visible(false);
         s_told = false;
     }
@@ -326,26 +358,6 @@ static void place_avatar(float frac, double now, bool force)
     s_avatar_t = now;
 }
 
-static void fit_text(char *txt, const lv_font_t *font, int max_w)
-{
-    lv_point_t sz;
-    lv_text_get_size(&sz, txt, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    if (sz.x <= max_w) return;
-    size_t lo = 0, hi = strlen(txt);
-    char *tmp = V->fit;
-    if (hi + 4 > sizeof V->fit) hi = sizeof V->fit - 4;
-    while (lo < hi) {
-        size_t mid = (lo + hi + 1) / 2;
-        memcpy(tmp, txt, mid);
-        strcpy(tmp + mid, "...");
-        lv_text_get_size(&sz, tmp, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (sz.x <= max_w) lo = mid;
-        else hi = mid - 1;
-    }
-    while (lo > 0 && (txt[lo - 1] == ' ' || txt[lo - 1] == '-')) lo--;
-    strcpy(txt + lo, "...");
-}
-
 static void text_set(lv_obj_t *l, char *shown, size_t cap, const char *txt)
 {
     if (strcmp(shown, txt) == 0) return;
@@ -368,8 +380,30 @@ static void source_name(const char *src, char *out, size_t cap)
         if (*p >= 'a' && *p <= 'z') *p -= 32;
 }
 
+static void drift_at(int k, int *dx, int *dy)
+{
+    double a = k * M_PI / 4;
+    *dx = k ? (int)lround(DRIFT_PX * sin(a)) : 0;
+    *dy = k ? (int)lround(-DRIFT_PX * cos(a)) : 0;
+}
+
+static bool dim_step(bool playing, double now)
+{
+    bool dim = playing && now - s_last_input >= BURN_IN_S;
+    if (dim != s_dimmed) {
+        s_dimmed = dim;
+        s_drift = 0;
+        s_drift_t = now;
+    } else if (dim && now - s_drift_t >= DRIFT_EVERY_S) {
+        s_drift_t = now;
+        s_drift = (s_drift + 1) % 8;
+    }
+    return dim;
+}
+
 static void burn_in(double now)
 {
+    if (s_kind != KIND_LEGACY) return;
     bool dim = s_mode == MODE_PLAYING && now - s_last_input >= BURN_IN_S;
     if (dim != s_dimmed) {
         s_dimmed = dim;
@@ -426,7 +460,7 @@ static const char *error_text(int status)
     }
 }
 
-static void controls_update(double now)
+static void controls_tick(double now)
 {
     np_ctl_t *c = &V->ctl;
     np_cmd_t cmds[4];
@@ -444,7 +478,38 @@ static void controls_update(double now)
             np_ctl_failed(c);
         }
     }
+}
 
+static npc_badge_t badge_content(double now, char *text, size_t cap)
+{
+    np_ctl_t *c = &V->ctl;
+    text[0] = 0;
+    if (np_ctl_volume_active(c, now)) {
+        int vol = np_ctl_volume_shown(c, now);
+        if (vol >= 0) snprintf(text, cap, "%d", vol);
+        else snprintf(text, cap, "%+d", c->vol_gesture);
+        return NPC_BADGE_NUMBER;
+    }
+    if (now - c->last_t < FLASH_S && c->last != NP_CMD_VOLUME) {
+        switch (c->last) {
+        case NP_CMD_PLAY:
+        case NP_CMD_PAUSE: strlcpy(text, c->last == NP_CMD_PLAY ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE, cap); break;
+        case NP_CMD_NEXT: strlcpy(text, LV_SYMBOL_NEXT, cap); break;
+        case NP_CMD_PREVIOUS: strlcpy(text, LV_SYMBOL_PREV, cap); break;
+        default: break;
+        }
+        return text[0] ? NPC_BADGE_ICON : NPC_BADGE_NONE;
+    }
+    if (now - s_error_t < ERROR_S) {
+        strlcpy(text, error_text(s_error), cap);
+        return NPC_BADGE_ERROR;
+    }
+    return NPC_BADGE_NONE;
+}
+
+static void legacy_controls(double now)
+{
+    np_ctl_t *c = &V->ctl;
     bool turning = np_ctl_volume_active(c, now);
     int vol = np_ctl_volume_shown(c, now);
     int arc = turning && vol >= 0 ? vol : -2;
@@ -454,31 +519,51 @@ static void controls_update(double now)
         s_vol_shown = arc;
     }
 
-    char text[24] = "";
-    const lv_font_t *font = &lv_font_montserrat_48;
-    if (turning) {
-        if (vol >= 0) snprintf(text, sizeof text, "%d", vol);
-        else snprintf(text, sizeof text, "%+d", c->vol_gesture);
-    } else if (now - c->last_t < FLASH_S && c->last != NP_CMD_VOLUME) {
-        switch (c->last) {
-        case NP_CMD_PLAY:
-        case NP_CMD_PAUSE:
-            strlcpy(text, c->last == NP_CMD_PLAY ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE, sizeof text);
-            break;
-        case NP_CMD_NEXT: strlcpy(text, LV_SYMBOL_NEXT, sizeof text); break;
-        case NP_CMD_PREVIOUS: strlcpy(text, LV_SYMBOL_PREV, sizeof text); break;
-        default: break;
-        }
-    } else if (now - s_error_t < ERROR_S) {
-        strlcpy(text, error_text(s_error), sizeof text);
-        font = &lv_font_montserrat_18;
-    }
+    char text[24];
+    npc_badge_t kind = badge_content(now, text, sizeof text);
+    const lv_font_t *font = kind == NPC_BADGE_ERROR ? &lv_font_montserrat_18 : &lv_font_montserrat_48;
     if (strcmp(text, V->badge) != 0) {
         strlcpy(V->badge, text, sizeof V->badge);
         lv_obj_set_style_text_font(s_badge_lbl, font, 0);
         lv_label_set_text_static(s_badge_lbl, V->badge);
         show(s_badge, V->badge[0] != 0);
     }
+}
+
+static long long shown_pos(bool paused, double now)
+{
+    const np_anchor_t *an = &V->snap.anchor;
+    return np_anchor_at(an, paused && an->playing && V->ctl.play_set ? V->ctl.play_t : now);
+}
+
+static void cover_update(double now, bool offline, bool live, bool fresh, np_play_t shown)
+{
+    const np_info_t *np = &V->snap.info;
+    np_face_state_t st = np_face_state(V->snap.have, shown, offline, npc_has_cover());
+    npc_frame_t f = {
+        .now = now,
+        .state = st,
+        .ring = live ? np_ring_mode(&V->ctl, now) : NP_RING_PROGRESS,
+        .np = np,
+        .text_fresh = fresh,
+        .dur_ms = V->snap.anchor.dur_ms,
+        .vol = np_ctl_volume_shown(&V->ctl, now),
+    };
+    char badge[24] = "";
+    if (live) f.badge = badge_content(now, badge, sizeof badge);
+    f.badge_text = badge;
+    if (np_face_live(st) || st == NPF_OFFLINE) {
+        f.pos_ms = shown_pos(st == NPF_PAUSED, now);
+        f.dim = dim_step(st == NPF_PLAYING, now);
+        drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
+    } else {
+        if (now - s_idle_drift_t >= DRIFT_EVERY_S) {
+            s_idle_drift_t = now;
+            s_idle_drift = (s_idle_drift + 1) % 8;
+        }
+        drift_at(s_idle_drift, &f.dx, &f.dy);
+    }
+    npc_update(&f);
 }
 
 void np_view_update(double now, bool offline)
@@ -489,20 +574,35 @@ void np_view_update(double now, bool offline)
         np_client_set_visible(true);
         s_told = true;
     }
-    if (np_client_take_art(&in)) adopt_art(&in);
     bool fresh = np_client_get(&V->snap, &s_gen);
     const np_info_t *np = &V->snap.info;
     bool live = !offline && V->snap.have && np->state != NP_NONE;
+    bool known = V->snap.have && np->state != NP_NONE;
+    int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
+    set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
+    if (np_client_take_art(&in)) {
+        bool pics = in.backdrop || in.album || in.artist || in.cover || in.avatar;
+        if (np_art_take(in.version, in.is_cover, pics, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
+            if (in.is_cover) npc_adopt(&in);
+            else adopt_art(&in);
+        }
+        np_art_set_free(&in);
+    }
     if (fresh || !live) np_ctl_server(&V->ctl, live ? np->state : NP_NONE, live ? np->volume : -1, now);
+    if (live) controls_tick(now);
+    np_play_t shown = np_ctl_play_shown(&V->ctl, now);
+    if (s_kind == KIND_COVER) {
+        cover_update(now, offline, live, fresh, shown);
+        return;
+    }
     if (live) {
-        controls_update(now);
+        legacy_controls(now);
     } else if (s_vol_shown != -2 || V->badge[0]) {
         show(s_vol_arc, false);
         show(s_badge, false);
         s_vol_shown = -2;
         V->badge[0] = 0;
     }
-    np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     int mode = !live ? MODE_IDLE : shown == NP_PLAYING ? MODE_PLAYING : MODE_PAUSED;
 
     if (mode == MODE_IDLE) {
@@ -544,7 +644,7 @@ void np_view_update(double now, bool offline)
     if (fresh || relayout) {
         char *w = V->work;
         np_text_fold(np->title[0] ? np->title : "Unknown track", w, sizeof V->title);
-        fit_text(w, &lv_font_montserrat_24, TITLE_W);
+        npc_fit_text(w, &lv_font_montserrat_24, TITLE_W);
         text_set(s_title, V->title, sizeof V->title, w);
         np_text_fold(np->artist, w, sizeof V->work);
         if (np->album[0]) {
@@ -552,12 +652,12 @@ void np_view_update(double now, bool offline)
             size_t n = strlen(w);
             np_text_fold(np->album, w + n, sizeof V->work - n);
         }
-        fit_text(w, &lv_font_montserrat_18, SUB_W);
+        npc_fit_text(w, &lv_font_montserrat_18, SUB_W);
         text_set(s_sub, V->sub, sizeof V->sub, w);
     }
 
     const np_anchor_t *an = &V->snap.anchor;
-    long long pos = np_anchor_at(an, mode == MODE_PAUSED && an->playing && V->ctl.play_set ? V->ctl.play_t : now);
+    long long pos = shown_pos(mode == MODE_PAUSED, now);
     if (pos / 1000 != s_meta_sec || relayout) {
         s_meta_sec = pos / 1000;
         char src[24], p[16], d[16], meta[64];

@@ -3,8 +3,11 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "cJSON.h"
+
+static bool version_ok(const char *v, size_t max);
 
 static const cJSON *item(const cJSON *o, const char *k) { return cJSON_GetObjectItemCaseSensitive(o, k); }
 
@@ -56,6 +59,11 @@ bool np_parse(const cJSON *o, np_info_t *out)
     out->artist_art = cJSON_IsTrue(item(o, "artist_art"));
     const cJSON *vol = item(o, "volume");
     if (cJSON_IsNumber(vol) && vol->valuedouble >= 0 && vol->valuedouble <= 100) out->volume = (int)vol->valuedouble;
+    const cJSON *acc = item(o, "accent");
+    out->has_accent = cJSON_IsString(acc) && acc->valuestring && np_accent_parse(acc->valuestring, &out->accent);
+    char cv[NP_COVERV_MAX + 2];
+    str_field(cv, sizeof cv, o, "cover_version");
+    if (version_ok(cv, NP_COVERV_MAX)) strcpy(out->cover_version, cv);
     return true;
 }
 
@@ -198,8 +206,8 @@ void np_text_fold(const char *in, char *out, size_t cap)
     out[o] = 0;
 }
 
-static const int ART_PX[NP_ART_KINDS] = {NP_BACKDROP_PX, NP_ALBUM_PX, NP_ARTIST_PX};
-static const char *const ART_NAME[NP_ART_KINDS] = {"backdrop", "album", "artist"};
+static const int ART_PX[NP_ART_KINDS] = {NP_BACKDROP_PX, NP_ALBUM_PX, NP_ARTIST_PX, NP_COVER_PX};
+static const char *const ART_NAME[NP_ART_KINDS] = {"backdrop", "album", "artist", "cover"};
 
 int np_art_px(np_art_kind_t k) { return (unsigned)k < NP_ART_KINDS ? ART_PX[k] : 0; }
 const char *np_art_kind_name(np_art_kind_t k) { return (unsigned)k < NP_ART_KINDS ? ART_NAME[k] : ""; }
@@ -207,17 +215,54 @@ const char *np_art_kind_name(np_art_kind_t k) { return (unsigned)k < NP_ART_KIND
 void np_art_plan(const np_info_t *np, np_art_plan_t *out)
 {
     memset(out, 0, sizeof *out);
-    if (np->state == NP_NONE || !np->art_version[0] || !(np->album_art || np->artist_art)) return;
+    if (np->state == NP_NONE) return;
+    if (np->cover_version[0]) {
+        strcpy(out->version, np->cover_version);
+        strcpy(out->art, np->art_version);
+        out->cover = true;
+        out->want[NP_ART_COVER] = true;
+        out->want[NP_ART_ARTIST] = np->artist_art && np->art_version[0];
+        return;
+    }
+    if (!np->art_version[0] || !(np->album_art || np->artist_art)) return;
     strcpy(out->version, np->art_version);
     out->want[NP_ART_BACKDROP] = true;
     out->want[NP_ART_ALBUM] = np->album_art;
     out->want[NP_ART_ARTIST] = np->artist_art;
 }
 
-bool np_art_version_ok(const char *v)
+const char *np_art_plan_version(const np_art_plan_t *p, np_art_kind_t k)
+{
+    return p->cover && k == NP_ART_ARTIST ? p->art : p->version;
+}
+
+static int hexv(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+bool np_accent_parse(const char *s, uint32_t *rgb)
+{
+    if (!s || s[0] != '#' || strlen(s) != 7) return false;
+    uint32_t v = 0;
+    for (int i = 1; i < 7; i++) {
+        int h = hexv(s[i]);
+        if (h < 0) return false;
+        v = v << 4 | (uint32_t)h;
+    }
+    *rgb = v;
+    return true;
+}
+
+bool np_art_version_ok(const char *v) { return version_ok(v, NP_ARTV_MAX); }
+
+static bool version_ok(const char *v, size_t max)
 {
     size_t n = strlen(v);
-    if (n == 0 || n > NP_ARTV_MAX) return false;
+    if (n == 0 || n > max) return false;
     for (size_t i = 0; i < n; i++) {
         char c = v[i];
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '-'))
@@ -228,7 +273,7 @@ bool np_art_version_ok(const char *v)
 
 bool np_art_url(const char *base, np_art_kind_t k, const char *version, char *out, size_t cap)
 {
-    if ((unsigned)k >= NP_ART_KINDS || !np_art_version_ok(version)) return false;
+    if ((unsigned)k >= NP_ART_KINDS || !version_ok(version, NP_COVERV_MAX)) return false;
     int n = snprintf(out, cap, "%s/v1/nowplaying/art?kind=%s&size=%d&v=%s", base, ART_NAME[k], ART_PX[k], version);
     return n > 0 && (size_t)n < cap;
 }
@@ -239,4 +284,33 @@ int np_art_retry_ms(int failures)
     int ms = 5000;
     for (int i = 1; i < failures && ms < 60000; i++) ms *= 2;
     return ms > 60000 ? 60000 : ms;
+}
+
+bool np_art_cache_fresh(const char *cc)
+{
+    if (!cc) return false;
+    for (const char *p = cc; *p; p++) {
+        if (strncasecmp(p, "immutable", 9) != 0) continue;
+        char before = p == cc ? ' ' : p[-1], after = p[9];
+        if ((before == ' ' || before == ',') && (after == 0 || after == ' ' || after == ',')) return true;
+    }
+    return false;
+}
+
+bool np_info_changed(const np_info_t *a, const np_info_t *b)
+{
+    return !np_same_track(a, b) || strcmp(a->art_version, b->art_version) != 0 || a->album_art != b->album_art ||
+           a->artist_art != b->artist_art || a->volume != b->volume || strcmp(a->track_id, b->track_id) != 0 ||
+           strcmp(a->cover_version, b->cover_version) != 0 || a->has_accent != b->has_accent ||
+           (a->has_accent && a->accent != b->accent);
+}
+
+np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded)
+{
+    bool required = p->cover && k == NP_ART_COVER;
+    if (status == 404) return required ? NP_ART_FAIL : NP_ART_SKIP;
+    if (status != 200) return NP_ART_FAIL;
+    if (p->cover && !fresh) return NP_ART_FAIL;
+    if (!decoded) return required ? NP_ART_FAIL : NP_ART_SKIP;
+    return NP_ART_OK;
 }

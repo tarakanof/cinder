@@ -11,6 +11,7 @@ extern "C" {
 #define NP_SOURCE_MAX 32
 #define NP_TEXT_MAX 255
 #define NP_ARTV_MAX 32
+#define NP_COVERV_MAX 48
 #define NP_TRACK_ID_MAX 128
 
 typedef enum { NP_NONE, NP_PLAYING, NP_PAUSED } np_play_t;
@@ -28,6 +29,9 @@ typedef struct {
     bool album_art, artist_art;
     int volume;
     char track_id[NP_TRACK_ID_MAX + 1];
+    bool has_accent;
+    uint32_t accent;   /* 0xRRGGBB */
+    char cover_version[NP_COVERV_MAX + 1];
 } np_info_t;
 
 struct cJSON;
@@ -51,18 +55,32 @@ int np_format_time(long long ms, char *buf, size_t cap);
 /* ASCII-only output for Montserrat; out is NUL-terminated, cut at cap - 1. */
 void np_text_fold(const char *in, char *out, size_t cap);
 
-typedef enum { NP_ART_BACKDROP, NP_ART_ALBUM, NP_ART_ARTIST, NP_ART_KINDS } np_art_kind_t;
+typedef enum { NP_ART_BACKDROP, NP_ART_ALBUM, NP_ART_ARTIST, NP_ART_COVER, NP_ART_KINDS } np_art_kind_t;
 #define NP_BACKDROP_PX 466
+#define NP_COVER_PX 466
 #define NP_ALBUM_PX 240
 #define NP_ARTIST_PX 64
 int np_art_px(np_art_kind_t k);
 const char *np_art_kind_name(np_art_kind_t k);
 
+/* cover: version is cover_version and art the art_version the artist picture is fetched at. */
 typedef struct {
-    char version[NP_ARTV_MAX + 1];
+    char version[NP_COVERV_MAX + 1];
+    char art[NP_ARTV_MAX + 1];
+    bool cover;
     bool want[NP_ART_KINDS];
 } np_art_plan_t;
 void np_art_plan(const np_info_t *np, np_art_plan_t *out);
+const char *np_art_plan_version(const np_art_plan_t *p, np_art_kind_t k);
+bool np_accent_parse(const char *s, uint32_t *rgb);
+/* Ember answers a stale v with its current picture and no-cache; only an immutable answer is the asked version. */
+bool np_art_cache_fresh(const char *cache_control);
+typedef enum { NP_ART_OK, NP_ART_SKIP, NP_ART_FAIL } np_art_step_t;
+/* One picture's outcome: SKIP leaves it out of the set, FAIL drops the set and retries with backoff. decoded: false for
+   a body over the cap, a decode error or no memory. fresh: np_art_cache_fresh of the answer. */
+np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded);
+/* Anything besides the position anchor that the face shows or fetches by. */
+bool np_info_changed(const np_info_t *a, const np_info_t *b);
 
 bool np_art_version_ok(const char *v);
 bool np_art_url(const char *base, np_art_kind_t k, const char *version, char *out, size_t cap);
@@ -82,6 +100,7 @@ typedef struct {
 void np_ring_render(const np_ring_t *ring, uint16_t *buf, int w, int h, np_rect_t rect, float frac, uint32_t arc_rgb,
                     uint32_t track_rgb);
 bool np_ring_dirty(const np_ring_t *ring, float f0, float f1, int w, int h, np_rect_t *out);
+bool np_ring_dirty_m(const np_ring_t *ring, float f0, float f1, float margin, int w, int h, np_rect_t *out);
 void np_ring_point(const np_ring_t *ring, float frac, float *x, float *y);
 
 void np_face_mask(uint16_t *buf, int w, int h, float cx, float cy, float r);

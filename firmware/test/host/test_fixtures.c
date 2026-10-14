@@ -125,6 +125,7 @@ static void test_view_full(void)
               strcmp(v.np.track_id, "4242") == 0,
           "np strings");
     CHECK(v.np.duration_ms == 330000 && v.np.position_ms == 61000 && v.np.position_at == 1782043198000LL, "np times");
+    CHECK(!v.np.has_accent && !v.np.cover_version[0], "no np_cover keys without the token: the old face");
     CHECK(strcmp(v.np.art_version, "1351688abc58") == 0 && v.np.album_art && v.np.artist_art && v.np.volume == 40,
           "np art %s volume %d", v.np.art_version, v.np.volume);
     CHECK(v.diag_live_until == 1782043500LL, "diag_live_until");
@@ -776,6 +777,8 @@ static void test_view_np_cover(void)
     knob_view_t v;
     if (!view("view_np_cover.json", &v)) return;
     CHECK(v.has_np && v.np.state == NP_PLAYING && strcmp(v.np.title, "Example Song") == 0, "cover view: now playing");
+    CHECK(v.np.has_accent && v.np.accent == 0x6C22E6 && strcmp(v.np.cover_version, "fb43cf74b67a-r1") == 0,
+          "cover view: accent and cover_version");
     CHECK(!v.has_weather, "no weather block");
 }
 
@@ -1068,7 +1071,7 @@ static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
-static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo"};
+static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover"};
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
