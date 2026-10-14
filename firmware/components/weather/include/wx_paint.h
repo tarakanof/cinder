@@ -9,11 +9,13 @@
 extern "C" {
 #endif
 
-/* RGB565 pixels, then (a non-NULL) an A8 plane: LVGL's RGB565A8. x0, y0: face coordinates of pixel 0. */
+/* RGB565 pixels, then (a non-NULL) an A8 plane: LVGL's RGB565A8. x0, y0: face coordinates of pixel 0. yield (NULL:
+   none) is called before every painted row. */
 typedef struct {
     uint16_t *px;
     uint8_t *a;
     int w, h, x0, y0;
+    void (*yield)(void);
 } wx_img_t;
 
 #define WX_HERO_BOX 164
@@ -35,6 +37,7 @@ typedef struct {
     int nrun, npx;
     wx_run_t run[WX_RING_RUNS];
     uint16_t px[WX_RING_PX];
+    void (*yield)(void); /* NULL: none; called before every annulus row */
 } wx_ring_t;
 
 uint16_t wx_rgb565(uint32_t rgb);
@@ -193,6 +196,7 @@ typedef struct {
     uint16_t *lut; /* WX_RING_LUT */
     wx_ring_t *ring;
     uint8_t *hero, *still, *drift; /* RGB565A8: WX_HERO_BOX squared, wx_clouds_max_px(false), wx_clouds_max_px(true) */
+    void (*yield)(void); /* NULL: none; wx_bake calls it before every painted row, it decides when to sleep */
 } wx_bake_buf_t;
 
 typedef struct {
