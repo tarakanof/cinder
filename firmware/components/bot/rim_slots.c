@@ -88,6 +88,7 @@ bool rim_slots_feed(rim_slots_t *s, int key, bool shown, const rim_slots_ops_t *
 {
     if (shown && !atomic_exchange(&s->vars, true) && s->beat.job >= 0) ops->wake(ops->ctx);
     if (!shown) atomic_store(&s->vars, false);
+    s->beat.off = !shown;
     return rim_beat_ready(&s->beat, (int)bot_rim_mood(key), base_ready(s));
 }
 

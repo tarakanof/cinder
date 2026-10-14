@@ -63,11 +63,12 @@ typedef struct {
     double pop_start, hop_start, next_hop_at;
     double hop_h, hop_len;
     int w_phase;
+    bool w_pending;
     unsigned w_scene;
     double w_t0, burst_hop_at, burst_h, next_peek_at, next_nudge_at, next_rem_at, nudge_at, gaze_hold;
     double sleep_after_s;
     bool calm;
-    bool rim_ready, ring;
+    bool rim_ready, ring, beat_gapped, beat_held;
     double done_hop_at, giggle_at, lap_at, beat_by;
 
     double breath, breath_ph, breath_per, breath_t;
@@ -105,7 +106,7 @@ typedef struct {
 #define BOT_NUDGE_S 0.35
 /* A mood beat waits for the view's outline at most this long after the mood change, seconds. */
 #define BOT_BEAT_MAX_S 0.45
-/* A frame gap longer than this while a beat waits (off-page, OTA pause) gives the outline another BOT_BEAT_MAX_S. */
+/* The first frame gap longer than this while a beat waits (off-page, OTA pause) gives the outline another BOT_BEAT_MAX_S. */
 #define BOT_BEAT_GAP_S 0.1
 /* Done's reward, seconds after the beat. */
 #define BOT_DONE_HOP_S 0.35
@@ -140,8 +141,9 @@ void bot_hold_gaze(bot_t *b, double until);
 /* A quiet weather moment on: working's gaze stays in y -0.19..0.15 from this frame (lines 0-2, no mark, turns at the viewer). */
 void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
-/* Waiting back to phase A once a reminder period has passed since the last start; nothing in other moods. */
-void bot_wait_restart(bot_t *b, double t);
+/* Waiting back to phase A if a reminder period has passed since the last start; earlier, at that moment with latch, else
+   not at all; nothing in other moods. */
+void bot_wait_restart(bot_t *b, double t, bool latch);
 /* scene: the playing demo scene's number, 0 none; nonzero takes the demo timings, a change restarts waiting at A. */
 void bot_wait_scene(bot_t *b, unsigned scene, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */
@@ -158,7 +160,7 @@ double bot_asleep_in(const bot_t *b, double t);
    no saccades of its own and ignores bot_look (a knob turn) and bot_push (its hop). act_eyes: a bot_eyes_t costume,
    or -1 for the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s
    and stays after the act ends until set again. Begin wakes an asleep bot and pauses a sleepy one's countdown to
-   asleep; bot_act_end and bot_act_drop resume it. */
+   asleep (a look or push meanwhile sets it back to BOT_ASLEEP_AFTER_S); bot_act_end and bot_act_drop resume it. */
 void bot_act_begin(bot_t *b, double t);
 void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t);
 void bot_act_lid(bot_t *b, double lid, double dur, double t);

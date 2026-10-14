@@ -1714,6 +1714,47 @@ static void test_asleep_guards(void)
     bot_act_drop(&b, 400);
     CHECK(!bot_pose(&b, 609.9).asleep && bot_pose(&b, 610.1).asleep, "a second end resumes nothing");
 
+    for (int how = 0; how < 2; how++) {
+        bot_init(&b, 46, 0);
+        bot_set_mood(&b, BOT_SLEEPY, 0);
+        bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 1);
+        if (how == 0) bot_push(&b, BOT_ASLEEP_AFTER_S + 3);
+        else bot_look(&b, 0.5, 0.2, BOT_ASLEEP_AFTER_S + 3);
+        CHECK(!b.hopping && b.gaze_to_x == 0, "input %d mid-act: no hop or look", how);
+        bot_act_end(&b, true, 0.3, BOT_ASLEEP_AFTER_S + 16);
+        CHECK(fabs(bot_asleep_in(&b, BOT_ASLEEP_AFTER_S + 16) - BOT_ASLEEP_AFTER_S) < 1e-9,
+              "input %d mid-act: the full 10 min from the act's end (%.1f s left)", how, bot_asleep_in(&b, BOT_ASLEEP_AFTER_S + 16));
+    }
+    bot_init(&b, 47, 0);
+    bot_set_mood(&b, BOT_WORKING, 0);
+    bot_act_begin(&b, 10);
+    bot_push(&b, 11);
+    bot_act_end(&b, true, 0.3, 12);
+    CHECK(b.sleep_left < 0 && bot_asleep_in(&b, 12) == 0, "input mid-act outside sleepy: no countdown");
+
+    bot_init(&b, 48, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 5);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 4);
+    bot_act_end(&b, true, 0.3, 700);
+    CHECK(!bot_pose(&b, 704.9).asleep && bot_pose(&b, 705.1).asleep, "a nested begin keeps the first time left: asleep 5 s after the end");
+
+    bot_init(&b, 49, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 5);
+    bot_set_mood(&b, BOT_WORKING, 700);
+    bot_set_mood(&b, BOT_SLEEPY, 701);
+    bot_act_end(&b, true, 0.3, 702);
+    CHECK(fabs(bot_asleep_in(&b, 702) - (BOT_ASLEEP_AFTER_S - 1)) < 1e-9,
+          "sleepy again mid-act: its own 10 min, not the old act's 5 s (%.1f s left)", bot_asleep_in(&b, 702));
+
+    bot_init(&b, 50, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 5);
+    bot_sleep_in(&b, 30, 700);
+    bot_act_end(&b, true, 0.3, 702);
+    CHECK(fabs(bot_asleep_in(&b, 702) - 28) < 1e-9, "bot_sleep_in mid-act wins over the paused time left (%.1f s left)", bot_asleep_in(&b, 702));
+
     bot_init(&b, 42, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
     slept = false;
@@ -1820,11 +1861,36 @@ static void test_sleepy_transitions(void)
             bot_pose(&b, at);
             tried++;
             bot_set_mood(&b, BOT_WORKING, at);
-            half += late ? b.blink_start < at : b.blink_start == at;
+            double shut_start = at - 0.075 * b.blink_speed - b.blink_lag;
+            half += late ? fabs(b.blink_start - shut_start) < 1e-9 : b.blink_start > shut_start + 1e-6;
         }
     }
-    CHECK(tried >= 20 && half == tried, "a heavy blink past half closed (0.64) hands over shut, one at 0.16 does not: %d of %d", half,
+    CHECK(tried >= 20 && half == tried, "a heavy blink past half closed (0.64) hands over shut, one at 0.16 part way: %d of %d", half,
           tried);
+    int changes = 0, drops = 0;
+    double worst_drop = 0;
+    for (uint64_t seed = 1; seed <= 24; seed++) {
+        for (int k = 0; k < 8; k++) {
+            bot_t b;
+            bot_init(&b, seed * 13 + (uint64_t)k, 0);
+            bot_set_mood(&b, BOT_SLEEPY, 0);
+            double t = 0, at = 3 + 2.37 * k + 0.11 * (double)seed;
+            for (; t < at; t += 1.0 / 60) bot_pose(&b, t);
+            bot_t c = b;
+            bot_pose_t was = bot_pose(&c, t);
+            bot_set_mood(&b, k % 2 ? BOT_WORKING : BOT_DONE, t);
+            changes++;
+            for (double u = t; u < t + 0.1; u += 1.0 / 240) {
+                bot_pose_t p = bot_pose(&b, u);
+                double d = fmax(was.lid_l - p.lid_l, was.lid_r - p.lid_r);
+                if (fmin(p.lid_l, p.lid_r) >= 0.999) break;
+                if (d > 0.02) { drops++; worst_drop = fmax(worst_drop, d); }
+                was = p;
+            }
+        }
+    }
+    CHECK(!drops, "leaving sleepy: the mood blink closes from the lid showing, %d of %d changes drop a lid first (worst %.3f)", drops, changes,
+          worst_drop);
     bot_t b;
     bot_init(&b, 3, 0);
     bot_sleep(&b, 1);
@@ -2382,6 +2448,76 @@ static void test_reading_blink_phases(void)
     CHECK(!stuck, "reading: %d jumps leave a blink unfinished", stuck);
 }
 
+static void test_reading_moment_glide(void)
+{
+    const double fine = 1.0 / 1000;
+    int n = 0, jumps = 0, out = 0;
+    double worst = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        for (double on = 0.05; on < 0.36; on += 0.1) {
+            bot_t b;
+            bot_init(&b, 0x61D + (uint64_t)seed, 0);
+            bot_look(&b, 0.5, 0.0, 0.5);
+            double t = 0.5;
+            for (; t < 1.5; t += fine) bot_pose(&b, t);
+            bot_set_mood(&b, BOT_WORKING, t);
+            if (b.gaze_ease != 0 || b.gaze_to_y < -0.19 || b.gaze_to_y > 0.15) continue;
+            n++;
+            double prev_x = NAN, prev_y = NAN, t_on = t + on, end = b.gaze_start + b.gaze_dur;
+            for (; t < end + 0.05; t += fine) {
+                if (!b.rd_moment && t >= t_on) bot_read_moment(&b, true, t);
+                bot_pose_t p = bot_pose(&b, t);
+                if (!isnan(prev_x)) {
+                    double d = hypot(p.gaze_x - prev_x, p.gaze_y - prev_y);
+                    worst = fmax(worst, d);
+                    jumps += d > 0.02;
+                }
+                out += b.rd_moment && (p.gaze_y < -0.19 - 1e-9 || p.gaze_y > 0.15 + 1e-9);
+                prev_x = p.gaze_x;
+                prev_y = p.gaze_y;
+            }
+        }
+    }
+    printf("reading moment: on mid entry glide, %d cases, largest gaze step %.4f per ms\n", n, worst);
+    CHECK(n >= 60 && !jumps && !out, "a quiet moment on mid entry glide: the glide goes on (%d jumps over 0.02 per ms, worst %.3f, %d out of band, %d cases)",
+          jumps, worst, out, n);
+}
+
+static void test_coupled_blink_expired(void)
+{
+    int big = 0, coupled = 0, stale = 0;
+    for (int seed = 0; seed < 120; seed++) {
+        static const bot_mood_t moods[] = {BOT_SLEEPY, BOT_IDLE, BOT_ERROR};
+        bot_mood_t m = moods[seed % 3];
+        bot_t b;
+        bot_init(&b, 0xC0B1 + (uint64_t)seed, 0);
+        if (m != BOT_IDLE) bot_set_mood(&b, m, 0);
+        double t = 0;
+        for (; t < 4; t += 1.0 / 60) bot_pose(&b, t);
+        b.blinking = true;
+        b.blink_heavy = m == BOT_SLEEPY;
+        b.blink_speed = 1;
+        b.double_blink_pending = false;
+        b.blink_hold = 0.5;
+        b.blink_lag = 0;
+        b.blink_start = b.last_blink_at = t - 1.3;
+        b.next_blink_at = t + 100;
+        b.gaze_from_x = b.gaze_to_x = b.fix_x = 0;
+        b.gaze_from_y = b.gaze_to_y = b.fix_y = 0.9;
+        b.gaze_start = t - 2;
+        b.next_saccade_at = t;
+        bot_pose(&b, t);
+        if (hypot(b.gaze_to_x - b.gaze_from_x, b.gaze_to_y - b.gaze_from_y) <= 0.8) continue;
+        big++;
+        coupled += b.last_blink_at == t;
+        stale += b.blinking && b.blink_start < t;
+    }
+    printf("coupled blink: %d of %d big saccades (sleepy, idle, error) blink on the frame an expired blink is still flagged\n", coupled, big);
+    CHECK(big >= 80 && coupled >= big * 4 / 10 && coupled <= big * 8 / 10 && !stale,
+          "a blink over before a big saccade's frame: the saccade's 60 %% coupled blink still draws (%d of %d, %d stale)", coupled, big,
+          stale);
+}
+
 static void test_reading_entry(void)
 {
     int n = 0, bad = 0, glances = 0;
@@ -2640,10 +2776,36 @@ static void test_wait_restart(void)
     double t = 0;
     wait_to(&b, &t, 200);
     CHECK(b.w_phase == 3, "phase C at 200 s, got %d", b.w_phase);
-    bot_wait_restart(&b, t);
-    CHECK(b.w_t0 == 0, "phase C before a reminder period: no restart");
+    bot_wait_restart(&b, t, true);
+    CHECK(b.w_t0 == 0 && b.w_phase == 3, "phase C before a reminder period: no restart yet");
+    wait_run(&b, t, 125, 1.0 / 120, &w);
+    bool remind = false;
+    for (int i = 0; i < w.hops; i++) remind |= w.hop[i].kind == HOP_REMIND;
+    CHECK(b.w_t0 >= BOT_WAIT_REMIND_S && b.w_t0 < BOT_WAIT_REMIND_S + 0.01 && w.hops >= 5 && fabs(w.hop[0].t - b.w_t0 - 0.6) < 0.01 &&
+              !remind && b.w_phase == 2,
+          "a restart asked at 200 s waits for the gate: phase A from %.2f s, first hop %.2f s after, no reminder", b.w_t0,
+          w.hops ? w.hop[0].t - b.w_t0 : -1);
+
+    for (int how = 0; how < 2; how++) {
+        bot_init(&b, 0x5E, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        t = 0;
+        if (how) bot_set_calm(&b, true, 0);
+        wait_to(&b, &t, 200);
+        if (how) bot_set_calm(&b, false, t);
+        else bot_wait_restart(&b, t, false);
+        wait_run(&b, t, 105, 1.0 / 120, &w);
+        int rem = 0;
+        for (int i = 0; i < w.hops; i++) rem += w.hop[i].kind == HOP_REMIND;
+        CHECK(b.w_t0 == 0 && b.w_phase == 3 && rem == 1 && !b.w_pending,
+              "%s at 200 s, no latch: dropped, the 300 s reminder comes (%d) and w_t0 stays %.2f", how ? "calm off" : "the page shown", rem, b.w_t0);
+    }
+
+    bot_init(&b, 0x5E, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
     wait_to(&b, &t, 320);
-    bot_wait_restart(&b, t);
+    bot_wait_restart(&b, t, true);
     wait_run(&b, t, 25, 1.0 / 120, &w);
     CHECK(w.hops >= 5 && fabs(w.hop[0].t - t - 0.6) < 0.01 && w.nudges == 0 && b.w_phase == 2,
           "restart: phase A again, first hop %.2f s after, %d hops, %d nudges", w.hops ? w.hop[0].t - t : -1, w.hops, w.nudges);
@@ -2653,19 +2815,42 @@ static void test_wait_restart(void)
     t = 0;
     wait_to(&b, &t, 10);
     double w0 = b.w_t0;
-    bot_wait_restart(&b, t);
+    bot_wait_restart(&b, t, true);
     wait_to(&b, &t, 100);
-    bot_wait_restart(&b, t);
-    CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart");
+    bot_wait_restart(&b, t, true);
+    CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart yet");
+    wait_to(&b, &t, BOT_WAIT_REMIND_S + 1);
+    CHECK(b.w_t0 >= BOT_WAIT_REMIND_S && b.w_t0 < BOT_WAIT_REMIND_S + 0.02 && b.w_phase == 1 && !b.w_pending,
+          "asked twice in A and B: one restart at the gate (%.2f s)", b.w_t0);
+    wait_to(&b, &t, 2 * BOT_WAIT_REMIND_S + 2);
+    CHECK(b.w_t0 < BOT_WAIT_REMIND_S + 0.02 && b.w_phase == 3, "and none after it, unasked");
+
+    bot_init(&b, 0x65, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
     wait_to(&b, &t, BOT_WAIT_REMIND_S - 1);
     double h0 = b.hop_start;
     for (; b.hop_start == h0; t += 1.0 / 120) bot_pose(&b, t);
-    bot_wait_restart(&b, b.hop_start + 0.05);
+    bot_wait_restart(&b, b.hop_start + 0.05, true);
     double first = b.hop_start, end = first + b.hop_len;
     wait_run(&b, t, 3, 1.0 / 120, &w);
     CHECK(!w.snaps && w.hops >= 1 && w.hop[0].t >= end - 1e-9 && w.hop[0].t < end + 0.02 && b.burst_hop_at == INFINITY,
           "a restart mid-reminder: the reminder's second hop dropped, the next hop after its end (%.3f s, ends %.3f s)",
           w.hops ? w.hop[0].t - first : -1, end - first);
+
+    int cases = 0, kept = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        bot_init(&b, 0x70 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        for (t = 0; t < 15 && !(b.next_hop_at - t > 0.05 && b.next_hop_at - t < 0.5 && !b.hopping); t += 1.0 / 120) bot_pose(&b, t);
+        if (t >= 15) continue;
+        cases++;
+        double due = b.next_hop_at;
+        bot_wait_scene(&b, 1, t);
+        for (double h = b.hop_start; b.hop_start == h && t < due + 1; t += 1.0 / 120) bot_pose(&b, t);
+        kept += b.next_hop_at != due && b.hop_start >= due && b.hop_start < due + 0.01;
+    }
+    CHECK(cases >= 10 && kept == cases, "a restart in phase A keeps a hop due sooner than 0.6 s (%d of %d)", kept, cases);
 
     static const double every[] = {0.5, 2.5, 7.5, 60};
     for (size_t i = 0; i < sizeof every / sizeof every[0]; i++) {
@@ -2680,7 +2865,7 @@ static void test_wait_restart(void)
                 hops += b.hop_start != was.hop_start && b.hopping;
                 c_seen += b.w_phase == 3 && was.w_phase != 3;
                 if (t >= next) {
-                    bot_wait_restart(&b, t);
+                    bot_wait_restart(&b, t, true);
                     next += every[i];
                 }
             }
@@ -2696,7 +2881,7 @@ static void test_wait_restart(void)
     bot_set_mood(&o, BOT_ERROR, 0);
     for (t = 0; t < 30; t += 1.0 / 60) bot_pose(&o, t);
     bot_t c = o;
-    bot_wait_restart(&o, t);
+    bot_wait_restart(&o, t, true);
     CHECK(memcmp(&c, &o, sizeof c) == 0, "restart outside waiting changes nothing");
 
     bot_init(&b, 0x60, 0);
@@ -2750,6 +2935,52 @@ static void test_wait_restart(void)
     bot_act_begin(&b, t);
     wait_run(&b, t, 20, 1.0 / 120, &w);
     CHECK(w.peeks == 0, "acting: no peeks (%d)", w.peeks);
+}
+
+static void test_wait_hop_chain(void)
+{
+    int doubles = 0, double_bad = 0, reminders = 0, long_rem = 0, rem_bad = 0;
+    for (int seed = 0; seed < 40; seed++) {
+        bot_t b;
+        bot_init(&b, 0xC4A + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        double t = 0;
+        for (; t < 20 && b.burst_hop_at == INFINITY; t += 1.0 / 120) bot_pose(&b, t);
+        if (b.burst_hop_at != INFINITY) {
+            doubles++;
+            double_bad += b.burst_hop_at != b.hop_start + b.hop_len;
+        }
+        for (; t < BOT_WAIT_REMIND_S + 2 && !(b.hopping && b.hop_start >= BOT_WAIT_REMIND_S); t += 1.0 / 120) bot_pose(&b, t);
+        if (!b.hopping || b.hop_start < BOT_WAIT_REMIND_S) continue;
+        reminders++;
+        long_rem += b.hop_len > 1.05;
+        rem_bad += b.burst_hop_at != b.hop_start + fmax(1.05, b.hop_len);
+    }
+    CHECK(doubles >= 5 && !double_bad, "a double hop's second is set for the first's end (%d of %d off)", double_bad, doubles);
+    CHECK(reminders == 40 && long_rem >= 3 && !rem_bad, "a reminder's second at 1.05 s or the first's end if later (%d of %d off, %d longer)",
+          rem_bad, reminders, long_rem);
+
+    static const int kinds[] = {HOP_PLAIN, HOP_BURST, HOP_REMIND};
+    int early = 0, waited = 0;
+    for (size_t k = 0; k < sizeof kinds / sizeof kinds[0]; k++) {
+        for (int seed = 0; seed < 10; seed++) {
+            bot_t b;
+            bot_init(&b, 0xC5A + (uint64_t)seed, 0);
+            bot_set_mood(&b, BOT_WAITING, 0);
+            double t = 0, at = kinds[k] == HOP_REMIND ? 200 : 1;
+            for (; t < at; t += 1.0 / 120) bot_pose(&b, t);
+            b.calm = false;
+            bot_hop(&b, t);
+            double start = b.hop_start, end = start + b.hop_len;
+            if (kinds[k] == HOP_PLAIN) b.next_hop_at = t + 0.3;
+            if (kinds[k] == HOP_BURST) b.burst_hop_at = t + 0.3, b.burst_h = 0.6;
+            if (kinds[k] == HOP_REMIND) b.next_rem_at = t + 0.3, b.nudge_at = -INFINITY, b.next_nudge_at = INFINITY;
+            for (; b.hop_start == start && t < end + 0.5; t += 1.0 / 120) bot_pose(&b, t);
+            early += b.hop_start < end;
+            waited += b.hop_start != start && b.hop_start < end + 0.02;
+        }
+    }
+    CHECK(!early && waited == 30, "a plain, second or reminder hop due mid-hop waits for its end (%d early, %d of 30 right after)", early, waited);
 }
 
 static void test_wait_demo(void)
@@ -2990,6 +3221,27 @@ static void test_mood_beat_gaps(void)
     }
     CHECK(!bad, "a frame gap across the closing blink, outline ready: the beat on another closure, never open (%d of %d bad, lowest lid %.2f)",
           bad, n, worst);
+    bad = 0;
+    double latest = 0;
+    n = 0;
+    for (int seed = 0; seed < 40; seed++) {
+        for (double dt = 0.11; dt < 0.4; dt += 0.07, n++) {
+            bot_t b;
+            bot_init(&b, 0x6B0 + (uint64_t)seed, 0);
+            double t0 = settle_open(&b, 0), beat = -1, lid = 0;
+            bot_set_mood(&b, BOT_DONE, t0);
+            bot_rim_ready(&b, seed % 2);
+            for (double t = t0 + dt; t < t0 + 5 && beat < 0; t += dt) {
+                bot_pose_t p = bot_pose(&b, t);
+                if (p.face == BOT_DONE) beat = t - t0, lid = lid_max(&p);
+            }
+            double by = seed % 2 ? 2 : BOT_BEAT_MAX_S + 2 * dt;
+            latest = fmax(latest, beat < 0 ? INFINITY : beat - by);
+            bad += beat < 0 || beat > by + 1e-9 || lid < 0.9;
+        }
+    }
+    CHECK(!bad, "slow frames (0.11-0.39 s): the beat behind the lids, without an outline 0.45 s after the first gap (not every gap), with one "
+          "within 2 s, no re-closure that frames keep missing (%d of %d bad, worst %.2f s past)", bad, n, latest);
 
     bot_t b;
     bot_init(&b, 0x6A9, 0);
@@ -3128,6 +3380,8 @@ static void test_done_reward(void)
     CHECK(!any && idle_after, "working ring off: no lap, and nothing keeps the frame rate up for it");
 }
 
+static void rs_wake_nop(void *ctx) { (void)ctx; }
+
 static void test_rim_beat(void)
 {
     int idle = bot_rim_key(BOT_IDLE, false), work = bot_rim_key(BOT_WORKING, false), err = bot_rim_key(BOT_ERROR, false),
@@ -3232,6 +3486,40 @@ static void test_rim_beat(void)
     CHECK(o.settle == 1, "then +1");
     rim_beat_step(&r, work, work, true, true, true, true, 21.4 + RIM_SETTLE_S + 0.001, &o);
     CHECK(!o.settle, "then the base");
+
+    rim_beat_step(&r, err, work, false, false, false, true, 30.0, &o);
+    r.off = true;
+    rim_beat_step(&r, err, err, true, false, false, true, 30.12, &o);
+    CHECK(o.swap, "off the bot page: the beat's swap");
+    r.off = false;
+    bool settled = false;
+    for (double t = 30.5; t < 31.5; t += 0.001) {
+        rim_beat_step(&r, err, err, true, true, true, true, t, &o);
+        settled |= o.settle != 0;
+    }
+    CHECK(!settled, "back on the page within 1 s of an off-page swap: no settle with no beat");
+    rim_beat_step(&r, idle, err, false, false, false, true, 32.0, &o);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 32.12, &o);
+    r.off = true;
+    rim_beat_step(&r, idle, idle, true, false, false, true, 32.2, &o);
+    r.off = false;
+    settled = false;
+    for (double t = 32.3; t < 33; t += 0.001) {
+        rim_beat_step(&r, idle, idle, true, true, true, true, t, &o);
+        settled |= o.settle != 0;
+    }
+    CHECK(!settled, "a swap on the page, then off it before the variants: no settle on the return");
+
+    static char slot_mem[RIM_SLOTS];
+    void *bufs[RIM_SLOTS];
+    for (int v = 0; v < RIM_SLOTS; v++) bufs[v] = &slot_mem[v];
+    static rim_slots_t sl;
+    rim_slots_init(&sl, bufs);
+    rim_slots_ops_t ops = {.wake = rs_wake_nop};
+    rim_slots_feed(&sl, idle, false, &ops);
+    bool off = sl.beat.off;
+    rim_slots_feed(&sl, idle, true, &ops);
+    CHECK(off && !sl.beat.off, "rim_slots_feed tells the beat whether the bot page shows");
 }
 
 typedef struct {
@@ -3569,6 +3857,7 @@ int main(void)
     test_wait_phases();
     test_wait_nudge();
     test_wait_restart();
+    test_wait_hop_chain();
     test_wait_demo();
     test_reading();
     test_reading_redraws();
@@ -3577,6 +3866,8 @@ int main(void)
     test_reading_moment();
     test_reading_blink_phases();
     test_reading_entry();
+    test_coupled_blink_expired();
+    test_reading_moment_glide();
     test_micro_saccades();
     test_outline_dy();
     test_badged_rest();

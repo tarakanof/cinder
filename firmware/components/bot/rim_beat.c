@@ -29,6 +29,7 @@ void rim_beat_step(rim_beat_t *r, int want, int show, bool ready, bool m1, bool 
         r->swap_t = t;
         out->swap = true;
     }
+    if (r->off) r->settle_due = false;
     if (r->settle_due && m1 && p1) {
         r->settle_due = false;
         if (t - r->swap_t <= RIM_SETTLE_LATE_S) r->settle_t = t;

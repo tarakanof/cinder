@@ -292,6 +292,15 @@ static void breathe(bot_t *b, double t)
 
 static double sleepy_lid(const bot_t *b, double slump) { return slump * (0.80 + 0.12 * b->breath); }
 
+static double heavy_lid(const bot_t *b, double t)
+{
+    double slump = tween_value(&b->slump, t), heavy;
+    if (b->asleep) heavy = tween_value(&b->sleep_lid, t);
+    else if (b->mood == BOT_SLEEPY) heavy = fmax(sleepy_lid(b, slump), tween_value(&b->sleep_lid, t));
+    else heavy = slump * 0.55;
+    return fmax(heavy, tween_value(&b->act_lid, t));
+}
+
 static double micro_gap(bot_t *b)
 {
     return b->mood == BOT_SLEEPY ? lognormal(b, 2, 0.4, 0.8, 5) : lognormal(b, 0.8, 0.4, 0.3, 2.5);
@@ -335,7 +344,7 @@ static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
     if (kind == SAC_TURN || kind == SAC_PEEK || (kind == SAC_SWEEP && amp > COVER_AMP)) {
         double lead = blink_cover(b, t);
         if (amp > COVER_AMP) b->gaze_start += lead;
-    } else if (!glide && amp > 0.8 && !b->blinking && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
+    } else if (!glide && amp > 0.8 && !blink_on(b, t) && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
         start_blink(b, t);
     }
     double s = b->gaze_start, lean_dur = glide ? 0.5 : 0.2;
@@ -411,6 +420,7 @@ static void wait_restart(bot_t *b, double t)
 {
     b->w_t0 = t;
     b->w_phase = 1;
+    b->w_pending = false;
     b->next_hop_at = fmin(b->next_hop_at, t + WAIT_FIRST_HOP_S);
     b->burst_hop_at = b->next_peek_at = b->next_nudge_at = b->next_rem_at = INFINITY;
 }
@@ -427,6 +437,7 @@ static void wait_tick(bot_t *b, double t)
 {
     if (b->mood != BOT_WAITING) return;
     double c = b->w_scene ? BOT_WAIT_DEMO_C_S : BOT_WAIT_C_S, rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
+    if (b->w_pending && t - b->w_t0 >= rem) wait_restart(b, t);
     double el = t - b->w_t0;
     int ph = el < BOT_WAIT_B_S ? 1 : el < c ? 2 : 3;
     if (ph != b->w_phase) {
@@ -513,15 +524,19 @@ static void reclose(bot_t *b, double t)
     b->blink_heavy = false;
     b->double_blink_pending = false;
     if (b->blink_speed < 1.6) b->blink_speed = 1.6;
+    b->beat_held = true;
 }
 
 static void enter(bot_t *b, bot_mood_t m, double t)
 {
     bool waking = b->mood == BOT_SLEEPY;
     bool shut = b->asleep || (b->blinking && b->blink_heavy && blink_lid(b, t - b->blink_start) >= 0.5);
+    double was = heavy_lid(b, t);
+    if (b->blinking) was += (1 - was) * fmax(blink_lid(b, t - b->blink_start), blink_lid(b, t - b->blink_start - b->blink_lag));
     b->mood = m;
     b->mood_since = t;
     b->beat_by = t + BOT_BEAT_MAX_S;
+    b->beat_gapped = b->beat_held = false;
     b->swap_eyes_on_close = true;
     b->asleep = false;
     b->asleep_at = t + BOT_ASLEEP_AFTER_S;
@@ -531,7 +546,10 @@ static void enter(bot_t *b, bot_mood_t m, double t)
         start_blink(b, t);
         b->blink_heavy = false;
         if (b->blink_speed < 1.6) b->blink_speed = 1.6;
-        if (shut) b->blink_start = t - 0.075 * b->blink_speed - b->blink_lag;
+        if (waking) {
+            double h = heavy_lid(b, t), bl = shut || h >= 1 ? 1 : clamp01((was - h) / (1 - h));
+            b->blink_start = t - 0.075 * b->blink_speed * sqrt(bl) - b->blink_lag;
+        }
     } else {
         b->double_blink_pending = true;
     }
@@ -567,13 +585,15 @@ void bot_set_calm(bot_t *b, bool calm, double t)
 {
     if (calm == b->calm) return;
     b->calm = calm;
-    if (!calm) bot_wait_restart(b, t);
+    if (!calm) bot_wait_restart(b, t, false);
 }
 
-void bot_wait_restart(bot_t *b, double t)
+void bot_wait_restart(bot_t *b, double t, bool latch)
 {
     double rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
-    if (b->mood == BOT_WAITING && t - b->w_t0 >= rem) wait_restart(b, t);
+    if (b->mood != BOT_WAITING) return;
+    if (t - b->w_t0 >= rem) wait_restart(b, t);
+    else if (latch) b->w_pending = true;
 }
 
 void bot_wait_scene(bot_t *b, unsigned scene, double t)
@@ -653,7 +673,10 @@ bot_pose_t bot_pose(bot_t *b, double t)
     }
     wait_tick(b, t);
     bool due = b->face != b->mood;
-    if (due && t - b->breath_t > BOT_BEAT_GAP_S) b->beat_by = fmax(b->beat_by, t + BOT_BEAT_MAX_S);
+    if (due && !b->beat_gapped && t - b->breath_t > BOT_BEAT_GAP_S) {
+        b->beat_by = fmax(b->beat_by, t + BOT_BEAT_MAX_S);
+        b->beat_gapped = true;
+    }
     bool loud = bot_anim_allowed(BOT_ANIM_DONE_REWARD, b->calm);
     if (t >= b->done_hop_at && !b->hopping) {
         if (loud) start_hop(b, t, BOT_DONE_HOP_H, HOP_LEN_S);
@@ -662,11 +685,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
 
     breathe(b, t);
     bot_pose_t p = {.mood = b->mood, .scale_x = 1, .scale_y = 1, .breath = b->breath, .asleep = b->asleep};
-    double slump = tween_value(&b->slump, t), heavy;
-    if (b->asleep) heavy = tween_value(&b->sleep_lid, t);
-    else if (b->mood == BOT_SLEEPY) heavy = fmax(sleepy_lid(b, slump), tween_value(&b->sleep_lid, t));
-    else heavy = slump * 0.55;
-    heavy = fmax(heavy, tween_value(&b->act_lid, t));
+    double slump = tween_value(&b->slump, t), heavy = heavy_lid(b, t);
     double bl = 0, br = 0;
     bool now = !due || b->rim_ready || t >= b->beat_by;
     if (due && !b->blinking) {
@@ -675,9 +694,10 @@ bot_pose_t bot_pose(bot_t *b, double t)
     }
     if (b->blinking) {
         double u = t - b->blink_start, shut = 0.075 * b->blink_speed + fmax(b->blink_lag, 0);
-        if (due && !b->rim_ready && !b->blink_heavy && t < b->beat_by && u > shut && b->blink_start + shut > b->mood_since - 1e-6) {
+        if (due && (!now || b->beat_held) && !b->blink_heavy && u > shut && b->blink_start + shut > b->mood_since - 1e-6) {
             b->blink_start = t - shut;
             u = shut;
+            b->beat_held = true;
         }
         bl = blink_lid(b, u);
         br = blink_lid(b, u - b->blink_lag);
@@ -758,9 +778,15 @@ bot_pose_t bot_pose(bot_t *b, double t)
     return p;
 }
 
+static bool act_input(bot_t *b)
+{
+    if (b->acting && b->sleep_left >= 0) b->sleep_left = BOT_ASLEEP_AFTER_S;
+    return b->acting;
+}
+
 void bot_look(bot_t *b, double x, double y, double t)
 {
-    if (b->acting) return;
+    if (act_input(b)) return;
     rouse(b, t);
     start_saccade_to(b, t, SAC_NORMAL, x, y);
     b->next_saccade_at = b->gaze_hold = t + 2.5;
@@ -823,7 +849,7 @@ void bot_read_moment(bot_t *b, bool on, double t)
     bool moving = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
     double lo = fmin(fmin(gy, b->fix_y), b->gaze_to_y), hi = fmax(fmax(gy, b->fix_y), b->gaze_to_y);
     if (lo < READ_MOMENT_FLOOR || hi > READ_MOMENT_TOP) start_saccade(b, t, false);
-    else if (!moving) return;
+    else if (!moving || b->gaze_ease != EASE_OUT_BACK) return;
     if (t < b->gaze_start && gy >= READ_MOMENT_FLOOR && gy <= READ_MOMENT_TOP) {
         double over = b->gaze_to_y - READ_OVERSHOOT * (gy - b->gaze_to_y);
         if (over < READ_MOMENT_FLOOR || over > READ_MOMENT_TOP) b->gaze_ease = EASE_IN_OUT;
@@ -857,7 +883,7 @@ static void track_step(bot_t *b, double t)
 
 void bot_push(bot_t *b, double t)
 {
-    if (b->acting || !bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
+    if (act_input(b) || !bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
     rouse(b, t);
     start_hop(b, t, 1, HOP_LEN_S);
     b->popping = true; b->pop_start = t;

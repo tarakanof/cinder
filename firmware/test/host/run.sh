@@ -524,8 +524,8 @@ fi
 echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
-body "$MAINC" page_bot_frame | awk '/^    if \(s_bot_shown \|\| ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t\);$/ {r = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && c == r + 1 && h == r + 2)}' ||
-    WIRING="$WIRING page_bot_frame-restarts-waiting-when-shown-or-on-a-new-lead"
+body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||
+    WIRING="$WIRING page_bot_frame-latches-a-new-lead-restart-not-a-shown-one"
 fbody "$MAINC" page_tick | awk '/^    bot_wait_scene\(&s_bot, s_scene_on \? s_scene_n : 0, t\);$/ {d = NR} /^    if \(s_scene_on && s_scene_act\.kind == DEMO_ACT_ASLEEP\) bot_sleep\(/ {m = NR} END {exit !(d && m == d + 1)}' ||
     WIRING="$WIRING page_tick-sets-the-demo-scene-before-the-mood"
 body "$MAINC" scene_start | grep -qxF '    if (!++s_scene_n) s_scene_n = 1;' || WIRING="$WIRING scene_start-numbers-the-scene"
