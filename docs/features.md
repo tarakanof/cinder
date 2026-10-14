@@ -278,7 +278,19 @@ The sixth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design
   Sleepy's breathing lid line moves twice as far as the old capsule tip; with the line redrawn per whole pixel it costs what 0.9.76 did (17.5/s and 49k px/s at half pixels; 152k px/s without the trim). The trim takes area off sleepy and asleep. Error's longer fixations draw fewer redraws; its entry adds the shake's 24 frames. BotNext in the review: sleepy 12.1, error 15.8 redraws/s (its metric also counts a 0.5 px move of the lid clip).
 - **Cost** (`idf.py size`, origin/main 0.9.76 at a2f81c3 → this branch, same machine, IDF 5.5.5): image 1,722,263 → 1,725,647 B (+3,384, flash `.text`); DIRAM 102,847 → 102,967 B (`.bss` +120: three doubles and a flag in `bot_t`, `eye_dy`, the blinks and `hide` in the static poses, the lid and strip in the eye jobs and strokes); PSRAM `.bss` 49,308 B unchanged; no new buffer. `stack_walk.py`: `eye` 1,472 → 1,584 (margin 976; the clipped raster calls the stroke raster), `orbit` 2,224 → 2,336 (margin 992), `lvgl` 8,608 (margin 1,888) unchanged; every other task unchanged.
 - **P12, ring weight** (its own commit, to revert if the knob says no): `RIM_PX` 6 → 9, r stays 196. The 12 px glint band now overhangs the ring by 1.5 px a side instead of 3; its masks do not depend on the ring width. The badge gap (r 59 px at 0.98 r) still clears the ring (inner edge 191 px, outer 200 px from the centre); the chase's eyes stop 11 px inside it (0.92 r), the label's baseline 15 px. The outline buffers are full-screen RGB565, so no RAM changes. Host raster of one outline (`bot_raster_stroke`, 472 × 466): round 0.37 → 0.40 ms (+7 %), triangle 0.28 → 0.29 ms (+6 %), on core 1 at each re-render, 0 at runtime. Ember's knob theme (`macos/Sources/EmberKit/Resources/knob-theme.json`, `bot.rim_px` 6) must follow if this stays: `KnobThemeTests` reads `RIM_PX` from a cinder checkout next to Ember.
-- **On the knob**: to do after the release (fps, core 0, invalidated areas and internal RAM in sleepy, asleep and error against 0.9.76, and P12's look; Devices › Demo › Sleepy, Asleep and Error (Hold); the first huff comes 13-51 s into an Error hold).
+- **On the knob** (0.9.77, 2026-10-14): Devices › Demo › Idle, Sleepy, Error and Working (Hold), 60 s each, twice, live stats every 5-7 s; samples ending 6-61 s after the scene was set (19-20 per mood). Medians; frame max is the highest sample. The knob was updated before 0.9.76 could be measured per mood, so the control is Working, which #116 does not change: its 0.9.76 row is the "Working" column of the mood beat measurement above (same day, 12 samples).
+
+  | | Idle | Sleepy | Error | Working | Working 0.9.76 |
+  |---|---|---|---|---|---|
+  | Invalidated areas/s | 21.4 | 22.5 | 36.6 | 40.6 | 41.5 |
+  | Invalidated px/s | 81k | 30k | 120k | 291k | 291k |
+  | Render fps | 11.5 | 13.1 | 19.2 | 27.3 | 27.3 |
+  | Core 0 | 18.9 % | 16.5 % | 26.2 % | 29.7 % | 29.7 % |
+  | Core 1 | 9.0 % | 7.7 % | 10.5 % | 10.9 % | 10.7 % |
+  | Frame max | 38 ms | 13 ms | 40 ms | 19 ms | 21 ms |
+  | Internal free | 85.5 KB | 85.5 KB | 85.5 KB | 85.5 KB | 85.6 KB |
+
+  Working matches 0.9.76 within a sample, so the 9 px ring and the lid line cost nothing measurable where they do not change the motion. Idle's and Error's 38-40 ms frame max are single samples (median 13-14 ms), consistent with a full-outline frame (a glance, Error's entry shake or huff). Sleepy's lid line moves in whole pixels, at the host's 0.9.76 rate (11.4 redraws/s); its 30k px/s is the smallest of the four. Not measured: Asleep, and per-mood 0.9.76 baselines for Idle, Sleepy and Error. Internal free and largest block (31.7 KB) unchanged. Checked by the maintainer with Devices › Demo; the 9 px ring kept ("9 px looks fine").
 
 ## Ember over Wi-Fi (step 3, done 2026-10-03)
 
