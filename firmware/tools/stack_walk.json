@@ -102,6 +102,12 @@
   "lv_draw_label_iterate_characters": [
    "draw_letter_cb"
   ],
+  "lv_draw_unit_draw_letter$part$0": [
+   "draw_letter_cb"
+  ],
+  "img_decode_and_draw": [
+   "img_draw_core"
+  ],
   "lv_draw_sw_mask_apply": [
    "lv_draw_mask_radius",
    "lv_draw_mask_angle",

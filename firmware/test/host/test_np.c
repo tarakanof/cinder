@@ -783,17 +783,17 @@ static void test_review_fixes(void)
     CHECK(np_scrim_opa(false, 115) == 0 && np_scrim_opa(false, 153) == 0, "paused or volume: the light scrim adds nothing");
     CHECK(np_scrim_opa(true, 115) > 0 && np_scrim_opa(true, 115) < NP_SCRIM_STRONG, "paused on a light cover: less on top");
 
-    CHECK(np_face_kind_cover(true, &a, 0, false), "known: by cover_version");
+    CHECK(np_face_kind_cover(true, &a, 0), "known: by cover_version");
     np_info_t old;
     parse(BLOCK, &old);
-    CHECK(!np_face_kind_cover(true, &old, 1, false), "an older Ember: the old face");
-    old.album_art = old.artist_art = false;
-    CHECK(!np_face_kind_cover(true, &old, 0, false) && !np_face_kind_cover(true, &old, 1, false),
-          "no cover_version ever seen: an older Ember keeps the old face even without art (no flip per skip)");
-    CHECK(np_face_kind_cover(true, &old, 1, true) && np_face_kind_cover(true, &old, 0, true),
-          "a cover-capable Ember: a block without a picture stays on the cover face");
-    CHECK(np_face_kind_cover(false, &none, -1, false) && np_face_kind_cover(false, &none, 1, false) &&
-              !np_face_kind_cover(false, &none, 0, false),
+    CHECK(!np_face_kind_cover(true, &old, 1) && !np_face_kind_cover(true, &old, -1),
+          "art without cover_version: an older Ember, the old face");
+    old.album_art = false;
+    CHECK(!np_face_kind_cover(true, &old, 1), "an artist picture alone without cover_version: an older Ember too");
+    old.artist_art = false;
+    CHECK(np_face_kind_cover(true, &old, 1) && !np_face_kind_cover(true, &old, 0) && np_face_kind_cover(true, &old, -1),
+          "a block without any art keeps the face (a skip's first block on either Ember), the cover face first");
+    CHECK(np_face_kind_cover(false, &none, -1) && np_face_kind_cover(false, &none, 1) && !np_face_kind_cover(false, &none, 0),
           "not playing: keep the face, the cover face first");
     np_face_look_t l;
     np_face_look(NPF_PAUSED, NP_RING_PROGRESS, 0, &l);

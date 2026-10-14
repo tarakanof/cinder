@@ -857,6 +857,139 @@ static void test_page(lv_display_t *d, lv_obj_t *scr)
     np_view_show(false);
 }
 
+static void test_recheck(lv_display_t *d, lv_obj_t *root)
+{
+    rig_t rg;
+    int r, g, b;
+
+    rig_start(d, root, &rg, true);
+    np_art_set_t again;
+    rig_set(&again, NULL, "a0-r1", true);
+    again.avatar = track(make_avatar());
+    npc_adopt(&again);
+    run(d, &rg.f, 0.2, 1 / 60.0);
+    rgb(FX + NP_V15_CX, NP_V15_CY, &r, &g, &b);
+    CHECK(r > 230, "a given-up cover's M15 with its avatar: %d", r);
+    rg.np.has_accent = false;
+    rig_skip(d, &rg, "", 0, 1000);
+    run(d, &rg.f, NP_NOPIC_GRACE_S + 0.5, 1 / 30.0);
+    rgb(FX + NP_V15_CX, NP_V15_CY, &r, &g, &b);
+    int ar, ag, ab;
+    rgb(FX + NP_V15_CX + 46, NP_V15_CY, &ar, &ag, &ab);
+    printf("np_view: art-less track after a given-up one: label centre %d,%d,%d, label ring %d,%d,%d\n", r, g, b, ar, ag, ab);
+    CHECK(r < 100 && freed(again.avatar) <= 1, "after the grace the old track's avatar is gone: %d", r);
+    CHECK(ag > 170, "and the vinyl takes the new block's accent (amber without one): %d,%d,%d", ar, ag, ab);
+    rig_end(root);
+
+    rig_start(d, root, &rg, false);
+    rg.f.ring = NP_RING_VOLUME;
+    rg.f.vol = 90;
+    rg.f.now += 0.1;
+    npc_update(&rg.f);
+    refresh(d);
+    rig_skip(d, &rg, "b0-r1", 0x7FA8FF, 1000);
+    rg.f.ring = NP_RING_PROGRESS;
+    run(d, &rg.f, 0.5, 1 / 60.0);
+    bool high = ring_at(0.8f, &r, &g, &b), mid = ring_at(0.4f, &r, &g, &b);
+    CHECK(!high && mid, "a skip while turning holds the last progress (0.59), not the volume (0.90): 0.8 %d, 0.4 %d", high, mid);
+    rig_end(root);
+
+    rig_start(d, root, &rg, false);
+    rg.np.cover_light = true;
+    rg.f.now += 0.1;
+    npc_update(&rg.f);
+    refresh(d);
+    int strong = luma(FX + 73, 300);
+    rg.np.cover_light = false;
+    rig_skip(d, &rg, "b0-r1", 0x7FA8FF, 1000);
+    run(d, &rg.f, 0.5, 1 / 60.0);
+    int loading = luma(FX + 73, 300);
+    printf("np_view: skip from a light cover: band %d, while the next loads %d\n", strong, loading);
+    CHECK(strong < 80 && abs(loading - strong) <= 4, "the light cover keeps its strong scrim until the swap: %d vs %d", loading,
+          strong);
+    rig_end(root);
+
+    rig_start(d, root, &rg, false);
+    rig_skip(d, &rg, "", 0x7FA8FF, 1000);
+    run(d, &rg.f, NP_NOPIC_GRACE_S + 0.1, 1 / 30.0);
+    rig_skip(d, &rg, "b0-r1", 0x7FA8FF, 1100);
+    int vinyl_seen = 0;
+    for (int i = 0; i < 30; i++) {
+        run(d, &rg.f, 1 / 60.0, 1 / 60.0);
+        vinyl_seen += npc_vinyl();
+    }
+    CHECK(!npc_vinyl() && disc() > 240, "a cover_version back before the swap cancels the armed vinyl: the old cover stays");
+    uint16_t *bc = rig_adopt(&rg, 0x001F, "b0-r1");
+    for (int i = 0; i < 60; i++) {
+        run(d, &rg.f, 1 / 60.0, 1 / 60.0);
+        vinyl_seen += npc_vinyl();
+    }
+    rgb(FX + 233, 150, &r, &g, &b);
+    CHECK(b > 240 && !vinyl_seen && freed(rg.a) == 1 && freed(bc) == 0, "then A fades to B, never the vinyl: %d frames", vinyl_seen);
+    rig_end(root);
+}
+
+static void test_boot(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    int f0 = s_forgets, label_max = 0;
+    np_info_t none = {.state = NP_NONE};
+    publish(&none);
+    frames(d, 3);
+    for (int round = 0; round < 2; round++) {
+        np_info_t np = {.state = NP_PLAYING, .duration_ms = 228000, .position_ms = 0};
+        snprintf(np.title, sizeof np.title, "Session %d", round);
+        publish(&np);
+        for (int i = 0; i < 5; i++) {
+            frames(d, 1);
+            if (v15_label() > label_max) label_max = v15_label();
+        }
+        CHECK(!npc_vinyl(), "a session's first, art-less block: no vinyl within the grace (round %d)", round);
+        snprintf(np.cover_version, sizeof np.cover_version, "s%d-r1", round);
+        snprintf(np.art_version, sizeof np.art_version, "s%d", round);
+        np.album_art = true;
+        np.has_accent = true;
+        np.accent = 0x7FA8FF;
+        np.position_ms = 500;
+        publish(&np);
+        frames(d, 2);
+        s_pend = (np_art_set_t){.is_cover = true, .cover = make_flat(0x001F)};
+        strcpy(s_pend.version, np.cover_version);
+        s_has_pend = true;
+        for (int i = 0; i < 12; i++) {
+            frames(d, 1);
+            if (v15_label() > label_max) label_max = v15_label();
+        }
+        int r, g, b;
+        rgb(FX + 233, 150, &r, &g, &b);
+        CHECK(b > 240, "then the cover (round %d): %d,%d,%d", round, r, g, b);
+        publish(&none);
+        frames(d, 3);
+    }
+    printf("np_view: fresh page, nothing -> art-less -> cover twice: label max %d, %d forgets\n", label_max, s_forgets - f0);
+    CHECK(label_max < 150, "starting playback never flashes the vinyl: %d", label_max);
+    CHECK(s_forgets - f0 == 2, "a fresh page never flips the face: only the two idles forget (%d)", s_forgets - f0);
+
+    np_info_t bare = {.state = NP_PLAYING, .duration_ms = 160000, .position_ms = 1000};
+    strcpy(bare.title, "Untitled demo");
+    publish(&bare);
+    frames(d, 3);
+    CHECK(!npc_vinyl(), "a track without a picture right after a fresh start: grace first");
+    frames(d, 50);
+    CHECK(npc_vinyl() && v15_label() > 180, "then M15 on the cover face, without any art seen before");
+
+    int f1 = s_forgets;
+    np_info_t old = {.state = NP_PLAYING, .duration_ms = 228000, .position_ms = 134000, .album_art = true};
+    strcpy(old.title, "Glass Harbor");
+    strcpy(old.art_version, "fb43cf74b67a");
+    publish(&old);
+    frames(d, 3);
+    CHECK(luma(FX + 233 - 198, 233) > 30 && luma(FX + 233 - NP_EDGE_R, 233) < 10 && s_forgets - f1 == 1,
+          "switched to an older Ember (art, no cover_version): the old face at once (%d forgets)", s_forgets - f1);
+    np_view_show(false);
+}
+
 static void test_old_ember(lv_display_t *d, lv_obj_t *scr)
 {
     np_view_create(scr);
@@ -1045,7 +1178,9 @@ int main(int argc, char **argv)
     test_change(d, root);
     test_interrupt(d, root);
     test_details(d, root);
+    test_recheck(d, root);
     test_page(d, scr);
+    test_boot(d, scr);
     test_old_ember(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);

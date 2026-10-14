@@ -133,9 +133,9 @@ typedef enum { NP_TAKE_ADOPT, NP_TAKE_DROP } np_take_t;
 /* A picture set the client published, against the block the view shows now: a set for an older version or for the
    other face is dropped (a face switch refetches); an empty set never asks for a refetch. */
 np_take_t np_art_take(const char *set_version, bool set_cover, const np_info_t *now, bool view_cover);
-/* known: a playing or paused block; current: -1 no face yet, 0 the old face, 1 the cover face; cover_seen: this Ember has
-   sent a cover_version, so a block without one is a track (or a moment) without a picture, not an older Ember. */
-bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover, bool cover_seen);
+/* known: a playing or paused block; current: -1 no face yet, 0 the old face, 1 the cover face. Ember sends cover_version
+   with every picture to an np_cover knob, so art without it is an older Ember; a block without any art keeps the face. */
+bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover);
 
 /* Area average from sp x sp RGB565 down to dp x dp (dp <= sp). */
 void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp);

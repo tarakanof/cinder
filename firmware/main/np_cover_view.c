@@ -85,7 +85,8 @@ typedef struct {
     double nopic_t0;
     bool awaiting;
     double hold_t0;
-    float hold_frac;
+    float hold_frac, prog_frac;
+    bool prog_ok, shown_light;
 } npc_mem_t;
 static npc_mem_t *M;
 
@@ -247,7 +248,7 @@ void npc_build(lv_obj_t *root)
     M->shade_small = -1;
     M->accent_ok = false;
     M->nopic_t0 = -1;
-    M->awaiting = false;
+    M->awaiting = M->prog_ok = M->shown_light = false;
 }
 
 static void vinyl_free(void)
@@ -737,8 +738,13 @@ static void nopic_step(const np_info_t *np, double now)
         return;
     }
     if (M->nopic_t0 < 0) M->nopic_t0 = now;
-    if (s_no_cover || (M->chg != CHG_NONE && M->pend_vinyl)) return;
-    if (!npc_has_cover() || now - M->nopic_t0 >= NP_NOPIC_GRACE_S) chg_vinyl();
+    if (now - M->nopic_t0 < NP_NOPIC_GRACE_S || (M->chg != CHG_NONE && M->pend_vinyl)) return;
+    if (!s_no_cover) {
+        chg_vinyl();
+    } else if (M->shown[0]) {
+        M->shown[0] = 0;
+        avatar_take(NULL);
+    }
 }
 
 static float ring_target(const npc_frame_t *f, const np_info_t *np)
@@ -747,7 +753,7 @@ static float ring_target(const npc_frame_t *f, const np_info_t *np)
     bool awaiting = npc_has_cover() && strcmp(M->shown, np->cover_version) != 0;
     if (awaiting && !M->awaiting) {
         M->hold_t0 = f->now;
-        M->hold_frac = s_ring_on ? s_frac : live;
+        M->hold_frac = M->prog_ok ? M->prog_frac : live;
     }
     M->awaiting = awaiting;
     return awaiting && f->now - M->hold_t0 < NP_RING_HOLD_S ? M->hold_frac : live;
@@ -835,6 +841,10 @@ void npc_update(const npc_frame_t *f)
     np_edge_style_t st;
     np_edge_style(&st, f->ring, look.ring);
     ring_draw(frac, &st);
+    if (f->ring == NP_RING_PROGRESS) {
+        M->prog_frac = frac;
+        M->prog_ok = true;
+    }
 
     shade_geometry(v15 && M->chg == CHG_NONE);
     int shade = np_shade_mix(look.shade, fade);
@@ -843,7 +853,8 @@ void npc_update(const npc_frame_t *f)
         lv_obj_set_style_bg_opa(s_shade, (lv_opa_t)shade, 0);
         show(s_shade, shade > 0);
     }
-    int scrim = s_has_cover ? np_scrim_opa(np->cover_light && strcmp(M->shown, np->cover_version) == 0, look.shade) : 0;
+    if (strcmp(M->shown, np->cover_version) == 0) M->shown_light = np->cover_light;
+    int scrim = s_has_cover ? np_scrim_opa(M->shown_light, look.shade) : 0;
     if (scrim != s_scrim_opa) {
         s_scrim_opa = scrim;
         lv_obj_set_style_bg_grad_opa(s_scrim, (lv_opa_t)scrim, 0);

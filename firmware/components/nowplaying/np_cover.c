@@ -277,9 +277,10 @@ np_take_t np_art_take(const char *set_version, bool set_cover, const np_info_t *
     return strcmp(set_version, p.version) == 0 ? NP_TAKE_ADOPT : NP_TAKE_DROP;
 }
 
-bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover, bool cover_seen)
+bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover)
 {
-    if (known) return np->cover_version[0] != 0 || cover_seen;
+    if (known && np->cover_version[0]) return true;
+    if (known && (np->album_art || np->artist_art)) return false;
     return current_cover != 0;
 }
 
