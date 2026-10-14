@@ -428,10 +428,10 @@ void np_client_service(http_conn_t *conn, const char *base)
         ESP_LOGW(TAG, "cover %s: bad %d times, no cover", plan.version, S->retry.bad);
     else if (plan.cover)
         ESP_LOGI(TAG, "cover %s: %d B in %lld ms (decode %lld ms): cover %s, avatar %s", plan.version, bytes,
-                 (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.cover ? "yes" : "no", set.avatar ? "yes" : "no");
+                 (long long)((esp_timer_get_time() - t0) / 1000), (long long)(dec_us / 1000), set.cover ? "yes" : "no", set.avatar ? "yes" : "no");
     else if (plan.version[0])
         ESP_LOGI(TAG, "art %s: %d B in %lld ms (decode %lld ms): backdrop %s, album %s, artist %s", plan.version,
-                 bytes, (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.backdrop ? "yes" : "no",
+                 bytes, (long long)((esp_timer_get_time() - t0) / 1000), (long long)(dec_us / 1000), set.backdrop ? "yes" : "no",
                  set.album ? "yes" : "no", set.artist ? "yes" : "no");
     xSemaphoreTake(s_lock, portMAX_DELAY);
     np_art_plan_t now;
