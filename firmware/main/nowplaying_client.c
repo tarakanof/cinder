@@ -6,6 +6,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "ember_client.h"
 #include "config_store.h"
@@ -95,12 +96,7 @@ void np_client_feed(const np_info_t *np)
         long long pos = have_off ? np_position_ms(np, offset, now) : np->position_ms;
         np_anchor_t before = sn->anchor;
         np_anchor_sync(&sn->anchor, same, playing, pos, np->duration_ms, now);
-        changed |= memcmp(&before, &sn->anchor, sizeof before) != 0 || !same ||
-                    strcmp(S->last.art_version, np->art_version) != 0 || S->last.album_art != np->album_art ||
-                    S->last.artist_art != np->artist_art || S->last.volume != np->volume ||
-                    strcmp(S->last.track_id, np->track_id) != 0 ||
-                    strcmp(S->last.cover_version, np->cover_version) != 0 || S->last.has_accent != np->has_accent ||
-                    S->last.accent != np->accent;
+        changed |= memcmp(&before, &sn->anchor, sizeof before) != 0 || !same || np_info_changed(&S->last, np);
         if (!same || !S->last_have)
             ESP_LOGI(TAG, "%s, %lld s, art %s, cover %s", np->state == NP_PLAYING ? "playing" : np->state == NP_PAUSED ? "paused" : "nothing playing",
                      np->duration_ms / 1000, np->art_version[0] ? np->art_version : "none",
@@ -350,6 +346,11 @@ static uint8_t *avatar_bake(const uint16_t *src, int px)
     return out;
 }
 
+static void cache_hdr(const char *key, const char *value, void *ctx)
+{
+    if (strcasecmp(key, "Cache-Control") == 0) *(bool *)ctx = np_art_cache_fresh(value);
+}
+
 void np_client_service(http_conn_t *conn, const char *base)
 {
     np_art_plan_t plan;
@@ -368,28 +369,32 @@ void np_client_service(http_conn_t *conn, const char *base)
             !np_art_url(base, (np_art_kind_t)k, np_art_plan_version(&plan, (np_art_kind_t)k), S->url, sizeof S->url))
             continue;
         int len = 0;
-        const http_req_opts_t o = {.idempotent = true, .body_len = &len};
+        bool fresh = false;
+        const http_req_opts_t o = {.idempotent = true, .body_len = &len, .on_header = cache_hdr, .hdr_ctx = &fresh};
         int status = http_conn_req_opts(conn, S->url, &o, (char *)jpg, JPEG_MAX);
-        if (status == 404) continue;
-        if (status != 200) {
-            ESP_LOGW(TAG, "art %s: HTTP %d", np_art_kind_name((np_art_kind_t)k), status);
+        void *img = NULL;
+        int px = np_art_px((np_art_kind_t)k);
+        if (status == 200) {
+            bytes += len;
+            if (len >= JPEG_MAX) ESP_LOGW(TAG, "art %s: %d B, over %d", np_art_kind_name((np_art_kind_t)k), len, JPEG_MAX);
+            else if (!plan.cover || fresh)
+                img = decode(jpg, len, px, k == NP_ART_ALBUM || (k == NP_ART_ARTIST && !plan.cover), &dec_us);
+        }
+        np_art_step_t step = np_art_step(&plan, (np_art_kind_t)k, status, fresh, img != NULL);
+        if (step != NP_ART_OK) {
+            bool undecoded = status == 200 && img == NULL && (fresh || !plan.cover);
+            free(img);
+            if (step == NP_ART_SKIP) continue;
+            ESP_LOGW(TAG, "art %s: HTTP %d%s%s", np_art_kind_name((np_art_kind_t)k), status,
+                     status == 200 && plan.cover && !fresh ? ", not the asked version" : "",
+                     undecoded ? ", not decoded" : "");
             failed = true;
             break;
         }
-        bytes += len;
-        if (len >= JPEG_MAX) {
-            ESP_LOGW(TAG, "art %s: %d B, over %d", np_art_kind_name((np_art_kind_t)k), len, JPEG_MAX);
-            continue;
-        }
-        int px = np_art_px((np_art_kind_t)k);
-        bool alpha = k == NP_ART_ALBUM || (k == NP_ART_ARTIST && !plan.cover);
-        void *img = decode(jpg, len, px, alpha, &dec_us);
         if (k == NP_ART_ARTIST && plan.cover) {
-            if (img) {
-                int64_t m0 = esp_timer_get_time();
-                set.avatar = avatar_bake(img, px);
-                dec_us += esp_timer_get_time() - m0;
-            }
+            int64_t m0 = esp_timer_get_time();
+            set.avatar = avatar_bake(img, px);
+            dec_us += esp_timer_get_time() - m0;
             free(img);
             continue;
         }
@@ -424,7 +429,11 @@ void np_client_service(http_conn_t *conn, const char *base)
                  bytes, (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.backdrop ? "yes" : "no",
                  set.album ? "yes" : "no", set.artist ? "yes" : "no");
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (atomic_load(&s_visible)) {
+    np_art_plan_t now;
+    np_art_plan(&S->last, &now);
+    if (strcmp(now.version, plan.version) != 0) {
+        np_art_set_free(&set);
+    } else if (atomic_load(&s_visible)) {
         if (S->has_pending) np_art_set_free(&S->pending);
         S->pending = set;
         S->has_pending = true;

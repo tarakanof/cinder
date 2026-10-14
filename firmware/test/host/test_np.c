@@ -636,6 +636,88 @@ static void test_downscale(void)
           "edge averaged: %04x", dst[21]);
 }
 
+static void test_review_fixes(void)
+{
+    np_info_t a, b;
+    parse(COVER_BLOCK, &a);
+    b = a;
+    CHECK(!np_info_changed(&a, &b), "same block");
+    strcpy(b.cover_version, "fb43cf74b67a-r2");
+    CHECK(np_info_changed(&a, &b), "a cover recipe bump is a change");
+    b = a;
+    b.accent = 0x123456;
+    CHECK(np_info_changed(&a, &b), "another accent is a change");
+    b = a;
+    b.has_accent = false;
+    CHECK(np_info_changed(&a, &b), "accent gone is a change");
+    b = a;
+    b.position_ms += 5000;
+    CHECK(!np_info_changed(&a, &b), "the position alone is the anchor's business");
+
+    CHECK(np_art_cache_fresh("public, max-age=86400, immutable") && np_art_cache_fresh("Immutable") &&
+              np_art_cache_fresh("immutable,public"),
+          "immutable answers");
+    CHECK(!np_art_cache_fresh("no-cache") && !np_art_cache_fresh("") && !np_art_cache_fresh(NULL) &&
+              !np_art_cache_fresh("x-immutable-ish"),
+          "anything else is not the asked version");
+
+    np_art_plan_t cp, lp;
+    np_art_plan(&a, &cp);
+    a.cover_version[0] = 0;
+    np_art_plan(&a, &lp);
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, true) == NP_ART_OK, "cover ok");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 404, false, false) == NP_ART_FAIL, "cover 404 retries");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, false) == NP_ART_FAIL, "cover not decoded (no PSRAM) retries");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, false, true) == NP_ART_FAIL, "a no-cache cover is another version: retry");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, false, true) == NP_ART_FAIL, "a no-cache artist too");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 404, false, false) == NP_ART_SKIP, "no artist picture: no avatar");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, true, false) == NP_ART_SKIP, "avatar not decoded: none");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 500, true, true) == NP_ART_FAIL && np_art_step(&cp, NP_ART_COVER, -1, false, false) == NP_ART_FAIL,
+          "errors retry");
+    CHECK(np_art_step(&lp, NP_ART_BACKDROP, 200, false, true) == NP_ART_OK && np_art_step(&lp, NP_ART_ALBUM, 404, false, false) == NP_ART_SKIP &&
+              np_art_step(&lp, NP_ART_BACKDROP, 200, false, false) == NP_ART_SKIP,
+          "the old face as before");
+
+    np_edge_style_t x, y;
+    memset(&x, 0xAA, sizeof x);
+    memset(&y, 0x55, sizeof y);
+    np_edge_style(&x, NP_RING_PROGRESS, 0x6C22E6);
+    np_edge_style(&y, NP_RING_PROGRESS, 0x6C22E6);
+    CHECK(np_edge_style_eq(&x, &y) && memcmp(&x, &y, sizeof x) == 0, "equal styles compare equal whatever was on the stack");
+    y.head = false;
+    CHECK(!np_edge_style_eq(&x, &y), "head differs");
+    np_edge_style(&y, NP_RING_VOLUME, 0x6C22E6);
+    CHECK(!np_edge_style_eq(&x, &y), "volume differs");
+
+    uint16_t px[2] = {0xF800, 0xFFFF}, g[2];
+    np_grey565(px, g, 2, 0.75f);
+    int gr = (g[0] >> 11) & 31, gg = (g[0] >> 5) & 63, gb = g[0] & 31;
+    CHECK(abs(gr * 2 - gg) <= 1 && gr == gb && gr > 3 && gr < 10, "red to dim grey: %04x", g[0]);
+    CHECK(((g[1] >> 11) & 31) >= 22 && ((g[1] >> 11) & 31) <= 24, "white to 75 %%: %04x", g[1]);
+
+    parse(COVER_BLOCK, &a);
+    CHECK(np_art_take("fb43cf74b67a-r1", true, true, &a, true) == NP_TAKE_ADOPT, "current cover");
+    CHECK(np_art_take("old-r1", true, true, &a, true) == NP_TAKE_DROP, "older cover dropped");
+    CHECK(np_art_take("fb43cf74b67a-r1", true, true, &a, false) == NP_TAKE_DROP, "a cover set on the old face");
+    np_info_t none;
+    parse("{\"state\":\"none\"}", &none);
+    CHECK(np_art_take("", false, false, &none, true) == NP_TAKE_DROP, "nothing playing: the empty set on the cover face");
+    CHECK(np_art_take("", false, false, &none, false) == NP_TAKE_ADOPT, "and on the old face, as before");
+    CHECK(np_face_kind_cover(true, &a, 0), "known: by cover_version");
+    np_info_t old;
+    parse(BLOCK, &old);
+    CHECK(!np_face_kind_cover(true, &old, 1), "an older Ember: the old face");
+    CHECK(np_face_kind_cover(false, &none, -1) && np_face_kind_cover(false, &none, 1) && !np_face_kind_cover(false, &none, 0),
+          "not playing: keep the face, the cover face first");
+    np_face_look_t l;
+    np_face_look(NPF_PAUSED, NP_RING_PROGRESS, 0, &l);
+    CHECK(l.avatar_grey, "paused: grey avatar");
+    np_face_look(NPF_OFFLINE, NP_RING_PROGRESS, 0, &l);
+    CHECK(l.avatar_grey, "offline: grey avatar");
+    np_face_look(NPF_PLAYING, NP_RING_PROGRESS, 0, &l);
+    CHECK(!l.avatar_grey, "playing: colour");
+}
+
 int main(void)
 {
     test_parse();
@@ -654,6 +736,7 @@ int main(void)
     test_face_state();
     test_downscale();
     test_vinyl();
+    test_review_fixes();
     if (failures) {
         printf("np: %d failure(s)\n", failures);
         return 1;

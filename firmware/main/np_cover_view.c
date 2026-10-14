@@ -41,7 +41,7 @@ LV_FONT_DECLARE(font_digits_96);
 static const np_ring_t EDGE = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = NP_EDGE_R, .hw = NP_EDGE_HW};
 
 typedef struct {
-    lv_image_dsc_t img_dsc, avatar_dsc;
+    lv_image_dsc_t img_dsc, avatar_dsc, grey_dsc, vinyl_dsc;
     uint8_t glow[NP_GLOW_PX * NP_GLOW_PX];
     np_edge_style_t style;
     char title[2 * NP_TEXT_MAX + 1];
@@ -55,11 +55,13 @@ typedef struct {
 } npc_mem_t;
 static npc_mem_t *M;
 
-static lv_obj_t *s_img, *s_shade, *s_avatar, *s_title, *s_artist, *s_time, *s_idle;
+static lv_obj_t *s_img, *s_vinyl, *s_shade, *s_avatar, *s_title, *s_artist, *s_time, *s_idle;
 static lv_obj_t *s_pause, *s_vol_icon, *s_num, *s_badge, *s_badge_lbl;
 static uint16_t *s_buf;
-static uint8_t *s_avatar_buf;
-static bool s_has_cover, s_ring_on, s_vinyl_on;
+static uint8_t *s_avatar_buf, *s_grey_buf;
+static uint16_t *s_vinyl_buf;
+static bool s_has_cover, s_ring_on;
+static int s_avatar_grey = -1;
 static float s_frac;
 static int s_state = -1;
 static long long s_sec = -1;
@@ -85,6 +87,8 @@ bool npc_init(void)
     if (!M) return false;
     dsc_init(&M->img_dsc, FACE, LV_COLOR_FORMAT_RGB565);
     dsc_init(&M->avatar_dsc, NP_AVATAR_PX, LV_COLOR_FORMAT_RGB565A8);
+    dsc_init(&M->grey_dsc, NP_AVATAR_PX, LV_COLOR_FORMAT_RGB565A8);
+    dsc_init(&M->vinyl_dsc, NP_VINYL_BOX, LV_COLOR_FORMAT_RGB565);
     np_glow_a8(M->glow);
     return true;
 }
@@ -126,6 +130,10 @@ void npc_build(lv_obj_t *root)
     s_img = lv_image_create(root);
     lv_obj_set_pos(s_img, FACE_X, 0);
     lv_obj_add_flag(s_img, LV_OBJ_FLAG_HIDDEN);
+
+    s_vinyl = lv_image_create(root);
+    lv_obj_align(s_vinyl, LV_ALIGN_CENTER, 0, NP_VINYL_DY);
+    lv_obj_add_flag(s_vinyl, LV_OBJ_FLAG_HIDDEN);
 
     s_shade = plain(root, 2 * NP_DISC_R, 2 * NP_DISC_R);
     lv_obj_set_style_radius(s_shade, LV_RADIUS_CIRCLE, 0);
@@ -180,18 +188,32 @@ void npc_build(lv_obj_t *root)
     s_shade_opa = -1;
     s_dim = -1;
     s_dx = s_dy = 0;
-    s_ring_on = s_vinyl_on = false;
+    s_ring_on = false;
+    s_avatar_grey = -1;
     M->title[0] = M->artist[0] = M->time[0] = M->idle[0] = M->badge[0] = M->num[0] = 0;
+}
+
+static void vinyl_free(void)
+{
+    free(s_vinyl_buf);
+    s_vinyl_buf = NULL;
+}
+
+static void buf_free(void)
+{
+    free(s_buf);
+    s_buf = NULL;
+    s_has_cover = s_ring_on = false;
 }
 
 void npc_destroy(void)
 {
-    free(s_buf);
+    buf_free();
+    vinyl_free();
     free(s_avatar_buf);
-    s_buf = NULL;
-    s_avatar_buf = NULL;
-    s_has_cover = s_ring_on = s_vinyl_on = false;
-    s_img = s_shade = s_avatar = s_title = s_artist = s_time = s_idle = NULL;
+    free(s_grey_buf);
+    s_avatar_buf = s_grey_buf = NULL;
+    s_img = s_vinyl = s_shade = s_avatar = s_title = s_artist = s_time = s_idle = NULL;
     s_pause = s_vol_icon = s_num = s_badge = s_badge_lbl = NULL;
     s_state = -1;
 }
@@ -205,7 +227,7 @@ static void set_buf(uint16_t *b)
     M->img_dsc.data = (const uint8_t *)b;
     lv_image_set_src(s_img, &M->img_dsc);
     lv_obj_invalidate(s_img);
-    s_ring_on = s_vinyl_on = false;
+    s_ring_on = false;
 }
 
 static bool ensure_buf(void)
@@ -221,7 +243,13 @@ static void clear_buf(void)
 {
     memset(s_buf, 0, (size_t)FACE * FACE * 2);
     lv_obj_invalidate(s_img);
-    s_ring_on = s_vinyl_on = false;
+    s_ring_on = false;
+}
+
+static void avatar_src(bool grey)
+{
+    s_avatar_grey = grey;
+    lv_image_set_src(s_avatar, grey && s_grey_buf ? &M->grey_dsc : &M->avatar_dsc);
 }
 
 void npc_adopt(np_art_set_t *in)
@@ -237,10 +265,21 @@ void npc_adopt(np_art_set_t *in)
     }
     lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
     free(s_avatar_buf);
+    free(s_grey_buf);
     s_avatar_buf = in->avatar;
+    s_grey_buf = NULL;
     in->avatar = NULL;
     M->avatar_dsc.data = s_avatar_buf;
-    if (s_avatar_buf) lv_image_set_src(s_avatar, &M->avatar_dsc);
+    if (s_avatar_buf) {
+        const size_t n = (size_t)NP_AVATAR_PX * NP_AVATAR_PX;
+        s_grey_buf = heap_caps_malloc(n * 3, MALLOC_CAP_SPIRAM);
+        if (s_grey_buf) {
+            np_grey565((const uint16_t *)s_avatar_buf, (uint16_t *)s_grey_buf, (int)n, 0.75f);
+            memcpy(s_grey_buf + n * 2, s_avatar_buf + n * 2, n);
+        }
+        M->grey_dsc.data = s_grey_buf;
+        avatar_src(false);
+    }
     s_state = -1;
 }
 
@@ -273,7 +312,7 @@ static void text_set(lv_obj_t *l, char *shown, size_t cap, const char *txt)
 
 static void ring_draw(float frac, const np_edge_style_t *st)
 {
-    if (!s_ring_on || memcmp(st, &M->style, sizeof *st) != 0) {
+    if (!s_ring_on || !np_edge_style_eq(st, &M->style)) {
         M->style = *st;
         np_edge_render(&EDGE, s_buf, FACE, FACE, (np_rect_t){0, 0, FACE, FACE}, frac, st, M->glow);
         lv_obj_invalidate(s_img);
@@ -307,6 +346,17 @@ static void hide_overlays(void)
     s_shade_opa = 0;
 }
 
+static bool vinyl_ready(void)
+{
+    if (s_vinyl_buf) return true;
+    s_vinyl_buf = heap_caps_malloc((size_t)NP_VINYL_BOX * NP_VINYL_BOX * 2, MALLOC_CAP_SPIRAM);
+    if (!s_vinyl_buf) return false;
+    np_vinyl_render(s_vinyl_buf, NP_VINYL_BOX, NP_VINYL_BOX, NP_VINYL_BOX / 2.0f, NP_VINYL_BOX / 2.0f);
+    M->vinyl_dsc.data = (const uint8_t *)s_vinyl_buf;
+    lv_image_set_src(s_vinyl, &M->vinyl_dsc);
+    return true;
+}
+
 static void idle_update(const npc_frame_t *f, bool relayout)
 {
     const char *line = f->state == NPF_OFFLINE_EMPTY ? "Ember offline"
@@ -318,21 +368,21 @@ static void idle_update(const npc_frame_t *f, bool relayout)
         show(s_artist, false);
         show(s_time, false);
         hide_overlays();
+        show(s_img, false);
+        if (s_has_cover) np_client_forget_art();
+        buf_free();
+        show(s_vinyl, vinyl_ready());
         show(s_idle, true);
-        show(s_img, true);
-        lv_obj_set_style_image_opa(s_img, LV_OPA_COVER, 0);
-        s_dim = -1;
-        if (s_has_cover) {
-            s_has_cover = false;
-            np_client_forget_art();
-        }
-    }
-    if (!s_vinyl_on || f->dx != s_dx || f->dy != s_dy) {
-        clear_buf();
-        np_vinyl_render(s_buf, FACE, FACE, FACE / 2.0f + f->dx, FACE / 2.0f + NP_VINYL_DY + f->dy);
-        s_vinyl_on = true;
+        lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
+        lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
         s_dx = f->dx;
         s_dy = f->dy;
+        s_dim = -1;
+    }
+    if (f->dx != s_dx || f->dy != s_dy) {
+        s_dx = f->dx;
+        s_dy = f->dy;
+        lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
         lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
     }
     text_set(s_idle, M->idle, sizeof M->idle, line);
@@ -369,7 +419,7 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
 
 void npc_update(const npc_frame_t *f)
 {
-    if (!s_img || !M || !ensure_buf()) return;
+    if (!s_img || !M) return;
     bool relayout = (int)f->state != s_state;
     bool idle = f->state == NPF_WAITING || f->state == NPF_NOTHING || f->state == NPF_OFFLINE_EMPTY;
     if (idle) {
@@ -377,19 +427,23 @@ void npc_update(const npc_frame_t *f)
         s_state = f->state;
         return;
     }
+    if (!ensure_buf()) return;
     const np_info_t *np = f->np;
     np_face_look_t look;
     np_face_look(f->state, f->ring, np->has_accent ? np->accent : NP_ACCENT_DEFAULT, &look);
+    bool frozen = f->state == NPF_OFFLINE && s_sec >= 0 && s_state != NPF_PAUSED;
     if (relayout) {
         show(s_idle, false);
+        show(s_vinyl, false);
+        vinyl_free();
         show(s_img, true);
         show(s_title, true);
         show(s_artist, true);
         show(s_time, true);
-        if (s_vinyl_on) clear_buf();
-        s_sec = -1;
+        if (!frozen) s_sec = -1;
     }
     show(s_avatar, s_avatar_buf != NULL);
+    if (s_avatar_buf && (int)look.avatar_grey != s_avatar_grey) avatar_src(look.avatar_grey);
 
     if (f->text_fresh || relayout) {
         char *w = M->work;
@@ -401,7 +455,6 @@ void npc_update(const npc_frame_t *f)
         text_set(s_artist, M->artist, sizeof M->artist, w);
     }
 
-    bool frozen = f->state == NPF_OFFLINE && s_sec >= 0;
     if (!frozen && (f->pos_ms / 1000 != s_sec || relayout)) {
         s_sec = f->pos_ms / 1000;
         char p[16], d[16];
@@ -448,3 +501,5 @@ void npc_update(const npc_frame_t *f)
     }
     s_state = f->state;
 }
+
+const char *npc_time_text(void) { return M ? M->time : ""; }

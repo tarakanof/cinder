@@ -6,6 +6,7 @@
 
 #include "lvgl.h"
 #include "np_cover_view.h"
+#include "nowplaying_view.h"
 #include "src/display/lv_display_private.h"
 
 #define W 472
@@ -21,7 +22,47 @@ static long s_px;
 static lv_area_t s_box;
 static const char *s_dir;
 
+static np_snapshot_t s_snap;
+static uint32_t s_snap_gen = 1;
+static np_art_set_t s_pend;
+static bool s_has_pend;
+static int s_takes, s_frees;
+static int64_t s_now_us = 1000000;
+
 void np_client_forget_art(void) { s_forgets++; }
+int64_t esp_timer_get_time(void) { return s_now_us; }
+void np_client_set_visible(bool on) { (void)on; }
+void np_client_control(const np_cmd_t *cmd, const char *source, const char *track_id) { (void)cmd, (void)source, (void)track_id; }
+void np_client_control_result(np_ctl_result_t *out) { memset(out, 0, sizeof *out); }
+
+bool np_client_get(np_snapshot_t *out, uint32_t *gen)
+{
+    if (*gen == s_snap_gen) return false;
+    *out = s_snap;
+    *gen = s_snap_gen;
+    return true;
+}
+
+bool np_client_take_art(np_art_set_t *out)
+{
+    if (!s_has_pend) return false;
+    *out = s_pend;
+    memset(&s_pend, 0, sizeof s_pend);
+    s_has_pend = false;
+    s_takes++;
+    return true;
+}
+
+void np_art_set_free(np_art_set_t *a)
+{
+    if (a->backdrop || a->album || a->artist || a->cover || a->avatar) s_frees++;
+    free(a->backdrop);
+    free(a->album);
+    free(a->artist);
+    free(a->cover);
+    free(a->avatar);
+    memset(a, 0, sizeof *a);
+}
 
 static uint32_t tick_ms(void)
 {
@@ -113,6 +154,75 @@ static uint8_t *make_avatar(void)
     return a;
 }
 
+static void publish(const np_info_t *np)
+{
+    s_snap.have = true;
+    s_snap.info = *np;
+    s_snap.anchor = (np_anchor_t){.valid = true, .playing = np->state == NP_PLAYING, .t = 1, .pos_ms = np->position_ms,
+                                  .dur_ms = np->duration_ms};
+    s_snap_gen++;
+}
+
+static void frames(lv_display_t *d, int n)
+{
+    for (int i = 0; i < n; i++) {
+        s_now_us += 100000;
+        np_view_update(s_now_us / 1e6, false);
+        refresh(d);
+    }
+}
+
+static void test_page(lv_display_t *d, lv_obj_t *scr)
+{
+    s_forgets = 0;
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t none = {.state = NP_NONE};
+    publish(&none);
+    frames(d, 3);
+    s_pend = (np_art_set_t){0};
+    s_has_pend = true;
+    frames(d, 20);
+    CHECK(s_takes == 1 && s_forgets == 0, "nothing playing: the empty set is taken once and asks for no refetch (%d forgets)",
+          s_forgets);
+    int r, g, b;
+    rgb(FX + 233, 233 + NP_VINYL_DY - NP_VINYL_R, &r, &g, &b);
+    CHECK(r > 30 && r < 60, "nothing playing on the cover face: vinyl %d", r);
+
+    np_info_t np = {.state = NP_PLAYING, .has_accent = true, .accent = 0xFF8A5C, .duration_ms = 228000, .position_ms = 134000};
+    strcpy(np.title, "Glass Harbor");
+    strcpy(np.art_version, "fb43cf74b67a");
+    strcpy(np.cover_version, "fb43cf74b67a-r1");
+    np.album_art = true;
+    publish(&np);
+    frames(d, 2);
+    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover()};
+    strcpy(s_pend.version, "old0-r1");
+    s_has_pend = true;
+    frames(d, 2);
+    CHECK(s_frees == 1 && luma(FX + 233, 150) < 10, "a set for an older cover_version is dropped");
+    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover()};
+    strcpy(s_pend.version, np.cover_version);
+    s_has_pend = true;
+    frames(d, 2);
+    CHECK(s_frees == 1 && luma(FX + 233, 150) > 30, "the current cover is shown");
+    rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
+    CHECK(r > 240 && g > 120 && g < 150, "accent ring: %d,%d,%d", r, g, b);
+
+    np.cover_version[0] = 0;
+    publish(&np);
+    frames(d, 2);
+    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover()};
+    strcpy(s_pend.version, "fb43cf74b67a-r1");
+    s_has_pend = true;
+    int forgets = s_forgets;
+    frames(d, 5);
+    CHECK(s_frees == 2 && s_forgets == forgets, "an older Ember: a cover set is dropped, no refetch loop");
+    rgb(FX + 233, 233 + 198, &r, &g, &b);
+    CHECK(r > 100, "the old face's ring at r 198: %d,%d,%d", r, g, b);
+    np_view_show(false);
+}
+
 int main(int argc, char **argv)
 {
     s_dir = argc > 1 ? argv[1] : NULL;
@@ -195,6 +305,8 @@ int main(int argc, char **argv)
     rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
     CHECK(abs(r - 0x6A) < 8 && abs(g - 0x6A) < 8, "grey ring: %d,%d,%d", r, g, b);
     CHECK(luma(FX + 233 - 12, 168) > 200, "pause bar");
+    rgb(FX + 233, 233 + 21, &r, &g, &b);
+    CHECK(abs(r - g) < 12 && abs(g - b) < 12 && r < 200, "paused: the avatar goes grey: %d,%d,%d", r, g, b);
     npc_update(&f);
     refresh(d);
     CHECK(s_areas == 0, "paused: still (%d areas)", s_areas);
@@ -211,6 +323,24 @@ int main(int argc, char **argv)
     npc_update(&f);
     refresh(d);
     CHECK(s_areas == 0, "offline: frozen (%d areas)", s_areas);
+    rgb(FX + 233, 233 + 21, &r, &g, &b);
+    CHECK(abs(r - g) < 12 && abs(g - b) < 12, "offline: grey avatar: %d,%d,%d", r, g, b);
+
+    f.state = NPF_PLAYING;
+    f.pos_ms = 150000;
+    npc_update(&f);
+    refresh(d);
+    rgb(FX + 233, 233 + 21, &r, &g, &b);
+    CHECK(r > 230 && b < 160, "playing: the avatar in colour: %d,%d,%d", r, g, b);
+    CHECK(strcmp(npc_time_text(), "2:30 / 3:48") == 0, "playing at 2:30: %s", npc_time_text());
+    f.state = NPF_OFFLINE;
+    f.pos_ms = 152000;
+    npc_update(&f);
+    refresh(d);
+    CHECK(strcmp(npc_time_text(), "2:30 / 3:48") == 0, "offline freezes the last shown second: %s", npc_time_text());
+    float hx, hy;
+    np_ring_point(&(np_ring_t){.cx = 233, .cy = 233, .r = NP_EDGE_R, .hw = NP_EDGE_HW}, 150.0f / 228, &hx, &hy);
+    CHECK(luma(FX + (int)hx, (int)hy) > 200, "the head stays at 2:30");
 
     f.state = NPF_NOTHING;
     npc_update(&f);
@@ -227,6 +357,7 @@ int main(int argc, char **argv)
 
     npc_destroy();
     lv_obj_clean(root);
+    test_page(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

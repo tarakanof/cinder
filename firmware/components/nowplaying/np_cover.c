@@ -35,6 +35,7 @@ static uint16_t pack565(rgbf_t c)
 
 void np_edge_style(np_edge_style_t *st, np_ring_mode_t mode, uint32_t col)
 {
+    memset(st, 0, sizeof *st);
     st->track = NP_COL_TRACK;
     st->head_fill = NP_COL_HEAD;
     st->head_stroke = col;
@@ -46,6 +47,12 @@ void np_edge_style(np_edge_style_t *st, np_ring_mode_t mode, uint32_t col)
     } else {
         st->arc0 = st->arc1 = col;
     }
+}
+
+bool np_edge_style_eq(const np_edge_style_t *a, const np_edge_style_t *b)
+{
+    return a->arc0 == b->arc0 && a->arc1 == b->arc1 && a->track == b->track && a->head_fill == b->head_fill &&
+           a->head_stroke == b->head_stroke && a->glow == b->glow && a->head == b->head;
 }
 
 void np_glow_a8(uint8_t *a)
@@ -85,7 +92,6 @@ void np_edge_render(const np_ring_t *ring, uint16_t *buf, int w, int h, np_rect_
                 continue;
             }
             float d = sqrtf(dx * dx + dy * dy);
-            if (d < in) continue;
             rgbf_t c = {0, 0, 0};
             float t = clamp01(edge - fabsf(d - ring->r));
             if (t > 0) {
@@ -159,12 +165,14 @@ void np_face_look(np_face_state_t s, np_ring_mode_t m, uint32_t accent, np_face_
         out->shade = 115;
         out->ring = NP_COL_PAUSED;
         out->pause_icon = true;
+        out->avatar_grey = true;
         break;
     case NPF_OFFLINE:
         out->shade = 77;
         out->ring = NP_COL_OFFLINE;
         out->time_col = NP_COL_PAUSED;
         out->offline_badge = true;
+        out->avatar_grey = true;
         break;
     default:
         break;
@@ -242,4 +250,29 @@ void np_vinyl_render(uint16_t *buf, int w, int h, float cx, float cy)
             row[x] = pack565(c);
         }
     }
+}
+
+void np_grey565(const uint16_t *src, uint16_t *dst, int n, float k)
+{
+    for (int i = 0; i < n; i++) {
+        uint16_t p = src[i];
+        float r = ((p >> 11) & 31) * (255.0f / 31), g = ((p >> 5) & 63) * (255.0f / 63), b = (p & 31) * (255.0f / 31);
+        float y = (0.299f * r + 0.587f * g + 0.114f * b) * k;
+        dst[i] = pack565((rgbf_t){y, y, y});
+    }
+}
+
+np_take_t np_art_take(const char *set_version, bool set_cover, bool set_pictures, const np_info_t *now, bool view_cover)
+{
+    if (set_cover != view_cover) return NP_TAKE_DROP;
+    if (!set_pictures) return NP_TAKE_ADOPT;
+    np_art_plan_t p;
+    np_art_plan(now, &p);
+    return strcmp(set_version, p.version) == 0 ? NP_TAKE_ADOPT : NP_TAKE_DROP;
+}
+
+bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover)
+{
+    if (known) return np->cover_version[0] != 0;
+    return current_cover != 0;
 }

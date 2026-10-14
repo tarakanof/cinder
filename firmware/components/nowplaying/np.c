@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "cJSON.h"
 
@@ -283,4 +284,33 @@ int np_art_retry_ms(int failures)
     int ms = 5000;
     for (int i = 1; i < failures && ms < 60000; i++) ms *= 2;
     return ms > 60000 ? 60000 : ms;
+}
+
+bool np_art_cache_fresh(const char *cc)
+{
+    if (!cc) return false;
+    for (const char *p = cc; *p; p++) {
+        if (strncasecmp(p, "immutable", 9) != 0) continue;
+        char before = p == cc ? ' ' : p[-1], after = p[9];
+        if ((before == ' ' || before == ',') && (after == 0 || after == ' ' || after == ',')) return true;
+    }
+    return false;
+}
+
+bool np_info_changed(const np_info_t *a, const np_info_t *b)
+{
+    return !np_same_track(a, b) || strcmp(a->art_version, b->art_version) != 0 || a->album_art != b->album_art ||
+           a->artist_art != b->artist_art || a->volume != b->volume || strcmp(a->track_id, b->track_id) != 0 ||
+           strcmp(a->cover_version, b->cover_version) != 0 || a->has_accent != b->has_accent ||
+           (a->has_accent && a->accent != b->accent);
+}
+
+np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded)
+{
+    bool required = p->cover && k == NP_ART_COVER;
+    if (status == 404) return required ? NP_ART_FAIL : NP_ART_SKIP;
+    if (status != 200) return NP_ART_FAIL;
+    if (p->cover && !fresh) return NP_ART_FAIL;
+    if (!decoded) return required ? NP_ART_FAIL : NP_ART_SKIP;
+    return NP_ART_OK;
 }

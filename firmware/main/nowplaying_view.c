@@ -578,11 +578,14 @@ void np_view_update(double now, bool offline)
     const np_info_t *np = &V->snap.info;
     bool live = !offline && V->snap.have && np->state != NP_NONE;
     bool known = V->snap.have && np->state != NP_NONE;
-    set_kind(known ? (np_face_wants_cover(np) ? KIND_COVER : KIND_LEGACY) : s_kind == KIND_NONE ? KIND_COVER : s_kind);
+    int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
+    set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
     if (np_client_take_art(&in)) {
-        if (in.is_cover != (s_kind == KIND_COVER)) np_client_forget_art();
-        else if (in.is_cover) npc_adopt(&in);
-        else adopt_art(&in);
+        bool pics = in.backdrop || in.album || in.artist || in.cover || in.avatar;
+        if (np_art_take(in.version, in.is_cover, pics, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
+            if (in.is_cover) npc_adopt(&in);
+            else adopt_art(&in);
+        }
         np_art_set_free(&in);
     }
     if (fresh || !live) np_ctl_server(&V->ctl, live ? np->state : NP_NONE, live ? np->volume : -1, now);

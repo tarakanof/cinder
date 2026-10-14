@@ -41,6 +41,7 @@ typedef struct {
 
 /* progress: arc, stroke and glow in col; volume: white at 12 o'clock to NP_VOL_TINT of col at a full turn. */
 void np_edge_style(np_edge_style_t *st, np_ring_mode_t mode, uint32_t col);
+bool np_edge_style_eq(const np_edge_style_t *a, const np_edge_style_t *b);
 /* NP_GLOW_PX x NP_GLOW_PX A8: a disc of NP_GLOW_R blurred by NP_GLOW_SIGMA. */
 void np_glow_a8(uint8_t *a);
 /* Writes only pixels at r >= NP_EDGE_IN inside rect; the rest (the cover) stays. */
@@ -63,6 +64,7 @@ typedef struct {
     uint32_t time_col;
     bool pause_icon;
     bool offline_badge;
+    bool avatar_grey;
 } np_face_look_t;
 void np_face_look(np_face_state_t s, np_ring_mode_t m, uint32_t accent, np_face_look_t *out);
 
@@ -73,6 +75,16 @@ bool np_face_wants_cover(const np_info_t *np);
 /* M3's still vinyl outline on black, centred at cx, cy; writes only its NP_VINYL_BOX square. */
 #define NP_VINYL_BOX 252
 void np_vinyl_render(uint16_t *buf, int w, int h, float cx, float cy);
+
+/* M2/M10's avatar: luma times k, grey. */
+void np_grey565(const uint16_t *src, uint16_t *dst, int n, float k);
+
+typedef enum { NP_TAKE_ADOPT, NP_TAKE_DROP } np_take_t;
+/* A picture set the client published, against the block the view shows now: a set for an older version or for the
+   other face is dropped (a face switch refetches); an empty set never asks for a refetch. */
+np_take_t np_art_take(const char *set_version, bool set_cover, bool set_pictures, const np_info_t *now, bool view_cover);
+/* known: a playing or paused block; current: -1 no face yet, 0 the old face, 1 the cover face. */
+bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover);
 
 /* Area average from sp x sp RGB565 down to dp x dp (dp <= sp). */
 void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp);
