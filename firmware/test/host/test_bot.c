@@ -2991,6 +2991,23 @@ static void test_mood_beat_gaps(void)
     CHECK(!bad, "a frame gap across the closing blink, outline ready: the beat on another closure, never open (%d of %d bad, lowest lid %.2f)",
           bad, n, worst);
 
+    bot_t b;
+    bot_init(&b, 0x6A9, 0);
+    double t0 = settle_open(&b, 0);
+    bot_act_lid(&b, 0.8, 0.01, t0 - 0.5);
+    for (double t = t0 - 0.5; t < t0; t += 0.001) bot_pose(&b, t);
+    bot_set_mood(&b, BOT_DONE, t0);
+    double blink = -1, at = -1;
+    for (double t = t0; t < t0 + 1 && at < 0; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (p.face == BOT_DONE) {
+            at = t - b.blink_start;
+            blink = (lid_max(&p) - 0.8) / 0.2;
+            worst = lid_max(&p);
+        }
+    }
+    CHECK(at >= 0 && worst >= 0.9 && blink < 0.6, "lids at 0.8 (an act's lid): the beat once the heavy lid and the blink reach 0.9 together "
+          "(lid %.2f, blink alone %.2f)", worst, blink);
 }
 
 static void test_done_reward(void)
