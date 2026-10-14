@@ -1048,6 +1048,10 @@ static void scene_end(double t)
     }
     gc_restore(&s_chase, &s_scene_chase, s_scene_t0, t);
     s_half = s_scene_half;
+    if (s_half.snapped) {
+        s_half.snapped = false;
+        s_half.hold_deg = 0;
+    }
     if (s_scene_chased) {
         if (s_bot.tracking) bot_track_end(&s_bot, t);
         bot_view_glint_force(false);

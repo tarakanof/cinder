@@ -551,11 +551,14 @@ fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_r
     [ "$(grep -c 'atomic_store(&s_chase_req, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING server-chase-deferred-during-a-scene"
 fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
     [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
+body "$MAINC" scene_end | awk '/^    s_half = s_scene_half;$/ {h = NR} /^    if \(s_half\.snapped\) \{$/ {i = NR}
+    /^        s_half\.snapped = false;$/ {f = NR} /^        s_half\.hold_deg = 0;$/ {d = NR} END {exit !(h && i == h + 1 && f == i + 1 && d == f + 1)}' ||
+    WIRING="$WIRING scene_end-re-aims-a-snapped-half-chase"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy during a scene"
+echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy during a scene, a snapped half chase re-aimed"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
 body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||
