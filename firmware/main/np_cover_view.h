@@ -33,5 +33,4 @@ void npc_destroy(void);
 void npc_adopt(np_art_set_t *in);
 bool npc_has_cover(void);
 void npc_update(const npc_frame_t *f);
-/* Cuts txt to max_w with "...". */
 void npc_fit_text(char *txt, const lv_font_t *font, int max_w);
