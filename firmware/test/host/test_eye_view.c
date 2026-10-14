@@ -194,7 +194,7 @@ static void test_label(lv_display_t *d)
             continue;
         }
         static int ix[W * H], iy[W * H], gx[W * H], gy[W * H];
-        int ni = 0, ng = 0, main_px = 0, edge = 0;
+        int ni = 0, ng = 0, main_px = 0, edge = 0, mx0 = W, mx1 = -1, my0 = H, my1 = -1;
         for (int y = 233 + 70; y < H; y++)
             for (int x = 0; x < W; x++) {
                 uint16_t v = s_fb[y * W + x];
@@ -206,7 +206,10 @@ static void test_label(lv_display_t *d)
                 edge += x == CANVAS_X0 || x == CANVAS_X1 || y == CANVAS_Y0 || y == CANVAS_Y1;
                 if (icon) ix[ni] = x, iy[ni++] = y;
                 else if (r < 151) gx[ng] = x, gy[ng++] = y;
-                else main_px++;
+                else {
+                    main_px++;
+                    mx0 = x < mx0 ? x : mx0, mx1 = x > mx1 ? x : mx1, my0 = y < my0 ? y : my0, my1 = y > my1 ? y : my1;
+                }
             }
         uint32_t rgb;
         int mw, mh, mask = 0, faint = 0;
@@ -215,11 +218,13 @@ static void test_label(lv_display_t *d)
         double gap = 1e9;
         for (int i = 0; i < ni; i++)
             for (int j = 0; j < ng; j++) gap = fmin(gap, hypot(ix[i] - gx[j], iy[i] - gy[j]));
-        printf("label %s %s, host line '%s': %d main px, %d host-line px, icon %d px (mask %d-%d), %d at the canvas edge",
-               c[k].mood == BOT_DONE ? "done" : "waiting", h.text, h.sub, main_px, ng, ni, mask, faint, edge);
+        printf("label %s %s, host line '%s': %d main px in x %d..%d y %d..%d, %d host-line px, icon %d px (mask %d-%d), %d at the canvas edge",
+               c[k].mood == BOT_DONE ? "done" : "waiting", h.text, h.sub, main_px, mx0, mx1, my0, my1, ng, ni, mask, faint, edge);
         if (sub) printf(", icon to host line %.1f px", gap);
         printf("\n");
         CHECK(main_px >= 1200, "label %zu: the whole project is drawn (%d px)", k, main_px);
+        CHECK(abs(mx0 - 154) <= 1 && abs(mx1 - 320) <= 1 && abs(my0 - 368) <= 1 && abs(my1 - 408) <= 1,
+              "label %zu: the project sits on its arc, x 154..320 y 368..408 (x %d..%d y %d..%d)", k, mx0, mx1, my0, my1);
         CHECK(sub ? ng > 300 : ng == 0, "label %zu: the host line %s (%d px)", k, sub ? "is drawn" : "is absent", ng);
         CHECK(!edge, "label %zu: nothing clipped at the canvas edge (%d px)", k, edge);
         CHECK(ni >= mask && ni <= faint, "label %zu: the whole icon (%d px, mask %d-%d)", k, ni, mask, faint);
