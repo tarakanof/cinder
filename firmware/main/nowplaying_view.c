@@ -554,7 +554,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     f.badge_text = badge;
     if (np_face_live(st) || st == NPF_OFFLINE) {
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
-        f.dim = dim_step(st == NPF_PLAYING, now);
+        f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
     } else {
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {

@@ -191,14 +191,6 @@ uint8_t np_scrim_opa(bool light, uint8_t shade)
     return (uint8_t)((255 * (want - shade) + (255 - shade) / 2) / (255 - shade));
 }
 
-void np_no_cover_render(uint16_t *buf, int px)
-{
-    const uint16_t c = (uint16_t)(((NP_COL_NO_COVER >> 19) & 31) << 11 | ((NP_COL_NO_COVER >> 10) & 63) << 5 |
-                                  ((NP_COL_NO_COVER >> 3) & 31));
-    for (size_t i = 0; i < (size_t)px * px; i++) buf[i] = c;
-    np_face_mask(buf, px, px, px / 2.0f, px / 2.0f, NP_DISC_R);
-}
-
 bool np_face_wants_cover(const np_info_t *np) { return np->state != NP_NONE && np->cover_version[0]; }
 
 void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp)
@@ -287,6 +279,61 @@ np_take_t np_art_take(const char *set_version, bool set_cover, const np_info_t *
 
 bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover)
 {
-    if (known) return np->cover_version[0] != 0;
+    if (known && np->cover_version[0]) return true;
+    if (known && (np->album_art || np->artist_art)) return false;
     return current_cover != 0;
 }
+
+float np_ease_out(float t)
+{
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    const float x1 = 0.2f, y1 = 0.8f, x2 = 0.2f, y2 = 1.0f;
+    float lo = 0, hi = 1, s = t;
+    for (int i = 0; i < 24; i++) {
+        s = (lo + hi) / 2;
+        float u = 1 - s, x = 3 * u * u * s * x1 + 3 * u * s * s * x2 + s * s * s;
+        if (x < t) lo = s;
+        else hi = s;
+    }
+    float u = 1 - s;
+    return 3 * u * u * s * y1 + 3 * u * s * s * y2 + s * s * s;
+}
+
+float np_sweep_k(double dt, double dur)
+{
+    if (dt <= 0) return 0;
+    if (dt >= dur) return 1;
+    double steps = floor(dur * NP_SWEEP_FPS);
+    return np_ease_out((float)(floor(dt * NP_SWEEP_FPS) / steps));
+}
+
+void np_change_at(double dt, bool from_pic, np_change_t *out)
+{
+    static const uint8_t IN[] = {170, 85};
+    memset(out, 0, sizeof *out);
+    out->keep = 1;
+    if (from_pic) {
+        if (dt < NP_CHG_HOLD_S) return;
+        int step = (int)((dt - NP_CHG_HOLD_S) / NP_CHG_STEP_S);
+        if (step < 2) {
+            out->fade = (uint8_t)(85 * (step + 1));
+            out->keep = (2 - step) / 3.0f;
+            return;
+        }
+        out->keep = 0;
+        out->swap = true;
+        dt -= NP_CHG_HOLD_S + 2 * NP_CHG_STEP_S;
+        if (dt < NP_CHG_BLACK_S) {
+            out->fade = 255;
+            return;
+        }
+        dt -= NP_CHG_BLACK_S;
+    }
+    out->swap = true;
+    int step = dt < 0 ? 0 : (int)(dt / NP_CHG_STEP_S);
+    if (step < 2) out->fade = IN[step];
+    else out->done = true;
+}
+
+uint8_t np_shade_mix(uint8_t shade, uint8_t fade) { return (uint8_t)(255 - (255 - shade) * (255 - fade) / 255); }

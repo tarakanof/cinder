@@ -783,19 +783,16 @@ static void test_review_fixes(void)
     CHECK(np_scrim_opa(false, 115) == 0 && np_scrim_opa(false, 153) == 0, "paused or volume: the light scrim adds nothing");
     CHECK(np_scrim_opa(true, 115) > 0 && np_scrim_opa(true, 115) < NP_SCRIM_STRONG, "paused on a light cover: less on top");
 
-    uint16_t *nc = malloc((size_t)NP_COVER_PX * NP_COVER_PX * 2);
-    memset(nc, 0xFF, (size_t)NP_COVER_PX * NP_COVER_PX * 2);
-    np_no_cover_render(nc, NP_COVER_PX);
-    const uint16_t grey = (uint16_t)((0x1E >> 3) << 11 | (0x1E >> 2) << 5 | (0x1E >> 3));
-    CHECK(nc[233 * NP_COVER_PX + 233] == grey && nc[(233 + NP_DISC_R - 2) * NP_COVER_PX + 233] == grey, "grey disc: %04x",
-          nc[233 * NP_COVER_PX + 233]);
-    CHECK(nc[(233 + NP_DISC_R + 2) * NP_COVER_PX + 233] == 0 && nc[0] == 0 && nc[233 * NP_COVER_PX + 233 + NP_EDGE_R] == 0,
-          "black from the disc out, the ring band too");
-    free(nc);
     CHECK(np_face_kind_cover(true, &a, 0), "known: by cover_version");
     np_info_t old;
     parse(BLOCK, &old);
-    CHECK(!np_face_kind_cover(true, &old, 1), "an older Ember: the old face");
+    CHECK(!np_face_kind_cover(true, &old, 1) && !np_face_kind_cover(true, &old, -1),
+          "art without cover_version: an older Ember, the old face");
+    old.album_art = false;
+    CHECK(!np_face_kind_cover(true, &old, 1), "an artist picture alone without cover_version: an older Ember too");
+    old.artist_art = false;
+    CHECK(np_face_kind_cover(true, &old, 1) && !np_face_kind_cover(true, &old, 0) && np_face_kind_cover(true, &old, -1),
+          "a block without any art keeps the face (a skip's first block on either Ember), the cover face first");
     CHECK(np_face_kind_cover(false, &none, -1) && np_face_kind_cover(false, &none, 1) && !np_face_kind_cover(false, &none, 0),
           "not playing: keep the face, the cover face first");
     np_face_look_t l;
@@ -805,6 +802,137 @@ static void test_review_fixes(void)
     CHECK(l.avatar_grey, "offline: grey avatar");
     np_face_look(NPF_PLAYING, NP_RING_PROGRESS, 0, &l);
     CHECK(!l.avatar_grey, "playing: colour");
+}
+
+static void test_motion(void)
+{
+    CHECK(np_ease_out(0) == 0 && np_ease_out(1) == 1, "ease ends");
+    float prev = 0;
+    bool mono = true;
+    for (int i = 1; i <= 100; i++) {
+        float v = np_ease_out(i / 100.0f);
+        mono &= v >= prev;
+        prev = v;
+    }
+    CHECK(mono, "ease is monotonic");
+    CHECK(np_ease_out(0.25f) > 0.6f && np_ease_out(0.5f) > 0.85f, "ease-out: most of the way early: %.3f %.3f",
+          np_ease_out(0.25f), np_ease_out(0.5f));
+    CHECK(np_sweep_k(-1, NP_ARRIVE_S) == 0 && np_sweep_k(0, NP_ARRIVE_S) == 0, "the sweep starts at 0");
+    CHECK(np_sweep_k(NP_ARRIVE_S, NP_ARRIVE_S) == 1 && np_sweep_k(5, NP_ARRIVE_S) == 1, "and ends at 1");
+    CHECK(np_sweep_k(0.01, NP_ARRIVE_S) == np_sweep_k(0.03, NP_ARRIVE_S), "steps of 1/%d s", NP_SWEEP_FPS);
+    int steps = 0;
+    float last = -1;
+    for (double t = 0; t <= NP_ARRIVE_S + 0.1; t += 0.001) {
+        float k = np_sweep_k(t, NP_ARRIVE_S);
+        if (k != last) steps++;
+        last = k;
+    }
+    printf("np: arrival sweep %d steps over %.2f s\n", steps, NP_ARRIVE_S);
+    CHECK(steps >= 35 && steps <= 41, "about 30 fps: %d steps", steps);
+
+    np_change_t c;
+    np_change_at(0, true, &c);
+    CHECK(c.fade == 0 && c.keep == 1 && !c.swap && !c.done, "M8: the old cover holds");
+    np_change_at(NP_CHG_HOLD_S + 0.001, true, &c);
+    CHECK(c.fade == 85 && c.keep > 0.6f && c.keep < 0.7f && !c.swap, "first step out: %d %.2f", c.fade, c.keep);
+    np_change_at(NP_CHG_HOLD_S + NP_CHG_STEP_S + 0.001, true, &c);
+    CHECK(c.fade == 170 && c.keep > 0.3f && c.keep < 0.4f && !c.swap, "second step out: %d", c.fade);
+    np_change_at(NP_CHG_HOLD_S + 2 * NP_CHG_STEP_S + 0.001, true, &c);
+    CHECK(c.fade == 255 && c.keep == 0 && c.swap && !c.done, "the black frame swaps: %d", c.fade);
+    double in = NP_CHG_HOLD_S + 2 * NP_CHG_STEP_S + NP_CHG_BLACK_S;
+    np_change_at(in + 0.001, true, &c);
+    CHECK(c.fade == 170 && c.swap, "first step in: %d", c.fade);
+    np_change_at(in + NP_CHG_STEP_S + 0.001, true, &c);
+    CHECK(c.fade == 85, "second step in: %d", c.fade);
+    np_change_at(in + 2 * NP_CHG_STEP_S + 0.001, true, &c);
+    CHECK(c.fade == 0 && c.done, "done");
+    int fades[8], n = 0, lastf = -1;
+    for (double t = 0; t < 1 && n < 8; t += 0.001) {
+        np_change_at(t, true, &c);
+        if (c.fade != lastf) fades[n++] = lastf = c.fade;
+    }
+    CHECK(n == 7 && fades[3] == 255 && fades[6] == 0, "0, 3 steps out, black, 2 steps and the cover in: %d steps", n);
+    np_change_at(0, false, &c);
+    CHECK(c.swap && c.fade == 170 && c.keep == 1, "from a black disc: in at once, 3 steps");
+    np_change_at(NP_CHG_STEP_S + 0.001, false, &c);
+    CHECK(c.fade == 85, "%d", c.fade);
+    np_change_at(2 * NP_CHG_STEP_S + 0.001, false, &c);
+    CHECK(c.fade == 0 && c.done, "done");
+    CHECK(np_shade_mix(0, 0) == 0 && np_shade_mix(115, 0) == 115 && np_shade_mix(0, 170) == 170, "mix");
+    CHECK(np_shade_mix(115, 255) == 255 && np_shade_mix(153, 85) > 153 && np_shade_mix(153, 85) < 255, "mix stacks");
+}
+
+static int px_luma(uint16_t p) { return (((p >> 11) * 255 / 31) * 3 + (((p >> 5) & 63) * 255 / 63) * 6 + ((p & 31) * 255 / 31)) / 10; }
+
+static void test_v15(void)
+{
+    const int n = NP_COVER_PX;
+    uint16_t *a = malloc((size_t)n * n * 2), *b = malloc((size_t)n * n * 2);
+    for (int i = 0; i < n * n; i++) a[i] = 0x1234;
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    np_v15_render(a, n, n, (np_rect_t){0, 0, n, n}, 0, NP_ACCENT_VINYL);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double full = (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6;
+    int band = 0;
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            float d = hypotf(x + 0.5f - 233, y + 0.5f - 233);
+            if (d >= NP_EDGE_IN + 1 && a[y * n + x] != 0x1234) band++;
+        }
+    CHECK(band == 0, "the ring band is left alone: %d px", band);
+    CHECK(a[380 * n + 233] == 0 && a[20 * n + 233 - 80] == 0x1234, "black around the record, the band kept");
+    CHECK(px_luma(a[(NP_V15_CY - 100) * n + NP_V15_CX + 2]) < 40, "the record is dark");
+    int lab = px_luma(a[(NP_V15_CY + 30) * n + NP_V15_CX - 30]);
+    CHECK(lab > 180, "the label is light: %d", lab);
+    CHECK(px_luma(a[NP_V15_CY * n + NP_V15_CX]) < 30, "the spindle hole");
+    CHECK(px_luma(a[254 * n + 404]) > 20 && px_luma(a[254 * n + 404]) < 70, "the tonearm pivot: %d", px_luma(a[254 * n + 404]));
+    CHECK(px_luma(a[210 * n + 375]) > 80, "the arm: %d", px_luma(a[210 * n + 375]));
+    CHECK(px_luma(a[146 * n + 333]) > 110, "the headshell: %d", px_luma(a[146 * n + 333]));
+    int r = (a[NP_V15_CY * n + NP_V15_CX + 46] >> 11) * 255 / 31, bb = (a[NP_V15_CY * n + NP_V15_CX + 46] & 31) * 255 / 31;
+    CHECK(r > bb + 40, "the label ring in the accent: %d %d", r, bb);
+    int ink = 0;
+    for (int y = NP_V15_CY - 26; y < NP_V15_CY + 26; y++)
+        for (int x = NP_V15_CX - 26; x < NP_V15_CX + 26; x++) ink += px_luma(a[y * n + x]) < 120 && hypotf(x + 0.5f - NP_V15_CX, y + 0.5f - NP_V15_CY) > 6;
+    CHECK(ink > 200 && ink < 900, "the note: %d px", ink);
+
+    np_rect_t lb = np_v15_label_box();
+    CHECK(lb.x % 2 == 0 && lb.y % 2 == 0 && lb.w % 2 == 0 && lb.h % 2 == 0 && lb.w <= 112 && lb.h <= 112, "label box %d,%d %dx%d",
+          lb.x, lb.y, lb.w, lb.h);
+    int differ = 0, outside = 0;
+    for (int f = 1; f < NP_V15_FRAMES; f++) {
+        memcpy(b, a, (size_t)n * n * 2);
+        np_v15_render(b, n, n, (np_rect_t){0, 0, n, n}, f, NP_ACCENT_VINYL);
+        int d = 0;
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+                if (a[y * n + x] != b[y * n + x]) {
+                    d++;
+                    if (x < lb.x || x >= lb.x + lb.w || y < lb.y || y >= lb.y + lb.h) outside++;
+                }
+        differ += d > 100;
+        uint16_t *c = malloc((size_t)n * n * 2);
+        memcpy(c, a, (size_t)n * n * 2);
+        np_v15_render(c, n, n, lb, f, NP_ACCENT_VINYL);
+        CHECK(memcmp(b, c, (size_t)n * n * 2) == 0, "frame %d: the label box alone equals a full render", f);
+        free(c);
+    }
+    CHECK(differ == NP_V15_FRAMES - 1 && outside == 0, "8 frames differ only in the label box: %d frames, %d px outside", differ,
+          outside);
+    np_v15_render(b, n, n, (np_rect_t){0, 0, n, n}, NP_V15_FRAMES, NP_ACCENT_VINYL);
+    CHECK(memcmp(a, b, (size_t)n * n * 2) == 0, "frame 8 is frame 0");
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (int i = 0; i < 20; i++) np_v15_render(b, n, n, lb, i, NP_ACCENT_VINYL);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    double step = ((t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6) / 20;
+    printf("np: M15 raster: full face %.2f ms, a label step %.3f ms (%dx%d px)\n", full, step, lb.w, lb.h);
+
+    np_rect_t tb = np_v15_text_box();
+    CHECK(tb.x % 2 == 0 && tb.y % 2 == 0 && tb.w % 2 == 0 && tb.h % 2 == 0, "text box even");
+    CHECK(tb.y > lb.y + lb.h && tb.x >= 0 && tb.x + tb.w <= n && tb.y + tb.h <= n, "the text box clears the label: %d,%d %dx%d",
+          tb.x, tb.y, tb.w, tb.h);
+    free(a);
+    free(b);
 }
 
 int main(void)
@@ -826,6 +954,8 @@ int main(void)
     test_downscale();
     test_vinyl();
     test_review_fixes();
+    test_motion();
+    test_v15();
     if (failures) {
         printf("np: %d failure(s)\n", failures);
         return 1;
