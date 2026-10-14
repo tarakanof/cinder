@@ -1,7 +1,9 @@
 #pragma once
+#include <stdio.h>
+
 #include "FreeRTOS.h"
 
-/* Pinned tasks run as threads, each with its own notification count. */
+/* Pinned tasks run as threads, each with its own notification count; ulTaskNotifyTake aborts on any other thread. */
 typedef struct host_task {
     void (*fn)(void *);
     void *arg;
@@ -13,7 +15,6 @@ typedef host_task_t *TaskHandle_t;
 typedef void (*host_task_fn)(void *);
 
 __attribute__((weak)) _Thread_local host_task_t *host_task_self;
-__attribute__((weak)) host_task_t host_task_shared = {.m = PTHREAD_MUTEX_INITIALIZER, .c = PTHREAD_COND_INITIALIZER};
 
 static void *host_task_run(void *p)
 {
@@ -57,7 +58,11 @@ static inline void xTaskNotifyGive(TaskHandle_t t)
 static inline uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t ticks)
 {
     (void)ticks;
-    host_task_t *t = host_task_self ? host_task_self : &host_task_shared;
+    host_task_t *t = host_task_self;
+    if (!t) {
+        fprintf(stderr, "ulTaskNotifyTake: called from a thread xTaskCreatePinnedToCore did not create\n");
+        abort();
+    }
     pthread_mutex_lock(&t->m);
     while (!t->n) pthread_cond_wait(&t->c, &t->m);
     uint32_t n = t->n;
