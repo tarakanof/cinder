@@ -466,7 +466,7 @@ fbody "$MAINC" page_tick | awk '/^    else if \(!ds\.view_on && s_scene_resume_a
     WIRING="$WIRING page_tick-reads-around-a-moment-before-the-pose"
 MT="$(fbody "$MAINC" moment_tick)"
 for L in 'if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();' 'if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
-    'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,' \
+    'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || music_view_busy() || mm_recent(&s_mm, t) || calm || s_chase.phase != GC_IDLE,' '.on = s_ks_lv->weather_moments,' \
     '.every_s = s_ks_lv->weather_every_min * 60};' '.bot_mood = (int)s_bot.mood, .shown = bot_page && !s_bot.asleep,' 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' 's_moment_mood = s_bot.mood;' \
     'wxm_shown(&s_wxm, &m, t);' 'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
     'while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);' 's_chase.hold = moment_view_busy();'; do
@@ -487,7 +487,7 @@ body "$MAINC" moment_unact | grep -qF 'if (s_acting && s_bot.mood != s_moment_mo
     body "$MAINC" moment_unact | grep -qF 'else if (s_acting) bot_act_end(&s_bot, true, 0.3, t);' && body "$MAINC" moment_unact | grep -qF 's_cue = s_cue_n;' ||
     WIRING="$WIRING moment_unact-ends-the-act-and-the-cues"
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
-body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);' ||
+body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy() || music_view_busy(), chase->chasing && chase->label_opa > 0);' ||
     WIRING="$WIRING page_bot_frame-merges-the-eyes-into-one-area-during-a-moment"
 body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_offline(join_glyph_shown(f->offline, s_join_shown));' &&
     body "$MAINC" join_frame | grep -qxF '    join_label_t show = join_label_pick(&in);' &&
@@ -546,6 +546,42 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
+MUT="$(fbody "$MAINC" music_tick)"
+for L in 'if (np_client_get(&s_mm_np, &s_mm_gen))' 'mm_in_t in = {.t = t, .have = s_mm_np.have && on, .playing = playing,' 'bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;' \
+    'if (music_view_busy() && (!on || !bot_page)) {' 'music_view_stop();' \
+    '} else if (music_view_busy() && (s_bot.mood != s_mm_mood || calm || offline || !playing)) {' 'music_view_abort(t);' \
+    '.rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,' \
+    '.blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,' '.other_at = s_wxm.last_at};' \
+    's_mm_mood = s_bot.mood;' 'bot_act_begin(&s_bot, t);' 'double tau = music_view_poll(t);' \
+    'if (c[s_mm_cue].op == MM_HAPPY) bot_act_eyes(&s_bot, BOT_EYES_HAPPY, t);' 'if (music_view_busy()) s_chase.hold = true;'; do
+    printf '%s\n' "$MUT" | grep -qF "$L" || WIRING="$WIRING music_tick:$L"
+done
+[ "$(grep -c 'mm_shown(' "$MAINC")" -eq 1 ] && printf '%s\n' "$MUT" | grep -B1 -F 'mm_shown(&s_mm, t);' | head -1 | grep -qF 'if (mm_tick(&s_mm, &in) && music_view_start(t)) {' ||
+    WIRING="$WIRING music_tick-records-a-moment-only-once-it-started"
+[ "$(printf '%s\n' "$MUT" | grep -cF 'music_unact(t);')" -eq 3 ] || WIRING="$WIRING music_tick-ends-the-act-on-stop-abort-and-the-end-cue"
+body "$MAINC" music_unact | grep -qxF '    if (s_mm_acting && s_bot.mood != s_mm_mood) bot_act_drop(&s_bot, t);' &&
+    body "$MAINC" music_unact | grep -qxF '    else if (s_mm_acting) bot_act_end(&s_bot, true, 0.3, t);' || WIRING="$WIRING music_unact-ends-the-act"
+fbody "$MAINC" page_tick | awk '/^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR}
+    /^    music_tick\(t, calm, offline, pg->frame == page_bot_frame, !s_scene_on && !ds\.view_on && s_scene_resume_at == 0\);$/ {m = NR}
+    /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && m < p)}' ||
+    WIRING="$WIRING page_tick-runs-music_tick-after-the-weather-moment-before-the-chase-and-the-pose"
+fbody "$MAINC" page_tick | awk '/^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} /^    f\.pose\.eye_dy -= music_view_eye_px\(t\) \/ bot_view_radius_px\(\);$/ {e = NR}
+    /^    pages_frame\(&s_nav, &f\);$/ {p = NR} END {exit !(s && e == s + 1 && p > e)}' || WIRING="$WIRING page_tick-adds-the-bob-to-the-pose-before-the-frame"
+for L in 'music_view_hold(true);' 'music_unact(now_s());' 'music_view_hold(false);'; do
+    body "$MAINC" ota_frame | grep -qxF "            $L" || body "$MAINC" ota_frame | grep -qxF "        $L" || WIRING="$WIRING ota_frame:$L"
+done
+[ "$(body "$MAINC" scene_start | grep -A3 -xF '    if (music_view_busy()) {' | tr -d ' \n')" = 'if(music_view_busy()){music_view_stop();music_unact(t);}' ] ||
+    WIRING="$WIRING scene_start-stops-the-music-moment"
+[ "$(body "$MAINC" page_bot_frame | tail -3 | head -2 | tr -d ' \n')" = 'music_view_frame(t);moment_view_frame(t);' ] ||
+    WIRING="$WIRING page_bot_frame-draws-the-music-moment-before-the-weather-moment"
+NPC="$D/../../main/nowplaying_client.c"
+body "$NPC" np_client_feed | awk '/xSemaphoreGive\(s_lock\);/ {g = NR} /ESP_LOG[A-Z]\(/ {n++; if (!g) bad = 1} END {exit !(g && n && !bad)}' ||
+    WIRING="$WIRING np_client_feed-logs-only-after-the-lock"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL music moment wiring:$WIRING" >&2
+    exit 1
+fi
+echo "music moment wiring: trigger, stop, abort and act in music_tick after the weather moment, the bob on the pose, OTA hold, demo stop, draw order, the now-playing log outside its lock"
 body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_client_service\(/ {n = NR} END {exit !(r && n && r < n)}' ||
     WIRING="$WIRING demo-ready-before-the-art-fetch"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
@@ -621,6 +657,7 @@ fi
 echo "mood beat wiring: page_tick feeds the outline job right before the pose and syncs it right after, on every page; the beat frame draws through the chase throttle, with the frame time"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" "-DRS_RACE_POINT(s,at)=rs_race_point(s,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$D/test_bot.c" -lm -lpthread -o "${OUT}_bot"
+cc $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/music_moment.c" "$D/test_music_moment.c" -lm -o "${OUT}_music"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
@@ -706,6 +743,8 @@ if [ -d "$LV" ]; then
     cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$J" \
         "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" \
         "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
+        "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
@@ -720,6 +759,7 @@ fi
 "${OUT}_air"
 "${OUT}_moment"
 "${OUT}_moment_paint"
+"${OUT}_music"
 "${OUT}_faces"
 "${OUT}_umbrella"
 "${OUT}_wx_job"
@@ -754,8 +794,9 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_moment_label"
     "${OUT}_eye_view"
     "${OUT}_np_view" ${NP_VIEW_SHOTS:+"$NP_VIEW_SHOTS"}
+    "${OUT}_music_view" ${MUSIC_VIEW_SHOTS:+"$MUSIC_VIEW_SHOTS"}
 else
-    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye and now-playing view tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing and music moment view tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
