@@ -112,6 +112,21 @@ void bot_raster_stroke(bot_raster_scratch_t *scratch, uint16_t *buf, uint8_t *al
     }
 }
 
+void bot_raster_stroke_below(bot_raster_scratch_t *scratch, uint16_t *buf, uint8_t *alpha, float clip_y, int w, int h,
+                             int ox, int oy, const float *xs, const float *ys, int nseg, const int *segs, float hw,
+                             uint32_t rgb, float gain)
+{
+    float c = clip_y - (float)oy;
+    int r0 = !(c > 0) ? 0 : (c >= (float)h ? h : (int)floorf(c));
+    memset(alpha, 0, (size_t)r0 * (size_t)w);
+    if (r0 >= h) return;
+    uint8_t *row = alpha + r0 * w;
+    bot_raster_stroke(scratch, buf ? buf + r0 * w : NULL, row, w, h - r0, ox, oy + r0, xs, ys, nseg, segs, hw, rgb, gain);
+    float keep = (float)(r0 + 1) - c;
+    if (keep >= 1) return;
+    for (int x = 0; x < w; x++) row[x] = (uint8_t)((float)row[x] * keep + 0.5f);
+}
+
 void bot_raster_stroke_ref(uint16_t *buf, uint8_t *alpha, int w, int h, int ox, int oy, const float *xs,
                            const float *ys, int nseg, const int *segs, float hw, uint32_t rgb, float gain)
 {

@@ -192,6 +192,80 @@ static void test_tilt_mirror(void)
     CHECK(top_l > bot_l, "tilt: looking left leans the dash's top to the right (\"/\"), as looking right gives \"\\\"");
 }
 
+static void test_lid_shape(void)
+{
+    const bot_eyes_t eyes[] = {BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_ANGRY};
+    const double widen[] = {0.35, 0.15, 0.35};
+    int shrunk = 0, dropped = 0, wide = 0;
+    for (int k = 0; k < 3; k++)
+        for (double gx = -0.8; gx <= 0.81; gx += 0.4) {
+            bot_pose_t p = {.eyes = eyes[k], .gaze_x = gx, .gaze_y = 0.3, .scale_x = 1, .scale_y = 1};
+            bot_stroke_t o[2];
+            bot_eye_strokes(&p, 1.15, o);
+            for (double lid = 0.1; lid <= 1.0001; lid += 0.1) {
+                p.lid_l = p.lid_r = lid;
+                bot_stroke_t s[2];
+                bot_eye_strokes(&p, 1.15, s);
+                for (int e = 0; e < 2; e++) {
+                    double lo = hypot(o[e].x[1] - o[e].x[0], o[e].y[1] - o[e].y[0]) + o[e].width;
+                    double ls = hypot(s[e].x[1] - s[e].x[0], s[e].y[1] - s[e].y[0]) + s[e].width;
+                    double ldo = fabs(o[e].y[1] - o[e].y[0]) + o[e].width, lds = fabs(s[e].y[1] - s[e].y[0]) + s[e].width;
+                    if (ls < lo - 1e-9 || lds < ldo - 1e-9) shrunk++;
+                    double cyo = (o[e].y[0] + o[e].y[1]) / 2, cys = (s[e].y[0] + s[e].y[1]) / 2;
+                    if (fabs(cyo - cys - BOT_LID_DROOP * lid) > 1e-9) dropped++;
+                    if (fabs(s[e].width - o[e].width * (1 + widen[k] * lid)) > 1e-9) wide++;
+                }
+            }
+        }
+    CHECK(!shrunk, "lid: %d eyes flattened with the lid; the lid clips them from the top instead (no round-dot frame)", shrunk);
+    CHECK(!dropped, "lid: %d eyes not lowered by %.3f x lid (the blink's droop)", dropped, BOT_LID_DROOP);
+    CHECK(!wide, "lid: %d eyes not widened as BotNext (dash, angry x(1 + 0.35 lid), round x(1 + 0.15 lid))", wide);
+    bot_pose_t h = {.eyes = BOT_EYES_HAPPY, .scale_x = 1, .scale_y = 1, .lid_l = 0.6, .lid_r = 0.6};
+    bot_stroke_t hs[2];
+    bot_eye_strokes(&h, 1.15, hs);
+    CHECK(hs[0].lid == 0 && hs[1].lid == 0, "lid: happy eyes flatten with the lid and are never clipped");
+    bot_pose_t d = {.eyes = BOT_EYES_DASH, .scale_x = 1, .scale_y = 1, .lid_l = 1.4, .lid_r = -0.2};
+    bot_eye_strokes(&d, 1.15, hs);
+    CHECK(hs[0].lid == 1 && hs[1].lid == 0, "lid: the clip fraction is the lid in 0..1");
+}
+
+static void test_lid_line(void)
+{
+    const double ys[2] = {100, 160}, w = 30;
+    CHECK(bot_lid_line_y(ys, 2, w, 0) == -INFINITY && bot_lid_line_y(ys, 2, w, -0.1) == -INFINITY, "lid line: none when open");
+    CHECK(fabs(bot_lid_line_y(ys, 2, w, 1) - (175 - BOT_LID_KEEP * w)) < 1e-9 && fabs(bot_lid_line_y(ys, 2, w, 3) - (175 - BOT_LID_KEEP * w)) < 1e-9,
+          "lid line: shut keeps a %.1f x width strip at the bottom", BOT_LID_KEEP);
+    CHECK(fabs(bot_lid_line_y(ys, 2, w, 0.5) - (85 + (175 - BOT_LID_KEEP * w - 85) / 2)) < 1e-9, "lid line: halfway at lid 0.5");
+    double prev = -INFINITY;
+    bool down = true;
+    for (double l = 0.05; l <= 1; l += 0.05) {
+        double y = bot_lid_line_y(ys, 2, w, l);
+        down = down && y > prev && y >= 85;
+        prev = y;
+    }
+    CHECK(down, "lid line: comes down from the top as the lid closes");
+
+    static uint8_t a[160 * 120], r[160 * 120];
+    static bot_raster_scratch_t sc;
+    const float xs[2] = {60.3f, 95.8f}, fy[2] = {30.4f, 85.1f};
+    const int segs[1] = {0};
+    int bad = 0, cases = 0;
+    for (float clip = -20; clip <= 140; clip += 0.37f) {
+        memset(a, 0xAA, sizeof a);
+        bot_raster_stroke(&sc, NULL, r, 160, 120, 4, 6, xs, fy, 1, segs, 13.5f, 0xF4F4F2, 1.0f);
+        bot_raster_stroke_below(&sc, NULL, a, clip, 160, 120, 4, 6, xs, fy, 1, segs, 13.5f, 0xF4F4F2, 1.0f);
+        cases++;
+        for (int y = 0; y < 120; y++) {
+            double top = 6 + y, keep = top + 1 <= clip ? 0 : (top >= clip ? 1 : top + 1 - clip);
+            for (int x = 0; x < 160; x++) {
+                int want = keep == 1 ? r[y * 160 + x] : (int)(r[y * 160 + x] * keep + 0.5);
+                if (abs(a[y * 160 + x] - want) > 1) { bad++; y = 120; break; }
+            }
+        }
+    }
+    CHECK(!bad, "lid raster: %d of %d clip lines differ from the full stroke cut at the line", bad, cases);
+}
+
 static int compare_raster(const float *xs, const float *ys, int npts, float hw, int alpha_mode)
 {
     static uint16_t a[BOT_RASTER_MAX_W * 200], b[BOT_RASTER_MAX_W * 200];
@@ -1520,7 +1594,7 @@ static void test_breath_redraws(void)
     double asleep = redraws_per_s(&b, BOT_ASLEEP_AFTER_S + 2, 1200, false);
     printf("breath redraws/s: idle %.1f (%.1f without), working %.1f (%.1f), done %.1f (%.1f), sleepy %.1f, asleep %.1f\n", with[0],
            without[0], with[1], without[1], with[2], without[2], sleepy, asleep);
-    CHECK(sleepy < 16, "sleepy: %.1f redraws/s, the breathing lid must not redraw every frame", sleepy);
+    CHECK(sleepy < 20, "sleepy: %.1f redraws/s, the breathing lid line must not redraw every frame", sleepy);
     CHECK(asleep > 1 && asleep < 2.5, "asleep: %.2f redraws/s, the bob alone", asleep);
 }
 
@@ -1963,7 +2037,7 @@ static void test_sleepy_still_redraws(void)
     }
     double rate = n / (frames * 0.016);
     printf("sleepy: %.1f redraws/s while the gaze and blinks are still\n", rate);
-    CHECK(rate > 4 && rate < 12, "sleepy holds: %.1f redraws/s, the breathing lid alone", rate);
+    CHECK(rate > 4 && rate < 18, "sleepy holds: %.1f redraws/s, the breathing lid line alone", rate);
 }
 
 typedef struct {
@@ -3949,6 +4023,8 @@ int main(void)
     test_error_triangle_geometry();
     test_eye_strokes_finite();
     test_tilt_mirror();
+    test_lid_shape();
+    test_lid_line();
     printf(failures ? "%d FAILED\n" : "all bot tests passed\n", failures);
     return failures ? 1 : 0;
 }

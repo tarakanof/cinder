@@ -407,11 +407,15 @@ grep -qxF '    d.recolor = lv_color_hex(ring_glint_color(mood_rgb(s_rim_mood), G
 body "$BVC" lap_step | grep -qxF '    return bot_lap_step(s_lap_at, t, GLINT_STEP_S, GLINT_STEPS);' &&
     body "$BVC" bot_view_update | grep -qxF '    s_lap_at = p->lap_at;' || WIRING="$WIRING lap-from-the-pose-start"
 body "$BVC" rim_raster | grep -qF 'mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));' || WIRING="$WIRING outline-alpha-from-bot_rim_alpha"
+body "$BVC" eye_raster | grep -qxF '    float lid_y = (float)bot_lid_line_y(j->ys, j->n, j->width, j->lid);' &&
+    body "$BVC" eye_raster | grep -qF 'bot_raster_stroke_below(scratch, NULL, (uint8_t *)(eye->buf + w * h), lid_y, w, h,' &&
+    ! body "$BVC" eye_raster | grep -q 'bot_raster_stroke(' &&
+    body "$BVC" eyes_draw | grep -qF '.width = width[e], .lid = st[e].lid};' || WIRING="$WIRING eyes-clipped-at-the-lid-line"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL bot view wiring:$WIRING" >&2
     exit 1
 fi
-echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115)"
+echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115), eyes clipped at the lid line (#116)"
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 for ARG in true false; do
