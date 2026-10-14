@@ -441,7 +441,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL bot view wiring:$WIRING" >&2
     exit 1
 fi
-echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, host line only while waiting, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115), eyes clipped at the lid line (#116)"
+echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, host line while waiting or done, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115), eyes clipped at the lid line (#116)"
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 for ARG in true false; do
@@ -739,6 +739,8 @@ fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
 "${OUT}_ota_rec"
+cc $CFLAGS -I"$D/view_stubs" "$D/test_task_stub.c" -lpthread -o "${OUT}_task_stub"
+"${OUT}_task_stub"
 cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$G/include" -I"$J" \
     "$K/knob_view.c" "$DM/demo.c" "$K/ember_legacy.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
     "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
