@@ -28,6 +28,9 @@ static np_art_set_t s_pend;
 static bool s_has_pend;
 static int s_takes, s_frees;
 static int64_t s_now_us = 1000000;
+static bool s_no_face_buf;
+
+int host_heap_fail(size_t n) { return s_no_face_buf && n >= (size_t)NP_COVER_PX * NP_COVER_PX * 2; }
 
 void np_client_forget_art(void) { s_forgets++; }
 int64_t esp_timer_get_time(void) { return s_now_us; }
@@ -206,6 +209,7 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     strcpy(np.artist, "Northern Static");
     strcpy(np.cover_version, "c0ffee-r1");
     np_art_set_t art = {.is_cover = true, .cover = make_white()};
+    strcpy(art.version, np.cover_version);
     npc_adopt(&art);
     npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
                      .pos_ms = 160000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
@@ -218,6 +222,14 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     CHECK(abs(band - 255 * (255 - NP_SCRIM_LIGHT) / 255) <= 6 && abs(low - band) <= 4, "the light scrim at the text rows: %d", band);
     int title_light = ink(285, 316, 140, 326, band + 60);
     memcpy(before, s_fb, sizeof before);
+
+    strcpy(np.cover_version, "next0-r1");
+    np.cover_light = true;
+    npc_update(&f);
+    refresh(d);
+    CHECK(abs(luma(FX + 73, 300) - band) <= 2, "a hint for the next cover_version does not touch the cover on screen: %d",
+          luma(FX + 73, 300));
+    strcpy(np.cover_version, "c0ffee-r1");
 
     np.cover_light = true;
     npc_update(&f);
@@ -292,7 +304,7 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     band = luma(FX + 73, 300);
     printf("np_view: no-cover look: disc %d, band %d\n", disc, band);
     CHECK(npc_has_cover() && abs(disc - 0x1E) <= 6, "a bad cover: the grey no-cover disc, not black: %d", disc);
-    CHECK(band < disc && abs(band - 0x1E * (255 - NP_SCRIM_LIGHT) / 255) <= 6, "no cover: only the light scrim, cover_light or not: %d", band);
+    CHECK(abs(band - disc) <= 2, "no cover: no scrim on the flat disc, cover_light or not: %d vs %d", band, disc);
     rgb(FX + 233, 233 + NP_EDGE_R, &top, &band, &low);
     CHECK(top > 240 && band > 120 && band < 150, "the ring is redrawn over it: %d,%d", top, band);
     f.state = NPF_OFFLINE;
@@ -330,6 +342,30 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     npc_update(&f);
     refresh(d);
     CHECK(!npc_has_cover() && s_forgets == forgets + 1, "idle drops the no-cover look and asks again later");
+    npc_destroy();
+    lv_obj_clean(root);
+}
+
+static void test_no_cover_oom(lv_display_t *d, lv_obj_t *root)
+{
+    npc_build(root);
+    np_info_t np = {.state = NP_PLAYING, .duration_ms = 228000};
+    strcpy(np.title, "Bad Cover");
+    strcpy(np.cover_version, "bad0-r1");
+    np_art_set_t art = {.is_cover = true, .no_cover = true};
+    strcpy(art.version, np.cover_version);
+    s_no_face_buf = true;
+    npc_adopt(&art);
+    npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
+                     .pos_ms = 10000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
+    npc_update(&f);
+    refresh(d);
+    CHECK(npc_has_cover(), "no buffer yet: the no-cover look is still pending");
+    s_no_face_buf = false;
+    f.pos_ms = 11000;
+    npc_update(&f);
+    refresh(d);
+    CHECK(abs(luma(FX + 233, 180) - 0x1E) <= 6, "the buffer comes later: grey, not black: %d", luma(FX + 233, 180));
     npc_destroy();
     lv_obj_clean(root);
 }
@@ -520,6 +556,7 @@ int main(int argc, char **argv)
     npc_destroy();
     lv_obj_clean(root);
     test_scrim(d, root);
+    test_no_cover_oom(d, root);
     test_page(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);

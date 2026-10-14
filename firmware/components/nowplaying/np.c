@@ -326,3 +326,17 @@ bool np_art_retry_fail(np_art_retry_t *r, const char *version, bool bad)
     if (bad) r->bad++;
     return r->bad >= NP_ART_BAD_TRIES;
 }
+
+bool np_art_gave_up(const np_art_retry_t *r, const char *version)
+{
+    return r->bad >= NP_ART_BAD_TRIES && strcmp(r->version, version) == 0;
+}
+
+np_art_end_t np_art_end(np_art_retry_t *r, const char *version, bool cover, bool failed, bool bad)
+{
+    if (failed) return np_art_retry_fail(r, version, bad) && cover ? NP_ART_END_NO_COVER : NP_ART_END_DROP;
+    if (strcmp(r->version, version) != 0) return NP_ART_END_PUBLISH;
+    if (cover && np_art_gave_up(r, version)) return NP_ART_END_NO_COVER;
+    r->fails = r->bad = 0;
+    return NP_ART_END_PUBLISH;
+}

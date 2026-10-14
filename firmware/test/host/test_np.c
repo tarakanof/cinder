@@ -706,6 +706,24 @@ static void test_review_fixes(void)
     CHECK(np_art_retry_fail(&r, "v1-r1", false), "and stay given up for that version");
     CHECK(!np_art_retry_fail(&r, "v2-r1", true) && r.fails == 1 && r.bad == 1 && strcmp(r.version, "v2-r1") == 0,
           "a new cover_version starts again");
+    np_art_retry_t e = {0};
+    CHECK(np_art_end(&e, "v1-r1", true, true, true) == NP_ART_END_DROP && np_art_end(&e, "v1-r1", true, true, true) == NP_ART_END_DROP,
+          "two bad: drop the set");
+    CHECK(np_art_end(&e, "", false, false, false) == NP_ART_END_PUBLISH && e.bad == 2 && strcmp(e.version, "v1-r1") == 0,
+          "the empty plan publishes and keeps the count");
+    CHECK(np_art_end(&e, "fb43cf74b67a", false, false, false) == NP_ART_END_PUBLISH && e.bad == 2, "so does another version's success");
+    CHECK(np_art_end(&e, "v1-r1", true, true, true) == NP_ART_END_NO_COVER && np_art_gave_up(&e, "v1-r1") && !np_art_gave_up(&e, "v2-r1"),
+          "third bad: no cover");
+    CHECK(np_art_end(&e, "v1-r1", true, false, false) == NP_ART_END_NO_COVER && e.bad == NP_ART_BAD_TRIES,
+          "given up, the cover skipped: still no cover, the count kept");
+    CHECK(np_art_end(&e, "v1-r1", true, true, false) == NP_ART_END_NO_COVER, "given up, any failure: no cover");
+    np_art_retry_t q = {0};
+    np_art_end(&q, "v4-r1", true, true, true);
+    np_art_end(&q, "v4-r1", true, true, true);
+    CHECK(np_art_end(&q, "v4-r1", true, false, false) == NP_ART_END_PUBLISH && q.bad == 0 && q.fails == 0, "a success of the version clears it");
+    np_art_retry_t h = {0};
+    for (int i = 0; i < 4; i++) np_art_end(&h, "fb43cf74b67a", false, true, false);
+    CHECK(np_art_end(&h, "fb43cf74b67a", false, true, false) == NP_ART_END_DROP, "the old face never gets a no-cover set");
     np_art_retry_t t = {0};
     for (int i = 0; i < 20; i++) CHECK(!np_art_retry_fail(&t, "v3-r1", false), "transient errors never give up (%d)", i);
 

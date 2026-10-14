@@ -17,6 +17,7 @@
 #include "np_cover.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "pomo_client.h"
 #include "rom/tjpgd.h"
 
@@ -166,7 +167,9 @@ static bool due(np_art_plan_t *plan)
     bool built = S->built_valid && strcmp(S->built, plan->version) == 0;
     xSemaphoreGive(s_lock);
     if (built) return false;
-    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms) return false;
+    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms &&
+        !np_art_gave_up(&S->retry, plan->version))
+        return false;
     return true;
 }
 
@@ -357,6 +360,7 @@ void np_client_service(http_conn_t *conn, const char *base)
     if (!S) return;
     np_client_run_controls(conn, base);
     if (!due(&plan)) return;
+    if (np_art_gave_up(&S->retry, plan.version)) plan.want[NP_ART_COVER] = false;
     np_art_set_t set = {.is_cover = plan.cover};
     strcpy(set.version, plan.version);
     int64_t t0 = esp_timer_get_time(), dec_us = 0;
@@ -413,19 +417,15 @@ void np_client_service(http_conn_t *conn, const char *base)
         else set.artist = img;
     }
     free(jpg);
-    if (failed) {
-        bool give_up = np_art_retry_fail(&S->retry, plan.version, bad);
-        S->retry_at_ms = now_ms() + np_art_retry_ms(S->retry.fails);
-        if (!give_up) {
-            np_art_set_free(&set);
-            return;
-        }
-        set.no_cover = true;
-    } else {
-        S->retry.fails = S->retry.bad = 0;
+    np_art_end_t end = np_art_end(&S->retry, plan.version, plan.cover, failed, bad);
+    if (failed) S->retry_at_ms = now_ms() + np_art_retry_ms(S->retry.fails);
+    if (end == NP_ART_END_DROP) {
+        np_art_set_free(&set);
+        return;
     }
+    set.no_cover = end == NP_ART_END_NO_COVER;
     if (set.no_cover)
-        ESP_LOGW(TAG, "cover %s: bad %d times, showing no cover", plan.version, S->retry.bad);
+        ESP_LOGW(TAG, "cover %s: bad %d times, no cover", plan.version, S->retry.bad);
     else if (plan.cover)
         ESP_LOGI(TAG, "cover %s: %d B in %lld ms (decode %lld ms): cover %s, avatar %s", plan.version, bytes,
                  (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.cover ? "yes" : "no", set.avatar ? "yes" : "no");

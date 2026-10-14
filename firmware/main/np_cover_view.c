@@ -54,6 +54,7 @@ typedef struct {
     char idle[32];
     char badge[24];
     char num[8];
+    char shown[NP_COVERV_MAX + 1];
     char work[4 * NP_TEXT_MAX + 8];
     char fit[4 * NP_TEXT_MAX + 8];
 } npc_mem_t;
@@ -64,7 +65,7 @@ static lv_obj_t *s_pause, *s_vol_icon, *s_num, *s_badge, *s_badge_lbl;
 static uint16_t *s_buf;
 static uint8_t *s_avatar_buf, *s_grey_buf;
 static uint16_t *s_vinyl_buf;
-static bool s_has_cover, s_no_cover, s_ring_on;
+static bool s_has_cover, s_no_cover, s_no_cover_painted, s_ring_on;
 static int s_avatar_grey = -1;
 static float s_frac;
 static int s_state = -1;
@@ -221,7 +222,7 @@ static void buf_free(void)
 {
     free(s_buf);
     s_buf = NULL;
-    s_has_cover = s_no_cover = s_ring_on = false;
+    s_has_cover = s_no_cover = s_no_cover_painted = s_ring_on = false;
 }
 
 void npc_destroy(void)
@@ -270,6 +271,15 @@ static void avatar_src(bool grey)
     lv_image_set_src(s_avatar, grey && s_grey_buf ? &M->grey_dsc : &M->avatar_dsc);
 }
 
+static void paint_no_cover(void)
+{
+    if (s_no_cover_painted || !ensure_buf()) return;
+    np_no_cover_render(s_buf, FACE);
+    lv_obj_invalidate(s_img);
+    s_ring_on = false;
+    s_no_cover_painted = true;
+}
+
 void npc_adopt(np_art_set_t *in)
 {
     if (!s_img) return;
@@ -278,15 +288,15 @@ void npc_adopt(np_art_set_t *in)
         in->cover = NULL;
         s_has_cover = true;
         s_no_cover = false;
-    } else if (in->no_cover && ensure_buf()) {
-        np_no_cover_render(s_buf, FACE);
-        lv_obj_invalidate(s_img);
-        s_ring_on = s_has_cover = false;
+    } else if (in->no_cover) {
+        s_has_cover = s_no_cover_painted = false;
         s_no_cover = true;
+        paint_no_cover();
     } else if (npc_has_cover() && s_buf) {
         clear_buf();
         s_has_cover = s_no_cover = false;
     }
+    strlcpy(M->shown, npc_has_cover() ? in->version : "", sizeof M->shown);
     lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
     free(s_avatar_buf);
     free(s_grey_buf);
@@ -454,6 +464,7 @@ void npc_update(const npc_frame_t *f)
         return;
     }
     if (!ensure_buf()) return;
+    if (s_no_cover) paint_no_cover();
     const np_info_t *np = f->np;
     np_face_look_t look;
     np_face_look(f->state, f->ring, np->has_accent ? np->accent : NP_ACCENT_DEFAULT, &look);
@@ -509,7 +520,7 @@ void npc_update(const npc_frame_t *f)
         lv_obj_set_style_bg_opa(s_shade, look.shade, 0);
         show(s_shade, look.shade > 0);
     }
-    int scrim = np_scrim_opa(np->cover_light && s_has_cover, look.shade);
+    int scrim = s_has_cover ? np_scrim_opa(np->cover_light && strcmp(M->shown, np->cover_version) == 0, look.shade) : 0;
     if (scrim != s_scrim_opa) {
         s_scrim_opa = scrim;
         lv_obj_set_style_bg_grad_opa(s_scrim, (lv_opa_t)scrim, 0);
