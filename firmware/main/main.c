@@ -1368,7 +1368,7 @@ void app_main(void)
     panel_check_brightness(startup);
     if (!s_setup) ember_client_dim_enable(startup);
     if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
-    psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY, NULL);
+    psram_task(stats_task, "stats", 4352, 1, tskNO_AFFINITY, NULL);
     psram_task(link_task, "link", 4096, 1, 1, NULL);
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",

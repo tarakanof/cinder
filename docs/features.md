@@ -548,7 +548,7 @@ Question: can LVGL's parallel software draw units cut core 0 during a 60 fps cha
 | `prov` | 1 | 2 | 5376 | USB-Serial/JTAG listener: Improv, CINDER1 dev tools, snapshot. |
 | `link` | 1 | 1 | 4096 (PSRAM) | QSPI link check every 5 s (5 MHz 3-wire read). |
 | `reset` | 1 | 4 | 5120 | Factory reset (transient). |
-| `stats` | any | 1 | 3840 (PSRAM) | 30 s stats log. |
+| `stats` | any | 1 | 4352 (PSRAM; 3840 before 0.9.80) | 30 s stats log. |
 | `main` | 0 | 1 | 7232 | `app_main`; returns after setup. |
 | `wifi` (IDF) | 0 → **1** | 23 | IDF | Wi-Fi driver. |
 | `esp_timer` (IDF) | 0 → **1** | 22 | 4096 | Timer callbacks: LVGL tick (1 kHz), knob encoder poll (3 ms), button poll (5 ms), Wi-Fi reconnect timer. ISR stays on core 0. |
@@ -733,7 +733,7 @@ A `-fstack-usage` scratch build found no unbounded dynamic frames in app code (9
 | `lvgl` | 0 / 6 | 10240 → **10496** | 2484 (7756) | 8896 (render, event cut at 2 entries, 4 redraw levels; SW draw dispatch → label → glyph image → bin decoder → malloc; was 8368); 0.9.39: 8592 (page table, `page_tick` off this path) | **1600**; 0.9.39: **1904** |
 | `prov` | 1 / 2 | 3584 → 5120 → **5376** | 2316 (1268) | 4320 (NVS write → entry erase → partition write → mmap error log; was 4000, CINDER1 parse at 32 levels) | **1056** |
 | `rim` | 1 / 2 | 6144 → **2560** (PSRAM since 0.9.35) | 4988 (1156) | 1328 (ring + raster; was 1312) | 1232 |
-| `stats` | any / 1 | 3072 → **3840** (PSRAM since 0.9.35) | 568 (2504) | 2640 (log line); 0.9.35: 2688 (deletes `orbit`) | 1152 |
+| `stats` | any / 1 | 3072 → 3840 (PSRAM since 0.9.35) → **4352** (0.9.80) | 568 (2504) | 2640 (log line); 0.9.35: 2688 (deletes `orbit`); 0.9.80: 2720 (0.9.78: 2672) | 1152; 0.9.80: **1632** |
 | `pomo` (Ember without view) | 1 / 3 | 5120 → **5632** (PSRAM since 0.9.35) | — | 4384; 0.9.35: 4368 | 1264 |
 | `weather` (Ember without view) | 1 / 3 | 6144 → **5120** (PSRAM since 0.9.35) | — | 3936; 0.9.35: 3920 | 1200 |
 | `orbit` (boot, ~5 s) | 1 / 1 | 2560 → **3328** (PSRAM since 0.9.35) | — | 2144 | 1184 |
