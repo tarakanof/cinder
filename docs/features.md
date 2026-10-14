@@ -217,15 +217,18 @@ The fifth batch of [`bot-review.md`](bot-review.md), matched to BotNext (`design
 
   0.9.73's error rendered twice (the mood, then the triangle at `triangle` 0.5), each a stall. The 3 extra moves are the settle; done's 37 more are the reward hop. BotNext in the review: done's first 6 s 12.7 → 24.7 redraws/s.
 - **Cost** (`idf.py size`, origin/main 0.9.73 at 6eb3768 → this branch, same machine, IDF 5.5.5): image 1,716,979 → 1,720,123 B (+3,144, flash `.text`); DIRAM 102,719 → 102,831 B (+112, `.bss` +80: the new `bot_t` fields and the view's beat state); PSRAM `.bss` 55,972 → 49,308 B (−6,664: the LVGL task's own outline scratch is gone; the `rim` task's stays); no new outline buffer. `stack_walk.py`: `lvgl` 8,608 (margin 1,888) unchanged, `rim` 1,328 → 1,376 (margin 1,184; the raster now through `rim_slots_run`'s callback, listed in `stack_walk.json`), `orbit` 2,192 → 2,224; every other task unchanged. The review fixes (`rim_slots`, the re-closure, `lap_at`, `ring`) moved DIRAM 102,831 → 102,839 B and left PSRAM `.bss` at 49,308 B.
-- **On the knob** (to do after the release): invalidated areas/s, fps, core 0 and internal RAM for a mood change into done (Devices › Demo, e.g. Error then Done, or Play all of the bot group) and the LVGL frame max at a mood change, against 0.9.73 (whose mood change stalled the LVGL task about 120 ms).
+- **On the knob** (0.9.76, 2026-10-14; 0.9.74's beat plus the #146 fixes): Devices › Demo › Working (Hold) for 25 s, then Done (Hold) for 40 s, three times, live stats in 5 s samples. "Done entry" is the one sample per run whose window holds the change (ends 2, 3 and 7 s after it), so it mixes the beat, the reward hop and giggle with a little working; the lap starts at +1.8 s and may fall in the next sample. Medians, frame max is the highest. 0.9.73 was not measured on the knob before the update, so its column is the host figure: its mood change stalled the LVGL task about 120 ms (one outline render in the LVGL task), which the 5 s frame max would have shown as ≥ 120 ms.
 
-  | | 0.9.73 | 0.9.74 |
-  |---|---|---|
-  | Frame max at a mood change | TODO | TODO |
-  | Invalidated areas/s, done's first 6 s | TODO | TODO |
-  | Render fps, done's first 6 s | TODO | TODO |
-  | Core 0 load, done's first 6 s | TODO | TODO |
-  | Internal free | TODO | TODO |
+  | | 0.9.73 | Working before (10) | Done entry (3) | Done 6-12 s (4) | Done 15-40 s (12) |
+  |---|---|---|---|---|---|
+  | Frame max | ~120 ms stall (host) | 15 ms | 50 ms | 16 ms | 13 ms |
+  | Invalidated areas/s | n/a | 41.0 | 42.3 | 13.8 | 11.3 |
+  | Invalidated px/s | n/a | 291k | 734k | 156k | 121k |
+  | Render fps | n/a | 27.3 | 27.8 | 13.1 | 11.0 |
+  | Core 0 | n/a | 29.0 % | 49.3 % | 25.6 % | 28.1 % |
+  | Internal free | 85.7 KB (0.9.73 waiting) | 85.6 KB | 85.6 KB | 85.6 KB | 85.6 KB |
+
+  The change itself no longer stalls: the 47-50 ms frame max in the entry sample matches the hop's full-outline frames (phase A waiting hops on 0.9.73: 46 ms), and the samples before and after stay at 13-16 ms. The reward costs about +20 points of core 0 and 2.5× the pixels for one 5 s sample, then done settles below working. Internal free and largest block (31.7 KB) unchanged.
 
 ### Bot review leftovers (#121, #124, #125, #139, #146, 0.9.76)
 
