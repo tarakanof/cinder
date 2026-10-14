@@ -722,18 +722,18 @@ bot_pose_t bot_pose(bot_t *b, double t)
         }
         bl = blink_lid(b, u);
         br = blink_lid(b, u - b->blink_lag);
-        if (b->swap_eyes_on_close || due) b->blink_swap = true;
-        if (b->swap_eyes_on_close && fmin(bl, br) >= LID_SHUT && now) swap_eyes(b, t);
+        if (b->swap_eyes_on_close && u <= (b->blink_heavy ? 0.25 + fmax(b->blink_lag, 0) : shut)) b->blink_swap = true;
+        if (b->swap_eyes_on_close && b->blink_swap && fmin(bl, br) >= LID_SHUT && now) swap_eyes(b, t);
         if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
             bool beat_due = b->face != b->mood;
-            if (b->swap_eyes_on_close && !b->double_blink_pending && !beat_due) swap_eyes(b, t);
+            if (b->swap_eyes_on_close && !b->double_blink_pending && !beat_due && b->asleep) swap_eyes(b, t);
             b->blinking = false;
             b->blink_swap = false;
             if (b->double_blink_pending) {
                 b->double_blink_pending = false;
                 b->blinking = true;
                 b->blink_start = t + 0.06;
-            } else if (beat_due && !b->asleep) {
+            } else if ((beat_due || b->swap_eyes_on_close) && !b->asleep) {
                 reclose(b, t);
             }
         }

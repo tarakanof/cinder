@@ -3675,6 +3675,73 @@ static int eye_px(const bot_pose_t *p)
     return eye_one(p, 0, a, &rows) + eye_one(p, 1, a, &rows);
 }
 
+static double shut_frac(const bot_pose_t *p, int e)
+{
+    bot_stroke_t st[2];
+    bot_eye_strokes(p, 1.15, st);
+    if (p->eyes == BOT_EYES_HAPPY) return st[e].lid;
+    double ys[BOT_STROKE_MAX], top = 1e9, bot = -1e9, w = st[e].width * 195.72;
+    for (int i = 0; i < st[e].n; i++) {
+        ys[i] = -195.72 * st[e].y[i];
+        top = fmin(top, ys[i]);
+        bot = fmax(bot, ys[i]);
+    }
+    top -= w / 2 + 1;
+    bot += w / 2 + 1;
+    double line = bot_lid_line_y(ys, st[e].n, w, st[e].lid, st[e].keep);
+    return line < top ? 0 : (line - top) / (bot - top);
+}
+
+static void test_blink_reopen(void)
+{
+    static const bot_mood_t M[] = {BOT_IDLE, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE};
+    int jumps = 0, frames = 0;
+    double worst = 0;
+    for (int seed = 1; seed <= 300; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_set_sleep_after(&b, 0);
+        double t = settle_open(&b, 0);
+        uint64_t r = seed * 0x9E3779B97F4A7C15ULL;
+        bot_pose_t last = {0};
+        double was[2] = {0, 0};
+        bool have = false;
+        for (int k = 0; k < 10; k++) {
+            r = r * 6364136223846793005ULL + 1442695040888963407ULL;
+            double at = t + 0.5 + ((r >> 20) % 1000) / 1000.0 * 2.5;
+            bool asked = false;
+            for (; t < at + 1.5; t += 1.0 / 60) {
+                if (!asked && t >= at && b.blinking) {
+                    if ((r >> 40) % 2) bot_set_mood(&b, M[(r >> 33) % 5], t);
+                    else {
+                        bot_act_begin(&b, t);
+                        bot_act_eyes(&b, (r >> 45) % 2 ? BOT_EYES_ROUND : -1, t);
+                    }
+                    asked = true;
+                }
+                bot_pose_t p = bot_pose(&b, t);
+                double c[2] = {shut_frac(&p, 0), shut_frac(&p, 1)};
+                if (have && p.eyes == last.eyes && b.blinking)
+                    for (int e = 0; e < 2; e++) {
+                        double bl = e ? p.blink_r : p.blink_l, bk = e ? last.blink_r : last.blink_l;
+                        if (bl < bk - 1e-9) {
+                            frames++;
+                            if (c[e] > was[e] + 0.05) { jumps++; worst = fmax(worst, c[e] - was[e]); }
+                        }
+                    }
+                last = p;
+                was[0] = c[0];
+                was[1] = c[1];
+                have = true;
+            }
+            if (b.acting) bot_act_drop(&b, t);
+        }
+    }
+    printf("blink reopen: %d reopening eye frames, %d close again (worst %.2f of the eye)\n", frames, jumps, worst);
+    CHECK(frames > 1000 && !jumps, "blink reopen: a reopening eye never closes again when a swap is asked mid-blink (%d frames, worst %.2f)",
+          jumps, worst);
+}
+
 static void test_blink_line(void)
 {
     static const bot_mood_t M[] = {BOT_IDLE, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE, BOT_SLEEPY};
@@ -3774,6 +3841,56 @@ static void test_beat_hidden(void)
     }
     printf("beat: %d eye swaps, %d with eye pixels showing (worst %d px)\n", swaps, shown, worst);
     CHECK(swaps > 200 && !shown, "beat: every eye swap lands with no eye pixel showing (%d of %d show, worst %d px)", shown, swaps, worst);
+
+    static const int COSTUME[] = {-1, BOT_EYES_ROUND, BOT_EYES_HAPPY, BOT_EYES_ANGRY};
+    int cswaps = 0, cshown = 0, cworst = 0, asks = 0, late = 0;
+    for (int seed = 1; seed <= 100; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_set_sleep_after(&b, 0);
+        double t = settle_open(&b, 0);
+        if (seed % 3 == 1) bot_set_mood(&b, M[seed % 6], t);
+        bot_act_begin(&b, t);
+        bot_eyes_t eyes = b.eyes;
+        double ask_t = -1;
+        uint64_t r = seed * 0xD1B54A32D192ED03ULL;
+        for (int k = 0; k < 8; k++) {
+            r = r * 6364136223846793005ULL + 1442695040888963407ULL;
+            double at = t + ((r >> 24) % 1000) / 1000.0 * 1.5;
+            for (; t < at; t += 1.0 / 60) {
+                bot_pose_t p = bot_pose(&b, t);
+                if (ask_t >= 0 && t - ask_t >= 0.8) {
+                    late += b.swap_eyes_on_close;
+                    ask_t = -1;
+                }
+                if (p.eyes != eyes) {
+                    int px = eye_px(&p);
+                    cswaps++;
+                    cshown += px > 0;
+                    if (px > cworst) cworst = px;
+                    eyes = p.eyes;
+                }
+            }
+            if (b.blinking || (r >> 40) % 2) bot_blink(&b, t);
+            bot_act_eyes(&b, COSTUME[(r >> 33) % 4], t);
+            if (b.swap_eyes_on_close) ask_t = t;
+            asks++;
+        }
+        for (double end = t + 3; t < end; t += 1.0 / 60) {
+            bot_pose_t p = bot_pose(&b, t);
+            if (p.eyes != eyes) {
+                int px = eye_px(&p);
+                cswaps++;
+                cshown += px > 0;
+                if (px > cworst) cworst = px;
+                eyes = p.eyes;
+            }
+        }
+    }
+    printf("costume: %d asks, %d eye swaps, %d with eye pixels showing (worst %d px)\n", asks, cswaps, cshown, cworst);
+    CHECK(cswaps > 200 && !cshown, "costume: every act eye swap lands with no eye pixel showing, a late ask included (%d of %d show, worst %d px)",
+          cshown, cswaps, cworst);
+    CHECK(!late, "costume: %d asks still not swapped 0.8 s later (an ask too late for the blink closes the lids again)", late);
 }
 
 static void test_error_gaze(void)
@@ -4407,6 +4524,7 @@ int main(void)
     test_error_overlaps();
     test_beat_hidden();
     test_blink_line();
+    test_blink_reopen();
     test_lid_quantum();
     test_wait_phases();
     test_wait_nudge();
