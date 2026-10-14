@@ -79,11 +79,11 @@ RN=$(echo "$REFR" | in_refr_lock 'bool drew = refr_stats_end(&s_refr, d);') &&
     WIRING="$WIRING refr-counters-only-in-the-refr_cb-and-stats_task-sections"
 STATS="$(body "$MAINC" stats_task)"
 echo "$STATS" | grep -qxF '    int failed_logged = 0, refused_logged = 0;' &&
-    echo "$STATS" | grep -qxF '        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);' &&
+    echo "$STATS" | grep -qxF '        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);' &&
     echo "$STATS" | grep -A1 -F 'if (failed > failed_logged) ESP_LOGE(' | tail -1 | grep -qxF '        failed_logged = failed;' &&
-    [ "$(grep -c 'failed_logged' "$MAINC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts without' "$MAINC")" -eq 1 ] ||
+    [ "$(grep -c 'failed_logged' "$MAINC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts since boot without' "$MAINC")" -eq 1 ] ||
     WIRING="$WIRING stats-logs-moment-start-failures-only-when-the-count-grows"
-echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds refused by wx_cloud_shape, drawn blank", refused);' &&
+echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);' &&
     echo "$STATS" | grep -A1 -F 'if (refused > refused_logged) ESP_LOGE(' | tail -1 | grep -qxF '        refused_logged = refused;' &&
     [ "$(grep -c 'refused_logged' "$MAINC")" -eq 3 ] &&
     body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' &&

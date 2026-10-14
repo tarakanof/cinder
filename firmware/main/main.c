@@ -1242,9 +1242,9 @@ static void stats_task(void *arg)
         int moments, bake_ms, failed, refused;
         moment_view_stats(&moments, &bake_ms, &failed, &refused);
         ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
-        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
+        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);
         failed_logged = failed;
-        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds refused by wx_cloud_shape, drawn blank", refused);
+        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);
         refused_logged = refused;
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         for (int i = 0; i < REFR_KINDS; i++)
