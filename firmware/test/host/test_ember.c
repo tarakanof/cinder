@@ -229,19 +229,25 @@ static void test_lead(void)
     CHECK(strlen(small) == 3, "cap respected (%s)", small);
 
     ember_host_info_t was, now;
-    ember_host_lead_info("", "studio", 0, "", 0, &was);
+    ember_host_lead_info("", "studio", 0, "", 1, &was);
     now = was;
-    CHECK(was.lead && !ember_host_lead_new(&was, &now), "same lead and count: not new");
-    ember_host_lead_info("", "studio", 2, "", 0, &now);
-    CHECK(strcmp(now.text, "STUDIO +1") == 0 && now.count == 2 && now.lead == was.lead, "one more host (%s)", now.text);
-    CHECK(ember_host_lead_new(&was, &now), "one more host: new");
-    CHECK(!ember_host_lead_new(&now, &was), "one host fewer: not new");
+    CHECK(was.lead && was.count == 1 && !ember_host_lead_new(&was, &now), "same lead and count: not new");
+    ember_host_lead_info("", "studio", 2, "", 1, &now);
+    CHECK(strcmp(now.text, "STUDIO +1") == 0 && now.count == 1 && now.lead == was.lead, "one more host (%s)", now.text);
+    CHECK(!ember_host_lead_new(&was, &now), "one more host, same sessions: not new");
+    ember_host_lead_info("", "studio", 0, "", 2, &now);
+    CHECK(now.count == 2 && ember_host_lead_new(&was, &now), "no project, one more session on the same host: new");
+    CHECK(!ember_host_lead_new(&now, &was), "one session fewer: not new");
     now = was;
     now.tool = 2;
     now.color = 0x123456;
     CHECK(!ember_host_lead_new(&was, &now), "tool or colour alone: not new");
-    ember_host_lead_info("", "m4", 0, "", 0, &now);
+    ember_host_lead_info("", "m4", 0, "", 1, &now);
     CHECK(ember_host_lead_new(&was, &now), "another lead: new");
+    ember_host_lead_info("", "macbook-pro-1", 0, "", 1, &was);
+    ember_host_lead_info("", "macbook-pro-2", 0, "", 1, &now);
+    CHECK(strcmp(was.text, now.text) == 0 && ember_host_lead_new(&was, &now), "hosts alike in the label: another lead (%s)",
+          now.text);
     ember_host_info_t none = {0};
     CHECK(ember_host_lead_new(&none, &was), "a first lead: new");
     ember_host_lead_info("", "", 0, NULL, 0, &now);
@@ -281,8 +287,18 @@ static void test_project(void)
     CHECK(strlen(out) == EMBER_LABEL_MAX, "the longest text fills the buffer (%zu)", strlen(out));
     ember_host_project_label("ember", -1, out, sizeof out);
     CHECK(strcmp(out, "ember") == 0, "no others (%s)", out);
-    ember_host_project_label("my thread title", 0, out, sizeof out);
-    CHECK(strcmp(out, "my thread...") == 0, "no space before the ellipsis (%s)", out);
+    ember_host_project_label("abcdefgh xyz", 0, out, sizeof out);
+    CHECK(strcmp(out, "abcdefgh...") == 0, "no space before the ellipsis (%s)", out);
+    ember_host_project_label("Add search bar", 0, out, sizeof out);
+    CHECK(strcmp(out, "Add searc...") == 0, "a space at the cut keeps the ellipsis (%s)", out);
+    ember_host_project_label("my-project x", 0, out, sizeof out);
+    CHECK(strcmp(out, "my-projec...") == 0, "a space then more at the cut (%s)", out);
+    ember_host_project_label("abcdefghi  jk", 1, out, sizeof out);
+    CHECK(strcmp(out, "abcdefgh... +1") == 0, "spaces at the cut with +N (%s)", out);
+    ember_host_project_label("a          b", 0, out, sizeof out);
+    CHECK(strcmp(out, "a...") == 0, "a run of spaces before the rest (%s)", out);
+    ember_host_project_label("abcdefghij   ", 0, out, sizeof out);
+    CHECK(strcmp(out, "abcdefghij") == 0, "only spaces after 10: whole (%s)", out);
     ember_host_project_label("  ember  ", 0, out, sizeof out);
     CHECK(strcmp(out, "ember") == 0, "trimmed (%s)", out);
     ember_host_project_label("\xd0\xbf\xd1\x80\xd0\xbe-x\xe2\x80\xa6", 0, out, sizeof out);
@@ -293,6 +309,10 @@ static void test_project(void)
     CHECK(strcmp(out, "abcdefghi...") == 0, "counted in shown characters, not bytes (%s)", out);
     ember_host_project_label("\xf0\x9f\x99\x82", 3, out, sizeof out);
     CHECK(out[0] == 0, "nothing printable: none, no bare +N (%s)", out);
+    ember_host_project_label("? ??? -", 1, out, sizeof out);
+    CHECK(out[0] == 0, "no letter or digit: none (%s)", out);
+    ember_host_project_label("?7", 0, out, sizeof out);
+    CHECK(strcmp(out, "?7") == 0, "one digit is enough (%s)", out);
     ember_host_project_label(NULL, 1, out, sizeof out);
     CHECK(out[0] == 0, "NULL");
     char small[6];
@@ -312,10 +332,10 @@ static void test_project(void)
     ember_host_lead_info("m4", "", 2, "ember", 2, &a);
     CHECK(strcmp(a.sub, "M4") == 0, "host line from source without a lead (%s)", a.sub);
     ember_host_lead_info("", "m4", 3, "", 4, &a);
-    CHECK(strcmp(a.text, "M4 +2") == 0 && a.sub[0] == 0 && a.count == 3, "no project: today's label and host count (%s)",
+    CHECK(strcmp(a.text, "M4 +2") == 0 && a.sub[0] == 0 && a.count == 4, "no project: today's label, sessions counted (%s)",
           a.text);
-    ember_host_lead_info("", "m4", 3, "\xf0\x9f\x99\x82", 4, &a);
-    CHECK(strcmp(a.text, "M4 +2") == 0 && a.count == 3, "unprintable project: today's label (%s)", a.text);
+    ember_host_lead_info("", "m4", 3, "??", 4, &a);
+    CHECK(strcmp(a.text, "M4 +2") == 0 && a.count == 4, "folded to only '?': today's label (%s)", a.text);
 
     ember_host_lead_info("", "m4", 0, "ember", 1, &a);
     ember_host_lead_info("", "m4", 2, "ember", 2, &b);
@@ -327,8 +347,13 @@ static void test_project(void)
     CHECK(ember_host_lead_new(&b, &a), "another project: new");
     ember_host_lead_info("", "m4", 5, "ember", 2, &a);
     CHECK(!ember_host_lead_new(&b, &a), "more hosts, same sessions: not new");
-    ember_host_lead_info("", "m4", 2, "", 0, &a);
-    CHECK(ember_host_lead_new(&b, &a) && a.lead != b.lead, "project gone: another lead");
+    ember_host_lead_info("", "m4", 2, "cinder", 1, &a);
+    CHECK(!ember_host_lead_new(&b, &a), "newest answered, an older one leads with fewer sessions: not new");
+    ember_host_lead_info("", "m4", 2, "", 2, &a);
+    CHECK(ember_host_lead_new(&b, &a) && a.lead != b.lead, "project gone at the same count: another lead");
+    ember_host_lead_info("", "macbook-pro-a", 2, "ember", 2, &a);
+    ember_host_lead_info("", "macbook-pro-b", 2, "ember", 2, &b);
+    CHECK(strcmp(a.sub, b.sub) == 0 && ember_host_lead_new(&a, &b), "same project, hosts alike in the label: new");
 }
 
 int main(void)

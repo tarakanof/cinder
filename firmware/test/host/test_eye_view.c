@@ -9,6 +9,8 @@
 #include "bot_view.h"
 #include "lvgl.h"
 #include "offline_glyph.h"
+#include "tool_marks.h"
+#include <unistd.h>
 
 #define W 472
 #define H 466
@@ -145,6 +147,77 @@ static void test_offline(lv_display_t *d, int eye_bottom)
     CHECK(!left, "online again: the glyph is gone (%d px)", left);
 }
 
+#define HOST_RGB 0x00FF00
+#define CANVAS_X0 66
+#define CANVAS_X1 405
+#define CANVAS_Y0 312
+#define CANVAS_Y1 427
+
+static bool waiting_label(lv_display_t *d, const ember_host_info_t *h)
+{
+    bot_pose_t p = {.mood = BOT_WAITING, .face = BOT_WAITING, .eyes = BOT_EYES_ROUND, .gaze_y = 0.6, .scale_x = 1, .scale_y = 1};
+    bot_view_set_host(h);
+    for (int i = 0; i < 2000; i++) {
+        bot_view_rim_feed(BOT_WAITING, false, true);
+        bot_view_update(&p, 200 + i * 0.01);
+        bot_view_rim_pose(&p, 200 + i * 0.01);
+        lv_refr_now(d);
+        for (int k = 0; k < W * H; k++)
+            if (s_fb[k] == 0x07E0 && k / W > 233 + 70) return true;
+        usleep(5000);
+    }
+    return false;
+}
+
+static void test_label(lv_display_t *d)
+{
+    struct {
+        int tool;
+        const char *lead;
+        int hosts;
+    } c[] = {{EMBER_TOOL_CLAUDE, "macbook-pro", 2}, {EMBER_TOOL_CODEX, "macbook-pro", 2}, {EMBER_TOOL_CLAUDE, "m4", 1}};
+    for (size_t k = 0; k < sizeof c / sizeof c[0]; k++) {
+        ember_host_info_t h = {.color = HOST_RGB, .tool = (uint8_t)c[k].tool};
+        ember_host_lead_info("", c[k].lead, c[k].hosts, "learn-language", 3, &h);
+        bool sub = h.sub[0] != 0;
+        if (!waiting_label(d, &h)) {
+            CHECK(0, "label %zu: no waiting label within 10 s", k);
+            continue;
+        }
+        static int ix[W * H], iy[W * H], gx[W * H], gy[W * H];
+        int ni = 0, ng = 0, main_px = 0, edge = 0;
+        for (int y = 233 + 70; y < H; y++)
+            for (int x = 0; x < W; x++) {
+                uint16_t v = s_fb[y * W + x];
+                double r = hypot(x + 0.5 - 236, y + 0.5 - 233);
+                if (!v || r >= 188) continue;
+                int rr = v >> 11, gg = (v >> 5) & 63, bb = v & 31;
+                bool green = !rr && !bb && gg >= 4, icon = rr || bb;
+                if (!green && !icon) continue;
+                edge += x == CANVAS_X0 || x == CANVAS_X1 || y == CANVAS_Y0 || y == CANVAS_Y1;
+                if (icon) ix[ni] = x, iy[ni++] = y;
+                else if (r < 151) gx[ng] = x, gy[ng++] = y;
+                else main_px++;
+            }
+        uint32_t rgb;
+        int mw, mh, mask = 0, faint = 0;
+        const uint8_t *m = tool_mark(c[k].tool, &rgb, &mw, &mh);
+        for (int i = 0; m && i < mw * mh; i++) mask += m[i] >= 32, faint += m[i] > 0;
+        double gap = 1e9;
+        for (int i = 0; i < ni; i++)
+            for (int j = 0; j < ng; j++) gap = fmin(gap, hypot(ix[i] - gx[j], iy[i] - gy[j]));
+        printf("label %s, host line '%s': %d main px, %d host-line px, icon %d px (mask %d-%d), %d at the canvas edge",
+               h.text, h.sub, main_px, ng, ni, mask, faint, edge);
+        if (sub) printf(", icon to host line %.1f px", gap);
+        printf("\n");
+        CHECK(main_px > 600, "label %zu: the project is drawn (%d px)", k, main_px);
+        CHECK(sub ? ng > 300 : ng == 0, "label %zu: the host line %s (%d px)", k, sub ? "is drawn" : "is absent", ng);
+        CHECK(!edge, "label %zu: nothing clipped at the canvas edge (%d px)", k, edge);
+        CHECK(ni >= mask && ni <= faint, "label %zu: the whole icon (%d px, mask %d-%d)", k, ni, mask, faint);
+        CHECK(!sub || gap >= 4, "label %zu: icon at least 4 px from the host line (%.1f)", k, gap);
+    }
+}
+
 int main(void)
 {
     lv_init();
@@ -199,6 +272,7 @@ int main(void)
             }
     }
     test_offline(d, eye_bottom);
+    test_label(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;
 }

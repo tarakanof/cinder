@@ -34,16 +34,16 @@ typedef enum { EMBER_TOOL_NONE = 0, EMBER_TOOL_CLAUDE, EMBER_TOOL_CODEX, EMBER_T
 
 typedef struct {
     char text[EMBER_LABEL_MAX + 1];
-    char sub[EMBER_HOST_MAX + 1];   /* small second line under the icon; "" for none */
+    char sub[EMBER_HOST_MAX + 1];
     int32_t color;   /* 0xRRGGBB; -1 = use the mood colour */
     uint8_t tool;
-    uint32_t lead;   /* who leads: 0 for nobody */
-    int count;       /* waiting sessions with a project, else hosts */
+    uint32_t lead;   /* 0 for nobody */
+    int count;       /* waiting sessions */
 } ember_host_info_t;
 
 void ember_host_lead_label(const char *source, const char *lead, int hosts, char *out, size_t cap);
 
-/* Printable ASCII of project only (other bytes, so whole UTF-8 sequences, are dropped); "" when none is left.
+/* Printable ASCII of project only (other bytes, so whole UTF-8 sequences, are dropped); "" without a letter or digit.
    At most EMBER_LABEL_SLOTS slots, EMBER_ELLIPSIS counting as one; others > 0 adds " +N" (N capped at 99). */
 void ember_host_project_label(const char *project, int others, char *out, size_t cap);
 
@@ -53,7 +53,7 @@ void ember_host_lead_info(const char *source, const char *lead, int hosts, const
 
 int32_t ember_host_color(const char *hex);
 
-/* Another lead, or a higher count than before. */
+/* A higher count, or another lead at the same count. */
 bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now);
 
 ember_tool_t ember_host_tool(const char *s);

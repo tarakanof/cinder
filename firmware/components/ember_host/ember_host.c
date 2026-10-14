@@ -144,29 +144,31 @@ void ember_host_lead_label(const char *source, const char *lead, int hosts, char
     strlcat_(out, suffix, cap);
 }
 
-static size_t printable(const char *src, char *out, size_t cap)
-{
-    size_t k = 0;
-    for (const unsigned char *p = (const unsigned char *)(src ? src : ""); *p && k + 1 < cap; p++)
-        if (*p >= 0x20 && *p <= 0x7e && (k || *p != ' ')) out[k++] = (char)*p;
-    while (k && out[k - 1] == ' ') k--;
-    out[k] = 0;
-    return k;
-}
+static bool shown(unsigned char c) { return c >= 0x20 && c <= 0x7e; }
+
+static bool alnum(unsigned char c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
 
 void ember_host_project_label(const char *project, int others, char *out, size_t cap)
 {
-    char name[EMBER_PROJECT_SLOTS + 2];
+    char name[EMBER_PROJECT_SLOTS + 1];
+    size_t n = 0;
+    bool word = false, more = false;
     out[0] = 0;
-    size_t n = printable(project, name, sizeof name);
-    if (!n) return;
+    for (const unsigned char *p = (const unsigned char *)(project ? project : ""); *p; p++) {
+        if (!shown(*p) || (!n && *p == ' ')) continue;
+        word |= alnum(*p);
+        if (n < EMBER_PROJECT_SLOTS) name[n++] = (char)*p;
+        else more |= *p != ' ';
+    }
+    while (n && name[n - 1] == ' ') n--;
+    if (!word) return;
     char suffix[8] = "";
     if (others > 0) snprintf(suffix, sizeof suffix, " +%d", others > 99 ? 99 : others);
     size_t room = EMBER_LABEL_SLOTS - strlen(suffix);
     if (room > EMBER_PROJECT_SLOTS) room = EMBER_PROJECT_SLOTS;
     const char *cut = "";
-    if (n > room) {
-        n = room - 1;
+    if (n > room || more) {
+        if (n > room - 1) n = room - 1;
         while (n && name[n - 1] == ' ') n--;
         cut = EMBER_ELLIPSIS;
     }
@@ -182,24 +184,22 @@ static uint32_t fnv(uint32_t h, const char *s)
 void ember_host_lead_info(const char *source, const char *lead, int hosts, const char *project, int waiting,
                           ember_host_info_t *out)
 {
-    char host[EMBER_HOST_MAX + 1];
-    ember_host_lead_label(source, lead, 1, host, sizeof host);
+    const char *who = lead && *lead ? lead : source ? source : "";
     ember_host_project_label(project, waiting - 1, out->text, sizeof out->text);
     out->sub[0] = 0;
+    out->count = waiting;
     if (out->text[0]) {
-        if (hosts > 1) snprintf(out->sub, sizeof out->sub, "%s", host);
-        out->lead = fnv(fnv(2166136261u, project), host) | 1;
-        out->count = waiting;
+        if (hosts > 1) ember_host_lead_label(source, lead, 1, out->sub, sizeof out->sub);
+        out->lead = fnv(fnv(2166136261u, project), who) | 1;
         return;
     }
     ember_host_lead_label(source, lead, hosts, out->text, sizeof out->text);
-    out->lead = host[0] ? fnv(2166136261u, host) | 1 : 0;
-    out->count = hosts;
+    out->lead = *who ? fnv(2166136261u, who) | 1 : 0;
 }
 
 bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now)
 {
-    return was->lead != now->lead || now->count > was->count;
+    return now->count > was->count || (now->lead != was->lead && now->count == was->count);
 }
 
 int32_t ember_host_color(const char *hex)
