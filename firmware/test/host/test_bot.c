@@ -2772,7 +2772,7 @@ static void test_wait_restart(void)
     double t = 0;
     wait_to(&b, &t, 200);
     CHECK(b.w_phase == 3, "phase C at 200 s, got %d", b.w_phase);
-    bot_wait_restart(&b, t);
+    bot_wait_restart(&b, t, true);
     CHECK(b.w_t0 == 0 && b.w_phase == 3, "phase C before a reminder period: no restart yet");
     wait_run(&b, t, 125, 1.0 / 120, &w);
     bool remind = false;
@@ -2782,11 +2782,26 @@ static void test_wait_restart(void)
           "a restart asked at 200 s waits for the gate: phase A from %.2f s, first hop %.2f s after, no reminder", b.w_t0,
           w.hops ? w.hop[0].t - b.w_t0 : -1);
 
+    for (int how = 0; how < 2; how++) {
+        bot_init(&b, 0x5E, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        t = 0;
+        if (how) bot_set_calm(&b, true, 0);
+        wait_to(&b, &t, 200);
+        if (how) bot_set_calm(&b, false, t);
+        else bot_wait_restart(&b, t, false);
+        wait_run(&b, t, 105, 1.0 / 120, &w);
+        int rem = 0;
+        for (int i = 0; i < w.hops; i++) rem += w.hop[i].kind == HOP_REMIND;
+        CHECK(b.w_t0 == 0 && b.w_phase == 3 && rem == 1 && !b.w_pending,
+              "%s at 200 s, no latch: dropped, the 300 s reminder comes (%d) and w_t0 stays %.2f", how ? "calm off" : "the page shown", rem, b.w_t0);
+    }
+
     bot_init(&b, 0x5E, 0);
     bot_set_mood(&b, BOT_WAITING, 0);
     t = 0;
     wait_to(&b, &t, 320);
-    bot_wait_restart(&b, t);
+    bot_wait_restart(&b, t, true);
     wait_run(&b, t, 25, 1.0 / 120, &w);
     CHECK(w.hops >= 5 && fabs(w.hop[0].t - t - 0.6) < 0.01 && w.nudges == 0 && b.w_phase == 2,
           "restart: phase A again, first hop %.2f s after, %d hops, %d nudges", w.hops ? w.hop[0].t - t : -1, w.hops, w.nudges);
@@ -2796,9 +2811,9 @@ static void test_wait_restart(void)
     t = 0;
     wait_to(&b, &t, 10);
     double w0 = b.w_t0;
-    bot_wait_restart(&b, t);
+    bot_wait_restart(&b, t, true);
     wait_to(&b, &t, 100);
-    bot_wait_restart(&b, t);
+    bot_wait_restart(&b, t, true);
     CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart yet");
     wait_to(&b, &t, BOT_WAIT_REMIND_S + 1);
     CHECK(b.w_t0 >= BOT_WAIT_REMIND_S && b.w_t0 < BOT_WAIT_REMIND_S + 0.02 && b.w_phase == 1 && !b.w_pending,
@@ -2812,7 +2827,7 @@ static void test_wait_restart(void)
     wait_to(&b, &t, BOT_WAIT_REMIND_S - 1);
     double h0 = b.hop_start;
     for (; b.hop_start == h0; t += 1.0 / 120) bot_pose(&b, t);
-    bot_wait_restart(&b, b.hop_start + 0.05);
+    bot_wait_restart(&b, b.hop_start + 0.05, true);
     double first = b.hop_start, end = first + b.hop_len;
     wait_run(&b, t, 3, 1.0 / 120, &w);
     CHECK(!w.snaps && w.hops >= 1 && w.hop[0].t >= end - 1e-9 && w.hop[0].t < end + 0.02 && b.burst_hop_at == INFINITY,
@@ -2846,7 +2861,7 @@ static void test_wait_restart(void)
                 hops += b.hop_start != was.hop_start && b.hopping;
                 c_seen += b.w_phase == 3 && was.w_phase != 3;
                 if (t >= next) {
-                    bot_wait_restart(&b, t);
+                    bot_wait_restart(&b, t, true);
                     next += every[i];
                 }
             }
@@ -2862,7 +2877,7 @@ static void test_wait_restart(void)
     bot_set_mood(&o, BOT_ERROR, 0);
     for (t = 0; t < 30; t += 1.0 / 60) bot_pose(&o, t);
     bot_t c = o;
-    bot_wait_restart(&o, t);
+    bot_wait_restart(&o, t, true);
     CHECK(memcmp(&c, &o, sizeof c) == 0, "restart outside waiting changes nothing");
 
     bot_init(&b, 0x60, 0);

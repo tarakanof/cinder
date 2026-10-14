@@ -141,8 +141,9 @@ void bot_hold_gaze(bot_t *b, double until);
 /* A quiet weather moment on: working's gaze stays in y -0.19..0.15 from this frame (lines 0-2, no mark, turns at the viewer). */
 void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
-/* Waiting back to phase A once a reminder period has passed since the last start, asked earlier: when it has; nothing in other moods. */
-void bot_wait_restart(bot_t *b, double t);
+/* Waiting back to phase A if a reminder period has passed since the last start; earlier, at that moment with latch, else
+   not at all; nothing in other moods. */
+void bot_wait_restart(bot_t *b, double t, bool latch);
 /* scene: the playing demo scene's number, 0 none; nonzero takes the demo timings, a change restarts waiting at A. */
 void bot_wait_scene(bot_t *b, unsigned scene, double t);
 /* A demo's hop or pop alone, whatever the calm or an act; done once hopping or popping is false again. */

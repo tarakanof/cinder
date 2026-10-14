@@ -503,7 +503,6 @@ static void swap_eyes(bot_t *b, double t)
     if (b->face != b->mood) beat(b, t);
     b->eyes = eyes_now(b);
     b->swap_eyes_on_close = false;
-    b->beat_held = false;
 }
 
 static double giggle_lid(const bot_t *b, double t)
@@ -586,15 +585,15 @@ void bot_set_calm(bot_t *b, bool calm, double t)
 {
     if (calm == b->calm) return;
     b->calm = calm;
-    if (!calm) bot_wait_restart(b, t);
+    if (!calm) bot_wait_restart(b, t, false);
 }
 
-void bot_wait_restart(bot_t *b, double t)
+void bot_wait_restart(bot_t *b, double t, bool latch)
 {
     double rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
     if (b->mood != BOT_WAITING) return;
     if (t - b->w_t0 >= rem) wait_restart(b, t);
-    else b->w_pending = true;
+    else if (latch) b->w_pending = true;
 }
 
 void bot_wait_scene(bot_t *b, unsigned scene, double t)

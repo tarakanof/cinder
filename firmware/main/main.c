@@ -779,7 +779,8 @@ void page_bot_frame(const page_frame_t *f)
     const gc_out_t *chase = &f->chase;
     ember_host_info_t host;
     ember_client_host(&host);
-    if (s_bot_shown || ember_host_lead_new(&s_wait_host, &host)) bot_wait_restart(&s_bot, t);
+    if (ember_host_lead_new(&s_wait_host, &host)) bot_wait_restart(&s_bot, t, true);
+    else if (s_bot_shown) bot_wait_restart(&s_bot, t, false);
     s_bot_shown = false;
     s_wait_host = host;
     bot_view_set_host(&host);
