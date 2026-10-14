@@ -596,7 +596,7 @@ static void test_glint_chase(void)
         } else if (!ho.follow) {
             if (aim == GC_AIM_TRACK) {
                 tracks++;
-                held[snapped_at]++;
+                if (snapped_at < 5) held[snapped_at]++;
                 off_target += deg != last_target;
             } else {
                 nones++;
@@ -608,8 +608,9 @@ static void test_glint_chase(void)
     CHECK(stale == 4 && nones > 0 && tracks > 0, "between its snap and the next follow the half chase holds still (%d stale, %d none, %d track)",
           stale, nones, tracks);
     CHECK(!off_target && held[0] && held[1] && held[2] && held[3] && held[4],
-          "between a follow and its snap the half chase holds at the last target in every lap (%d off, %d %d %d %d %d held)", off_target,
-          held[0], held[1], held[2], held[3], held[4]);
+          "the half chase holds at its last target after the reset and after each snap (%d off; held %d after the reset, "
+          "%d %d %d %d after each snap)",
+          off_target, held[0], held[1], held[2], held[3], held[4]);
     saved = hc;
     saved.snapped = false;
     saved.hold_deg = 123;

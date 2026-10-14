@@ -148,21 +148,33 @@ static void test_offline(lv_display_t *d, int eye_bottom)
 }
 
 #define HOST_RGB 0x00FF00
-#define CANVAS_X0 66
-#define CANVAS_X1 405
-#define CANVAS_Y0 312
-#define CANVAS_Y1 427
+#define CANVAS_X0 (W / 2 - BOT_VIEW_LABEL_W / 2)
+#define CANVAS_X1 (CANVAS_X0 + BOT_VIEW_LABEL_W - 1)
+#define CANVAS_Y0 BOT_VIEW_LABEL_Y
+#define CANVAS_Y1 (BOT_VIEW_LABEL_Y + BOT_VIEW_LABEL_H - 1)
 
-static bool waiting_label(lv_display_t *d, const ember_host_info_t *h)
+static bool rim_in(bot_mood_t m)
 {
-    bot_pose_t p = {.mood = BOT_WAITING, .face = BOT_WAITING, .eyes = BOT_EYES_ROUND, .gaze_y = 0.6, .scale_x = 1, .scale_y = 1};
+    int amber = 0, blue = 0;
+    for (int k = 0; k < W * 150; k++) {
+        int r = s_fb[k] >> 11, b = s_fb[k] & 31;
+        amber += r > b + 8;
+        blue += b > r + 8;
+    }
+    return m == BOT_DONE ? blue > 500 && !amber : amber > 500 && !blue;
+}
+
+static bool shown_label(lv_display_t *d, const ember_host_info_t *h, bot_mood_t m, bot_eyes_t eyes)
+{
+    bot_pose_t p = {.mood = m, .face = m, .eyes = eyes, .gaze_y = 0.6, .scale_x = 1, .scale_y = 1};
     bot_view_set_host(h);
     for (int i = 0; i < 2000; i++) {
-        bot_view_rim_feed(BOT_WAITING, false, true);
+        bot_view_rim_feed(m, false, true);
         bot_view_update(&p, 200 + i * 0.01);
         bot_view_rim_pose(&p, 200 + i * 0.01);
         lv_refr_now(d);
-        for (int k = 0; k < W * H; k++)
+        bool rim = rim_in(m);
+        for (int k = 0; rim && k < W * H; k++)
             if (s_fb[k] == 0x07E0 && k / W > 233 + 70) return true;
         usleep(5000);
     }
@@ -174,30 +186,43 @@ static void test_label(lv_display_t *d)
     struct {
         int tool;
         const char *lead;
-        int hosts;
-    } c[] = {{EMBER_TOOL_CLAUDE, "macbook-pro", 2}, {EMBER_TOOL_CODEX, "macbook-pro", 2}, {EMBER_TOOL_CLAUDE, "m4", 1}};
+        int hosts, waiting, done;
+        bot_mood_t mood;
+        bot_eyes_t eyes;
+    } c[] = {
+        {EMBER_TOOL_CLAUDE, "macbook-pro", 2, 3, 0, BOT_WAITING, BOT_EYES_ROUND},
+        {EMBER_TOOL_CODEX, "macbook-pro", 2, 3, 0, BOT_WAITING, BOT_EYES_ROUND},
+        {EMBER_TOOL_CLAUDE, "m4", 1, 3, 0, BOT_WAITING, BOT_EYES_ROUND},
+        {EMBER_TOOL_CLAUDE, "macbook-pro", 2, 0, 3, BOT_DONE, BOT_EYES_HAPPY},
+        {EMBER_TOOL_CODEX, "m4", 1, 0, 3, BOT_DONE, BOT_EYES_HAPPY},
+        {EMBER_TOOL_CLAUDE, "macbook-pro", 2, 3, 0, BOT_WAITING, BOT_EYES_ROUND},
+    };
     for (size_t k = 0; k < sizeof c / sizeof c[0]; k++) {
         ember_host_info_t h = {.color = HOST_RGB, .tool = (uint8_t)c[k].tool};
-        ember_host_lead_info("", c[k].lead, c[k].hosts, "learn-language", 3, &h);
+        ember_host_lead_info("", c[k].lead, c[k].hosts, "learn-language", c[k].waiting, c[k].done, &h);
         bool sub = h.sub[0] != 0;
-        if (!waiting_label(d, &h)) {
-            CHECK(0, "label %zu: no waiting label within 10 s", k);
+        CHECK(!strcmp(h.text, "learn-la... +2") && sub == (c[k].hosts > 1), "label %zu: '%s' over '%s'", k, h.text, h.sub);
+        if (!shown_label(d, &h, c[k].mood, c[k].eyes)) {
+            CHECK(0, "label %zu: no label on the %s outline within 10 s", k, c[k].mood == BOT_DONE ? "done" : "waiting");
             continue;
         }
         static int ix[W * H], iy[W * H], gx[W * H], gy[W * H];
-        int ni = 0, ng = 0, main_px = 0, edge = 0;
+        int ni = 0, ng = 0, main_px = 0, edge = 0, mx0 = W, mx1 = -1, my0 = H, my1 = -1;
         for (int y = 233 + 70; y < H; y++)
             for (int x = 0; x < W; x++) {
                 uint16_t v = s_fb[y * W + x];
                 double r = hypot(x + 0.5 - 236, y + 0.5 - 233);
-                if (!v || r >= 188) continue;
+                if (!v) continue;
                 int rr = v >> 11, gg = (v >> 5) & 63, bb = v & 31;
-                bool green = !rr && !bb && gg >= 4, icon = rr || bb;
+                bool green = !rr && !bb && gg >= 4, icon = (rr || bb) && r < 188;
                 if (!green && !icon) continue;
                 edge += x == CANVAS_X0 || x == CANVAS_X1 || y == CANVAS_Y0 || y == CANVAS_Y1;
                 if (icon) ix[ni] = x, iy[ni++] = y;
                 else if (r < 151) gx[ng] = x, gy[ng++] = y;
-                else main_px++;
+                else {
+                    main_px++;
+                    mx0 = x < mx0 ? x : mx0, mx1 = x > mx1 ? x : mx1, my0 = y < my0 ? y : my0, my1 = y > my1 ? y : my1;
+                }
             }
         uint32_t rgb;
         int mw, mh, mask = 0, faint = 0;
@@ -206,11 +231,13 @@ static void test_label(lv_display_t *d)
         double gap = 1e9;
         for (int i = 0; i < ni; i++)
             for (int j = 0; j < ng; j++) gap = fmin(gap, hypot(ix[i] - gx[j], iy[i] - gy[j]));
-        printf("label %s, host line '%s': %d main px, %d host-line px, icon %d px (mask %d-%d), %d at the canvas edge",
-               h.text, h.sub, main_px, ng, ni, mask, faint, edge);
+        printf("label %s %s, host line '%s': %d main px in x %d..%d y %d..%d, %d host-line px, icon %d px (mask %d-%d), %d at the canvas edge",
+               c[k].mood == BOT_DONE ? "done" : "waiting", h.text, h.sub, main_px, mx0, mx1, my0, my1, ng, ni, mask, faint, edge);
         if (sub) printf(", icon to host line %.1f px", gap);
         printf("\n");
-        CHECK(main_px > 600, "label %zu: the project is drawn (%d px)", k, main_px);
+        CHECK(main_px >= 1200, "label %zu: the whole project is drawn (%d px)", k, main_px);
+        CHECK(abs(mx0 - 154) <= 1 && abs(mx1 - 320) <= 1 && abs(my0 - 368) <= 1 && abs(my1 - 408) <= 1,
+              "label %zu: the project sits on its arc, x 154..320 y 368..408 (x %d..%d y %d..%d)", k, mx0, mx1, my0, my1);
         CHECK(sub ? ng > 300 : ng == 0, "label %zu: the host line %s (%d px)", k, sub ? "is drawn" : "is absent", ng);
         CHECK(!edge, "label %zu: nothing clipped at the canvas edge (%d px)", k, edge);
         CHECK(ni >= mask && ni <= faint, "label %zu: the whole icon (%d px, mask %d-%d)", k, ni, mask, faint);

@@ -6,6 +6,9 @@
 
 #define BOT_VIEW_EYE_SCALE 1.15
 #define BOT_VIEW_OFFLINE_DY 140
+#define BOT_VIEW_LABEL_W 340
+#define BOT_VIEW_LABEL_H 116
+#define BOT_VIEW_LABEL_Y 312
 
 void bot_view_create(lv_obj_t *parent);
 /* LVGL task only; t: the frame's time, bot_pose's clock. */

@@ -52,10 +52,10 @@ static int s_rim_shape = -1;
 static bot_mood_t s_rim_mood = (bot_mood_t)-1;
 static int s_rim_dy;
 static lv_obj_t *s_badge_gap, *s_badge_dot;
-#define LABEL_W 340
-#define LABEL_H 116
+#define LABEL_W BOT_VIEW_LABEL_W
+#define LABEL_H BOT_VIEW_LABEL_H
 #define LABEL_X ((int)CX - LABEL_W / 2)
-#define LABEL_Y 312
+#define LABEL_Y BOT_VIEW_LABEL_Y
 #define LABEL_R 176.0f
 #define LABEL_ICON_CELL 4
 #define LABEL_ICON_MAX_W TOOL_MARK_MAX_W
@@ -414,7 +414,7 @@ static void label_draw(void)
     bool marked = bot_label_mark(s_rim_mood);
     const uint8_t *mark = marked ? tool_mark(s_host.tool, &mark_rgb, &mark_w, &mark_h) : NULL;
     bool icon = marked && (mark || arc_tool_icon(s_host.tool, body, feat));
-    const char *sub = s_rim_mood == BOT_WAITING ? s_host.sub : "";
+    const char *sub = s_rim_mood == BOT_WAITING || s_rim_mood == BOT_DONE ? s_host.sub : "";
 
     /* LVGL cannot render into RGB565A8: draw ARGB8888, keep the drawn bounds. */
     uint32_t *scratch = heap_caps_malloc(LABEL_W * LABEL_H * 4, MALLOC_CAP_SPIRAM);
@@ -458,7 +458,7 @@ static void label_draw(void)
 static void host_sync(void)
 {
     bool show = s_opt_label && s_host.text[0] &&
-                (s_rim_mood == BOT_WAITING || s_rim_mood == BOT_ERROR || s_rim_mood == BOT_WORKING);
+                (s_rim_mood == BOT_WAITING || s_rim_mood == BOT_ERROR || s_rim_mood == BOT_WORKING || s_rim_mood == BOT_DONE);
     if (show && (s_label_dirty || s_label_mood != (int)s_rim_mood)) label_draw();
     if (show == lv_obj_has_flag(s_label, LV_OBJ_FLAG_HIDDEN)) {
         if (show) lv_obj_remove_flag(s_label, LV_OBJ_FLAG_HIDDEN);

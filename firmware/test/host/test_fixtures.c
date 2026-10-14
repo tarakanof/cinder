@@ -103,7 +103,7 @@ static void test_view_full(void)
     CHECK(strcmp(v.lead_color, "#FFAA00") == 0 && strcmp(v.tool, "codex") == 0, "colour %s tool %s", v.lead_color, v.tool);
     CHECK(strcmp(v.lead_project, "example-api") == 0, "lead_project %s", v.lead_project);
     ember_host_info_t h;
-    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, &h);
+    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, v.done, &h);
     CHECK(strcmp(h.text, "example-... +2") == 0 && strcmp(h.sub, "LAPTOP") == 0 && h.count == 3,
           "label %s, host line %s, count %d", h.text, h.sub, h.count);
     CHECK(v.has_pomo && v.pomo_counting && v.ends_at == 1782044700LL && v.pomo.remaining_sec == 0, "counting pomo");
@@ -163,7 +163,7 @@ static void test_view_single_host_paused(void)
           v.source);
     CHECK(strcmp(v.tool, "claude") == 0, "tool");
     ember_host_info_t h;
-    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, &h);
+    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, v.done, &h);
     CHECK(v.lead_project[0] == 0 && strcmp(h.text, "STUDIO") == 0 && h.sub[0] == 0, "no project: host label %s", h.text);
     CHECK(v.has_pomo && !v.pomo_counting && v.ends_at == 0, "paused: no ends_at");
     CHECK(v.pomo.phase == POMO_PHASE_FOCUS && v.pomo.paused && v.pomo.remaining_sec == 1400 && v.pomo.planned_sec == 1500,
