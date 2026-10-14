@@ -32,7 +32,7 @@ if [ "$OTA_CALLS" -eq 0 ] || [ "$OTA_BAD" -ne 0 ]; then
 fi
 echo "ota call sites: $OTA_CALLS pass step.ota_status"
 OCL="$D/../../main/ota_client.c"
-body() { awk -v f="$2" '$0 ~ "^(static )?[a-z_][a-z_0-9 ]*[ *]" f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
+body() { awk -v f="$2" '$0 ~ "^(static )?[a-z_][a-z_0-9 ]*[ *]" f "\\(" && !/;$/ {on=1} on {print} on && /^}/ {exit}' "$1"; }
 WIRING=""
 body "$OCL" dl_write | grep -q 'ota_piece_write(&io, &d->yield_ms, ' || WIRING="$WIRING dl_write-must-call-ota_piece_write"
 body "$OCL" dl_write | grep -q 'esp_ota_write(' && WIRING="$WIRING dl_write-must-not-call-esp_ota_write"
@@ -554,11 +554,14 @@ fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_
 body "$MAINC" scene_end | awk '/^    s_half = s_scene_half;$/ {h = NR} /^    if \(s_half\.snapped\) \{$/ {i = NR}
     /^        s_half\.snapped = false;$/ {f = NR} /^        s_half\.hold_deg = 0;$/ {d = NR} END {exit !(h && i == h + 1 && f == i + 1 && d == f + 1)}' ||
     WIRING="$WIRING scene_end-re-aims-a-snapped-half-chase"
+body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            if \(s_scene_on\) \{$/ {o = NR} /^                ember_client_demo_input\(\);$/ {i = NR}
+    /^                scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
+    END {exit !(p && o == p + 1 && i == o + 1 && e == i + 1 && r == e + 2 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-scene"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy during a scene, a snapped half chase re-aimed"
+echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy during a scene, a snapped half chase re-aimed, OTA ends a scene"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
 body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||
