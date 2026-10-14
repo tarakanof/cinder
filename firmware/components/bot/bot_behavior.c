@@ -335,7 +335,7 @@ static void start_saccade_to(bot_t *b, double t, int kind, double tx, double ty)
     if (kind == SAC_TURN || kind == SAC_PEEK || (kind == SAC_SWEEP && amp > COVER_AMP)) {
         double lead = blink_cover(b, t);
         if (amp > COVER_AMP) b->gaze_start += lead;
-    } else if (!glide && amp > 0.8 && !b->blinking && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
+    } else if (!glide && amp > 0.8 && !blink_on(b, t) && t - b->last_blink_at > 1.2 && rng_unit(b) < 0.6) {
         start_blink(b, t);
     }
     double s = b->gaze_start, lean_dur = glide ? 0.5 : 0.2;

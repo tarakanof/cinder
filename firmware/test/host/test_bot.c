@@ -2382,6 +2382,37 @@ static void test_reading_blink_phases(void)
     CHECK(!stuck, "reading: %d jumps leave a blink unfinished", stuck);
 }
 
+static void test_coupled_blink_expired(void)
+{
+    int big = 0, coupled = 0, stale = 0;
+    for (int seed = 0; seed < 40; seed++) {
+        bot_t b;
+        bot_init(&b, 0xC0B1 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_SLEEPY, 0);
+        double t = 0;
+        for (; t < 4; t += 1.0 / 60) bot_pose(&b, t);
+        b.blinking = b.blink_heavy = true;
+        b.double_blink_pending = false;
+        b.blink_hold = 0.5;
+        b.blink_lag = 0;
+        b.blink_start = b.last_blink_at = t - 1.3;
+        b.next_blink_at = t + 100;
+        b.gaze_from_x = b.gaze_to_x = b.fix_x = 0;
+        b.gaze_from_y = b.gaze_to_y = b.fix_y = 0.9;
+        b.gaze_start = t - 2;
+        b.next_saccade_at = t;
+        bot_pose(&b, t);
+        if (hypot(b.gaze_to_x - b.gaze_from_x, b.gaze_to_y - b.gaze_from_y) <= 0.8) continue;
+        big++;
+        coupled += b.last_blink_at == t;
+        stale += b.blinking && b.blink_start < t;
+    }
+    printf("coupled blink: %d of %d big sleepy saccades blink on the frame an expired heavy blink is still flagged\n", coupled, big);
+    CHECK(big == 40 && coupled >= 16 && coupled <= 32 && !stale,
+          "a heavy blink over before a big saccade's frame: the saccade's 60 %% coupled blink still draws (%d of %d, %d stale)", coupled, big,
+          stale);
+}
+
 static void test_reading_entry(void)
 {
     int n = 0, bad = 0, glances = 0;
@@ -3577,6 +3608,7 @@ int main(void)
     test_reading_moment();
     test_reading_blink_phases();
     test_reading_entry();
+    test_coupled_blink_expired();
     test_micro_saccades();
     test_outline_dy();
     test_badged_rest();
