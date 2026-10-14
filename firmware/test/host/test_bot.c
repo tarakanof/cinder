@@ -571,13 +571,15 @@ static void test_glint_chase(void)
     CHECK(passes_blinks[1] == 3 && passes_blinks[2] == 2, "3 then 2 blinks: %d %d", passes_blinks[1], passes_blinks[2]);
     gc_half_chase_t hc, saved, back;
     gc_half_chase_reset(&hc);
-    int snapped_at = 0, tracks = 0, nones = 0, stale = 0, resumed = 0;
+    int snapped_at = 0, tracks = 0, nones = 0, stale = 0, resumed = 0, held[5] = {0}, off_target = 0;
+    double last_target = 0;
     for (int k = 0; k < 4 * 180; k++) {
         double psi = -90 + 2 * k, deg = -1;
         gc_half_out_t ho;
         gc_aim_t aim = gc_half_chase_step(&hc, psi, 15, &ho, &deg);
         double q = fmod(psi + 720, 360);
         if (ho.follow) CHECK(aim == GC_AIM_TRACK && deg == ho.target_deg, "half chase follows its target at %g", q);
+        if (ho.follow) last_target = ho.target_deg;
         if (aim == GC_AIM_SNAP) {
             snapped_at++;
             saved = hc;
@@ -592,14 +594,22 @@ static void test_glint_chase(void)
             resumed += !o1.follow && a1 == GC_AIM_TRACK && d1 == 0;
             stale += !o2.follow && a2 == GC_AIM_NONE;
         } else if (!ho.follow) {
-            if (aim == GC_AIM_TRACK) tracks++;
-            else nones++;
+            if (aim == GC_AIM_TRACK) {
+                tracks++;
+                held[snapped_at]++;
+                off_target += deg != last_target;
+            } else {
+                nones++;
+            }
         }
     }
     CHECK(snapped_at == 4 && resumed == 4, "a scene that caught the half chase after its snap re-aims at the snap point: %d of %d", resumed,
           snapped_at);
     CHECK(stale == 4 && nones > 0 && tracks > 0, "between its snap and the next follow the half chase holds still (%d stale, %d none, %d track)",
           stale, nones, tracks);
+    CHECK(!off_target && held[0] && held[1] && held[2] && held[3] && held[4],
+          "between a follow and its snap the half chase holds at the last target in every lap (%d off, %d %d %d %d %d held)", off_target,
+          held[0], held[1], held[2], held[3], held[4]);
     saved = hc;
     saved.snapped = false;
     saved.hold_deg = 123;
