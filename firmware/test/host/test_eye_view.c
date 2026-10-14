@@ -153,6 +153,17 @@ static void test_offline(lv_display_t *d, int eye_bottom)
 #define CANVAS_Y0 BOT_VIEW_LABEL_Y
 #define CANVAS_Y1 (BOT_VIEW_LABEL_Y + BOT_VIEW_LABEL_H - 1)
 
+static bool rim_in(bot_mood_t m)
+{
+    int amber = 0, blue = 0;
+    for (int k = 0; k < W * 150; k++) {
+        int r = s_fb[k] >> 11, b = s_fb[k] & 31;
+        amber += r > b + 8;
+        blue += b > r + 8;
+    }
+    return m == BOT_DONE ? blue > 500 && !amber : amber > 500 && !blue;
+}
+
 static bool shown_label(lv_display_t *d, const ember_host_info_t *h, bot_mood_t m, bot_eyes_t eyes)
 {
     bot_pose_t p = {.mood = m, .face = m, .eyes = eyes, .gaze_y = 0.6, .scale_x = 1, .scale_y = 1};
@@ -162,7 +173,8 @@ static bool shown_label(lv_display_t *d, const ember_host_info_t *h, bot_mood_t 
         bot_view_update(&p, 200 + i * 0.01);
         bot_view_rim_pose(&p, 200 + i * 0.01);
         lv_refr_now(d);
-        for (int k = 0; k < W * H; k++)
+        bool rim = rim_in(m);
+        for (int k = 0; rim && k < W * H; k++)
             if (s_fb[k] == 0x07E0 && k / W > 233 + 70) return true;
         usleep(5000);
     }
@@ -183,6 +195,7 @@ static void test_label(lv_display_t *d)
         {EMBER_TOOL_CLAUDE, "m4", 1, 3, 0, BOT_WAITING, BOT_EYES_ROUND},
         {EMBER_TOOL_CLAUDE, "macbook-pro", 2, 0, 3, BOT_DONE, BOT_EYES_HAPPY},
         {EMBER_TOOL_CODEX, "m4", 1, 0, 3, BOT_DONE, BOT_EYES_HAPPY},
+        {EMBER_TOOL_CLAUDE, "macbook-pro", 2, 3, 0, BOT_WAITING, BOT_EYES_ROUND},
     };
     for (size_t k = 0; k < sizeof c / sizeof c[0]; k++) {
         ember_host_info_t h = {.color = HOST_RGB, .tool = (uint8_t)c[k].tool};
@@ -190,7 +203,7 @@ static void test_label(lv_display_t *d)
         bool sub = h.sub[0] != 0;
         CHECK(!strcmp(h.text, "learn-la... +2") && sub == (c[k].hosts > 1), "label %zu: '%s' over '%s'", k, h.text, h.sub);
         if (!shown_label(d, &h, c[k].mood, c[k].eyes)) {
-            CHECK(0, "label %zu: no label within 10 s", k);
+            CHECK(0, "label %zu: no label on the %s outline within 10 s", k, c[k].mood == BOT_DONE ? "done" : "waiting");
             continue;
         }
         static int ix[W * H], iy[W * H], gx[W * H], gy[W * H];
