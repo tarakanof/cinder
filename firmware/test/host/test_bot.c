@@ -3202,6 +3202,27 @@ static void test_mood_beat_gaps(void)
     }
     CHECK(!bad, "a frame gap across the closing blink, outline ready: the beat on another closure, never open (%d of %d bad, lowest lid %.2f)",
           bad, n, worst);
+    bad = 0;
+    double latest = 0;
+    n = 0;
+    for (int seed = 0; seed < 40; seed++) {
+        for (double dt = 0.11; dt < 0.4; dt += 0.07, n++) {
+            bot_t b;
+            bot_init(&b, 0x6B0 + (uint64_t)seed, 0);
+            double t0 = settle_open(&b, 0), beat = -1, lid = 0;
+            bot_set_mood(&b, BOT_DONE, t0);
+            bot_rim_ready(&b, seed % 2);
+            for (double t = t0 + dt; t < t0 + 5 && beat < 0; t += dt) {
+                bot_pose_t p = bot_pose(&b, t);
+                if (p.face == BOT_DONE) beat = t - t0, lid = lid_max(&p);
+            }
+            double by = seed % 2 ? 2 : BOT_BEAT_MAX_S + 2 * dt;
+            latest = fmax(latest, beat < 0 ? INFINITY : beat - by);
+            bad += beat < 0 || beat > by + 1e-9 || lid < 0.9;
+        }
+    }
+    CHECK(!bad, "slow frames (0.11-0.39 s): the beat behind the lids, without an outline 0.45 s after the first gap (not every gap), with one "
+          "within 2 s, no re-closure that frames keep missing (%d of %d bad, worst %.2f s past)", bad, n, latest);
 
     bot_t b;
     bot_init(&b, 0x6A9, 0);
@@ -3340,6 +3361,8 @@ static void test_done_reward(void)
     CHECK(!any && idle_after, "working ring off: no lap, and nothing keeps the frame rate up for it");
 }
 
+static void rs_wake_nop(void *ctx) { (void)ctx; }
+
 static void test_rim_beat(void)
 {
     int idle = bot_rim_key(BOT_IDLE, false), work = bot_rim_key(BOT_WORKING, false), err = bot_rim_key(BOT_ERROR, false),
@@ -3444,6 +3467,40 @@ static void test_rim_beat(void)
     CHECK(o.settle == 1, "then +1");
     rim_beat_step(&r, work, work, true, true, true, true, 21.4 + RIM_SETTLE_S + 0.001, &o);
     CHECK(!o.settle, "then the base");
+
+    rim_beat_step(&r, err, work, false, false, false, true, 30.0, &o);
+    r.off = true;
+    rim_beat_step(&r, err, err, true, false, false, true, 30.12, &o);
+    CHECK(o.swap, "off the bot page: the beat's swap");
+    r.off = false;
+    bool settled = false;
+    for (double t = 30.5; t < 31.5; t += 0.001) {
+        rim_beat_step(&r, err, err, true, true, true, true, t, &o);
+        settled |= o.settle != 0;
+    }
+    CHECK(!settled, "back on the page within 1 s of an off-page swap: no settle with no beat");
+    rim_beat_step(&r, idle, err, false, false, false, true, 32.0, &o);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 32.12, &o);
+    r.off = true;
+    rim_beat_step(&r, idle, idle, true, false, false, true, 32.2, &o);
+    r.off = false;
+    settled = false;
+    for (double t = 32.3; t < 33; t += 0.001) {
+        rim_beat_step(&r, idle, idle, true, true, true, true, t, &o);
+        settled |= o.settle != 0;
+    }
+    CHECK(!settled, "a swap on the page, then off it before the variants: no settle on the return");
+
+    static char slot_mem[RIM_SLOTS];
+    void *bufs[RIM_SLOTS];
+    for (int v = 0; v < RIM_SLOTS; v++) bufs[v] = &slot_mem[v];
+    static rim_slots_t sl;
+    rim_slots_init(&sl, bufs);
+    rim_slots_ops_t ops = {.wake = rs_wake_nop};
+    rim_slots_feed(&sl, idle, false, &ops);
+    bool off = sl.beat.off;
+    rim_slots_feed(&sl, idle, true, &ops);
+    CHECK(off && !sl.beat.off, "rim_slots_feed tells the beat whether the bot page shows");
 }
 
 typedef struct {

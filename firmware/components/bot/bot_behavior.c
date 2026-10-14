@@ -503,6 +503,7 @@ static void swap_eyes(bot_t *b, double t)
     if (b->face != b->mood) beat(b, t);
     b->eyes = eyes_now(b);
     b->swap_eyes_on_close = false;
+    b->beat_held = false;
 }
 
 static double giggle_lid(const bot_t *b, double t)
@@ -524,6 +525,7 @@ static void reclose(bot_t *b, double t)
     b->blink_heavy = false;
     b->double_blink_pending = false;
     if (b->blink_speed < 1.6) b->blink_speed = 1.6;
+    b->beat_held = true;
 }
 
 static void enter(bot_t *b, bot_mood_t m, double t)
@@ -535,6 +537,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     b->mood = m;
     b->mood_since = t;
     b->beat_by = t + BOT_BEAT_MAX_S;
+    b->beat_gapped = b->beat_held = false;
     b->swap_eyes_on_close = true;
     b->asleep = false;
     b->asleep_at = t + BOT_ASLEEP_AFTER_S;
@@ -671,7 +674,10 @@ bot_pose_t bot_pose(bot_t *b, double t)
     }
     wait_tick(b, t);
     bool due = b->face != b->mood;
-    if (due && t - b->breath_t > BOT_BEAT_GAP_S) b->beat_by = fmax(b->beat_by, t + BOT_BEAT_MAX_S);
+    if (due && !b->beat_gapped && t - b->breath_t > BOT_BEAT_GAP_S) {
+        b->beat_by = fmax(b->beat_by, t + BOT_BEAT_MAX_S);
+        b->beat_gapped = true;
+    }
     bool loud = bot_anim_allowed(BOT_ANIM_DONE_REWARD, b->calm);
     if (t >= b->done_hop_at && !b->hopping) {
         if (loud) start_hop(b, t, BOT_DONE_HOP_H, HOP_LEN_S);
@@ -689,9 +695,10 @@ bot_pose_t bot_pose(bot_t *b, double t)
     }
     if (b->blinking) {
         double u = t - b->blink_start, shut = 0.075 * b->blink_speed + fmax(b->blink_lag, 0);
-        if (due && !b->rim_ready && !b->blink_heavy && t < b->beat_by && u > shut && b->blink_start + shut > b->mood_since - 1e-6) {
+        if (due && (!now || b->beat_held) && !b->blink_heavy && u > shut && b->blink_start + shut > b->mood_since - 1e-6) {
             b->blink_start = t - shut;
             u = shut;
+            b->beat_held = true;
         }
         bl = blink_lid(b, u);
         br = blink_lid(b, u - b->blink_lag);

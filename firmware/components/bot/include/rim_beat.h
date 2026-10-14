@@ -16,6 +16,7 @@ typedef struct {
     int job, shown;
     bool own;
     bool settle_due;
+    bool off; /* the bot page is hidden: a swap there, or one not yet settled, gets no settle */
     double swap_t, settle_t;
 } rim_beat_t;
 
