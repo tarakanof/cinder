@@ -322,8 +322,10 @@ bool np_art_retry_fail(np_art_retry_t *r, const char *version, bool bad)
         memset(r, 0, sizeof *r);
         snprintf(r->version, sizeof r->version, "%s", version);
     }
+    bool late = r->bad >= NP_ART_BAD_TRIES;
     r->fails++;
     if (bad) r->bad++;
+    if (!late && r->bad >= NP_ART_BAD_TRIES) r->fails = 0;
     return r->bad >= NP_ART_BAD_TRIES;
 }
 
@@ -334,9 +336,16 @@ bool np_art_gave_up(const np_art_retry_t *r, const char *version)
 
 np_art_end_t np_art_end(np_art_retry_t *r, const char *version, bool cover, bool failed, bool bad)
 {
-    if (failed) return np_art_retry_fail(r, version, bad) && cover ? NP_ART_END_NO_COVER : NP_ART_END_DROP;
+    if (failed) {
+        bool late = np_art_gave_up(r, version);
+        bool gave_up = np_art_retry_fail(r, version, bad) && cover;
+        return !gave_up ? NP_ART_END_DROP : late ? NP_ART_END_NO_COVER_RETRY : NP_ART_END_NO_COVER;
+    }
     if (strcmp(r->version, version) != 0) return NP_ART_END_PUBLISH;
-    if (cover && np_art_gave_up(r, version)) return NP_ART_END_NO_COVER;
+    if (cover && np_art_gave_up(r, version)) {
+        r->fails = 0;
+        return NP_ART_END_NO_COVER;
+    }
     r->fails = r->bad = 0;
     return NP_ART_END_PUBLISH;
 }

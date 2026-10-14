@@ -26,6 +26,7 @@ typedef struct {
     bool no_cover;        /* the cover failed NP_ART_BAD_TRIES times: show the no-cover look */
 } np_art_set_t;
 
+#define NP_JPEG_MAX (96 * 1024)
 #define NP_CMD_TTL_MS 3000
 /* LVGL task. A full queue drops the oldest; a command older than NP_CMD_TTL_MS is dropped. */
 void np_client_control(const np_cmd_t *cmd, const char *source, const char *track_id);

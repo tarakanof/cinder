@@ -88,14 +88,16 @@ typedef struct {
     int bad;
 } np_art_retry_t;
 /* A failed fetch of version; another version starts the count again. True once version had NP_ART_BAD_TRIES BAD answers:
-   stop fetching it. The next try is np_art_retry_ms(r->fails) later. */
+   stop fetching it; giving up zeroes r->fails, so a later failure backs off from the start. The next try is
+   np_art_retry_ms(r->fails) later. */
 bool np_art_retry_fail(np_art_retry_t *r, const char *version, bool bad);
 /* r->version already had NP_ART_BAD_TRIES BAD answers: fetch no cover for it, publish no_cover at once. */
 bool np_art_gave_up(const np_art_retry_t *r, const char *version);
-typedef enum { NP_ART_END_DROP, NP_ART_END_PUBLISH, NP_ART_END_NO_COVER } np_art_end_t;
+typedef enum { NP_ART_END_DROP, NP_ART_END_PUBLISH, NP_ART_END_NO_COVER, NP_ART_END_NO_COVER_RETRY } np_art_end_t;
 /* The end of one np_client_service pass for version. failed/bad: a picture's step was FAIL/BAD. DROP frees the set,
    PUBLISH hands it over, NO_COVER hands it over without a cover. Only a success of r->version itself clears its count;
-   the empty plan (nothing playing) and other versions leave it. */
+   the empty plan (nothing playing) and other versions leave it. Once given up, a failed pass is NO_COVER_RETRY (hand it
+   over without a cover, back off, fetch again) and a good one is NO_COVER and zeroes r->fails. */
 np_art_end_t np_art_end(np_art_retry_t *r, const char *version, bool cover, bool failed, bool bad);
 /* Anything besides the position anchor that the face shows or fetches by. */
 bool np_info_changed(const np_info_t *a, const np_info_t *b);
