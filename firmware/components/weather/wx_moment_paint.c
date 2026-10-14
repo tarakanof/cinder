@@ -341,11 +341,11 @@ static float cloud_sd(const void *ctx, float u, float v) { return wx_cloud_sd(ct
 
 enum { TONE_WHITE, TONE_LIGHT, TONE_DARK };
 
-static void cloud(img_t *im, const wx_cloud_t *c, int tone)
+static __attribute__((warn_unused_result)) int cloud(img_t *im, const wx_cloud_t *c, int tone)
 {
     static const uint32_t TONES[3][2] = {{0xE6ECF2, 0xC4CCD4}, {0x8E96A0, 0xA8B0BA}, {0x555D68, 0x6A7480}};
     wx_cloud_shape_t sh;
-    wx_cloud_shape(c, &sh);
+    bool ok = wx_cloud_shape(c, &sh);
     rect_t ink = {c->c[0].x - c->c[0].r, c->c[0].y - c->c[0].r, c->c[0].x + c->c[0].r, c->base};
     for (int k = 1; k < c->n; k++) {
         ink.x0 = fminf(ink.x0, c->c[k].x - c->c[k].r);
@@ -353,6 +353,7 @@ static void cloud(img_t *im, const wx_cloud_t *c, int tone)
         ink.x1 = fmaxf(ink.x1, c->c[k].x + c->c[k].r);
     }
     fill(im, cloud_sd, &sh, ink, TONES[tone][0], 2.25f, TONES[tone][1]);
+    return !ok;
 }
 
 typedef struct {
@@ -561,9 +562,10 @@ static void rainbow(img_t *im)
     }
 }
 
-void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void))
+int wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void))
 {
     img_t im[WXM_LAYERS];
+    int refused = 0;
     for (int i = 0; i < l->nl; i++) {
         const wxm_layer_t *a = &l->layer[i];
         im[i] = (img_t){(uint16_t *)(arena + a->at), arena + a->at + a->w * a->h * 2, a->w, a->h, a->x, a->y, yield};
@@ -574,7 +576,7 @@ void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, voi
     case WXM_GLANCE:
     case WXM_FROST:
         if (m->sun) paint_glance_sun(&im[0]);
-        cloud(&im[m->sun ? 1 : 0], &GLANCE_CLOUD, TONE_WHITE);
+        refused += cloud(&im[m->sun ? 1 : 0], &GLANCE_CLOUD, TONE_WHITE);
         break;
     case WXM_RAIN:
         line(&im[0], DROP_X[0], 96, DROP_X[0] - 3, 106, 4, WXM_BLUE);
@@ -582,12 +584,12 @@ void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, voi
         break;
     case WXM_STORM:
         bolt(&im[0]);
-        cloud(&im[1], &STORM_CLOUD, TONE_LIGHT);
-        cloud(&im[2], &STORM_CLOUD, TONE_DARK);
+        refused += cloud(&im[1], &STORM_CLOUD, TONE_LIGHT);
+        refused += cloud(&im[2], &STORM_CLOUD, TONE_DARK);
         break;
     case WXM_SNOW:
         flake(&im[0], FLAKE_X[0], 132);
-        cloud(&im[1], &SNOW_CLOUD, TONE_WHITE);
+        refused += cloud(&im[1], &SNOW_CLOUD, TONE_WHITE);
         break;
     case WXM_WIND:
         for (int i = 0; i < 4; i++) streak(&im[i], i);
@@ -606,9 +608,10 @@ void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, voi
     }
     case WXM_AFTERRAIN:
         rainbow(&im[0]);
-        cloud(&im[1], &FOOT_L, TONE_WHITE);
-        cloud(&im[1], &FOOT_R, TONE_WHITE);
+        refused += cloud(&im[1], &FOOT_L, TONE_WHITE);
+        refused += cloud(&im[1], &FOOT_R, TONE_WHITE);
         break;
     default: break;
     }
+    return refused;
 }

@@ -194,6 +194,11 @@ static void test_contract(void)
         {{false, 60, 5, {{30, 50, 15}, {50, 50, 15}, {70, 50, 15}, {90, 50, 15}}}, "five puffs"},
         {{false, 60, 1, {{50, 50, 0}}}, "a zero radius"},
         {{false, NAN, 1, {{50, 50, 20}}}, "no base"},
+        {{false, 58.16f, 3, {{50, 61.12f, 16.97f}, {62.97f, 30.98f, 22.30f}, {66.04f, 45.10f, 29.84f}}}, "a crossing inside a third puff"},
+        {{false, 41.26f, 2, {{50, 43.92f, 5.72f}, {52.95f, 63.72f, 25.55f}}}, "the left base end inside its neighbour"},
+        {{false, 53, 2, {{50, 65.08f, 22.48f}, {50.96f, 48.45f, 7.78f}}}, "the right base end inside a neighbour"},
+        {{false, 73.89f, 3, {{50, 61.34f, 13.20f}, {62.14f, 37.75f, 27.02f}, {84.36f, 57.20f, 17.34f}}}, "crossings out of order"},
+        {{false, 77.54f, 3, {{50, 67.99f, 19.07f}, {71.31f, 48.37f, 22.52f}, {80.82f, 63.28f, 14.80f}}}, "the right base end left of the last crossing"},
     };
     for (size_t i = 0; i < sizeof BAD / sizeof BAD[0]; i++) {
         wx_cloud_shape_t sh;

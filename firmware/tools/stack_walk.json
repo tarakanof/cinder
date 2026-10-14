@@ -586,7 +586,7 @@
   },
   "stats": {
    "entry": "stats_task",
-   "stack": 3840
+   "stack": 4352
   },
   "pomo": {
    "entry": "client_task",

@@ -144,8 +144,9 @@ typedef struct {
 
 void wxm_layout(const wxm_moment_t *m, wxm_layout_t *l);
 /* Paints every layer of l into the arena (l->total bytes). Pure, any task. yield (NULL: none) is called after the
-   clear and before every row of every pass (at most one row, WXM_BOX_W px, between calls); it decides when to sleep. */
-void wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void));
+   clear and before every row of every pass (at most one row, WXM_BOX_W px, between calls); it decides when to sleep.
+   Returns how many clouds wx_cloud_shape refused (each left blank); 0 for every shipped moment. */
+int wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void));
 #define WXM_CLOUDS 5
 int wxm_clouds(const wx_cloud_t *out[WXM_CLOUDS]);
 

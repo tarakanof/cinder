@@ -58,7 +58,7 @@ void gc_tick(glint_chase_t *c, double t, bool active, double lap_s, gc_out_t *ou
 double gc_orbit(double since_start, double to_end);
 
 bool gc_start_now(glint_chase_t *c, int style, int laps);
-/* Ends any chase at once and puts the working time and the wait back as they were (a demo's chase). */
+/* Ends any chase at once and puts the working time and the wait back as they were (every demo scene's start). */
 void gc_resume(glint_chase_t *c, double work_s, double wait_s);
 /* A demo's end: saved (taken at saved_t) carries on at t as if the time between had not passed. */
 void gc_restore(glint_chase_t *c, const glint_chase_t *saved, double saved_t, double t);
@@ -79,6 +79,20 @@ typedef struct {
 #define GC_HALF_SNAP_DEG 345.0
 void gc_half_reset(gc_half_t *h);
 void gc_half_step(gc_half_t *h, double psi, double lead_deg, gc_half_out_t *out);
+
+typedef struct {
+    gc_half_t h;
+    double hold_deg;
+    bool snapped;
+} gc_half_chase_t;
+
+typedef enum { GC_AIM_NONE, GC_AIM_TRACK, GC_AIM_SNAP } gc_aim_t;
+
+void gc_half_chase_reset(gc_half_chase_t *s);
+/* One frame of a half chase: GC_AIM_TRACK tracks the gaze to *deg, GC_AIM_SNAP looks still at 0 degrees. */
+gc_aim_t gc_half_chase_step(gc_half_chase_t *s, double psi, double lead_deg, gc_half_out_t *out, double *deg);
+/* A demo's end: saved comes back; one saved after its snap tracks to the snap point (0 degrees) again. */
+void gc_half_chase_restore(gc_half_chase_t *s, const gc_half_chase_t *saved);
 
 #ifdef __cplusplus
 }

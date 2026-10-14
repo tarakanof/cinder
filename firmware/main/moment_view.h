@@ -26,5 +26,5 @@ void moment_view_hold(bool hold);
    and the task. */
 void moment_view_release(void);
 /* For the stats log: moments shown since boot, the last bake's ms, starts that found no arena or task (retried after
-   5 s; the trigger offers the moment again). */
-void moment_view_stats(int *shown, int *bake_ms, int *failed);
+   5 s; the trigger offers the moment again), clouds the bakes left blank (wxm_paint's count). */
+void moment_view_stats(int *shown, int *bake_ms, int *failed, int *refused);

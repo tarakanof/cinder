@@ -32,7 +32,7 @@ if [ "$OTA_CALLS" -eq 0 ] || [ "$OTA_BAD" -ne 0 ]; then
 fi
 echo "ota call sites: $OTA_CALLS pass step.ota_status"
 OCL="$D/../../main/ota_client.c"
-body() { awk -v f="$2" '$0 ~ "^(static )?[a-z_][a-z_0-9 ]*[ *]" f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
+body() { awk -v f="$2" '$0 ~ "^(static )?[a-z_][a-z_0-9 ]*[ *]" f "\\(" && !/;$/ {on=1} on {print} on && /^}/ {exit}' "$1"; }
 WIRING=""
 body "$OCL" dl_write | grep -q 'ota_piece_write(&io, &d->yield_ms, ' || WIRING="$WIRING dl_write-must-call-ota_piece_write"
 body "$OCL" dl_write | grep -q 'esp_ota_write(' && WIRING="$WIRING dl_write-must-not-call-esp_ota_write"
@@ -77,11 +77,30 @@ RN=$(echo "$REFR" | in_refr_lock 'bool drew = refr_stats_end(&s_refr, d);') &&
     WIRING="$WIRING refr-end-and-take-inside-the-s_refr_mux-section"
 [ -n "$WIRING" ] || [ "$(grep -E 's_refr_(count|total_us|max_us)' "$MAINC" | grep -vcE '^static [a-z0-9_]+ s_refr_[a-z_]+(, s_refr_[a-z_]+)*;$')" -eq $((RN + SN)) ] ||
     WIRING="$WIRING refr-counters-only-in-the-refr_cb-and-stats_task-sections"
+STATS="$(body "$MAINC" stats_task)"
+echo "$STATS" | grep -qxF '    int failed_logged = 0, refused_logged = 0;' &&
+    echo "$STATS" | grep -qxF '        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);' &&
+    echo "$STATS" | grep -A1 -F 'if (failed > failed_logged) ESP_LOGE(' | tail -1 | grep -qxF '        failed_logged = failed;' &&
+    [ "$(grep -c 'failed_logged' "$MAINC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts since boot without' "$MAINC")" -eq 1 ] ||
+    WIRING="$WIRING stats-logs-moment-start-failures-only-when-the-count-grows"
+echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);' &&
+    echo "$STATS" | grep -A1 -F 'if (refused > refused_logged) ESP_LOGE(' | tail -1 | grep -qxF '        refused_logged = refused;' &&
+    [ "$(grep -c 'refused_logged' "$MAINC")" -eq 3 ] &&
+    body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' &&
+    grep -qxF 'static atomic_int s_refused;' "$D/../../main/moment_view.c" && [ "$(grep -c 's_refused' "$D/../../main/moment_view.c")" -eq 3 ] &&
+    body "$D/../../main/moment_view.c" moment_view_stats | grep -qxF '    *refused = atomic_load(&s_refused);' ||
+    WIRING="$WIRING stats-logs-refused-moment-clouds-only-when-the-count-grows"
+WMP="$D/../../components/weather/wx_moment_paint.c"
+[ "$(grep -c 'cloud(&im' "$WMP")" -gt 0 ] && [ "$(grep -c 'cloud(&im' "$WMP")" -eq "$(grep -cxE ' +refused \+= cloud\(&im[^;]*\);' "$WMP")" ] &&
+    grep -qxF 'static __attribute__((warn_unused_result)) int cloud(img_t *im, const wx_cloud_t *c, int tone)' "$WMP" &&
+    CLOUD="$(awk '/^static __attribute__\(\(warn_unused_result\)\) int cloud\(/ {on=1} on {print} on && /^}/ {exit}' "$WMP")" &&
+    echo "$CLOUD" | grep -qxF '    bool ok = wx_cloud_shape(c, &sh);' && echo "$CLOUD" | tail -2 | head -1 | grep -qxF '    return !ok;' &&
+    body "$WMP" wxm_paint | tail -2 | head -1 | grep -qxF '    return refused;' || WIRING="$WIRING every-moment-cloud-counted-into-refused"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL refresh stats wiring:$WIRING" >&2
     exit 1
 fi
-echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section"
+echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section; moment start failures and refused clouds logged when the count grows"
 DIAGC="$D/../../main/diag.c"
 APP="$(body "$MAINC" app_main)"
 echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -e '    diag_attach_refr(&s_refr, &s_refr_mux);' \
@@ -90,18 +109,19 @@ echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -
     WIRING="$WIRING refr-init-and-attach-before-ember_client_start-and-refr_cb"
 [ "$(grep -c 'refr_stats_init(' "$MAINC")" -eq 1 ] || WIRING="$WIRING refr_stats_init-once"
 WS="$(body "$DIAGC" window_start)"
+REFR_NOW='/^    if / {i = ($0 ~ /^    if \(s_refr\) \{$/); x = ($0 ~ /^    if \(!s_refr\) \{$/)}
+    /^    \} else \{$/ {x = i; i = 0} /^    \}$/ {x = 0; i = 0}
+    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x && (seen || !/^    (int64_t )?now = /)) o++}'
 echo "$WS" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
-    l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
-    /^    \} else \{$/ {x=1} /^    \}$/ {x=0}
-    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x) o++}
+    l && /^ +now = esp_timer_get_time\(\);$/ {t=1; seen=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
+    '"$REFR_NOW"'
     /^    s_win_start_us = now;$/ {s=1} END {exit !(r && s && a == 2 && !o)}' &&
     [ "$(echo "$WS" | grep -c 's_win_start_us = ')" -eq 1 ] ||
     WIRING="$WIRING window_start-stamps-and-resets-the-refr-window-in-one-s_refr_mux-section"
 SAMPLE="$(body "$DIAGC" diag_sample)"
 echo "$SAMPLE" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
-    l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
-    /^    \} else \{$/ {x=1} /^    \}$/ {x=0}
-    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x) o++}
+    l && /^ +now = esp_timer_get_time\(\);$/ {t=1; seen=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
+    '"$REFR_NOW"'
     /^    int64_t period_us = now - s_win_start_us;$/ && r {p=1} END {exit !(p && a == 2 && !o)}' ||
     WIRING="$WIRING diag_sample-reads-the-refr-window-at-now-in-one-s_refr_mux-section"
 echo "$SAMPLE" | awk '/^    if \(level == KS_DIAG_FULL\) \{$/ {f=1; d=0}
@@ -218,7 +238,9 @@ body "$TFC" paint | grep -qF 'const wx_days_t *d = &s_io.key.days;' || WIRING="$
 body "$TFC" face_kind | grep -qxF '    bool rows = s_days && t->days.have;' && body "$TFC" face_kind | grep -qxF '    show_obj(s_value, !rows);' &&
     [ "$(grep -c 'show_obj(s_value, ' "$TFC")" -eq 1 ] || WIRING="$WIRING days-hide-the-value-under-the-rows"
 body "$TFC" face_kind | grep -qxF '    lv_obj_align(s_sub, LV_ALIGN_TOP_MID, 0, rows ? WX_DAYS_SUB_Y : SUB_Y);' || WIRING="$WIRING days-sub-line-under-the-rows"
-body "$TFC" apply | grep -qxF '    if (t->cast.on || t->days.on || t->air.on) {' || WIRING="$WIRING days-and-air-hide-the-gauge-end-labels"
+[ "$(body "$TFC" apply | grep -A2 -xF '    if (t->cast.on || t->days.on || t->air.on) {')" = "$(printf '%s\n' \
+    '    if (t->cast.on || t->days.on || t->air.on) {' '        show_obj(s_lo, false);' '        show_obj(s_hi, false);')" ] ||
+    WIRING="$WIRING days-and-air-hide-the-gauge-end-labels"
 body "$TFC" set_days | grep -qxF '    wx_days_frame(d, ta, &f);' && body "$TFC" set_days | grep -qxF '            lv_obj_set_y(s_drow[i], wx_days_row_box(&s_dlay, i, dy).y0);' &&
     body "$TFC" days_attach | grep -qxF '        wx_box_t rb = wx_days_row_box(&s_dlay, i, 0);' &&
     body "$TFC" days_attach | grep -qxF '        lv_obj_set_pos(s_drow[i], rb.x0, rb.y0);' &&
@@ -468,7 +490,7 @@ body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);
 body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
     WIRING="$WIRING app_main-creates-the-moments"
 grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MAINC" || WIRING="$WIRING trigger-in-PSRAM"
-[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'wxm_paint(&s_m, &s_l, s_arena, bake_yield);' ||
+[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' ||
     WIRING="$WIRING wxm_paint-only-in-the-bake-task-with-the-yield-hook"
 body "$MVC" moment_bake_task | awk '/s_yield_at = t0;/ {y = NR} /wxm_paint\(/ {p = NR} END {exit !(y && p > y)}' &&
     body "$MVC" bake_yield | grep -qF 'if (esp_timer_get_time() - s_yield_at < MV_YIELD_US) return;' &&
@@ -524,7 +546,7 @@ body "$MAINC" scene_frame | grep -qxF '    } else if (ended && (s_scene_gate.on 
 body "$MAINC" scene_start | grep -qxF '    demo_gate_start(&s_scene_gate);' || WIRING="$WIRING scene_start-clears-the-gate"
 body "$MAINC" scene_start | grep -qxF '    s_scene_half = s_half;' && body "$MAINC" scene_start | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
     WIRING="$WIRING scene_start-pauses-the-chase"
-body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    s_half = s_scene_half;$/ {h = NR} END {exit !(r && h > r)}' ||
+body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    gc_half_chase_restore\(&s_half, &s_scene_half\);$/ {h = NR} END {exit !(r && h > r)}' ||
     WIRING="$WIRING scene_end-restores-the-half-chase"
 fbody "$MAINC" page_tick | grep -qxF '    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);' ||
     WIRING="$WIRING page_tick-asleep-act-sleeps"
@@ -535,11 +557,23 @@ body "$MAINC" scene_end | grep -qxF '    else if (s_scene_mood0 == BOT_SLEEPY) b
     WIRING="$WIRING scene_end-wakes-after-asleep"
 fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);' &&
     [ "$(grep -c 'atomic_store(&s_chase_req, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING server-chase-deferred-during-a-scene"
+fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
+    body "$MAINC" scene_start | sed -n 3,4p | tr -d '\n' | grep -qxF '    s_scene_on = true;    atomic_store(&s_chase_status, 1);' &&
+    [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 2 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
+[ "$(fbody "$MAINC" page_tick | grep -A10 -xF '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);')" = "$(printf '%s\n' \
+    '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);' '        if (!h.follow) {' \
+    '            bot_hold_gaze(&s_bot, t + 0.5);' '            if (h.blink) bot_blink(&s_bot, t);' '        }' '        if (aim == GC_AIM_SNAP) {' \
+    '            if (s_bot.tracking) bot_track_end(&s_bot, t);' '            bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);' \
+    '        } else if (aim == GC_AIM_TRACK) {' '            chase_track(&ref, deg, chase->orbit, t);' '        }')" ] && [ "$(grep -c 'gc_half_chase_step(' "$MAINC")" -eq 1 ] && ! grep -q 's_half\.' "$MAINC" ||
+    WIRING="$WIRING half-chase-aims-through-gc_half_chase_step"
+body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
+    /^            if \(s_scene_on\) scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
+    END {exit !(p && i == p + 1 && e == i + 1 && r == e + 1 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-or-offered-demo"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act"
+echo "demo scene wiring: ready before the art fetch, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy from scene_start, half chase through gc_half_chase_step, OTA ends a playing or offered demo"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
 body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||

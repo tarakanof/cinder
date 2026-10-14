@@ -114,12 +114,7 @@ static glint_chase_t s_chase;
 static atomic_int s_chase_status = 2;
 static atomic_int s_chase_req = -1;
 static atomic_int s_chase_fps = CHASE_FPS_DEFAULT;
-typedef struct {
-    gc_half_t h;
-    double hold_deg;
-    bool snapped;
-} half_chase_t;
-static half_chase_t s_half;
+static gc_half_chase_t s_half;
 static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;
 static const wxm_cue_t *s_cues;
 static int s_cue, s_cue_n;
@@ -143,7 +138,7 @@ static int s_scene_face_saved;
 static bot_mood_t s_scene_mood0;
 static double s_scene_sleep_in;
 static EXT_RAM_BSS_ATTR glint_chase_t s_scene_chase;
-static half_chase_t s_scene_half;
+static gc_half_chase_t s_scene_half;
 static int s_scene_chase_req = -1;
 static double s_scene_resume_at;
 static demo_gate_t s_scene_gate;
@@ -556,11 +551,16 @@ static void moment_unact(double t)
     s_cue = s_cue_n;
 }
 
+static void scene_end(double t);
+
 static bool ota_frame(void)
 {
     if (ota_face_frame()) {
         if (!s_ota_paused) {
             s_ota_paused = true;
+            ember_client_demo_input();
+            if (s_scene_on) scene_end(now_s());
+            s_scene_resume_at = 0;
             pages_pause();
             bot_view_rim_hold(true);
             moment_view_hold(true);
@@ -959,33 +959,27 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);
     s_scene_chase_req = -1;
     if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
-        gc_half_reset(&s_half.h);
-        s_half.hold_deg = 0;
-        s_half.snapped = false;
+        gc_half_chase_reset(&s_half);
     }
     page_frame_t f = {.t = t, .offline = offline};
     gc_out_t *chase = &f.chase;
     gc_tick(&s_chase, t, glint, 3.0, chase);
-    atomic_store(&s_chase_status, !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
+    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
     double psi = fmod(t / 3.0, 1.0) * 360.0 - 90.0;
     bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
     if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
         gc_half_out_t h;
-        gc_half_step(&s_half.h, psi, CHASE_LEAD_DEG, &h);
-        if (h.follow) {
-            s_half.snapped = false;
-            s_half.hold_deg = h.target_deg;
-            chase_track(&ref, h.target_deg, chase->orbit, t);
-        } else {
+        double deg = 0;
+        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);
+        if (!h.follow) {
             bot_hold_gaze(&s_bot, t + 0.5);
             if (h.blink) bot_blink(&s_bot, t);
-            if (h.snap) {
-                if (s_bot.tracking) bot_track_end(&s_bot, t);
-                s_half.snapped = true;
-                bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
-            } else if (!s_half.snapped) {
-                chase_track(&ref, s_half.hold_deg, chase->orbit, t);
-            }
+        }
+        if (aim == GC_AIM_SNAP) {
+            if (s_bot.tracking) bot_track_end(&s_bot, t);
+            bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
+        } else if (aim == GC_AIM_TRACK) {
+            chase_track(&ref, deg, chase->orbit, t);
         }
     } else if (chase->chasing && glint) {
         chase_track(&ref, psi + CHASE_LEAD_DEG, chase->orbit, t);
@@ -1047,7 +1041,7 @@ static void scene_end(double t)
         moment_unact(t);
     }
     gc_restore(&s_chase, &s_scene_chase, s_scene_t0, t);
-    s_half = s_scene_half;
+    gc_half_chase_restore(&s_half, &s_scene_half);
     if (s_scene_chased) {
         if (s_bot.tracking) bot_track_end(&s_bot, t);
         bot_view_glint_force(false);
@@ -1064,6 +1058,7 @@ static void scene_end(double t)
 static void scene_start(const demo_block_t *b, double t)
 {
     s_scene_on = true;
+    atomic_store(&s_chase_status, 1);
     if (!++s_scene_n) s_scene_n = 1;
     s_scene_resume_at = 0;
     s_scene_act = b->act;
@@ -1207,6 +1202,7 @@ static void stats_task(void *arg)
     static EXT_RAM_BSS_ATTR http_conn_stats_t prev, ns;
     static EXT_RAM_BSS_ATTR refr_kind_t kc[REFR_KINDS], kt;
     static EXT_RAM_BSS_ATTR dev_wifi_t w;
+    int failed_logged = 0, refused_logged = 0;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
@@ -1227,10 +1223,13 @@ static void stats_task(void *arg)
                  s_nav.page);
         ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
                  s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
-        int moments, bake_ms, failed;
-        moment_view_stats(&moments, &bake_ms, &failed);
+        int moments, bake_ms, failed, refused;
+        moment_view_stats(&moments, &bake_ms, &failed, &refused);
         ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
-        if (failed) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
+        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);
+        failed_logged = failed;
+        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);
+        refused_logged = refused;
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         for (int i = 0; i < REFR_KINDS; i++)
             if (kc[i].n)
@@ -1353,7 +1352,7 @@ void app_main(void)
     panel_check_brightness(startup);
     if (!s_setup) ember_client_dim_enable(startup);
     if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
-    psram_task(stats_task, "stats", 3840, 1, tskNO_AFFINITY, NULL);
+    psram_task(stats_task, "stats", 4352, 1, tskNO_AFFINITY, NULL);
     psram_task(link_task, "link", 4096, 1, 1, NULL);
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",

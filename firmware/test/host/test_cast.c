@@ -379,6 +379,10 @@ static void test_dry_horizon(void)
     step.rain_spell[0] = (wx_spell_t){LOCAL(2, 0) + 86400, LOCAL(3, 0) + 86400, 2, 0};
     wx_cast_from(&step, NULL, &d);
     CHECK(d.narc == 1 && d.arc[0].a == 120 && d.arc[0].n == 55, "a spell starting exactly on the hour step keeps its arc (%d arcs)", d.narc);
+    step.rain_spell[0] = (wx_spell_t){LOCAL(1, 59) + 86400, LOCAL(3, 0) + 86400, 2, 0};
+    wx_cast_from(&step, NULL, &d);
+    CHECK(d.narc == 1 && d.arc[0].a == 119 && d.arc[0].n == 1,
+          "an off-grid spell a minute before the hour step keeps the hourly far end (%d arcs, %d+%d)", d.narc, d.arc[0].a, d.arc[0].n);
     wx_obs_t win = late;
     win.obs_age_s = 300;
     wx_cast_t w0;

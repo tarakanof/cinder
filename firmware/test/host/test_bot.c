@@ -569,6 +569,52 @@ static void test_glint_chase(void)
     CHECK(follow > 0 && maxtarget <= 180, "target capped at 9 o'clock: %g", maxtarget);
     CHECK(snaps == 4 && blinks >= 8, "one snap per lap: %d, blinks %d", snaps, blinks);
     CHECK(passes_blinks[1] == 3 && passes_blinks[2] == 2, "3 then 2 blinks: %d %d", passes_blinks[1], passes_blinks[2]);
+    gc_half_chase_t hc, saved, back;
+    gc_half_chase_reset(&hc);
+    int snapped_at = 0, tracks = 0, nones = 0, stale = 0, resumed = 0, held[5] = {0}, off_target = 0;
+    double last_target = 0;
+    for (int k = 0; k < 4 * 180; k++) {
+        double psi = -90 + 2 * k, deg = -1;
+        gc_half_out_t ho;
+        gc_aim_t aim = gc_half_chase_step(&hc, psi, 15, &ho, &deg);
+        double q = fmod(psi + 720, 360);
+        if (ho.follow) CHECK(aim == GC_AIM_TRACK && deg == ho.target_deg, "half chase follows its target at %g", q);
+        if (ho.follow) last_target = ho.target_deg;
+        if (aim == GC_AIM_SNAP) {
+            snapped_at++;
+            saved = hc;
+            back = hc;
+            gc_half_chase_t mid = hc;
+            gc_half_chase_restore(&back, &saved);
+            CHECK(!back.snapped && back.hold_deg == 0, "a restored snapped half chase holds at 0 degrees");
+            double d1 = -1, d2 = -1;
+            gc_half_out_t o1, o2;
+            gc_aim_t a1 = gc_half_chase_step(&back, psi + 2, 15, &o1, &d1);
+            gc_aim_t a2 = gc_half_chase_step(&mid, psi + 2, 15, &o2, &d2);
+            resumed += !o1.follow && a1 == GC_AIM_TRACK && d1 == 0;
+            stale += !o2.follow && a2 == GC_AIM_NONE;
+        } else if (!ho.follow) {
+            if (aim == GC_AIM_TRACK) {
+                tracks++;
+                held[snapped_at]++;
+                off_target += deg != last_target;
+            } else {
+                nones++;
+            }
+        }
+    }
+    CHECK(snapped_at == 4 && resumed == 4, "a scene that caught the half chase after its snap re-aims at the snap point: %d of %d", resumed,
+          snapped_at);
+    CHECK(stale == 4 && nones > 0 && tracks > 0, "between its snap and the next follow the half chase holds still (%d stale, %d none, %d track)",
+          stale, nones, tracks);
+    CHECK(!off_target && held[0] && held[1] && held[2] && held[3] && held[4],
+          "between a follow and its snap the half chase holds at the last target in every lap (%d off, %d %d %d %d %d held)", off_target,
+          held[0], held[1], held[2], held[3], held[4]);
+    saved = hc;
+    saved.snapped = false;
+    saved.hold_deg = 123;
+    gc_half_chase_restore(&back, &saved);
+    CHECK(!back.snapped && back.hold_deg == 123 && back.h.pass == saved.h.pass, "an unsnapped half chase comes back as it was");
     int halves = 0, autos = 0;
     for (uint32_t seed = 1; seed <= 400; seed++) {
         glint_chase_t ca;
@@ -2517,30 +2563,35 @@ static void test_reading_blink_phases(void)
         double age = ages[seed % AGES], lag = lags[seed / AGES % 3];
         bool pending = seed / AGES / 3 % 2 && age >= 0, far = seed / AGES / 6 % 2, turn = seed / AGES / 12 % 2;
         bot_t b;
-        bot_init(&b, 0x7B00 + (uint64_t)seed, 0);
-        bot_set_mood(&b, BOT_WORKING, 0);
+        bot_pose_t was = {0};
         double t = 0;
-        for (; t < 3; t += dt) bot_pose(&b, t);
-        b.rd_line = turn ? b.rd_lines - 1 : 0;
-        b.rd_steps = 0;
-        b.rd_turn = false;
-        b.blinking = true;
-        b.blink_heavy = false;
-        b.double_blink_pending = pending;
-        b.blink_speed = 1;
-        b.blink_lag = lag;
-        b.blink_start = b.last_blink_at = t - age;
-        b.next_blink_at = t + 100;
-        b.next_saccade_at = t;
-        if (far) {
-            b.gaze_from_x = b.gaze_to_x = b.fix_x = 0.6;
-            b.gaze_from_y = b.gaze_to_y = b.fix_y = turn ? -0.25 : -0.05;
-            b.gaze_start = t - 1;
+        bool chosen = false;
+        for (int k = 0; k < 8 && !chosen; k++) {
+            bot_init(&b, 0x7B00 + (uint64_t)seed + (uint64_t)k * AGES * 24, 0);
+            bot_set_mood(&b, BOT_WORKING, 0);
+            for (t = 0; t < 3; t += dt) bot_pose(&b, t);
+            b.rd_line = turn ? b.rd_lines - 1 : 0;
+            b.rd_steps = 0;
+            b.rd_turn = false;
+            b.blinking = true;
+            b.blink_heavy = false;
+            b.double_blink_pending = pending;
+            b.blink_speed = 1;
+            b.blink_lag = lag;
+            b.blink_start = b.last_blink_at = t - age;
+            b.next_blink_at = t + 100;
+            b.next_saccade_at = t;
+            if (far) {
+                b.gaze_from_x = b.gaze_to_x = b.fix_x = 0.6;
+                b.gaze_from_y = b.gaze_to_y = b.fix_y = turn ? -0.25 : -0.05;
+                b.gaze_start = t - 1;
+            }
+            bot_t w = b;
+            was = bot_pose(&w, t - fine);
+            bot_pose(&b, t);
+            chosen = turn ? b.rd_turn : b.rd_line == 1;
         }
-        bot_t w = b;
-        bot_pose_t was = bot_pose(&w, t - fine);
-        bot_pose(&b, t);
-        if (turn ? !b.rd_turn : b.rd_line != 1) continue;
+        if (!chosen) continue;
         jumps++;
         turns += turn;
         double amp = hypot(b.gaze_to_x - b.gaze_from_x, b.gaze_to_y - b.gaze_from_y), lead = b.gaze_start - t, most = 0, low = 1;
@@ -2581,6 +2632,8 @@ static void test_reading_blink_phases(void)
     }
     printf("reading: %d jumps (%d page turns) on a blink of every phase, %d of %d close both lids to 0.9, %d over 0.6 start shut, lead up to %.1f ms\n",
            jumps, turns, shut, need, covered - open_at, 1000 * worst_lead);
+    CHECK(jumps == AGES * 24 && turns == AGES * 12, "reading: %d of %d blink cases make their jump (%d of %d page turns)", jumps, AGES * 24,
+          turns, AGES * 12);
     CHECK(turns > 100 && jumps - turns > 100 && shut == need, "reading: %d of %d page turns and covered jumps close both lids to 0.9 whatever blink was showing",
           shut, need);
     CHECK(covered > 150 && !open_at, "reading: %d of %d jumps over 0.6 open a lid under 0.9 within 25 ms of their start", open_at, covered);

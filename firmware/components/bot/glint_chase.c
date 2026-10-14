@@ -77,6 +77,40 @@ void gc_half_step(gc_half_t *h, double psi, double lead_deg, gc_half_out_t *out)
     if (prev < GC_HALF_SNAP_DEG && psi >= GC_HALF_SNAP_DEG) out->snap = true;
 }
 
+void gc_half_chase_reset(gc_half_chase_t *s)
+{
+    gc_half_reset(&s->h);
+    s->hold_deg = 0;
+    s->snapped = false;
+}
+
+gc_aim_t gc_half_chase_step(gc_half_chase_t *s, double psi, double lead_deg, gc_half_out_t *out, double *deg)
+{
+    gc_half_step(&s->h, psi, lead_deg, out);
+    if (out->follow) {
+        s->snapped = false;
+        s->hold_deg = out->target_deg;
+        *deg = out->target_deg;
+        return GC_AIM_TRACK;
+    }
+    if (out->snap) {
+        s->snapped = true;
+        return GC_AIM_SNAP;
+    }
+    if (s->snapped) return GC_AIM_NONE;
+    *deg = s->hold_deg;
+    return GC_AIM_TRACK;
+}
+
+void gc_half_chase_restore(gc_half_chase_t *s, const gc_half_chase_t *saved)
+{
+    *s = *saved;
+    if (s->snapped) {
+        s->snapped = false;
+        s->hold_deg = 0;
+    }
+}
+
 double gc_orbit(double since_start, double to_end)
 {
     double u = fmin(since_start / GC_ORBIT_IN_S, to_end / GC_ORBIT_OUT_S);
