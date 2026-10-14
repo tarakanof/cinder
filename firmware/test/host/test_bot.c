@@ -2315,11 +2315,11 @@ static void test_reading_other_moods(void)
 {
     static const struct { bot_mood_t m; uint64_t h; } want[] = {
         {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x18e823e8ab4054efULL},
-        {BOT_ERROR, 0xa42109cdb52734a4ULL}, {BOT_DONE, 0xc2df4a3056c4b646ULL},
+        {BOT_ERROR, 0x1c74bd0ce66469bdULL}, {BOT_DONE, 0xc2df4a3056c4b646ULL},
     };
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) {
         uint64_t h = mood_hash(want[i].m, 0x5A5A + i);
-        CHECK(h == want[i].h, "mood %d: poses differ from the recorded ones (0.9.69; waiting and done 0.9.74) (hash %016llx)", want[i].m, (unsigned long long)h);
+        CHECK(h == want[i].h, "mood %d: poses differ from the recorded ones (0.9.69; waiting and done 0.9.74; error 0.9.77) (hash %016llx)", want[i].m, (unsigned long long)h);
     }
     bot_t a;
     bot_init(&a, 9, 0);
