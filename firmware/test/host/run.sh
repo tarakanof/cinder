@@ -452,10 +452,9 @@ body "$MAINC" moment_unact | grep -qF 'if (s_acting && s_bot.mood != s_moment_mo
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
 body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);' ||
     WIRING="$WIRING page_bot_frame-merges-the-eyes-into-one-area-during-a-moment"
-body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_offline(f->offline && s_join_shown != 1);' &&
-    body "$MAINC" join_frame | awk '/^    if \(show == 1\) \{$/ {o = NR} /snprintf\(text, sizeof text, "Can.t join\\n%s", ssid\);/ {c = NR}
-        /lv_label_set_text\(s_join_label, "Not paired"\);/ {n = NR} /"Update knob" : "Update Ember"/ {u = NR} END {exit !(o && c > o && c < o + 4 && n > c && u > n)}' ||
-    WIRING="$WIRING page_bot_frame-hides-the-offline-glyph-only-under-the-two-line-cant-join-label"
+body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_offline(join_glyph_shown(f->offline, s_join_shown));' &&
+    body "$MAINC" join_frame | grep -qxF '    join_label_t show = join_label_pick(&in);' &&
+    body "$MAINC" join_frame | grep -qxF '    s_join_shown = show;' || WIRING="$WIRING page_bot_frame-asks-join_glyph_shown-with-the-shown-join-label"
 body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);' &&
     grep -qxF 'static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];' "$BVC" &&
     [ "$(grep -c 'offline_glyph_raster(' "$BVC")" -eq 1 ] || WIRING="$WIRING offline-glyph-rastered-once-into-PSRAM"
@@ -590,7 +589,7 @@ cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_e
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
 cc $CFLAGS -I"$RT/include" "$RT/knob_rotation.c" "$D/test_rotation.c" -o "${OUT}_rotation"
-cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$D/test_link.c" -o "${OUT}_link"
+cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 cc $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
 cc $CFLAGS -I"$G/include" "$G/touch_swipe.c" "$D/test_swipe.c" -lm -o "${OUT}_swipe"
 cc $CFLAGS -I"$G/include" -I"$V/include" -I"$J" "$G/cfg.c" "$V/improv.c" "$V/cinder_line.c" "$J/cJSON.c" \
