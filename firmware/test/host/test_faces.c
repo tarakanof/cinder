@@ -270,22 +270,27 @@ static void test_bake_yield(void)
     static wx_ring_t ring[2];
     size_t sn = (size_t)wx_clouds_max_px(false) * 3, dn = (size_t)wx_clouds_max_px(true) * 3;
     uint8_t *still[2] = {calloc(1, sn), calloc(1, sn)}, *drift[2] = {calloc(1, dn), calloc(1, dn)};
-    wx_obs_t dry = obs("clear", "0"), rain = wet();
+    wx_obs_t dry = obs("clear", "0"), rain = wet(), poor = obs("clear", "0");
     rain.has_now_rain = true;
+    poor.has_aqi = true;
+    poor.aqi = 120;
     struct {
         const wx_obs_t *o;
         int face;
         const char *what;
     } C[] = {{&dry, WXF_TEMP, "Temperature"}, {&rain, WXF_TEMP, "Temperature while wet"}, {&dry, WXF_RAIN, "dry Rain now"},
              {&rain, WXF_RAIN, "wet Rain now"}, {&rain, WXF_CAST, "wet Rain forecast"}, {&dry, WXF_CAST, "dry Rain forecast"},
-             {&dry, WXF_WIND, "Wind"}, {&dry, WXF_DAYS, "Next days"}, {&dry, WXF_SUN, "Sun"}, {&dry, WXF_AIR, "Air"}};
+             {&dry, WXF_WIND, "Wind"}, {&dry, WXF_DAYS, "Next days"}, {&dry, WXF_SUN, "Sun"}, {&dry, WXF_AIR, "Air, no data"},
+             {&poor, WXF_AIR, "Air, wilted"}};
     double worst = 0;
     for (int c = 0; c < (int)(sizeof C / sizeof C[0]); c++) {
         wx_temp_t t;
         wx_temp_face(C[c].o, NULL, C[c].face, &t);
         wx_bake_out_t o[2];
-        double total = 0;
-        for (int k = 0; k < 2; k++) {
+        double share = 1, gap = 0, total = 0;
+        int calls = 0;
+        for (int run = 0; run < 6; run++) {
+            int k = run > 0;
             memset(bg[k], 0x5A, sizeof bg[k]);
             memset(hero[k], 0x5A, sizeof hero[k]);
             memset(still[k], 0x5A, sn);
@@ -298,18 +303,20 @@ static void test_bake_yield(void)
             double t0 = cpu_ms();
             s_since = t0;
             wx_bake(&t, WX_BAKE_FULL, &b, &o[k]);
-            if (k) count_yield();
-            total = cpu_ms() - t0;
+            if (!k) continue;
+            count_yield();
+            double all = cpu_ms() - t0;
+            if (all > 0 && s_gap / all < share) share = s_gap / all, gap = s_gap, total = all;
+            calls = s_yields - 1;
         }
         CHECK(!memcmp(bg[0], bg[1], sizeof bg[0]) && !memcmp(hero[0], hero[1], sizeof hero[0]) && !memcmp(still[0], still[1], sn) &&
                   !memcmp(drift[0], drift[1], dn) && !memcmp(&o[0], &o[1], sizeof o[0]),
               "%s: a bake with the yield hook paints what one without it does", C[c].what);
-        double share = total > 0 ? s_gap / total : 1;
         if (share > worst) worst = share;
-        printf("bake yield %s: %d calls, %.2f ms CPU, longest stretch without one %.3f ms (%.0f %% of the bake)\n", C[c].what,
-               s_yields - 1, total, s_gap, 100 * share);
-        CHECK(s_yields > 400, "%s: %d yield calls, want one before every painted row", C[c].what, s_yields - 1);
-        CHECK(share <= 0.25, "%s: %.0f %% of the bake ran without a yield call, want 25 %% at most", C[c].what, 100 * share);
+        printf("bake yield %s: %d calls, %.2f ms CPU, longest stretch without one %.3f ms (%.0f %% of the bake, best of 5)\n",
+               C[c].what, calls, total, gap, 100 * share);
+        CHECK(calls > 400, "%s: %d yield calls, want one before every painted row", C[c].what, calls);
+        CHECK(share <= 0.12, "%s: %.0f %% of the bake ran without a yield call, want 12 %% at most", C[c].what, 100 * share);
     }
     printf("bake yield: longest stretch %.0f %% of its bake\n", 100 * worst);
     free(still[0]);
