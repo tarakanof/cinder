@@ -94,25 +94,37 @@ int main(void)
 
     struct {
         const char *name;
+        bot_eyes_t eyes;
         double gx, gy, lid, blink;
+        bool hide;
     } f[] = {
-        {"open", 0.3, 0.4, 0, 0},
-        {"heavy lid (trimmed)", 0.3, 0.4, 0.8, 0},
-        {"blink shut (hidden)", 0.3, 0.4, 1, 1},
-        {"reopened, looking down-left", -0.4, -0.3, 0, 0},
-        {"half blink", -0.4, -0.3, 0.5, 0.5},
-        {"reopened", 0.3, 0.4, 0, 0},
+        {"open", BOT_EYES_DASH, 0.3, 0.4, 0, 0, false},
+        {"heavy lid (trimmed)", BOT_EYES_DASH, 0.3, 0.4, 0.8, 0, false},
+        {"blink shut, the closed-eye line", BOT_EYES_DASH, 0.3, 0.4, 1, 1, false},
+        {"swap blink shut (hidden)", BOT_EYES_DASH, 0.3, 0.4, 1, 1, true},
+        {"reopened, looking down-left", BOT_EYES_DASH, -0.4, -0.3, 0, 0, false},
+        {"half blink", BOT_EYES_DASH, -0.4, -0.3, 0.5, 0.5, false},
+        {"round open", BOT_EYES_ROUND, 0.1, 0.1, 0, 0, false},
+        {"round heavy lid", BOT_EYES_ROUND, 0.1, 0.1, 0.7, 0, false},
+        {"angry half lid", BOT_EYES_ANGRY, -0.2, -0.4, 0.5, 0.5, false},
+        {"angry swap blink shut (hidden)", BOT_EYES_ANGRY, -0.2, -0.4, 1, 1, true},
+        {"happy open", BOT_EYES_HAPPY, 0.4, 0.5, 0, 0, false},
+        {"happy blink (flattened, not clipped)", BOT_EYES_HAPPY, 0.4, 0.5, 0.7, 0.7, true},
+        {"happy swap blink shut (hidden)", BOT_EYES_HAPPY, 0.4, 0.5, 0.95, 0.95, true},
+        {"reopened", BOT_EYES_DASH, 0.3, 0.4, 0, 0, false},
     };
     for (size_t k = 0; k < sizeof f / sizeof f[0]; k++) {
-        bot_pose_t p = {.mood = BOT_IDLE, .face = BOT_IDLE, .eyes = BOT_EYES_DASH, .gaze_x = f[k].gx, .gaze_y = f[k].gy,
-                        .lid_l = f[k].lid, .lid_r = f[k].lid, .blink_l = f[k].blink, .blink_r = f[k].blink, .scale_x = 1, .scale_y = 1};
+        bot_pose_t p = {.mood = BOT_IDLE, .face = BOT_IDLE, .eyes = f[k].eyes, .gaze_x = f[k].gx, .gaze_y = f[k].gy,
+                        .lid_l = f[k].lid, .lid_r = f[k].lid, .blink_l = f[k].blink, .blink_r = f[k].blink, .hide = f[k].hide,
+                        .scale_x = 1, .scale_y = 1};
         bot_view_update(&p, (double)k);
         lv_refr_now(d);
         expect(&p);
         int stale, off, lit;
         compare(f[k].name, &stale, &off, &lit);
         CHECK(!stale, "%s: %d px still lit where no eye is (the vacated area must clear)", f[k].name, stale);
-        CHECK(!off && (f[k].blink >= 1 ? lit == 0 : lit > 500), "%s: %d px off the expected eye, %d lit", f[k].name, off, lit);
+        bool gone = f[k].hide && f[k].blink >= BOT_BLINK_HIDE;
+        CHECK(!off && (gone ? lit == 0 : lit > 100), "%s: %d px off the expected eye, %d lit", f[k].name, off, lit);
     }
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;

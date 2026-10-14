@@ -27,7 +27,8 @@ static inline BaseType_t xTaskCreatePinnedToCore(host_task_fn fn, const char *na
     pthread_t th;
     if (pthread_create(&th, NULL, host_task_run, t)) return pdFALSE;
     pthread_detach(th);
-    if (handle) *handle = (TaskHandle_t)t;
+    static int running;
+    if (handle) *handle = &running;
     return pdPASS;
 }
 
