@@ -1207,6 +1207,7 @@ static void stats_task(void *arg)
     static EXT_RAM_BSS_ATTR http_conn_stats_t prev, ns;
     static EXT_RAM_BSS_ATTR refr_kind_t kc[REFR_KINDS], kt;
     static EXT_RAM_BSS_ATTR dev_wifi_t w;
+    int failed_logged = 0;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
@@ -1230,7 +1231,8 @@ static void stats_task(void *arg)
         int moments, bake_ms, failed;
         moment_view_stats(&moments, &bake_ms, &failed);
         ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
-        if (failed) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
+        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
+        failed_logged = failed;
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         for (int i = 0; i < REFR_KINDS; i++)
             if (kc[i].n)

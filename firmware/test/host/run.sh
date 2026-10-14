@@ -77,11 +77,17 @@ RN=$(echo "$REFR" | in_refr_lock 'bool drew = refr_stats_end(&s_refr, d);') &&
     WIRING="$WIRING refr-end-and-take-inside-the-s_refr_mux-section"
 [ -n "$WIRING" ] || [ "$(grep -E 's_refr_(count|total_us|max_us)' "$MAINC" | grep -vcE '^static [a-z0-9_]+ s_refr_[a-z_]+(, s_refr_[a-z_]+)*;$')" -eq $((RN + SN)) ] ||
     WIRING="$WIRING refr-counters-only-in-the-refr_cb-and-stats_task-sections"
+STATS="$(body "$MAINC" stats_task)"
+echo "$STATS" | grep -qxF '    int failed_logged = 0;' &&
+    echo "$STATS" | grep -qxF '        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);' &&
+    echo "$STATS" | grep -A1 -F 'if (failed > failed_logged) ESP_LOGE(' | tail -1 | grep -qxF '        failed_logged = failed;' &&
+    [ "$(grep -c 'failed_logged' "$MAINC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts without' "$MAINC")" -eq 1 ] ||
+    WIRING="$WIRING stats-logs-moment-start-failures-only-when-the-count-grows"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL refresh stats wiring:$WIRING" >&2
     exit 1
 fi
-echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section"
+echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section; moment start failures logged when the count grows"
 DIAGC="$D/../../main/diag.c"
 APP="$(body "$MAINC" app_main)"
 echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -e '    diag_attach_refr(&s_refr, &s_refr_mux);' \
