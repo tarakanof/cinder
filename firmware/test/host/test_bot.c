@@ -12,6 +12,9 @@
 #include "label_wipe.h"
 #include "orbit_table.h"
 #include "rim_job.h"
+#include "rim_beat.h"
+#include "rim_slots.h"
+#include <pthread.h>
 #include <stdlib.h>
 
 static int failures;
@@ -657,6 +660,12 @@ static void test_pose_same(void)
     p = base;
     p.eyes = BOT_EYES_HAPPY;
     CHECK(!bot_pose_same(&base, &p, R), "eye shape change: redraw");
+    p = base;
+    p.face = BOT_DONE;
+    CHECK(!bot_pose_same(&base, &p, R), "the beat (face change): redraw");
+    p = base;
+    p.lap = true;
+    CHECK(!bot_pose_same(&base, &p, R), "a glint lap starting: redraw");
 }
 
 static int count_hops(bot_t *b, double t0, double seconds, bool *popped)
@@ -707,7 +716,8 @@ static void test_calm(void)
     CHECK(count_hops(&b, 52, 20, &popped) == 0, "quiet on while waiting: hops stop");
     bot_set_calm(&b, false, 72);
     bot_set_mood(&b, BOT_DONE, 73);
-    CHECK(count_hops(&b, 73, 1, &popped) == 0 && popped, "quiet off: mood change pops again");
+    CHECK(count_hops(&b, 73, 1, &popped) == 1 && popped, "quiet off: mood change pops again, done hops once");
+    CHECK(bot_anim_allowed(BOT_ANIM_DONE_REWARD, false) && !bot_anim_allowed(BOT_ANIM_DONE_REWARD, true), "calm: no done reward");
 
     bot_init(&b, 7, 0);
     bot_set_calm(&b, true, 0.5);
@@ -753,9 +763,15 @@ static bool s_race_took;
 static unsigned s_race_gen, s_race_base_gen, *s_take_gen;
 static int s_race_shape, s_race_mood, *s_take_shape, *s_take_mood;
 
+static void (*s_rj_hook)(void);
+
 void rj_race_point(rim_job_t *j, int at);
 void rj_race_point(rim_job_t *j, int at)
 {
+    if (s_rj_hook) {
+        s_rj_hook();
+        return;
+    }
     if (at != s_race_at) return;
     s_race_at = 0;
     s_race_fired = at;
@@ -1492,6 +1508,7 @@ static void test_heavy_blinks(void)
     bot_init(&b, 0xB11C, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
     const double dt = 1.0 / 240;
+    for (double t = 0; t < 3; t += dt) bot_pose(&b, t);
     int closes = 0, bad_hold = 0, overshoots = 0, singles = 0, starts = 0;
     double prev = 0, shut_at = -1, last_start = -1, gaps[256];
     int ngaps = 0;
@@ -1721,7 +1738,7 @@ static void test_asleep_guards(void)
 
     bot_init(&b, 43, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
-    bot_pose(&b, 10);
+    for (double t = 0; t <= 10; t += 1.0 / 60) bot_pose(&b, t);
     bot_act_begin(&b, 10);
     bot_act_eyes(&b, BOT_EYES_ROUND, 10.5);
     CHECK(b.blinking && !b.blink_heavy && b.blink_speed == 2.2, "a costume blink in sleepy is not heavy, 2.2x as in 0.9.68");
@@ -2112,12 +2129,12 @@ static uint64_t mood_hash(bot_mood_t m, uint64_t seed)
 static void test_reading_other_moods(void)
 {
     static const struct { bot_mood_t m; uint64_t h; } want[] = {
-        {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x0ab701d14c52cd17ULL},
-        {BOT_ERROR, 0xa42109cdb52734a4ULL}, {BOT_DONE, 0xb8d1bcbed2b40ef0ULL},
+        {BOT_IDLE, 0x3ca4ed9805c3d4e1ULL}, {BOT_SLEEPY, 0x9c3bd55e2cde0a81ULL}, {BOT_WAITING, 0x18e823e8ab4054efULL},
+        {BOT_ERROR, 0xa42109cdb52734a4ULL}, {BOT_DONE, 0xc2df4a3056c4b646ULL},
     };
     for (size_t i = 0; i < sizeof want / sizeof want[0]; i++) {
         uint64_t h = mood_hash(want[i].m, 0x5A5A + i);
-        CHECK(h == want[i].h, "mood %d: poses differ from the recorded ones (0.9.69; waiting 0.9.73) (hash %016llx)", want[i].m, (unsigned long long)h);
+        CHECK(h == want[i].h, "mood %d: poses differ from the recorded ones (0.9.69; waiting and done 0.9.74) (hash %016llx)", want[i].m, (unsigned long long)h);
     }
     bot_t a;
     bot_init(&a, 9, 0);
@@ -2779,8 +2796,776 @@ static void test_wait_demo(void)
     CHECK(b.w_phase == 2, "demo over: real timings again, phase B at 40 s");
 }
 
+static double lid_max(const bot_pose_t *p) { return fmax(p->lid_l, p->lid_r); }
+
+static bot_eyes_t mood_eyes(bot_mood_t m)
+{
+    return m == BOT_WAITING ? BOT_EYES_ROUND : m == BOT_DONE ? BOT_EYES_HAPPY : m == BOT_ERROR ? BOT_EYES_ANGRY : BOT_EYES_DASH;
+}
+
+static double settle_open(bot_t *b, double t)
+{
+    for (; b->blinking || t < 3; t += 0.001) bot_pose(b, t);
+    return t;
+}
+
+typedef struct {
+    double beat, shut_from, shut_to, open_after;
+    bool beat_shut, beat_eyes, beat_badge, held, early;
+} beat_log_t;
+
+static void beat_run(bot_t *b, bot_mood_t m, double t0, double ready_at, beat_log_t *g)
+{
+    *g = (beat_log_t){.beat = -1, .shut_from = -1, .shut_to = -1, .open_after = -1, .held = true};
+    bot_mood_t face0 = b->face;
+    bot_eyes_t eyes0 = b->eyes;
+    double badge0 = 0;
+    bot_set_mood(b, m, t0);
+    for (double t = t0; t < t0 + 1; t += 0.001) {
+        bot_rim_ready(b, t >= ready_at);
+        bot_pose_t p = bot_pose(b, t);
+        if (g->beat < 0 && p.face == m) {
+            g->beat = t;
+            g->beat_shut = lid_max(&p) >= 0.9;
+            g->beat_eyes = p.eyes == mood_eyes(m);
+            g->beat_badge = b->badge.start == t && fabs(p.badge - badge0) < 1e-9;
+        }
+        if (g->beat < 0) {
+            g->early |= p.face != face0 || p.eyes != eyes0;
+            badge0 = p.badge;
+            if (lid_max(&p) >= 0.999 && fmin(p.lid_l, p.lid_r) >= 0.999) {
+                if (g->shut_from < 0) g->shut_from = t;
+                g->shut_to = t;
+            } else if (g->shut_from >= 0) {
+                g->held = false;
+            }
+        }
+        if (g->beat >= 0 && g->open_after < 0 && lid_max(&p) < 0.05) g->open_after = t - g->beat;
+    }
+}
+
+static void test_mood_beat(void)
+{
+    bot_t b;
+    beat_log_t g;
+    bot_init(&b, 5, 0);
+    double t0 = settle_open(&b, 0);
+    beat_run(&b, BOT_DONE, t0, t0 + 0.25, &g);
+    CHECK(g.beat >= t0 + 0.25 && g.beat < t0 + 0.252 && g.beat_shut && g.beat_eyes && g.beat_badge && !g.early,
+          "outline late (0.25 s): the beat waits for it, eyes and badge in that frame behind shut lids (beat +%.3f s)", g.beat - t0);
+    CHECK(g.held && g.shut_from <= t0 + 0.15 && g.shut_to >= t0 + 0.249, "the lids stay shut %.3f..%.3f s while it waits",
+          g.shut_from - t0, g.shut_to - t0);
+    CHECK(g.open_after > 0.1 && g.open_after < 0.3, "then they open as a 1.6x blink does (%.3f s)", g.open_after);
+
+    bot_init(&b, 5, 0);
+    t0 = settle_open(&b, 0);
+    beat_run(&b, BOT_WAITING, t0, INFINITY, &g);
+    CHECK(g.beat >= t0 + BOT_BEAT_MAX_S && g.beat < t0 + BOT_BEAT_MAX_S + 0.002 && g.beat_shut && g.beat_eyes && g.beat_badge,
+          "no outline: the beat at %.2f s anyway, still behind the lids (+%.3f s)", BOT_BEAT_MAX_S, g.beat - t0);
+
+    bot_init(&b, 5, 0);
+    t0 = settle_open(&b, 0);
+    beat_run(&b, BOT_ERROR, t0, t0, &g);
+    CHECK(g.beat > t0 + 0.1 && g.beat < t0 + 0.14 && g.beat_shut && g.beat_eyes && g.beat_badge && !g.early,
+          "outline ready at once: the beat at the first close (+%.3f s)", g.beat - t0);
+    CHECK(g.shut_to - g.shut_from < 0.06, "and no held lids (%.3f s shut)", g.shut_to - g.shut_from);
+
+    bot_init(&b, 5, 0);
+    t0 = settle_open(&b, 0);
+    bot_blink(&b, t0);
+    double t = t0, prev = 0, jump = 0;
+    for (; t < t0 + 0.2; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        prev = lid_max(&p);
+    }
+    bot_set_mood(&b, BOT_WORKING, t);
+    double tm = t, beat = -1;
+    for (; t < tm + 1; t += 0.001) {
+        bot_rim_ready(&b, t >= tm + 0.3);
+        bot_pose_t p = bot_pose(&b, t);
+        jump = fmax(jump, lid_max(&p) - prev);
+        prev = lid_max(&p);
+        if (beat < 0 && p.face == BOT_WORKING) beat = t;
+    }
+    CHECK(jump < 0.05, "a change while the lids open: no snap shut (largest step %.3f in 1 ms)", jump);
+    CHECK(beat >= tm + 0.3 && beat < tm + 0.302, "the double blink carries the beat once the outline is ready (+%.3f s)", beat - tm);
+
+    bot_init(&b, 5, 0);
+    t0 = settle_open(&b, 0);
+    bot_sleep(&b, t0);
+    for (t = t0; t < t0 + 3; t += 0.01) bot_pose(&b, t);
+    bot_rim_ready(&b, true);
+    beat_run(&b, BOT_WAITING, t, t + 0.3, &g);
+    CHECK(g.beat >= t + 0.3 && g.beat < t + 0.302 && g.beat_eyes && g.shut_from <= t + 0.001 && g.held,
+          "asleep, then waiting: the lids stay shut until the outline (+%.3f s)", g.beat - t);
+
+    int beats = 0, bad = 0, slow = 0;
+    for (int seed = 0; seed < 300; seed++) {
+        bot_init(&b, 0xBEA7 + (uint64_t)seed, 0);
+        bot_set_sleep_after(&b, 0);
+        uint64_t r = 0x9E37 * (uint64_t)(seed + 1);
+        t = 0;
+        double ready_at = 0, since = 0;
+        bot_pose_t last = bot_pose(&b, 0);
+        for (int k = 0; k < 12; k++) {
+            r = r * 6364136223846793005ULL + 1442695040888963407ULL;
+            double dwell = 0.15 + (double)(r >> 40) / (double)(1ULL << 24) * 4;
+            double lat = (double)((r >> 20) & 0xFFFF) / 65536.0 * 0.6;
+            bot_mood_t m = (bot_mood_t)((r >> 8) % 6);
+            if (bot_set_mood(&b, m, t)) since = t, ready_at = t + lat;
+            for (double end = t + dwell; t < end; t += 1.0 / 120) {
+                bot_rim_ready(&b, t >= ready_at);
+                bot_pose_t p = bot_pose(&b, t);
+                if (p.face != last.face) {
+                    beats++;
+                    bad += lid_max(&p) < 0.9 || p.eyes != mood_eyes(p.face) || b.badge.start != t;
+                }
+                bad += p.face == last.face && p.eyes != last.eyes && !b.acting;
+                slow += p.face != p.mood && t - since > BOT_BEAT_MAX_S + 0.35;
+                last = p;
+            }
+        }
+    }
+    printf("mood beat: %d beats over 300 seeds, %d off the lids, eyes or badge, %d late\n", beats, bad, slow);
+    CHECK(beats > 1000 && !bad && !slow, "every beat behind closed lids with its eyes and badge (%d bad, %d late of %d)", bad, slow, beats);
+}
+
+typedef struct {
+    double beat, lid, resume;
+    bool early, wrong;
+} gap_log_t;
+
+static void gap_run(uint64_t seed, double gap_at, double gap_len, double ready_after, gap_log_t *g)
+{
+    bot_t b;
+    bot_init(&b, seed, 0);
+    double t0 = settle_open(&b, 0);
+    bot_eyes_t eyes0 = b.eyes;
+    bot_set_mood(&b, BOT_DONE, t0);
+    *g = (gap_log_t){.beat = -1, .resume = t0 + gap_at + gap_len};
+    bool gapped = false;
+    for (double t = t0; t < g->resume + 2; t += 1.0 / 60) {
+        if (!gapped && t > t0 + gap_at) {
+            gapped = true;
+            t = g->resume;
+        }
+        bot_rim_ready(&b, t >= g->resume + ready_after);
+        bot_pose_t p = bot_pose(&b, t);
+        if (g->beat < 0 && p.face == BOT_DONE) {
+            g->beat = t - g->resume;
+            g->lid = lid_max(&p);
+            g->wrong = p.eyes != BOT_EYES_HAPPY;
+        }
+        if (g->beat < 0) g->early |= p.eyes != eyes0;
+    }
+}
+
+static void test_mood_beat_gaps(void)
+{
+    gap_log_t g;
+    int bad = 0;
+    double worst = 1;
+    for (int seed = 0; seed < 20; seed++) {
+        gap_run(0x6A9 + (uint64_t)seed, 0.03, 5, 0.12, &g);
+        bad += g.beat < 0.12 || g.beat > BOT_BEAT_MAX_S + 0.02 || g.lid < 0.9 || g.early || g.wrong;
+        worst = fmin(worst, g.lid);
+    }
+    CHECK(!bad, "an OTA pause from the closing blink: the beat on a new closure once the outline is back (%d bad, lowest lid %.2f)", bad,
+          worst);
+    bad = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        gap_run(0x6A9 + (uint64_t)seed, 0.03, 5, INFINITY, &g);
+        bad += g.beat < BOT_BEAT_MAX_S - 0.02 || g.beat > BOT_BEAT_MAX_S + 0.02 || g.lid < 0.9 || g.early || g.wrong;
+    }
+    CHECK(!bad, "an OTA pause and no outline after it: the beat %.2f s after the pause, behind the lids (%d bad)", BOT_BEAT_MAX_S, bad);
+    bad = 0;
+    worst = 1;
+    int n = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        for (double len = 0.08; len < 0.6; len += 0.01, n++) {
+            gap_run(0x6A9 + (uint64_t)seed, 0.001, len, -INFINITY, &g);
+            bad += g.beat < 0 || g.lid < 0.9 || g.early || g.wrong;
+            worst = fmin(worst, g.lid);
+        }
+    }
+    CHECK(!bad, "a frame gap across the closing blink, outline ready: the beat on another closure, never open (%d of %d bad, lowest lid %.2f)",
+          bad, n, worst);
+
+    bot_t b;
+    bot_init(&b, 0x6A9, 0);
+    double t0 = settle_open(&b, 0);
+    bot_act_lid(&b, 0.8, 0.01, t0 - 0.5);
+    for (double t = t0 - 0.5; t < t0; t += 0.001) bot_pose(&b, t);
+    bot_set_mood(&b, BOT_DONE, t0);
+    double blink = -1, at = -1;
+    for (double t = t0; t < t0 + 1 && at < 0; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (p.face == BOT_DONE) {
+            at = t - b.blink_start;
+            blink = (lid_max(&p) - 0.8) / 0.2;
+            worst = lid_max(&p);
+        }
+    }
+    CHECK(at >= 0 && worst >= 0.9 && blink < 0.6, "lids at 0.8 (an act's lid): the beat once the heavy lid and the blink reach 0.9 together "
+          "(lid %.2f, blink alone %.2f)", worst, blink);
+}
+
+static void test_done_reward(void)
+{
+    bot_t b;
+    bot_init(&b, 11, 0);
+    double t0 = settle_open(&b, 0), tb = -1, hop = -1, hop_dy = 0, lap0 = -1, lap1 = -1, giggle_err = 0, peak = 0;
+    bot_set_mood(&b, BOT_DONE, t0);
+    int laps = 0, hops = 0;
+    bool was_hop = false, was_lap = false, animating = true;
+    for (double t = t0; t < t0 + 7; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (tb < 0 && p.face == BOT_DONE) tb = t;
+        if (tb >= 0 && !b.blinking) b.next_blink_at = INFINITY;
+        if (b.hopping && !was_hop) {
+            hops++;
+            hop = t;
+            CHECK(b.hop_h == BOT_DONE_HOP_H, "the reward hop at 0.7 height");
+        }
+        was_hop = b.hopping;
+        hop_dy = fmax(hop_dy, p.hop_dy);
+        if (p.lap && !was_lap) {
+            laps++;
+            lap0 = t;
+        }
+        if (!p.lap && was_lap) lap1 = t;
+        was_lap = p.lap;
+        double u = tb < 0 ? -1 : t - tb - BOT_GIGGLE_S, want = 0;
+        if (u >= 0 && u < 0.12) want = 0.45 * sin(M_PI * u / 0.12);
+        if (u >= 0.27 && u < 0.39) want = 0.45 * sin(M_PI * (u - 0.27) / 0.12);
+        if (u > -0.1 && u < 0.5) {
+            giggle_err = fmax(giggle_err, fmax(fabs(p.lid_l - want), fabs(p.lid_r - want)));
+            peak = fmax(peak, p.lid_l);
+            animating &= b.animating || want == 0;
+        }
+        if (p.lap) animating &= b.animating;
+    }
+    CHECK(hops == 1 && fabs(hop - tb - BOT_DONE_HOP_S) < 0.0015 && fabs(hop_dy - 0.22 * BOT_DONE_HOP_H) < 1e-3,
+          "one hop %.3f s after the beat, lift %.3f", hop - tb, hop_dy);
+    CHECK(giggle_err < 1e-9 && fabs(peak - BOT_GIGGLE_LID) < 1e-3, "giggle: two squeezes to 0.45, 120 ms, 150 ms apart (err %.2g, peak %.3f)",
+          giggle_err, peak);
+    CHECK(laps == 1 && fabs(lap0 - tb - BOT_LAP_AT_S) < 0.0015 && fabs(lap1 - lap0 - BOT_LAP_S) < 0.0015,
+          "one glint lap from %.3f s for %.3f s", lap0 - tb, lap1 - lap0);
+    CHECK(animating, "giggle and lap count as animating");
+
+    bot_init(&b, 11, 0);
+    t0 = settle_open(&b, 0);
+    bot_set_calm(&b, true, t0);
+    bot_set_mood(&b, BOT_DONE, t0);
+    bool any = false;
+    for (double t = t0; t < t0 + 7; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (t > t0 + 0.5 && !b.blinking) b.next_blink_at = INFINITY;
+        any |= b.hopping || p.lap || (t > t0 + 0.6 && lid_max(&p) > 0);
+    }
+    CHECK(!any, "calm: no hop, giggle or lap");
+
+    bot_init(&b, 11, 0);
+    t0 = settle_open(&b, 0);
+    bot_set_mood(&b, BOT_DONE, t0);
+    for (double t = t0; t < t0 + 1; t += 0.001) bot_pose(&b, t);
+    bot_set_mood(&b, BOT_WORKING, t0 + 1);
+    any = false;
+    for (double t = t0 + 1; t < t0 + 7; t += 0.001) {
+        double hs = b.hop_start;
+        any |= bot_pose(&b, t).lap || (b.hopping && b.hop_start != hs);
+    }
+    CHECK(!any && b.giggle_at == INFINITY, "done left before its reward: none of it later");
+
+    any = false;
+    for (int m = BOT_IDLE; m <= BOT_ERROR; m++) {
+        bot_init(&b, 12, 0);
+        t0 = settle_open(&b, 0);
+        bot_set_mood(&b, (bot_mood_t)m, t0);
+        for (double t = t0; t < t0 + 8; t += 0.004) any |= bot_pose(&b, t).lap || (b.hopping && b.hop_h == BOT_DONE_HOP_H);
+    }
+    CHECK(!any, "only done has the reward");
+
+    bot_init(&b, 11, 0);
+    t0 = settle_open(&b, 0);
+    bot_set_mood(&b, BOT_DONE, t0);
+    double lap_at = -1, back = -1;
+    int steps = 0, last = -1, first = -1;
+    bool constant = true;
+    for (double t = t0; t < t0 + 7; t += 1.0 / 60) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (p.lap && lap_at < 0) {
+            lap_at = p.lap_at;
+            back = lap_at + BOT_LAP_S / 2;
+        }
+        if (p.lap) constant &= p.lap_at == lap_at;
+        if (back < 0 || t < back) continue;
+        int k = p.lap ? bot_lap_step(p.lap_at, t, BOT_LAP_S / 45, 45) : -1;
+        if (k >= 0 && first < 0) first = k;
+        if (k >= 0 && k != last) steps++;
+        if (k >= 0) last = k;
+    }
+    CHECK(constant && lap_at >= t0, "the pose carries the lap's start, the same all lap");
+    CHECK(first >= 21 && first <= 23 && last == 44 && steps == 45 - first,
+          "back on the bot page halfway through: the lap goes on from its step %d to its end (%d, %d steps), not from 0", first, last, steps);
+    CHECK(bot_lap_step(10, 9.99, 0.1, 30) == -1 && bot_lap_step(10, 10, 0.1, 30) == 0 && bot_lap_step(10, 12.95, 0.1, 30) == 29 &&
+              bot_lap_step(10, 13.0, 0.1, 30) == -1,
+          "lap steps: 0 at the start, the last before its end, none outside");
+
+    bot_init(&b, 11, 0);
+    bot_set_ring(&b, false);
+    t0 = settle_open(&b, 0);
+    bot_set_mood(&b, BOT_DONE, t0);
+    any = false;
+    bool idle_after = true;
+    for (double t = t0; t < t0 + 7; t += 0.001) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (t > t0 + 0.5 && !b.blinking) b.next_blink_at = INFINITY;
+        if (t > t0 + 0.5) b.next_saccade_at = b.next_micro_at = INFINITY;
+        any |= p.lap;
+        if (t > t0 + BOT_GIGGLE_S + 1) idle_after &= !b.animating || b.hopping;
+    }
+    CHECK(!any && idle_after, "working ring off: no lap, and nothing keeps the frame rate up for it");
+}
+
+static void test_rim_beat(void)
+{
+    int idle = bot_rim_key(BOT_IDLE, false), work = bot_rim_key(BOT_WORKING, false), err = bot_rim_key(BOT_ERROR, false),
+        sleepy = bot_rim_key(BOT_SLEEPY, false), nap = bot_rim_key(BOT_SLEEPY, true);
+    CHECK(err == (BOT_ERROR | BOT_RIM_TRIANGLE) && bot_rim_mood(err) == BOT_ERROR && bot_rim_mood(nap) == BOT_SLEEPY &&
+              (nap & BOT_RIM_ASLEEP) && !(work & BOT_RIM_TRIANGLE) && bot_rim_alpha(err) == 1.0f,
+          "keys: the triangle only in error, the mood under both flags");
+    rim_beat_t r;
+    rim_beat_out_t o;
+    rim_beat_init(&r);
+    CHECK(!rim_beat_ready(&r, BOT_IDLE, true), "no job: not ready");
+    rim_beat_step(&r, idle, idle, true, true, true, true, 0, &o);
+    CHECK(o.start && !o.swap && !o.own && !o.settle, "first frame: a job, any readiness from before ignored");
+    CHECK(!rim_beat_ready(&r, BOT_IDLE, false) && rim_beat_ready(&r, BOT_IDLE, true) && !rim_beat_ready(&r, BOT_WORKING, true),
+          "ready: the job's mood with its base rendered");
+    rim_beat_step(&r, idle, idle, false, false, false, true, 0.05, &o);
+    CHECK(!o.start && !o.swap && !o.own, "base not rendered: nothing to show");
+    rim_beat_step(&r, idle, idle, true, false, false, true, 0.12, &o);
+    CHECK(o.swap && o.own && !o.settle, "base rendered: shown, no settle at boot");
+    rim_beat_step(&r, idle, idle, true, true, true, true, 0.5, &o);
+    CHECK(!o.swap && o.own && !o.settle, "no settle without a mood change");
+
+    rim_beat_step(&r, work, idle, true, true, true, true, 1.0, &o);
+    CHECK(o.start && !o.swap && !o.own, "mood change: a job, the old base alone meanwhile");
+    rim_beat_step(&r, work, idle, true, true, true, true, 1.12, &o);
+    CHECK(!o.swap && !o.own && rim_beat_ready(&r, BOT_WORKING, true), "base ready before the beat: the old outline stays");
+    rim_beat_step(&r, work, work, true, false, false, true, 1.15, &o);
+    CHECK(o.swap && o.own && !o.settle && rim_beat_ready(&r, BOT_WORKING, false), "the beat: swap, and shown counts as ready");
+    rim_beat_step(&r, work, work, true, true, false, true, 1.24, &o);
+    CHECK(!o.settle, "-1 alone: no settle yet");
+    int bad = 0, m1 = 0, p1 = 0;
+    for (double t = 1.36; t < 1.6; t += 0.001) {
+        rim_beat_step(&r, work, work, true, true, true, true, t, &o);
+        double s = t - 1.36;
+        int want = s < RIM_SETTLE_M1_S ? -1 : s < RIM_SETTLE_S ? 1 : 0;
+        bad += o.settle != want || !o.own;
+        m1 += o.settle == -1;
+        p1 += o.settle == 1;
+    }
+    CHECK(!bad && abs(m1 - 60) <= 1 && abs(p1 - 80) <= 1, "settle: -1 for 60 ms, +1 for 80 ms, then the base (%d off, %d, %d)", bad, m1, p1);
+
+    rim_beat_step(&r, err, work, false, false, false, true, 2.0, &o);
+    rim_beat_step(&r, err, err, true, false, false, true, 2.12, &o);
+    CHECK(o.swap, "error: swap");
+    bad = 0;
+    for (double t = 2.2; t < 2.4; t += 0.001) {
+        rim_beat_step(&r, err, err, true, true, true, t > 2.25, t, &o);
+        double s = t - 2.2;
+        int want = t <= 2.25 ? 0 : s < RIM_SETTLE_M1_S ? -1 : s < RIM_SETTLE_S ? 1 : 0;
+        bad += o.settle != want;
+    }
+    CHECK(!bad, "a squashed pose keeps its own variant: the settle shows only while it asks for the base");
+
+    rim_beat_step(&r, sleepy, err, true, true, true, true, 3.0, &o);
+    rim_beat_step(&r, sleepy, sleepy, true, false, false, true, 3.15, &o);
+    CHECK(o.swap, "sleepy: swap");
+    rim_beat_step(&r, sleepy, sleepy, true, true, true, true, 4.2, &o);
+    CHECK(!o.settle, "variants over 1 s after the swap: no settle");
+
+    rim_beat_step(&r, nap, nap, true, true, true, true, 5.0, &o);
+    CHECK(o.start && !o.swap, "asleep: a job");
+    rim_beat_step(&r, nap, nap, true, false, false, true, 5.12, &o);
+    CHECK(o.swap, "the faded outline swaps once ready, no beat to wait for");
+    rim_beat_step(&r, nap, nap, true, true, true, true, 5.3, &o);
+    CHECK(!o.settle, "same mood: no settle");
+
+    rim_beat_step(&r, work, nap, true, true, true, true, 6.0, &o);
+    rim_beat_step(&r, err, nap, false, false, false, true, 6.05, &o);
+    CHECK(o.start && !o.own, "a second change before the beat: a new job");
+    rim_beat_step(&r, err, err, false, false, false, true, 6.1, &o);
+    CHECK(!o.swap && !o.own, "its base not rendered: the old outline stays even after the beat");
+    rim_beat_step(&r, err, err, true, false, false, true, 6.6, &o);
+    CHECK(o.swap, "then swaps when ready");
+    rim_beat_step(&r, idle, err, true, false, false, true, 7.0, &o);
+    rim_beat_step(&r, err, err, true, true, true, true, 7.05, &o);
+    CHECK(o.start && !o.swap, "back before the beat: a job again");
+    rim_beat_step(&r, err, err, true, false, false, true, 7.17, &o);
+    rim_beat_step(&r, err, err, true, true, true, true, 7.3, &o);
+    CHECK(o.own && !o.settle, "the same outline again: shown, no settle");
+
+    rim_beat_init(&r);
+    rim_beat_step(&r, idle, idle, false, false, false, true, 10.0, &o);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 10.12, &o);
+    rim_beat_step(&r, work, idle, false, false, false, true, 11.0, &o);
+    rim_beat_step(&r, idle, idle, false, false, false, true, 11.1, &o);
+    CHECK(o.start && !o.own && rim_beat_ready(&r, BOT_IDLE, false),
+          "A, B never shown, A again: A's base is on screen, so the beat back to A waits for nothing");
+    rim_beat_step(&r, idle, idle, false, false, false, true, 11.15, &o);
+    CHECK(!o.swap && !o.own, "and its variants stay off until the job's own base is rendered");
+    rim_beat_step(&r, idle, idle, true, false, false, true, 11.22, &o);
+    CHECK(o.swap && o.own && !o.settle, "then it swaps in place, no settle");
+
+    rim_beat_init(&r);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 20.0, &o);
+    rim_beat_step(&r, idle, idle, true, false, false, true, 20.12, &o);
+    rim_beat_step(&r, work, idle, false, false, false, true, 21.0, &o);
+    rim_beat_step(&r, work, idle, true, true, true, true, 21.36, &o);
+    CHECK(!o.swap && !o.settle, "a late beat: the base and both settle variants rendered before it");
+    rim_beat_step(&r, work, work, true, true, true, true, 21.4, &o);
+    CHECK(o.swap && o.settle == -1, "the settle starts in the swap frame itself (-1 behind the lids)");
+    rim_beat_step(&r, work, work, true, true, true, true, 21.4 + RIM_SETTLE_M1_S + 0.001, &o);
+    CHECK(o.settle == 1, "then +1");
+    rim_beat_step(&r, work, work, true, true, true, true, 21.4 + RIM_SETTLE_S + 0.001, &o);
+    CHECK(!o.settle, "then the base");
+}
+
+typedef struct {
+    rim_beat_t r;
+    double base_at, m1_at, p1_at, lat;
+} fake_view_t;
+
+static void test_mood_beat_view(void)
+{
+    static const double lats[] = {0.05, 0.12, 0.3, 0.6};
+    for (size_t i = 0; i < sizeof lats / sizeof lats[0]; i++) {
+        int beats = 0, same = 0, settles = 0, late = 0, open_swap = 0;
+        for (int seed = 0; seed < 50; seed++) {
+            bot_t b;
+            bot_init(&b, 0x5E77 + (uint64_t)seed, 0);
+            bot_set_sleep_after(&b, 0);
+            fake_view_t v = {.lat = lats[i], .base_at = INFINITY, .m1_at = INFINITY, .p1_at = INFINITY};
+            rim_beat_init(&v.r);
+            static const bot_mood_t seq[] = {BOT_WORKING, BOT_WAITING, BOT_DONE, BOT_ERROR, BOT_IDLE, BOT_WORKING};
+            double t = 0, beat_t = -1, swap_t = -1, settle_t = -1;
+            int k = 0;
+            for (; t < 6 * 4.0; t += 1.0 / 60) {
+                if (k < 6 && t >= 1 + 4.0 * k) {
+                    bot_set_mood(&b, seq[k++], t);
+                    beat_t = swap_t = settle_t = -1;
+                }
+                bot_rim_ready(&b, rim_beat_ready(&v.r, (int)b.mood, t >= v.base_at));
+                bot_pose_t p = bot_pose(&b, t);
+                rim_beat_out_t o;
+                rim_beat_step(&v.r, bot_rim_key(p.mood, p.asleep), bot_rim_key(p.face, p.asleep), t >= v.base_at, t >= v.m1_at,
+                              t >= v.p1_at, fabs(p.scale_y / p.scale_x - 1) < 0.015, t, &o);
+                if (o.start) {
+                    v.base_at = t + v.lat;
+                    v.m1_at = v.base_at + 0.12;
+                    v.p1_at = v.m1_at + 0.12;
+                }
+                if (beat_t < 0 && k > 0 && p.face == seq[k - 1]) {
+                    beat_t = t;
+                    beats++;
+                }
+                if (o.swap && k > 0) {
+                    swap_t = t;
+                    same += swap_t == beat_t;
+                    open_swap += lid_max(&p) < 0.9;
+                }
+                if (o.settle && settle_t < 0) {
+                    settle_t = t;
+                    settles++;
+                    late += t - swap_t > 0.5;
+                }
+            }
+        }
+        printf("mood beat view, outline in %.2f s: %d beats, %d with the outline in the same frame, %d settles (%d late), %d swaps with open lids\n",
+               lats[i], beats, same, settles, late, open_swap);
+        if (lats[i] < BOT_BEAT_MAX_S) {
+            CHECK(beats == 300 && same == beats && !open_swap, "outline in %.2f s: eyes, badge and outline in one closure (%d of %d)", lats[i],
+                  same, beats);
+            CHECK(settles >= 200 && !late, "outline in %.2f s: the settle follows (%d, %d late)", lats[i], settles, late);
+        } else {
+            CHECK(beats == 300 && same == 0, "outline in %.2f s: the beat goes at %.2f s, the outline follows", lats[i], BOT_BEAT_MAX_S);
+        }
+    }
+}
+
+
+typedef struct {
+    int key;
+    float sx, sy;
+    bool writing;
+} fake_buf_t;
+
+static struct {
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    int turn;
+    bool quit;
+    uint64_t rng;
+    int race_pct, raster_frames;
+    rim_slots_t s;
+    fake_buf_t bufs[RIM_SLOTS];
+    fake_buf_t *canvas;
+    int notify, badge_key;
+    unsigned raster_gen;
+    int replaced, races, off_frames, off_vars, on_vars;
+} M;
+static _Thread_local int s_me;
+
+static void m_give(int who)
+{
+    pthread_mutex_lock(&M.mu);
+    M.turn = who;
+    pthread_cond_broadcast(&M.cv);
+    while (M.turn != s_me && !(s_me == 1 && M.quit)) pthread_cond_wait(&M.cv, &M.mu);
+    pthread_mutex_unlock(&M.mu);
+}
+
+static bool m_coin(void)
+{
+    M.rng = M.rng * 6364136223846793005ULL + 1442695040888963407ULL;
+    return (int)((M.rng >> 33) % 100) < M.race_pct;
+}
+
+static void m_race(void)
+{
+    if (!m_coin()) return;
+    M.races++;
+    m_give(!s_me);
+}
+
+void rs_race_point(rim_slots_t *s, int at);
+void rs_race_point(rim_slots_t *s, int at)
+{
+    (void)s;
+    (void)at;
+    m_race();
+}
+
+static void m_raster(void *ctx, void *buf, int shape, int tone, float sx, float sy)
+{
+    (void)ctx;
+    fake_buf_t *f = buf;
+    unsigned gen = rim_job_gen(&M.s.job);
+    if (sx != 1.0f || sy != 1.0f) {
+        M.off_vars += M.off_frames >= 3;
+        M.on_vars += M.off_frames == 0;
+    }
+    f->writing = true;
+    for (int i = 0; i < M.raster_frames; i++) m_give(0);
+    M.replaced += rim_job_gen(&M.s.job) != gen;
+    f->key = tone | (shape ? BOT_RIM_TRIANGLE : 0);
+    f->sx = sx;
+    f->sy = sy;
+    f->writing = false;
+}
+
+static void m_yield(void *ctx)
+{
+    (void)ctx;
+    m_give(0);
+}
+
+static void *m_task(void *arg)
+{
+    (void)arg;
+    s_me = 1;
+    pthread_mutex_lock(&M.mu);
+    while (M.turn != 1 && !M.quit) pthread_cond_wait(&M.cv, &M.mu);
+    pthread_mutex_unlock(&M.mu);
+    while (!M.quit) {
+        if (M.notify) {
+            M.notify = 0;
+            rim_slots_run(&M.s, m_raster, m_yield, NULL);
+        } else {
+            m_give(0);
+        }
+    }
+    return NULL;
+}
+
+static void m_show(void *ctx, void *buf)
+{
+    (void)ctx;
+    M.canvas = buf;
+}
+
+static void m_wake(void *ctx)
+{
+    (void)ctx;
+    M.notify = 1;
+}
+
+static void m_swapped(void *ctx, int key)
+{
+    (void)ctx;
+    M.badge_key = key;
+}
+
+typedef struct {
+    int stale_vars, frames, tears, wrong_slot, badge_off, open_mismatch, returns, return_mismatch, beats, beat_open, ota_own, ota_unswapped;
+    double worst_open;
+} model_log_t;
+
+static void model_run(uint64_t seed, int race_pct, model_log_t *g)
+{
+    static const rim_slots_ops_t ops = {.show = m_show, .wake = m_wake, .swapped = m_swapped};
+    memset(&M, 0, sizeof M);
+    pthread_mutex_init(&M.mu, NULL);
+    pthread_cond_init(&M.cv, NULL);
+    M.rng = seed * 0x9E3779B97F4A7C15ULL + 1;
+    M.race_pct = race_pct;
+    M.raster_frames = 1 + (int)(seed % 7);
+    M.badge_key = -1;
+    void *bufs[RIM_SLOTS];
+    for (int v = 0; v < RIM_SLOTS; v++) {
+        M.bufs[v].key = -1;
+        bufs[v] = &M.bufs[v];
+    }
+    rim_slots_init(&M.s, bufs);
+    s_me = 0;
+    s_rj_hook = m_race;
+    pthread_t th;
+    pthread_create(&th, NULL, m_task, NULL);
+
+    bot_t b;
+    bot_init(&b, seed, 0);
+    bot_set_sleep_after(&b, 0);
+    uint64_t r = seed * 2654435761ULL + 7;
+#define RND(n) ((r = r * 6364136223846793005ULL + 1442695040888963407ULL), (double)(r >> 11) / (double)(1ULL << 53) * (n))
+    double next_mood = 1, page_off = 2 + RND(4), page_on = -1, ota_at = 3 + RND(6), ota_end = -1;
+    bool on_page = true, ota = false, held = false, back = false;
+    bot_mood_t last_face = b.face;
+    float ratio = 1;
+    double quiet_from = 0;
+    int last_job = -1;
+    for (double t = 0; t < 40; t += 1.0 / 60) {
+        g->frames++;
+        if (t >= next_mood) {
+            bot_set_mood(&b, (bot_mood_t)((int)RND(6) % 6), t);
+            next_mood = t + (RND(1) < 0.3 ? 2 + RND(2) : 0.03 + RND(1.5));
+        }
+        if (on_page && t >= page_off) {
+            on_page = false;
+            page_on = t + 0.05 + RND(2);
+        } else if (!on_page && t >= page_on) {
+            on_page = back = true;
+            page_off = t + 1 + RND(5);
+        }
+        if (!ota && t >= ota_at) {
+            ota = true;
+            ota_end = t + 0.05 + RND(3);
+        } else if (ota && t >= ota_end) {
+            ota = false;
+            ota_at = t + 2 + RND(7);
+        }
+        if (ota) {
+            if (!held) {
+                held = true;
+                g->ota_own += atomic_load(&M.s.own);
+                g->ota_unswapped += !atomic_load(&M.s.own);
+                rim_slots_hold(&M.s, true, &ops);
+            }
+            m_give(1);
+            continue;
+        }
+        if (held) {
+            quiet_from = t;
+            held = false;
+            rim_slots_hold(&M.s, false, &ops);
+        }
+        M.off_frames = on_page ? 0 : M.off_frames + 1;
+        if (back || M.s.beat.job != last_job) quiet_from = t;
+        last_job = M.s.beat.job;
+        bot_rim_ready(&b, rim_slots_feed(&M.s, bot_rim_key(b.mood, b.asleep), on_page, &ops));
+        bot_pose_t p = bot_pose(&b, t);
+        bool beat = p.face != last_face;
+        last_face = p.face;
+        int face = bot_rim_key(p.face, p.asleep);
+        if (on_page) ratio = (float)(p.scale_y / p.scale_x);
+        int v = rim_slots_sync(&M.s, bot_rim_key(p.mood, p.asleep), face, ratio, t, &ops);
+        if (v != M.s.shown) rim_slots_show(&M.s, v, &ops);
+        if (on_page) {
+            fake_buf_t *c = M.canvas;
+            if (c) {
+                g->tears += c->writing;
+                g->wrong_slot += c != M.s.buf[M.s.shown] || c->sx != M.s.sx[M.s.shown] || c->sy != M.s.sy[M.s.shown];
+                g->badge_off += c->key != M.badge_key;
+                bool mismatch = c->key != face;
+                if (mismatch && lid_max(&p) < 0.9) {
+                    g->open_mismatch++;
+                    g->worst_open = fmax(g->worst_open, t - b.mood_since);
+                }
+                if (back) g->return_mismatch += mismatch;
+                if (beat) {
+                    g->beats++;
+                    g->beat_open += lid_max(&p) < 0.9;
+                }
+            }
+            unsigned gen = rim_job_gen(&M.s.job);
+            g->stale_vars += t - quiet_from > 1.5 && t - b.mood_since > 1.5 && M.s.beat.job == last_job &&
+                             (atomic_load(&M.s.var_gen[RIM_SLOT_BASE - 1]) != gen || atomic_load(&M.s.var_gen[RIM_SLOT_BASE + 1]) != gen);
+            g->returns += back;
+            back = false;
+        }
+        m_give(1);
+    }
+#undef RND
+    pthread_mutex_lock(&M.mu);
+    M.quit = true;
+    M.turn = 1;
+    pthread_cond_broadcast(&M.cv);
+    pthread_mutex_unlock(&M.mu);
+    pthread_join(th, NULL);
+    s_rj_hook = NULL;
+    pthread_cond_destroy(&M.cv);
+    pthread_mutex_destroy(&M.mu);
+}
+
+static void test_rim_slots_model(void)
+{
+    model_log_t g = {0};
+    int replaced = 0, races = 0, off_vars = 0, on_vars = 0;
+    for (int seed = 1; seed <= 80; seed++) {
+        model_run((uint64_t)seed, seed % 5 == 0 ? 0 : 35, &g);
+        replaced += M.replaced;
+        races += M.races;
+        off_vars += M.off_vars;
+        on_vars += M.on_vars;
+    }
+    printf("rim slots model: %d variant rasters on the bot page, %d started off it, %d frames on it without -1 and +1 1.5 s after a "
+           "change, return or hold\n", on_vars, off_vars, g.stale_vars);
+    CHECK(!off_vars && on_vars > 1000, "off the bot page only bases render; the variants wait for the page (%d started off it)", off_vars);
+    CHECK(!g.stale_vars, "back on the page the variants follow (%d frames without -1 and +1)", g.stale_vars);
+    printf("rim slots model: %d frames, %d beats, %d page returns, %d OTA holds swapped and %d not, %d rasters replaced mid-way, %d race "
+           "switches; %d tears, %d wrong slots, %d badge off, %d open mismatches (worst %.2f s after a change), %d on return, %d beats open\n",
+           g.frames, g.beats, g.returns, g.ota_own, g.ota_unswapped, replaced, races, g.tears, g.wrong_slot, g.badge_off, g.open_mismatch,
+           g.worst_open, g.return_mismatch, g.beat_open);
+    CHECK(g.beats > 500 && g.returns > 50 && g.ota_own > 20 && g.ota_unswapped > 20 && replaced > 50 && races > 1000,
+          "the model covers beats, page returns, holds before and after the swap, and replacement mid-raster");
+    CHECK(!g.tears, "the shown outline is never being rendered (%d frames)", g.tears);
+    CHECK(!g.wrong_slot, "the canvas shows the slot's own variant (%d frames)", g.wrong_slot);
+    CHECK(!g.badge_off, "badge and label follow the outline on screen (%d frames)", g.badge_off);
+    CHECK(!g.beat_open, "every beat behind the lids (%d)", g.beat_open);
+    CHECK(!g.return_mismatch, "back on the bot page: the outline matches the eyes in the first frame (%d)", g.return_mismatch);
+    CHECK(!g.open_mismatch, "never the face's eyes with another outline on open lids (%d frames)", g.open_mismatch);
+}
+
 int main(void)
 {
+    test_rim_beat();
+    test_mood_beat();
+    test_mood_beat_gaps();
+    test_mood_beat_view();
+    test_rim_slots_model();
+    test_done_reward();
     test_wait_phases();
     test_wait_nudge();
     test_wait_restart();

@@ -9,7 +9,7 @@
 #include "label_wipe.h"
 #include "bot_raster.h"
 #include "bot_shape.h"
-#include "rim_job.h"
+#include "rim_slots.h"
 #include "ring_glint.h"
 #include "tool_marks.h"
 #include "esp_attr.h"
@@ -31,26 +31,6 @@
 #define EYE_BUF_W 220
 #define EYE_BUF_H 260
 
-#define RIM_STEPS BOT_RIM_STEPS
-#define RIM_VARIANTS (2 * RIM_STEPS + 1)
-#define RIM_BASE RIM_STEPS
-static float VAR_SX[RIM_VARIANTS], VAR_SY[RIM_VARIANTS];
-static int VAR_ORDER[RIM_VARIANTS - 1];
-
-static void variants_init(void)
-{
-    for (int k = 0; k < RIM_VARIANTS; k++) {
-        double sx, sy;
-        bot_rim_variant(k - RIM_BASE, &sx, &sy);
-        VAR_SX[k] = (float)sx;
-        VAR_SY[k] = (float)sy;
-    }
-    for (int d = 1, n = 0; d <= RIM_STEPS; d++) {
-        VAR_ORDER[n++] = RIM_BASE - d;
-        VAR_ORDER[n++] = RIM_BASE + d;
-    }
-}
-
 typedef struct {
     lv_obj_t *canvas;
     uint16_t *buf;
@@ -62,14 +42,13 @@ static canvas_t s_eye[2];
 static SemaphoreHandle_t s_eye_go, s_eye_done;
 static void eye_task(void *arg);
 static lv_obj_t *s_rim_canvas;
-static uint16_t *s_rim_buf[RIM_VARIANTS];
-static rim_job_t s_rim;
-static atomic_uint s_var_ready_gen[RIM_VARIANTS];
+static rim_slots_t s_slots;
 static TaskHandle_t s_rim_task;
-static int s_rim_shown = RIM_BASE;
+static int s_rim_want = -1, s_rim_face = -1;
+static float s_rim_ratio = 1.0f;
+static int s_rim_pose_dy;
 static int s_rim_shape = -1;
 static bot_mood_t s_rim_mood = (bot_mood_t)-1;
-static bool s_rim_asleep;
 static int s_rim_dy;
 static lv_obj_t *s_badge_gap, *s_badge_dot;
 #define LABEL_W 340
@@ -195,22 +174,21 @@ static void rim_raster(uint16_t *buf, int shape, int tone, float sx, float sy, r
                       (float)(RIM_PX / 2), mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));
 }
 
+static void rim_raster_cb(void *ctx, void *buf, int shape, int tone, float sx, float sy) { rim_raster(buf, shape, tone, sx, sy, ctx); }
+
+static void rim_yield(void *ctx)
+{
+    (void)ctx;
+    vTaskDelay(1);
+}
+
 static void rim_task(void *arg)
 {
     (void)arg;
     static EXT_RAM_BSS_ATTR rim_work_t work;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        unsigned gen;
-        int shape, tone;
-        if (!rim_job_take(&s_rim, &gen, &shape, &tone)) continue;
-        for (int k = 0; k < RIM_VARIANTS - 1; k++) {
-            if (!rim_job_live(&s_rim, gen)) break;
-            int v = VAR_ORDER[k];
-            rim_raster(s_rim_buf[v], shape, tone, VAR_SX[v], VAR_SY[v], &work);
-            atomic_store(&s_var_ready_gen[v], gen);
-            vTaskDelay(1);
-        }
+        rim_slots_run(&s_slots, rim_raster_cb, rim_yield, &work);
     }
 }
 
@@ -218,12 +196,12 @@ void bot_view_create(lv_obj_t *parent)
 {
     s_r = 233.0 * FILL;
     bot_shape_init();
-    variants_init();
-    for (int v = 0; v < RIM_VARIANTS; v++) {
-        s_rim_buf[v] = heap_caps_malloc(SCREEN_W * SCREEN_H * 2, MALLOC_CAP_SPIRAM);
-        assert(s_rim_buf[v]);
-        atomic_store(&s_var_ready_gen[v], 0);
+    void *bufs[RIM_SLOTS];
+    for (int v = 0; v < RIM_SLOTS; v++) {
+        bufs[v] = heap_caps_malloc(SCREEN_W * SCREEN_H * 2, MALLOC_CAP_SPIRAM);
+        assert(bufs[v]);
     }
+    rim_slots_init(&s_slots, bufs);
     s_rim_canvas = canvas_create(parent);
     lv_obj_add_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN);
     s_glint_cache = heap_caps_calloc(GLINT_STEPS, sizeof *s_glint_cache, MALLOC_CAP_SPIRAM);
@@ -527,7 +505,7 @@ static void glint_draw_cb(lv_event_t *e)
     lv_draw_image_dsc_t d;
     lv_draw_image_dsc_init(&d);
     d.src = &s_glint_img;
-    d.recolor = lv_color_hex(ring_glint_color(mood_rgb(BOT_WORKING), GLINT_MIX));
+    d.recolor = lv_color_hex(ring_glint_color(mood_rgb(s_rim_mood), GLINT_MIX));
     int y = st->box.y + s_glint_dy;
     lv_area_t a = {st->box.x, y, st->box.x + st->box.w - 1, y + st->box.h - 1};
     lv_draw_image(lv_event_get_layer(e), &d, &a);
@@ -577,6 +555,8 @@ void bot_view_label_fx(float opa, int shift_x, int shift_y)
 }
 
 static bool s_glint_force;
+static bool s_lap_on;
+static double s_lap_at;
 
 void bot_view_glint_force(bool on) { s_glint_force = on; }
 
@@ -587,6 +567,12 @@ static bool glint_enabled(void)
 
 static int glint_step(double t) { return (int)fmod(floor(t / GLINT_STEP_S), GLINT_STEPS); }
 
+static int lap_step(double t)
+{
+    if (!s_lap_on || !s_opt_glint || s_rim_mood != BOT_DONE || s_rim_shape != 0) return -1;
+    return bot_lap_step(s_lap_at, t, GLINT_STEP_S, GLINT_STEPS);
+}
+
 bool bot_view_glint_deg(double t, float *deg)
 {
     if (!glint_enabled()) return false;
@@ -594,15 +580,19 @@ bool bot_view_glint_deg(double t, float *deg)
     return true;
 }
 
+static void rim_sync(double t);
+
 bool bot_view_tick(double t, bool defer)
 {
-    bool on = glint_enabled() && s_rim_shown == RIM_BASE;
+    rim_sync(t);
+    int lap = glint_enabled() ? -1 : lap_step(t);
+    bool on = (glint_enabled() || lap >= 0) && s_slots.shown == RIM_SLOT_BASE;
     if (!on) {
         glint_hide();
         return false;
     }
     s_glint_dy = s_rim_dy;
-    int idx = glint_step(t);
+    int idx = lap >= 0 ? lap : glint_step(t);
     if (idx == s_glint_idx) return false;
     if (defer && s_glint_idx >= 0 && s_glint_defer < GLINT_MAX_DEFER) {
         s_glint_defer++;
@@ -629,35 +619,56 @@ bool bot_view_tick(double t, bool defer)
     return true;
 }
 
-static void rim_show(int v)
+static void rim_canvas_show(void *ctx, void *buf)
 {
-    s_rim_shown = v;
-    lv_canvas_set_buffer(s_rim_canvas, s_rim_buf[v], SCREEN_W, SCREEN_H, LV_COLOR_FORMAT_RGB565);
+    (void)ctx;
+    lv_canvas_set_buffer(s_rim_canvas, buf, SCREEN_W, SCREEN_H, LV_COLOR_FORMAT_RGB565);
     lv_obj_invalidate(s_rim_canvas);
 }
 
-static void rim_move(int v, int dy)
+static void rim_wake(void *ctx)
 {
-    if (v != s_rim_shown) rim_show(v);
-    if (dy != s_rim_dy) {
-        s_rim_dy = dy;
-        lv_obj_set_pos(s_rim_canvas, 0, dy);
-    }
+    (void)ctx;
+    xTaskNotifyGive(s_rim_task);
 }
 
-static int rim_variant_for(const bot_pose_t *p)
+static void rim_swapped(void *ctx, int key)
 {
-    float ratio = (float)(p->scale_y / p->scale_x);
-    if (fabsf(ratio - 1.0f) < 0.015f) return RIM_BASE;
-    unsigned gen = rim_job_gen(&s_rim);
-    int best = RIM_BASE;
-    float best_d = fabsf(ratio - 1.0f);
-    for (int v = 0; v < RIM_VARIANTS; v++) {
-        if (v != RIM_BASE && atomic_load(&s_var_ready_gen[v]) != gen) continue;
-        float d = fabsf(ratio - VAR_SY[v] / VAR_SX[v]);
-        if (d < best_d) { best_d = d; best = v; }
+    (void)ctx;
+    s_rim_shape = key & BOT_RIM_TRIANGLE ? 1 : 0;
+    s_rim_mood = bot_rim_mood(key);
+    lv_obj_remove_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(s_badge_dot, lv_color_hex(mood_rgb(s_rim_mood)), 0);
+    host_sync();
+}
+
+static const rim_slots_ops_t RIM_OPS = {.show = rim_canvas_show, .wake = rim_wake, .swapped = rim_swapped};
+
+static void rim_sync(double t)
+{
+    if (s_rim_want < 0) return;
+    int v = rim_slots_sync(&s_slots, s_rim_want, s_rim_face, s_rim_ratio, t, &RIM_OPS);
+    if (v == s_slots.shown && s_rim_pose_dy == s_rim_dy) return;
+    if (v != s_slots.shown) rim_slots_show(&s_slots, v, &RIM_OPS);
+    if (s_rim_pose_dy != s_rim_dy) {
+        s_rim_dy = s_rim_pose_dy;
+        lv_obj_set_pos(s_rim_canvas, 0, s_rim_dy);
     }
-    return best;
+    label_place();
+}
+
+bool bot_view_rim_feed(bot_mood_t m, bool asleep, bool shown)
+{
+    if (!s_rim_task) return true;
+    return rim_slots_feed(&s_slots, bot_rim_key(m, asleep), shown, &RIM_OPS);
+}
+
+void bot_view_rim_pose(const bot_pose_t *p, double t)
+{
+    if (!s_rim_task) return;
+    s_rim_want = bot_rim_key(p->mood, p->asleep);
+    s_rim_face = bot_rim_key(p->face, p->asleep);
+    rim_sync(t);
 }
 
 static void eye_box(const double *xs, const double *ys, int n, double width, int *ox, int *oy, int *w, int *h)
@@ -783,37 +794,20 @@ static void eyes_merged(const double ex[2][BOT_STROKE_MAX], const double ey[2][B
     if (any) lv_obj_invalidate_area(s_glint, &a);
 }
 
-void bot_view_update(const bot_pose_t *p)
+void bot_view_update(const bot_pose_t *p, double t)
 {
     /* Static, not stack: large locals overflowed the BSP's 8 KB LVGL task stack. */
     static bot_stroke_t st[2];
     static double ex[2][BOT_STROKE_MAX], ey[2][BOT_STROKE_MAX], width[2];
-    static EXT_RAM_BSS_ATTR rim_work_t work;
 
-    int shape = p->triangle >= 0.5 ? 1 : 0;
-    if (shape != s_rim_shape || p->mood != s_rim_mood || p->asleep != s_rim_asleep) {
-        int tone = bot_rim_tone(p->mood, p->asleep);
-        s_rim_shape = shape;
-        s_rim_mood = p->mood;
-        s_rim_asleep = p->asleep;
-        rim_job_new(&s_rim, shape, tone);
-        rim_raster(s_rim_buf[RIM_BASE], shape, tone, 1.0f, 1.0f, &work);
-        rim_show(RIM_BASE);
-        lv_obj_set_pos(s_rim_canvas, 0, s_rim_dy);
-        lv_obj_remove_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN);
-        xTaskNotifyGive(s_rim_task);
-        lv_obj_set_style_bg_color(s_badge_dot, lv_color_hex(mood_rgb(p->mood)), 0);
-        host_sync();
-    }
-
+    s_rim_ratio = (float)(p->scale_y / p->scale_x);
     /* Even offsets only: the panel driver rounds areas to 2 px. */
     /* Outline variants swap as one area in a single sweep (docs/features.md, bot face). */
-    int v = rim_variant_for(p);
     int dy = bot_rim_dy(p, s_r, HOP_SCALE);
-    if (v != s_rim_shown || dy != s_rim_dy) {
-        rim_move(v, dy);
-        label_place();
-    }
+    s_rim_pose_dy = dy;
+    s_lap_on = p->lap;
+    s_lap_at = p->lap_at;
+    rim_sync(t);
 
     bot_eye_strokes(p, BOT_VIEW_EYE_SCALE, st);
     double k = s_r * (p->scale_x + p->scale_y) / 2;
@@ -845,6 +839,5 @@ void bot_view_update(const bot_pose_t *p)
 void bot_view_rim_hold(bool hold)
 {
     if (!s_rim_task) return;
-    if (hold) rim_job_hold(&s_rim);
-    else if (rim_job_release(&s_rim) && s_rim_shape >= 0) xTaskNotifyGive(s_rim_task);
+    rim_slots_hold(&s_slots, hold, &RIM_OPS);
 }

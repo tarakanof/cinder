@@ -476,12 +476,52 @@ static void wait_tick(bot_t *b, double t)
     }
 }
 
+static void beat(bot_t *b, double t)
+{
+    bool badged = b->mood == BOT_WAITING || b->mood == BOT_DONE;
+    b->face = b->mood;
+    b->badge = tween(tween_value(&b->badge, t), badged ? 1 : 0, t, 0.35, badged ? EASE_OUT_BACK : EASE_IN_OUT);
+    if (b->mood != BOT_DONE) return;
+    b->done_hop_at = t + BOT_DONE_HOP_S;
+    b->giggle_at = t + BOT_GIGGLE_S;
+    b->lap_at = t + BOT_LAP_AT_S;
+}
+
+static void swap_eyes(bot_t *b, double t)
+{
+    if (b->face != b->mood) beat(b, t);
+    b->eyes = eyes_now(b);
+    b->swap_eyes_on_close = false;
+}
+
+static double giggle_lid(const bot_t *b, double t)
+{
+    for (int k = 0; k < 2; k++) {
+        double u = t - b->giggle_at - k * (BOT_GIGGLE_SQUEEZE_S + BOT_GIGGLE_GAP_S);
+        if (u >= 0 && u < BOT_GIGGLE_SQUEEZE_S) return BOT_GIGGLE_LID * sin(M_PI * u / BOT_GIGGLE_SQUEEZE_S);
+    }
+    return 0;
+}
+
+static bool lap_on(const bot_t *b, double t) { return t >= b->lap_at && t < b->lap_at + BOT_LAP_S; }
+
+static void reclose(bot_t *b, double t)
+{
+    b->blinking = true;
+    b->blink_start = t;
+    b->blink_lag = 0;
+    b->blink_heavy = false;
+    b->double_blink_pending = false;
+    if (b->blink_speed < 1.6) b->blink_speed = 1.6;
+}
+
 static void enter(bot_t *b, bot_mood_t m, double t)
 {
     bool waking = b->mood == BOT_SLEEPY;
     bool shut = b->asleep || (b->blinking && b->blink_heavy && blink_lid(b, t - b->blink_start) >= 0.5);
     b->mood = m;
     b->mood_since = t;
+    b->beat_by = t + BOT_BEAT_MAX_S;
     b->swap_eyes_on_close = true;
     b->asleep = false;
     b->asleep_at = t + BOT_ASLEEP_AFTER_S;
@@ -501,9 +541,7 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     double morph = 0.45;
     b->triangle = tween(tween_value(&b->triangle, t), m == BOT_ERROR ? 1 : 0, t, morph, EASE_IN_OUT);
     b->slump = tween(tween_value(&b->slump, t), m == BOT_SLEEPY ? 1 : 0, t, m == BOT_SLEEPY ? 1.6 : morph, EASE_IN_OUT);
-    bool badged = m == BOT_WAITING || m == BOT_DONE;
-    b->badge = tween(tween_value(&b->badge, t), badged ? 1 : 0, t + 0.1, 0.35,
-                     badged ? EASE_OUT_BACK : EASE_IN_OUT);
+    b->done_hop_at = b->giggle_at = b->lap_at = INFINITY;
     b->popping = m != BOT_SLEEPY && bot_anim_allowed(BOT_ANIM_MOOD_POP, b->calm);
     b->pop_start = t;
     if (m == BOT_WORKING) b->rd_turn = true;
@@ -549,8 +587,10 @@ void bot_init(bot_t *b, uint64_t seed, double now)
 {
     memset(b, 0, sizeof(*b));
     b->rng = seed;
-    b->mood = BOT_IDLE;
+    b->mood = b->face = BOT_IDLE;
     b->eyes = BOT_EYES_DASH;
+    b->rim_ready = b->ring = true;
+    b->done_hop_at = b->giggle_at = b->lap_at = INFINITY;
     b->mood_since = now;
     b->sleep_after_s = BOT_SLEEP_AFTER_S;
     b->gaze_from_x = b->gaze_to_x = REST_X;
@@ -586,6 +626,10 @@ bool bot_set_mood(bot_t *b, bot_mood_t m, double t)
     return true;
 }
 
+void bot_rim_ready(bot_t *b, bool ready) { b->rim_ready = ready; }
+
+void bot_set_ring(bot_t *b, bool on) { b->ring = on; }
+
 bool bot_set_mood_user(bot_t *b, bot_mood_t m, double t)
 {
     if (!bot_set_mood(b, m, t)) return false;
@@ -608,33 +652,58 @@ bot_pose_t bot_pose(bot_t *b, double t)
         else b->next_micro_at = b->next_saccade_at + MICRO_HOLD_S;
     }
     wait_tick(b, t);
+    bool due = b->face != b->mood;
+    if (due && t - b->breath_t > BOT_BEAT_GAP_S) b->beat_by = fmax(b->beat_by, t + BOT_BEAT_MAX_S);
+    bool loud = bot_anim_allowed(BOT_ANIM_DONE_REWARD, b->calm);
+    if (t >= b->done_hop_at && !b->hopping) {
+        if (loud) start_hop(b, t, BOT_DONE_HOP_H, HOP_LEN_S);
+        b->done_hop_at = INFINITY;
+    }
 
     breathe(b, t);
     bot_pose_t p = {.mood = b->mood, .scale_x = 1, .scale_y = 1, .breath = b->breath, .asleep = b->asleep};
-    double bl = 0, br = 0;
-    if (b->blinking) {
-        double u = t - b->blink_start;
-        bl = blink_lid(b, u);
-        br = blink_lid(b, u - b->blink_lag);
-        if (b->swap_eyes_on_close && fmax(bl, br) >= 0.9) { b->eyes = eyes_now(b); b->swap_eyes_on_close = false; }
-        if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
-            if (b->swap_eyes_on_close && !b->double_blink_pending) { b->eyes = eyes_now(b); b->swap_eyes_on_close = false; }
-            b->blinking = false;
-            if (b->double_blink_pending) {
-                b->double_blink_pending = false;
-                b->blinking = true;
-                b->blink_start = t + 0.06;
-            }
-        }
-    }
-    p.eyes = b->eyes;
     double slump = tween_value(&b->slump, t), heavy;
     if (b->asleep) heavy = tween_value(&b->sleep_lid, t);
     else if (b->mood == BOT_SLEEPY) heavy = fmax(sleepy_lid(b, slump), tween_value(&b->sleep_lid, t));
     else heavy = slump * 0.55;
     heavy = fmax(heavy, tween_value(&b->act_lid, t));
+    double bl = 0, br = 0;
+    bool now = !due || b->rim_ready || t >= b->beat_by;
+    if (due && !b->blinking) {
+        if (heavy >= 0.9 && now) swap_eyes(b, t);
+        else if (!b->asleep) reclose(b, t);
+    }
+    if (b->blinking) {
+        double u = t - b->blink_start, shut = 0.075 * b->blink_speed + fmax(b->blink_lag, 0);
+        if (due && !b->rim_ready && !b->blink_heavy && t < b->beat_by && u > shut && b->blink_start + shut > b->mood_since - 1e-6) {
+            b->blink_start = t - shut;
+            u = shut;
+        }
+        bl = blink_lid(b, u);
+        br = blink_lid(b, u - b->blink_lag);
+        if (b->swap_eyes_on_close && heavy + (1 - heavy) * fmax(bl, br) >= 0.9 && now) swap_eyes(b, t);
+        if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
+            bool beat_due = b->face != b->mood;
+            if (b->swap_eyes_on_close && !b->double_blink_pending && !beat_due) swap_eyes(b, t);
+            b->blinking = false;
+            if (b->double_blink_pending) {
+                b->double_blink_pending = false;
+                b->blinking = true;
+                b->blink_start = t + 0.06;
+            } else if (beat_due && !b->asleep) {
+                reclose(b, t);
+            }
+        }
+    }
+    p.face = b->face;
+    p.eyes = b->eyes;
     p.lid_l = heavy + (1 - heavy) * bl;
     p.lid_r = heavy + (1 - heavy) * br;
+    double giggle = loud ? giggle_lid(b, t) : 0;
+    p.lid_l = fmax(p.lid_l, giggle);
+    p.lid_r = fmax(p.lid_r, giggle);
+    p.lap = loud && b->ring && lap_on(b, t);
+    if (p.lap) p.lap_at = b->lap_at;
 
     bool sac_active = b->gaze_start >= 0 && t < b->gaze_start + b->gaze_dur;
     current_gaze(b, t, &p.gaze_x, &p.gaze_y);
@@ -681,7 +750,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
         p.scale_y *= sy;
         p.badge *= 1 + PULSE * sin(M_PI * nu / BOT_NUDGE_S);
     }
-    b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping || nudging ||
+    b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping || nudging || giggle > 0 || p.lap ||
                    tween_active(&b->triangle, t) || tween_active(&b->slump, t) || tween_active(&b->badge, t) ||
                    tween_active(&b->lean_x, t) || tween_active(&b->lean_y, t) || tween_active(&b->act_lid, t) ||
                    tween_active(&b->sleep_lid, t);
@@ -834,7 +903,7 @@ double bot_asleep_in(const bot_t *b, double t)
 
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
 {
-    if (a->mood != b->mood || a->eyes != b->eyes || a->asleep != b->asleep) return false;
+    if (a->mood != b->mood || a->face != b->face || a->eyes != b->eyes || a->asleep != b->asleep || a->lap != b->lap) return false;
     double step = 0.5 / (radius_px < 1 ? 1 : radius_px);
     double breath = step / (a->asleep ? BOT_BREATH_BOB : BOT_BREATH_REACH), lid = step / BOT_LID_REACH;
 #define Q(v, s) round((v) / (s))
@@ -865,7 +934,15 @@ bool bot_label_mark(bot_mood_t m) { return m != BOT_ERROR; }
 
 int bot_rim_tone(bot_mood_t m, bool asleep) { return (int)m | (asleep ? BOT_RIM_ASLEEP : 0); }
 
-bot_mood_t bot_rim_mood(int tone) { return (bot_mood_t)(tone & ~BOT_RIM_ASLEEP); }
+int bot_rim_key(bot_mood_t m, bool asleep) { return bot_rim_tone(m, asleep) | (m == BOT_ERROR ? BOT_RIM_TRIANGLE : 0); }
+
+int bot_lap_step(double lap_at, double t, double step_s, int steps)
+{
+    double idx = floor((t - lap_at) / step_s);
+    return idx >= 0 && idx < steps ? (int)idx : -1;
+}
+
+bot_mood_t bot_rim_mood(int tone) { return (bot_mood_t)(tone & ~(BOT_RIM_ASLEEP | BOT_RIM_TRIANGLE)); }
 
 float bot_rim_alpha(int tone)
 {

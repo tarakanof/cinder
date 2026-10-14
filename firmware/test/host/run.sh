@@ -373,8 +373,10 @@ if [ -n "$WIRING" ]; then
 fi
 echo "wx_job CAS wiring: park cancels by CAS then loads RUNNING, take claims by CAS only"
 BVC="$D/../../main/bot_view.c"
-body "$BVC" rim_task | grep -q 'if (!rim_job_take(&s_rim, .*)) continue;' || WIRING="$WIRING rim_task-skips-a-held-take"
-body "$BVC" rim_task | grep -qF 'if (!rim_job_live(&s_rim, gen)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
+RSC="$C/rim_slots.c"
+body "$BVC" rim_task | grep -qxF '        rim_slots_run(&s_slots, rim_raster_cb, rim_yield, &work);' || WIRING="$WIRING rim_task-runs-rim_slots_run"
+body "$RSC" rim_slots_run | grep -qF 'if (!rim_job_take(&s->job, &gen, &shape, &tone)) return;' || WIRING="$WIRING rim_task-skips-a-held-take"
+body "$RSC" rim_slots_run | grep -qF 'if (!rim_job_live(&s->job, gen) || !atomic_load(&s->vars)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL rim wiring:$WIRING" >&2
     exit 1
@@ -387,15 +389,29 @@ body "$BVC" label_draw | grep -qF 'bool marked = bot_label_mark(s_rim_mood);' &&
     body "$BVC" label_draw | grep -qF 'bool icon = marked && (' || WIRING="$WIRING label-icon-from-bot_label_mark"
 body "$BVC" bot_view_create | awk '/s_badge_gap = circle_create\(/ {g = NR} /s_badge_dot = circle_create\(/ {d = NR}
     /s_eye\[e\]\.canvas = canvas_create\(/ {e = NR} END {exit !(g && d && e && g < d && d < e)}' || WIRING="$WIRING badge-created-before-the-eye-canvases"
-body "$BVC" bot_view_update | grep -qF 'if (shape != s_rim_shape || p->mood != s_rim_mood || p->asleep != s_rim_asleep) {' &&
-    body "$BVC" bot_view_update | grep -qF 'int tone = bot_rim_tone(p->mood, p->asleep);' &&
-    body "$BVC" bot_view_update | grep -qF 'rim_job_new(&s_rim, shape, tone);' || WIRING="$WIRING outline-re-renders-on-asleep"
+body "$BVC" bot_view_rim_pose | grep -qxF '    s_rim_want = bot_rim_key(p->mood, p->asleep);' &&
+    body "$BVC" bot_view_rim_pose | grep -qxF '    s_rim_face = bot_rim_key(p->face, p->asleep);' &&
+    body "$BVC" bot_view_rim_pose | grep -qxF '    rim_sync(t);' &&
+    body "$BVC" bot_view_update | grep -qxF '    rim_sync(t);' || WIRING="$WIRING outline-job-from-the-mood-and-swap-from-the-face"
+! body "$BVC" bot_view_update | grep -q 'rim_raster(' || WIRING="$WIRING no-outline-render-on-the-lvgl-task"
+body "$RSC" rim_slots_run | awk '/if \(!atomic_load\(&s->own\) && atomic_load\(&s->base_gen\) != gen\) \{/ {o = NR} /raster\(ctx, s->buf\[RIM_SLOT_SPARE\], shape, tone, 1\.0f, 1\.0f\);/ {r = NR}
+    /atomic_store\(&s->base_gen, gen\);/ {g = NR} /\(v == RIM_SLOT_SPARE && !atomic_load\(&s->own\)\)\) continue;/ {s = NR} END {exit !(o && r == o + 1 && g > r && s > g)}' ||
+    WIRING="$WIRING rim_task-base-first-into-the-spare-slot"
+body "$RSC" slots_start | awk '/rim_slots_show\(s, RIM_SLOT_BASE, ops\);/ {s = NR} /atomic_store\(&s->own, false\);/ {o = NR} /rim_job_new\(/ {j = NR} END {exit !(o && s < o && o < j)}' ||
+    WIRING="$WIRING rim_start-leaves-the-variants-before-the-job"
+body "$RSC" slots_swap | awk '/s->buf\[RIM_SLOT_SPARE\] = old;/ {p = NR} /rim_slots_show\(s, RIM_SLOT_BASE, ops\);/ {v = NR} /atomic_store\(&s->own, true\);/ {o = NR} /ops->swapped\(/ {b = NR} /ops->wake\(/ {n = NR} END {exit !(p && p < v && v < o && o < b && b < n)}' ||
+    WIRING="$WIRING rim_swap-badge-and-label-with-the-outline"
+grep -qxF '    int v = rim_slots_sync(&s_slots, s_rim_want, s_rim_face, s_rim_ratio, t, &RIM_OPS);' "$BVC" || WIRING="$WIRING rim_sync-on-the-frame-time"
+body "$BVC" bot_view_tick | sed -n 3p | grep -qxF '    rim_sync(t);' || WIRING="$WIRING bot_view_tick-syncs-the-outline-first"
+grep -qxF '    d.recolor = lv_color_hex(ring_glint_color(mood_rgb(s_rim_mood), GLINT_MIX));' "$BVC" || WIRING="$WIRING glint-in-the-outline-colour"
+body "$BVC" lap_step | grep -qxF '    return bot_lap_step(s_lap_at, t, GLINT_STEP_S, GLINT_STEPS);' &&
+    body "$BVC" bot_view_update | grep -qxF '    s_lap_at = p->lap_at;' || WIRING="$WIRING lap-from-the-pose-start"
 body "$BVC" rim_raster | grep -qF 'mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));' || WIRING="$WIRING outline-alpha-from-bot_rim_alpha"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL bot view wiring:$WIRING" >&2
     exit 1
 fi
-echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone"
+echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mark, badge under the eyes, tone and alpha from bot_rim_tone, mood beat (#115)"
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 for ARG in true false; do
@@ -520,8 +536,24 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "waiting restart wiring: page shown, new lead or more hosts, demo scene number before the mood"
+grep -A1 -F '    bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);' "$MAINC" | grep -qxF '    bot_set_ring(&s_bot, s_ks_lv->working_ring);' ||
+    WIRING="$WIRING bot-told-the-working-ring-setting"
+fbody "$MAINC" page_tick | awk '/^    bot_rim_ready\(&s_bot, bot_view_rim_feed\(s_bot\.mood, s_bot\.asleep, pg->frame == page_bot_frame\)\);$/ {r = NR} /^    f\.pose = bot_pose\(&s_bot, t\);$/ {p = NR}
+    /^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} END {exit !(r && p == r + 1 && s == p + 1)}' ||
+    WIRING="$WIRING page_tick-feeds-the-outline-before-the-pose"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL mood beat wiring:$WIRING" >&2
+    exit 1
+fi
+body "$MAINC" page_bot_frame | grep -qF 'if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < ' &&
+    body "$MAINC" page_bot_frame | grep -qxF '        bot_view_update(p, t);' || WIRING="$WIRING beat-frame-drawn-through-the-chase-throttle"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL mood beat wiring:$WIRING" >&2
+    exit 1
+fi
+echo "mood beat wiring: page_tick feeds the outline job right before the pose and syncs it right after, on every page; the beat frame draws through the chase throttle, with the frame time"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
-cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$D/test_bot.c" -lm -o "${OUT}_bot"
+cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" "-DRS_RACE_POINT(s,at)=rs_race_point(s,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$D/test_bot.c" -lm -lpthread -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"

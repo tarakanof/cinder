@@ -8,12 +8,13 @@ extern "C" {
 #endif
 
 typedef enum { BOT_IDLE, BOT_SLEEPY, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE } bot_mood_t;
-typedef enum { BOT_ANIM_WAIT_HOP, BOT_ANIM_MOOD_POP, BOT_ANIM_GLINT_CHASE, BOT_ANIM_USER_INPUT } bot_anim_t;
+typedef enum { BOT_ANIM_WAIT_HOP, BOT_ANIM_MOOD_POP, BOT_ANIM_GLINT_CHASE, BOT_ANIM_USER_INPUT, BOT_ANIM_DONE_REWARD } bot_anim_t;
 typedef enum { BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_HAPPY, BOT_EYES_ANGRY } bot_eyes_t;
 
 /* Distances in body radii; times are monotonic seconds. */
 typedef struct {
     bot_mood_t mood;
+    bot_mood_t face; /* the mood the outline, badge and label show: mood from the beat behind the lids */
     bot_eyes_t eyes;
     double gaze_x, gaze_y;
     double lid_l, lid_r;
@@ -26,6 +27,8 @@ typedef struct {
     double orbit;   /* 0..1 */
     double breath;  /* -1..1: eye height and centre awake, the centre's bob asleep */
     bool asleep;
+    bool lap;       /* done's glint lap runs */
+    double lap_at;  /* while lap: when it started, on bot_pose's clock */
 } bot_pose_t;
 
 typedef struct {
@@ -35,7 +38,7 @@ typedef struct {
 
 typedef struct {
     uint64_t rng;
-    bot_mood_t mood;
+    bot_mood_t mood, face;
     bot_eyes_t eyes;
     bool swap_eyes_on_close;
     double mood_since;
@@ -64,6 +67,8 @@ typedef struct {
     double w_t0, burst_hop_at, burst_h, next_peek_at, next_nudge_at, next_rem_at, nudge_at, gaze_hold;
     double sleep_after_s;
     bool calm;
+    bool rim_ready, ring;
+    double done_hop_at, giggle_at, lap_at, beat_by;
 
     double breath, breath_ph, breath_per, breath_t;
     bool asleep;
@@ -84,8 +89,9 @@ typedef struct {
 #define BOT_BREATH_REACH 0.006
 #define BOT_BREATH_BOB 0.0077
 #define BOT_LID_REACH 0.2
-/* bot_rim_tone's flag on top of the mood. */
+/* bot_rim_tone's flag on top of the mood, and bot_rim_key's for the triangle outline. */
 #define BOT_RIM_ASLEEP 0x100
+#define BOT_RIM_TRIANGLE 0x200
 #define BOT_HOP_DURATION_S 1.0
 #define BOT_HOP_SQUASH 0.75
 /* The view's outline variants: steps -BOT_RIM_STEPS (squash) .. +BOT_RIM_STEPS (stretch), 0 the base. */
@@ -97,9 +103,27 @@ typedef struct {
 #define BOT_WAIT_DEMO_C_S 35.0
 #define BOT_WAIT_DEMO_REMIND_S 50.0
 #define BOT_NUDGE_S 0.35
+/* A mood beat waits for the view's outline at most this long after the mood change, seconds. */
+#define BOT_BEAT_MAX_S 0.45
+/* A frame gap longer than this while a beat waits (off-page, OTA pause) gives the outline another BOT_BEAT_MAX_S. */
+#define BOT_BEAT_GAP_S 0.1
+/* Done's reward, seconds after the beat. */
+#define BOT_DONE_HOP_S 0.35
+#define BOT_DONE_HOP_H 0.7
+#define BOT_GIGGLE_S 1.3
+#define BOT_GIGGLE_LID 0.45
+#define BOT_GIGGLE_SQUEEZE_S 0.12
+#define BOT_GIGGLE_GAP_S 0.15
+#define BOT_LAP_AT_S 1.8
+#define BOT_LAP_S 3.0
 
 void bot_init(bot_t *b, uint64_t seed, double now);
 bool bot_set_mood(bot_t *b, bot_mood_t m, double t);
+/* Before bot_pose: whether the view holds the base outline of b->mood ready (true when it draws none). A mood beat (the
+   new eyes, badge and outline together) waits behind closed lids for it, at most BOT_BEAT_MAX_S after the change. */
+void bot_rim_ready(bot_t *b, bool ready);
+/* The working ring setting: off, done's reward runs no glint lap. */
+void bot_set_ring(bot_t *b, bool on);
 bot_pose_t bot_pose(bot_t *b, double t);
 void bot_set_sleep_after(bot_t *b, double s);
 bool bot_calm(bool quiet, bool calm_setting);
@@ -152,6 +176,10 @@ void bot_rim_variant(int step, double *sx, double *sy);
 bool bot_label_mark(bot_mood_t m);
 /* The outline's colour and opacity key: the mood, | BOT_RIM_ASLEEP while asleep. */
 int bot_rim_tone(bot_mood_t m, bool asleep);
+/* The whole outline: bot_rim_tone | BOT_RIM_TRIANGLE in error. */
+int bot_rim_key(bot_mood_t m, bool asleep);
+/* The glint lap's step at t for a lap from lap_at (bot_pose_t.lap_at), steps of step_s seconds; -1 outside the lap. */
+int bot_lap_step(double lap_at, double t, double step_s, int steps);
 bot_mood_t bot_rim_mood(int tone);
 float bot_rim_alpha(int tone);
 
