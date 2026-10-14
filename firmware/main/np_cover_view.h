@@ -32,6 +32,8 @@ void npc_destroy(void);
 /* Takes cover and avatar out of in. */
 void npc_adopt(np_art_set_t *in);
 bool npc_has_cover(void);
+/* M15 is on screen. */
+bool npc_vinyl(void);
 void npc_update(const npc_frame_t *f);
 const char *npc_time_text(void);
 void npc_fit_text(char *txt, const lv_font_t *font, int max_w);

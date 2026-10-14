@@ -8,8 +8,17 @@ int host_heap_fail(size_t n);
 #else
 static inline int host_heap_fail(size_t n) { (void)n; return 0; }
 #endif
-static inline void *heap_caps_malloc(size_t n, unsigned caps) { (void)caps; return host_heap_fail(n) ? NULL : malloc(n); }
-static inline void *heap_caps_calloc(size_t k, size_t n, unsigned caps) { (void)caps; return host_heap_fail(k * n) ? NULL : calloc(k, n); }
+#ifdef HOST_HEAP_ALLOCED
+void *host_heap_alloced(void *p);
+#else
+static inline void *host_heap_alloced(void *p) { return p; }
+#endif
+static inline void *heap_caps_malloc(size_t n, unsigned caps) { (void)caps; return host_heap_fail(n) ? NULL : host_heap_alloced(malloc(n)); }
+static inline void *heap_caps_calloc(size_t k, size_t n, unsigned caps)
+{
+    (void)caps;
+    return host_heap_fail(k * n) ? NULL : host_heap_alloced(calloc(k, n));
+}
 #ifdef HOST_HEAP_FREED
 void host_heap_freed(void *p);
 static inline void heap_caps_free(void *p) { host_heap_freed(p); free(p); }

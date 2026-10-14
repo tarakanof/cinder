@@ -109,6 +109,8 @@ float np_ease_out(float t);
 /* The arrival sweep's share of the value dt seconds into a dur second sweep: eased, in NP_SWEEP_FPS steps, 1 at the end. */
 float np_sweep_k(double dt, double dur);
 
+#define NP_NOPIC_GRACE_S 4.0
+#define NP_RING_HOLD_S 6.0
 #define NP_CHG_HOLD_S 0.25
 #define NP_CHG_STEP_S 0.05
 #define NP_CHG_BLACK_S 0.0667
@@ -131,9 +133,9 @@ typedef enum { NP_TAKE_ADOPT, NP_TAKE_DROP } np_take_t;
 /* A picture set the client published, against the block the view shows now: a set for an older version or for the
    other face is dropped (a face switch refetches); an empty set never asks for a refetch. */
 np_take_t np_art_take(const char *set_version, bool set_cover, const np_info_t *now, bool view_cover);
-/* known: a playing or paused block; current: -1 no face yet, 0 the old face, 1 the cover face. A block with no picture at
-   all gets the cover face (M15) from any Ember. */
-bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover);
+/* known: a playing or paused block; current: -1 no face yet, 0 the old face, 1 the cover face; cover_seen: this Ember has
+   sent a cover_version, so a block without one is a track (or a moment) without a picture, not an older Ember. */
+bool np_face_kind_cover(bool known, const np_info_t *np, int current_cover, bool cover_seen);
 
 /* Area average from sp x sp RGB565 down to dp x dp (dp <= sp). */
 void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp);

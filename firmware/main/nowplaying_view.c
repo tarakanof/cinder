@@ -66,6 +66,7 @@ typedef struct {
     char fit[4 * NP_TEXT_MAX + 8];
     np_ctl_t ctl;
     char badge[24];
+    bool cover_seen;
 } view_mem_t;
 static view_mem_t *V;
 #define s_face_dsc (V->face_dsc)
@@ -554,7 +555,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     f.badge_text = badge;
     if (np_face_live(st) || st == NPF_OFFLINE) {
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
-        f.dim = dim_step(st == NPF_PLAYING, now);
+        f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
     } else {
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {
@@ -579,7 +580,8 @@ void np_view_update(double now, bool offline)
     bool live = !offline && V->snap.have && np->state != NP_NONE;
     bool known = V->snap.have && np->state != NP_NONE;
     int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
-    set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
+    if (known && np->cover_version[0]) V->cover_seen = true;
+    set_kind(np_face_kind_cover(known, np, cur, V->cover_seen) ? KIND_COVER : KIND_LEGACY);
     if (np_client_take_art(&in)) {
         if (np_art_take(in.version, in.is_cover, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
             if (in.is_cover) npc_adopt(&in);
