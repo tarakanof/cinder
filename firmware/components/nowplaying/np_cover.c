@@ -204,3 +204,42 @@ void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp)
         }
     }
 }
+
+typedef struct {
+    float r, hw;
+    uint32_t col;
+} vinyl_ring_t;
+
+static const vinyl_ring_t VINYL[] = {
+    {122, 1, 0x2A2A2A}, {52, 0.75f, 0x1C1C1C}, {61, 0.75f, 0x1C1C1C},  {70, 0.75f, 0x1C1C1C}, {79, 0.75f, 0x1C1C1C},
+    {88, 0.75f, 0x1C1C1C}, {97, 0.75f, 0x1C1C1C}, {106, 0.75f, 0x1C1C1C}, {115, 0.75f, 0x1C1C1C}, {40, 1, 0x2A2A2A},
+};
+
+void np_vinyl_render(uint16_t *buf, int w, int h, float cx, float cy)
+{
+    const int half = NP_VINYL_BOX / 2;
+    int x0 = (int)floorf(cx) - half, y0 = (int)floorf(cy) - half;
+    const float hl = 0.9505f, hw = 1.5f;
+    for (int y = y0 < 0 ? 0 : y0; y < y0 + NP_VINYL_BOX && y < h; y++) {
+        uint16_t *row = buf + (size_t)y * w;
+        float dy = y + 0.5f - cy;
+        for (int x = x0 < 0 ? 0 : x0; x < x0 + NP_VINYL_BOX && x < w; x++) {
+            float dx = x + 0.5f - cx, d = sqrtf(dx * dx + dy * dy);
+            rgbf_t c = {0, 0, 0};
+            for (size_t i = 0; i < sizeof VINYL / sizeof VINYL[0]; i++) {
+                float a = clamp01(VINYL[i].hw + 0.5f - fabsf(d - VINYL[i].r));
+                if (a > 0) c = lerp(c, unpack(VINYL[i].col), a);
+            }
+            float dot = clamp01(4.5f - d);
+            if (dot > 0) c = lerp(c, unpack(0x2A2A2A), dot);
+            float band = clamp01(hw + 0.5f - fabsf(d - 100));
+            if (band > 0) {
+                float phi = atan2f(dx, -dy);
+                if (phi < 0) phi += (float)TWO_PI;
+                if (phi <= hl) c = lerp(c, unpack(0x3A3A3A), band);
+                else if (phi >= (float)(TWO_PI / 2) && phi <= (float)(TWO_PI / 2) + hl) c = lerp(c, unpack(0x2E2E2E), band);
+            }
+            row[x] = pack565(c);
+        }
+    }
+}

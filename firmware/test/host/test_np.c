@@ -594,6 +594,24 @@ static void test_face_state(void)
           "offline: grey ring, badge, no volume");
 }
 
+static void test_vinyl(void)
+{
+    uint16_t *b = malloc(W * H * 2);
+    for (int i = 0; i < W * H; i++) b[i] = 0x1234;
+    np_vinyl_render(b, W, H, 233, 233 + NP_VINYL_DY);
+    int cy = 233 + NP_VINYL_DY, out = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            if (b[y * W + x] != 0x1234 && (abs(x - 233) > NP_VINYL_BOX / 2 || abs(y - cy) > NP_VINYL_BOX / 2)) out++;
+    CHECK(out == 0, "%d vinyl pixels outside its box", out);
+    CHECK(b[(cy - NP_VINYL_R) * W + 300] == 0 && b[(cy - NP_VINYL_R) * W + 233] == c565(0x2A2A2A), "outer rim");
+    CHECK(b[cy * W + 233] == c565(0x2A2A2A) && b[cy * W + 233 + 30] == 0, "spindle and label");
+    CHECK(b[(cy - 100) * W + 240] == c565(0x3A3A3A) && b[(cy + 100) * W + 226] == c565(0x2E2E2E) &&
+              b[(cy - 100) * W + 226] != c565(0x3A3A3A),
+          "the two highlight arcs");
+    free(b);
+}
+
 static void test_downscale(void)
 {
     uint16_t src[64 * 64], dst[NP_AVATAR_PX * NP_AVATAR_PX];
@@ -626,6 +644,7 @@ int main(void)
     test_ring_mode();
     test_face_state();
     test_downscale();
+    test_vinyl();
     if (failures) {
         printf("np: %d failure(s)\n", failures);
         return 1;

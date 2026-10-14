@@ -68,6 +68,12 @@ void np_face_look(np_face_state_t s, np_ring_mode_t m, uint32_t accent, np_face_
 
 bool np_face_wants_cover(const np_info_t *np);
 
+#define NP_VINYL_R 122
+#define NP_VINYL_DY (-47)
+/* M3's still vinyl outline on black, centred at cx, cy; writes only its NP_VINYL_BOX square. */
+#define NP_VINYL_BOX 252
+void np_vinyl_render(uint16_t *buf, int w, int h, float cx, float cy);
+
 /* Area average from sp x sp RGB565 down to dp x dp (dp <= sp). */
 void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp);
 
