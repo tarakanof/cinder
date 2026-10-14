@@ -966,7 +966,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     page_frame_t f = {.t = t, .offline = offline};
     gc_out_t *chase = &f.chase;
     gc_tick(&s_chase, t, glint, 3.0, chase);
-    atomic_store(&s_chase_status, !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
+    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
     double psi = fmod(t / 3.0, 1.0) * 360.0 - 90.0;
     bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
     if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
