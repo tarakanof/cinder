@@ -92,7 +92,9 @@ echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "
     WIRING="$WIRING stats-logs-refused-moment-clouds-only-when-the-count-grows"
 WMP="$D/../../components/weather/wx_moment_paint.c"
 [ "$(grep -c 'cloud(&im' "$WMP")" -gt 0 ] && [ "$(grep -c 'cloud(&im' "$WMP")" -eq "$(grep -cxE ' +refused \+= cloud\(&im[^;]*\);' "$WMP")" ] &&
-    body "$WMP" cloud | grep -qxF '    bool ok = wx_cloud_shape(c, &sh);' && body "$WMP" cloud | tail -2 | head -1 | grep -qxF '    return !ok;' &&
+    grep -qxF 'static __attribute__((warn_unused_result)) int cloud(img_t *im, const wx_cloud_t *c, int tone)' "$WMP" &&
+    CLOUD="$(awk '/^static __attribute__\(\(warn_unused_result\)\) int cloud\(/ {on=1} on {print} on && /^}/ {exit}' "$WMP")" &&
+    echo "$CLOUD" | grep -qxF '    bool ok = wx_cloud_shape(c, &sh);' && echo "$CLOUD" | tail -2 | head -1 | grep -qxF '    return !ok;' &&
     body "$WMP" wxm_paint | tail -2 | head -1 | grep -qxF '    return refused;' || WIRING="$WIRING every-moment-cloud-counted-into-refused"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL refresh stats wiring:$WIRING" >&2

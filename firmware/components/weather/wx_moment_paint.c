@@ -341,7 +341,7 @@ static float cloud_sd(const void *ctx, float u, float v) { return wx_cloud_sd(ct
 
 enum { TONE_WHITE, TONE_LIGHT, TONE_DARK };
 
-static int cloud(img_t *im, const wx_cloud_t *c, int tone)
+static __attribute__((warn_unused_result)) int cloud(img_t *im, const wx_cloud_t *c, int tone)
 {
     static const uint32_t TONES[3][2] = {{0xE6ECF2, 0xC4CCD4}, {0x8E96A0, 0xA8B0BA}, {0x555D68, 0x6A7480}};
     wx_cloud_shape_t sh;
