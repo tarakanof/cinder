@@ -470,11 +470,13 @@ static void ember_nowplaying(const char *dir)
         const char *file;
         np_face_state_t want;
         bool cover;
+        bool light;
     } S[] = {
-        {"nowplaying.playing.json", NPF_PLAYING, true},
-        {"nowplaying.paused.json", NPF_PAUSED, true},
-        {"nowplaying.offline.json", NPF_OFFLINE, true},
-        {"nowplaying.nothing.json", NPF_NOTHING, false},
+        {"nowplaying.playing.json", NPF_PLAYING, true, false},
+        {"nowplaying.paused.json", NPF_PAUSED, true, false},
+        {"nowplaying.offline.json", NPF_OFFLINE, true, false},
+        {"nowplaying.nothing.json", NPF_NOTHING, false, false},
+        {"nowplaying.playing_light.json", NPF_PLAYING, true, true},
     };
     for (size_t i = 0; i < sizeof S / sizeof S[0]; i++) {
         char *j = load(dir, S[i].file);
@@ -485,6 +487,7 @@ static void ember_nowplaying(const char *dir)
               "%s: the now-playing page with a block", S[i].file);
         CHECK(np_face_wants_cover(&dv.np) == S[i].cover && dv.np.has_accent == S[i].cover,
               "%s: cover face %d, accent %d", S[i].file, np_face_wants_cover(&dv.np), dv.np.has_accent);
+        CHECK(dv.np.cover_light == S[i].light, "%s: cover_light %d", S[i].file, dv.np.cover_light);
         np_art_plan_t p;
         np_art_plan(&dv.np, &p);
         CHECK(p.cover == S[i].cover && p.want[NP_ART_COVER] == S[i].cover && !p.want[NP_ART_BACKDROP],
