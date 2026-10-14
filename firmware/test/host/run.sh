@@ -90,18 +90,19 @@ echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -
     WIRING="$WIRING refr-init-and-attach-before-ember_client_start-and-refr_cb"
 [ "$(grep -c 'refr_stats_init(' "$MAINC")" -eq 1 ] || WIRING="$WIRING refr_stats_init-once"
 WS="$(body "$DIAGC" window_start)"
+REFR_NOW='/^    if / {i = ($0 ~ /^    if \(s_refr\) \{$/); x = ($0 ~ /^    if \(!s_refr\) \{$/)}
+    /^    \} else \{$/ {x = i; i = 0} /^    \}$/ {x = 0; i = 0}
+    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x && (seen || !/^    (int64_t )?now = /)) o++}'
 echo "$WS" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
-    l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
-    /^    \} else \{$/ {x=1} /^    \}$/ {x=0}
-    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x) o++}
+    l && /^ +now = esp_timer_get_time\(\);$/ {t=1; seen=1} l && t && /^ +refr_stats_win_reset\(s_refr, now\);$/ {r=1}
+    '"$REFR_NOW"'
     /^    s_win_start_us = now;$/ {s=1} END {exit !(r && s && a == 2 && !o)}' &&
     [ "$(echo "$WS" | grep -c 's_win_start_us = ')" -eq 1 ] ||
     WIRING="$WIRING window_start-stamps-and-resets-the-refr-window-in-one-s_refr_mux-section"
 SAMPLE="$(body "$DIAGC" diag_sample)"
 echo "$SAMPLE" | awk '/taskENTER_CRITICAL\(s_refr_mux\);/ {l=1} /taskEXIT_CRITICAL\(s_refr_mux\);/ {l=0; t=0}
-    l && /^ +now = esp_timer_get_time\(\);$/ {t=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
-    /^    \} else \{$/ {x=1} /^    \}$/ {x=0}
-    /(^|[^A-Za-z_0-9])now *=[^=]/ {a++; if (!l && !x) o++}
+    l && /^ +now = esp_timer_get_time\(\);$/ {t=1; seen=1} l && t && /^ +rw = refr_stats_win_read\(s_refr\);$/ {r=1}
+    '"$REFR_NOW"'
     /^    int64_t period_us = now - s_win_start_us;$/ && r {p=1} END {exit !(p && a == 2 && !o)}' ||
     WIRING="$WIRING diag_sample-reads-the-refr-window-at-now-in-one-s_refr_mux-section"
 echo "$SAMPLE" | awk '/^    if \(level == KS_DIAG_FULL\) \{$/ {f=1; d=0}
