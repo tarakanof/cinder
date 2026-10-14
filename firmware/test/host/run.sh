@@ -408,6 +408,7 @@ body "$BVC" lap_step | grep -qxF '    return bot_lap_step(s_lap_at, t, GLINT_STE
     body "$BVC" bot_view_update | grep -qxF '    s_lap_at = p->lap_at;' || WIRING="$WIRING lap-from-the-pose-start"
 body "$BVC" rim_raster | grep -qF 'mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));' || WIRING="$WIRING outline-alpha-from-bot_rim_alpha"
 body "$BVC" eye_raster | grep -qxF '    float lid_y = (float)bot_lid_line_y(j->ys, j->n, j->width, j->lid);' &&
+    body "$BVC" eye_raster | grep -qxF '    bot_raster_lid_box(lid_y, &j->oy, &j->h);' &&
     body "$BVC" eye_raster | grep -qF 'bot_raster_stroke_below(scratch, NULL, (uint8_t *)(eye->buf + w * h), lid_y, w, h,' &&
     ! body "$BVC" eye_raster | grep -q 'bot_raster_stroke(' &&
     body "$BVC" eyes_draw | grep -qF '.width = width[e], .lid = st[e].lid};' || WIRING="$WIRING eyes-clipped-at-the-lid-line"

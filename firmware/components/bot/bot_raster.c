@@ -127,6 +127,15 @@ void bot_raster_stroke_below(bot_raster_scratch_t *scratch, uint16_t *buf, uint8
     for (int x = 0; x < w; x++) row[x] = (uint8_t)((float)row[x] * keep + 0.5f);
 }
 
+void bot_raster_lid_box(float clip_y, int *oy, int *h)
+{
+    if (!(clip_y > (float)*oy)) return;
+    int top = ((int)floorf(clip_y)) & ~1, last = *oy + *h - 2;
+    if (top > last) top = last;
+    *h -= top - *oy;
+    *oy = top;
+}
+
 void bot_raster_stroke_ref(uint16_t *buf, uint8_t *alpha, int w, int h, int ox, int oy, const float *xs,
                            const float *ys, int nseg, const int *segs, float hw, uint32_t rgb, float gain)
 {

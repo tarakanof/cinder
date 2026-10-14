@@ -26,6 +26,9 @@ void bot_raster_stroke_below(bot_raster_scratch_t *scratch, uint16_t *buf, uint8
                              int ox, int oy, const float *xs, const float *ys, int nseg, const int *segs, float hw,
                              uint32_t rgb, float gain);
 
+/* Trims a box (oy, h even) to start at the even row at or above screen y clip_y; h stays even and at least 2. */
+void bot_raster_lid_box(float clip_y, int *oy, int *h);
+
 void bot_raster_stroke_ref(uint16_t *buf, uint8_t *alpha, int w, int h, int ox, int oy, const float *xs,
                            const float *ys, int nseg, const int *segs, float hw, uint32_t rgb, float gain);
 

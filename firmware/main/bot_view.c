@@ -702,6 +702,8 @@ static void eye_raster(bot_raster_scratch_t *scratch, eye_job_t *j)
     canvas_t *eye = j->eye;
     float hw = (float)j->width / 2;
     eye_box(j->xs, j->ys, j->n, j->width, &j->ox, &j->oy, &j->w, &j->h);
+    float lid_y = (float)bot_lid_line_y(j->ys, j->n, j->width, j->lid);
+    bot_raster_lid_box(lid_y, &j->oy, &j->h);
     int w = j->w, h = j->h;
     float fx[BOT_STROKE_MAX], fy[BOT_STROKE_MAX];
     int segs[BOT_STROKE_MAX];
@@ -713,7 +715,6 @@ static void eye_raster(bot_raster_scratch_t *scratch, eye_job_t *j)
         eye->w = w;
         eye->h = h;
     }
-    float lid_y = (float)bot_lid_line_y(j->ys, j->n, j->width, j->lid);
     bot_raster_stroke_below(scratch, NULL, (uint8_t *)(eye->buf + w * h), lid_y, w, h, j->ox, j->oy, fx, fy, j->n - 1, segs,
                             hw, 0xF4F4F2, 1.0f);
 }

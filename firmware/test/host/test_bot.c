@@ -264,6 +264,25 @@ static void test_lid_line(void)
         }
     }
     CHECK(!bad, "lid raster: %d of %d clip lines differ from the full stroke cut at the line", bad, cases);
+
+    int box_bad = 0, trim_bad = 0;
+    for (float clip = -30; clip <= 140; clip += 0.37f) {
+        int oy = 6, h = 120;
+        bot_raster_lid_box(clip, &oy, &h);
+        if (oy % 2 || h % 2 || h < 2 || oy + h != 126 || (clip > 6 && clip < 124 && (oy > clip || oy + 2 <= clip)) ||
+            (clip <= 6 && (oy != 6 || h != 120)) || (clip >= 124 && h != 2))
+            box_bad++;
+        static uint8_t full[160 * 120], cut[160 * 120];
+        bot_raster_stroke_below(&sc, NULL, full, clip, 160, 120, 4, 6, xs, fy, 1, segs, 13.5f, 0xF4F4F2, 1.0f);
+        bot_raster_stroke_below(&sc, NULL, cut, clip, 160, h, 4, oy, xs, fy, 1, segs, 13.5f, 0xF4F4F2, 1.0f);
+        for (int y = 0; y < 120; y++) {
+            int ky = y + 6 - oy;
+            for (int x = 0; x < 160; x++)
+                if (full[y * 160 + x] != (ky >= 0 ? cut[ky * 160 + x] : 0)) { trim_bad++; y = 120; break; }
+        }
+    }
+    CHECK(!box_bad, "lid box: %d trims not from the even row at or above the line, bottom kept, h even and >= 2", box_bad);
+    CHECK(!trim_bad, "lid box: %d trimmed boxes lose a visible pixel", trim_bad);
 }
 
 static int compare_raster(const float *xs, const float *ys, int npts, float hw, int alpha_mode)
