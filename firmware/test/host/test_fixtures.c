@@ -97,9 +97,9 @@ static void test_view_full(void)
     CHECK(v.v == 1 && strcmp(key, "2/2") == 0, "header v %d key %s", v.v, key);
     CHECK(v.waiting == 3 && v.errors == 0 && v.running == 1 && v.done == 0, "counts");
     CHECK(knob_view_mood(&v) == BOT_WAITING, "waiting wins");
-    CHECK(v.source[0] == 0 && strcmp(v.lead, "STUDIO") == 0 && v.hosts == 2, "lead %s over source %s, hosts %d", v.lead,
+    CHECK(v.source[0] == 0 && strcmp(v.lead, "LAPTOP") == 0 && v.hosts == 2, "lead %s over source %s, hosts %d", v.lead,
           v.source, v.hosts);
-    CHECK(strcmp(v.lead_color, "#00C8C8") == 0 && strcmp(v.tool, "claude") == 0, "colour %s tool %s", v.lead_color, v.tool);
+    CHECK(strcmp(v.lead_color, "#FFAA00") == 0 && strcmp(v.tool, "codex") == 0, "colour %s tool %s", v.lead_color, v.tool);
     CHECK(v.has_pomo && v.pomo_counting && v.ends_at == 1782044700LL && v.pomo.remaining_sec == 0, "counting pomo");
     CHECK(v.pomo.phase == POMO_PHASE_FOCUS && v.pomo.running && !v.pomo.paused && v.pomo.planned_sec == 1500 &&
               v.pomo.round == 0,
@@ -191,7 +191,7 @@ static void test_view_caps_limited(void)
     free(j);
     knob_view_t v;
     if (!view("view_caps_limited.json", &v)) return;
-    CHECK(v.v == 1 && v.has_mood && knob_view_mood(&v) == BOT_WAITING && strcmp(v.lead, "STUDIO") == 0, "mood");
+    CHECK(v.v == 1 && v.has_mood && knob_view_mood(&v) == BOT_WAITING && strcmp(v.lead, "LAPTOP") == 0, "mood");
     CHECK(!v.has_pomo && !v.pomo_counting, "absent pomo = null");
     CHECK(v.has_weather && strcmp(v.weather.condition, "rain") == 0, "weather");
     CHECK(v.weather.observed_at == 1782041400LL, "observed_at %lld", v.weather.observed_at);
