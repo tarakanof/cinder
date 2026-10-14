@@ -218,7 +218,9 @@ body "$TFC" paint | grep -qF 'const wx_days_t *d = &s_io.key.days;' || WIRING="$
 body "$TFC" face_kind | grep -qxF '    bool rows = s_days && t->days.have;' && body "$TFC" face_kind | grep -qxF '    show_obj(s_value, !rows);' &&
     [ "$(grep -c 'show_obj(s_value, ' "$TFC")" -eq 1 ] || WIRING="$WIRING days-hide-the-value-under-the-rows"
 body "$TFC" face_kind | grep -qxF '    lv_obj_align(s_sub, LV_ALIGN_TOP_MID, 0, rows ? WX_DAYS_SUB_Y : SUB_Y);' || WIRING="$WIRING days-sub-line-under-the-rows"
-body "$TFC" apply | grep -qxF '    if (t->cast.on || t->days.on || t->air.on) {' || WIRING="$WIRING days-and-air-hide-the-gauge-end-labels"
+[ "$(body "$TFC" apply | grep -A2 -xF '    if (t->cast.on || t->days.on || t->air.on) {')" = "$(printf '%s\n' \
+    '    if (t->cast.on || t->days.on || t->air.on) {' '        show_obj(s_lo, false);' '        show_obj(s_hi, false);')" ] ||
+    WIRING="$WIRING days-and-air-hide-the-gauge-end-labels"
 body "$TFC" set_days | grep -qxF '    wx_days_frame(d, ta, &f);' && body "$TFC" set_days | grep -qxF '            lv_obj_set_y(s_drow[i], wx_days_row_box(&s_dlay, i, dy).y0);' &&
     body "$TFC" days_attach | grep -qxF '        wx_box_t rb = wx_days_row_box(&s_dlay, i, 0);' &&
     body "$TFC" days_attach | grep -qxF '        lv_obj_set_pos(s_drow[i], rb.x0, rb.y0);' &&
