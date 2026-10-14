@@ -26,7 +26,7 @@
 #define CY 233.0
 #define FILL 0.84
 #define HOP_SCALE 0.45
-#define RIM_PX 6.0
+#define RIM_PX 9.0
 
 #define EYE_BUF_W 220
 #define EYE_BUF_H 260
