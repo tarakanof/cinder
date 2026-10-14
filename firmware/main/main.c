@@ -51,6 +51,8 @@
 #include "weather_client.h"
 #include "temp_face.h"
 #include "moment_view.h"
+#include "music_moment.h"
+#include "music_view.h"
 #include "wx_faces.h"
 #include "wx_moment.h"
 #include "bsp_knob_15_md50et.h"
@@ -120,6 +122,12 @@ static const wxm_cue_t *s_cues;
 static int s_cue, s_cue_n;
 static bot_mood_t s_moment_mood;
 static bool s_acting;
+static EXT_RAM_BSS_ATTR mm_trigger_t s_mm;
+static EXT_RAM_BSS_ATTR np_snapshot_t s_mm_np;
+static EXT_RAM_BSS_ATTR uint32_t s_mm_gen, s_mm_key;
+static EXT_RAM_BSS_ATTR bot_mood_t s_mm_mood;
+static EXT_RAM_BSS_ATTR bool s_mm_acting;
+static EXT_RAM_BSS_ATTR int s_mm_cue;
 
 _Static_assert(WXM_GLANCE == 1 && WXM_STORM == 9 && WXF_TEMP == 0 && WXF_AIR == 6, "demo.c's moment and face order");
 #define SCENE_START_S 3.0
@@ -551,6 +559,13 @@ static void moment_unact(double t)
     s_cue = s_cue_n;
 }
 
+static void music_unact(double t)
+{
+    if (s_mm_acting && s_bot.mood != s_mm_mood) bot_act_drop(&s_bot, t);
+    else if (s_mm_acting) bot_act_end(&s_bot, true, 0.3, t);
+    s_mm_acting = false;
+}
+
 static void scene_end(double t);
 
 static bool ota_frame(void)
@@ -565,6 +580,8 @@ static bool ota_frame(void)
             bot_view_rim_hold(true);
             moment_view_hold(true);
             moment_unact(now_s());
+            music_view_hold(true);
+            music_unact(now_s());
         }
         temp_face_hold(true);
         taskENTER_CRITICAL(&s_rg_mux);
@@ -577,6 +594,7 @@ static bool ota_frame(void)
         s_ota_paused = false;
         bot_view_rim_hold(false);
         moment_view_hold(false);
+        music_view_hold(false);
         temp_face_hold(false);
         pages_resume(&s_nav);
     }
@@ -787,7 +805,7 @@ void page_bot_frame(const page_frame_t *f)
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))
         pose = false;
-    bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);
+    bot_view_chase(chase->chasing || moment_view_busy() || music_view_busy(), chase->chasing && chase->label_opa > 0);
     if (pose) s_pose_drawn_at = t;
     if (pose) {
         bot_view_update(p, t);
@@ -798,6 +816,7 @@ void page_bot_frame(const page_frame_t *f)
     }
     if (bot_view_tick(t, pose && !chase->chasing)) s_frame_kind |= 2;
     bot_view_label_fx(chase->label_opa, chase->shift_x, chase->shift_y);
+    music_view_frame(t);
     moment_view_frame(t);
 }
 
@@ -835,7 +854,8 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
         moment_unact(t);
     }
     wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page && !s_bot.asleep,
-                   .blocked = moment_view_busy() || calm || s_chase.phase != GC_IDLE, .on = s_ks_lv->weather_moments,
+                   .blocked = moment_view_busy() || music_view_busy() || mm_recent(&s_mm, t) || calm || s_chase.phase != GC_IDLE,
+                   .on = s_ks_lv->weather_moments,
                    .every_s = s_ks_lv->weather_every_min * 60};
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
     if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
@@ -851,6 +871,39 @@ static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, 
     double tau = moment_view_poll(t);
     while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);
     s_chase.hold = moment_view_busy();
+}
+
+static __attribute__((noinline)) void music_tick(double t, bool calm, bool offline, bool bot_page, bool on)
+{
+    if (np_client_get(&s_mm_np, &s_mm_gen))
+        s_mm_key = mm_track_key(s_mm_np.info.title, s_mm_np.info.artist, s_mm_np.info.album, s_mm_np.info.source);
+    bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;
+    if (music_view_busy() && (!on || !bot_page)) {
+        music_view_stop();
+        music_unact(t);
+    } else if (music_view_busy() && (s_bot.mood != s_mm_mood || calm || offline || !playing)) {
+        music_view_abort(t);
+        music_unact(t);
+    }
+    mm_in_t in = {.t = t, .have = s_mm_np.have, .playing = playing, .track = s_mm_key, .bot_mood = (int)s_bot.mood,
+                  .rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,
+                  .blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,
+                  .other_at = s_wxm.last_at};
+    if (mm_tick(&s_mm, &in) && music_view_start(t)) {
+        mm_shown(&s_mm, s_mm_key, t);
+        s_mm_mood = s_bot.mood;
+        bot_act_begin(&s_bot, t);
+        s_mm_acting = true;
+        s_mm_cue = 0;
+    }
+    int n;
+    const mm_cue_t *c = mm_script(&n);
+    double tau = music_view_poll(t);
+    for (; tau >= 0 && s_mm_acting && s_mm_cue < n && tau >= c[s_mm_cue].t; s_mm_cue++) {
+        if (c[s_mm_cue].op == MM_HAPPY) bot_act_eyes(&s_bot, BOT_EYES_HAPPY, t);
+        else music_unact(t);
+    }
+    if (music_view_busy()) s_chase.hold = true;
 }
 
 static void scene_act_done(void)
@@ -953,6 +1006,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, pg->frame == page_bot_frame);
     else if (!ds.view_on && s_scene_resume_at == 0) moment_tick(t, have_wx ? &wx : NULL, calm, pg->frame == page_bot_frame);
     bot_read_moment(&s_bot, moment_view_busy(), t);
+    music_tick(t, calm, offline, pg->frame == page_bot_frame, !s_scene_on && !ds.view_on && s_scene_resume_at == 0);
 
     float gdeg;
     bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
@@ -990,6 +1044,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_rim_ready(&s_bot, bot_view_rim_feed(s_bot.mood, s_bot.asleep, pg->frame == page_bot_frame));
     f.pose = bot_pose(&s_bot, t);
     bot_view_rim_pose(&f.pose, t);
+    f.pose.eye_dy -= music_view_eye_px(t) / bot_view_radius_px();
     f.pose.orbit = chase->chasing ? chase->orbit : 0;
     s_cur_mood = f.pose.mood;
     pages_frame(&s_nav, &f);
@@ -1073,6 +1128,10 @@ static void scene_start(const demo_block_t *b, double t)
     if (moment_view_busy()) {
         moment_view_stop();
         moment_unact(t);
+    }
+    if (music_view_busy()) {
+        music_view_stop();
+        music_unact(t);
     }
     int page = page_index(demo_page_id(b->page));
     if (page != s_nav.page) {
@@ -1230,6 +1289,10 @@ static void stats_task(void *arg)
         failed_logged = failed;
         if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);
         refused_logged = refused;
+        int music, paint_ms, music_failed;
+        music_view_stats(&music, &paint_ms, &music_failed);
+        if (music || music_failed)
+            ESP_LOGI(TAG, "music moments: %d shown, paint %d ms, %d starts without the PSRAM arena", music, paint_ms, music_failed);
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         for (int i = 0; i < REFR_KINDS; i++)
             if (kc[i].n)
@@ -1325,6 +1388,7 @@ void app_main(void)
         lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         bot_view_create(s_bot_page);
         moment_view_create(s_bot_page);
+        music_view_create(s_bot_page);
         pomo_view_create(scr);
         temp_face_create(scr);
         np_view_create(scr);
@@ -1340,6 +1404,7 @@ void app_main(void)
     join_label_create();
     gc_init(&s_chase, esp_random());
     wxm_init(&s_wxm);
+    mm_init(&s_mm);
     bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
     lv_timer_create(frame_cb, 16, handles.disp);
     lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_START, NULL);
