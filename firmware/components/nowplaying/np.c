@@ -64,6 +64,7 @@ bool np_parse(const cJSON *o, np_info_t *out)
     char cv[NP_COVERV_MAX + 2];
     str_field(cv, sizeof cv, o, "cover_version");
     if (version_ok(cv, NP_COVERV_MAX)) strcpy(out->cover_version, cv);
+    out->cover_light = cJSON_IsTrue(item(o, "cover_light"));
     return true;
 }
 
@@ -302,15 +303,26 @@ bool np_info_changed(const np_info_t *a, const np_info_t *b)
     return !np_same_track(a, b) || strcmp(a->art_version, b->art_version) != 0 || a->album_art != b->album_art ||
            a->artist_art != b->artist_art || a->volume != b->volume || strcmp(a->track_id, b->track_id) != 0 ||
            strcmp(a->cover_version, b->cover_version) != 0 || a->has_accent != b->has_accent ||
-           (a->has_accent && a->accent != b->accent);
+           (a->has_accent && a->accent != b->accent) || a->cover_light != b->cover_light;
 }
 
-np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded)
+np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded, bool oom)
 {
     bool required = p->cover && k == NP_ART_COVER;
     if (status == 404) return required ? NP_ART_FAIL : NP_ART_SKIP;
     if (status != 200) return NP_ART_FAIL;
     if (p->cover && !fresh) return NP_ART_FAIL;
-    if (!decoded) return required ? NP_ART_FAIL : NP_ART_SKIP;
+    if (!decoded) return !required ? NP_ART_SKIP : oom ? NP_ART_FAIL : NP_ART_BAD;
     return NP_ART_OK;
+}
+
+bool np_art_retry_fail(np_art_retry_t *r, const char *version, bool bad)
+{
+    if (strcmp(r->version, version) != 0) {
+        memset(r, 0, sizeof *r);
+        snprintf(r->version, sizeof r->version, "%s", version);
+    }
+    r->fails++;
+    if (bad) r->bad++;
+    return r->bad >= NP_ART_BAD_TRIES;
 }

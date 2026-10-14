@@ -425,6 +425,19 @@ static void test_cover_parse(void)
     CHECK(parse(longv, &np) && strlen(np.cover_version) == NP_COVERV_MAX, "the longest cover_version fits");
     parse("{\"state\":\"none\",\"accent\":\"#6C22E6\",\"cover_version\":\"x-r1\"}", &np);
     CHECK(!np.has_accent && !np_face_wants_cover(&np), "nothing playing: no cover");
+
+    CHECK(parse(COVER_BLOCK, &np) && !np.cover_light, "no cover_light: a dark text band");
+    static const char *const LIGHT =
+        "{\"state\":\"playing\",\"title\":\"White Album\",\"accent\":\"#6C22E6\",\"cover_version\":\"c0ffee-r1\","
+        "\"cover_light\":true}";
+    CHECK(parse(LIGHT, &np) && np.cover_light && np.has_accent && strcmp(np.cover_version, "c0ffee-r1") == 0,
+          "cover_light next to accent and cover_version");
+    CHECK(parse("{\"state\":\"playing\",\"cover_version\":\"c-r1\",\"cover_light\":false}", &np) && !np.cover_light,
+          "cover_light false");
+    CHECK(parse("{\"state\":\"playing\",\"cover_version\":\"c-r1\",\"cover_light\":\"true\"}", &np) && !np.cover_light &&
+              parse("{\"state\":\"playing\",\"cover_version\":\"c-r1\",\"cover_light\":1}", &np) && !np.cover_light,
+          "only a JSON true is light");
+    CHECK(parse("{\"state\":\"none\",\"cover_light\":true}", &np) && !np.cover_light, "nothing playing: no cover_light");
 }
 
 static void test_cover_plan(void)
@@ -651,6 +664,9 @@ static void test_review_fixes(void)
     b.has_accent = false;
     CHECK(np_info_changed(&a, &b), "accent gone is a change");
     b = a;
+    b.cover_light = true;
+    CHECK(np_info_changed(&a, &b), "cover_light is a change");
+    b = a;
     b.position_ms += 5000;
     CHECK(!np_info_changed(&a, &b), "the position alone is the anchor's business");
 
@@ -665,18 +681,33 @@ static void test_review_fixes(void)
     np_art_plan(&a, &cp);
     a.cover_version[0] = 0;
     np_art_plan(&a, &lp);
-    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, true) == NP_ART_OK, "cover ok");
-    CHECK(np_art_step(&cp, NP_ART_COVER, 404, false, false) == NP_ART_FAIL, "cover 404 retries");
-    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, false) == NP_ART_FAIL, "cover not decoded (no PSRAM) retries");
-    CHECK(np_art_step(&cp, NP_ART_COVER, 200, false, true) == NP_ART_FAIL, "a no-cache cover is another version: retry");
-    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, false, true) == NP_ART_FAIL, "a no-cache artist too");
-    CHECK(np_art_step(&cp, NP_ART_ARTIST, 404, false, false) == NP_ART_SKIP, "no artist picture: no avatar");
-    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, true, false) == NP_ART_SKIP, "avatar not decoded: none");
-    CHECK(np_art_step(&cp, NP_ART_COVER, 500, true, true) == NP_ART_FAIL && np_art_step(&cp, NP_ART_COVER, -1, false, false) == NP_ART_FAIL,
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, true, false) == NP_ART_OK, "cover ok");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 404, false, false, false) == NP_ART_FAIL, "cover 404 retries");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, false, true) == NP_ART_FAIL, "cover not decoded (no PSRAM) retries");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, true, false, false) == NP_ART_BAD, "cover over the cap or undecodable: bad");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, true, false, false) == NP_ART_SKIP &&
+              np_art_step(&lp, NP_ART_BACKDROP, 200, false, false, false) == NP_ART_SKIP,
+          "only the cover counts as bad");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 200, false, true, false) == NP_ART_FAIL, "a no-cache cover is another version: retry");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, false, true, false) == NP_ART_FAIL, "a no-cache artist too");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 404, false, false, false) == NP_ART_SKIP, "no artist picture: no avatar");
+    CHECK(np_art_step(&cp, NP_ART_ARTIST, 200, true, false, false) == NP_ART_SKIP, "avatar not decoded: none");
+    CHECK(np_art_step(&cp, NP_ART_COVER, 500, true, true, false) == NP_ART_FAIL && np_art_step(&cp, NP_ART_COVER, -1, false, false, false) == NP_ART_FAIL,
           "errors retry");
-    CHECK(np_art_step(&lp, NP_ART_BACKDROP, 200, false, true) == NP_ART_OK && np_art_step(&lp, NP_ART_ALBUM, 404, false, false) == NP_ART_SKIP &&
-              np_art_step(&lp, NP_ART_BACKDROP, 200, false, false) == NP_ART_SKIP,
+    CHECK(np_art_step(&lp, NP_ART_BACKDROP, 200, false, true, false) == NP_ART_OK && np_art_step(&lp, NP_ART_ALBUM, 404, false, false, false) == NP_ART_SKIP &&
+              np_art_step(&lp, NP_ART_BACKDROP, 200, false, false, false) == NP_ART_SKIP,
           "the old face as before");
+
+    np_art_retry_t r = {0};
+    CHECK(!np_art_retry_fail(&r, "v1-r1", true) && np_art_retry_ms(r.fails) == 5000, "first bad cover: retry in 5 s");
+    CHECK(!np_art_retry_fail(&r, "v1-r1", false) && r.bad == 1, "a network error does not count as bad");
+    CHECK(!np_art_retry_fail(&r, "v1-r1", true) && np_art_retry_ms(r.fails) == 20000, "second bad: the backoff goes on");
+    CHECK(np_art_retry_fail(&r, "v1-r1", true) && r.bad == NP_ART_BAD_TRIES, "third bad: give up on v1-r1");
+    CHECK(np_art_retry_fail(&r, "v1-r1", false), "and stay given up for that version");
+    CHECK(!np_art_retry_fail(&r, "v2-r1", true) && r.fails == 1 && r.bad == 1 && strcmp(r.version, "v2-r1") == 0,
+          "a new cover_version starts again");
+    np_art_retry_t t = {0};
+    for (int i = 0; i < 20; i++) CHECK(!np_art_retry_fail(&t, "v3-r1", false), "transient errors never give up (%d)", i);
 
     np_edge_style_t x, y;
     memset(&x, 0xAA, sizeof x);
@@ -696,13 +727,42 @@ static void test_review_fixes(void)
     CHECK(((g[1] >> 11) & 31) >= 22 && ((g[1] >> 11) & 31) <= 24, "white to 75 %%: %04x", g[1]);
 
     parse(COVER_BLOCK, &a);
-    CHECK(np_art_take("fb43cf74b67a-r1", true, true, &a, true) == NP_TAKE_ADOPT, "current cover");
-    CHECK(np_art_take("old-r1", true, true, &a, true) == NP_TAKE_DROP, "older cover dropped");
-    CHECK(np_art_take("fb43cf74b67a-r1", true, true, &a, false) == NP_TAKE_DROP, "a cover set on the old face");
+    CHECK(np_art_take("fb43cf74b67a-r1", true, &a, true) == NP_TAKE_ADOPT, "current cover");
+    CHECK(np_art_take("old-r1", true, &a, true) == NP_TAKE_DROP, "older cover dropped");
+    CHECK(np_art_take("fb43cf74b67a-r1", true, &a, false) == NP_TAKE_DROP, "a cover set on the old face");
     np_info_t none;
     parse("{\"state\":\"none\"}", &none);
-    CHECK(np_art_take("", false, false, &none, true) == NP_TAKE_DROP, "nothing playing: the empty set on the cover face");
-    CHECK(np_art_take("", false, false, &none, false) == NP_TAKE_ADOPT, "and on the old face, as before");
+    CHECK(np_art_take("", false, &none, true) == NP_TAKE_DROP, "nothing playing: the empty set on the cover face");
+    CHECK(np_art_take("", false, &none, false) == NP_TAKE_ADOPT, "and on the old face, as before");
+    np_info_t leg;
+    parse(BLOCK, &leg);
+    CHECK(np_art_take("fb43cf74b67a", false, &leg, false) == NP_TAKE_ADOPT,
+          "the old face: an empty set (every picture 404) for the shown art_version clears the pictures");
+    CHECK(np_art_take("0ld0ld0ld0ld", false, &leg, false) == NP_TAKE_DROP, "an empty set for an older art_version is dropped");
+    CHECK(np_art_take("fb43cf74b67a-r1", true, &a, true) == NP_TAKE_ADOPT && np_art_take("old-r1", true, &a, true) == NP_TAKE_DROP,
+          "a no-cover set (no pictures) goes by its version like any other");
+
+    CHECK(np_scrim_opa(false, 0) == NP_SCRIM_LIGHT && np_scrim_opa(true, 0) == NP_SCRIM_STRONG, "playing: light and strong scrim");
+    static const uint8_t SHADES[] = {77, 109, 115, 153, 191, 230};
+    for (size_t i = 0; i < sizeof SHADES / sizeof SHADES[0]; i++)
+        for (int light = 0; light <= 1; light++) {
+            int sh = SHADES[i], want = light ? NP_SCRIM_STRONG : NP_SCRIM_LIGHT, sc = np_scrim_opa(light, (uint8_t)sh);
+            int both = 255 - (255 - sh) * (255 - sc) / 255;
+            int top = sh > want ? sh : want;
+            CHECK(abs(both - top) <= 1, "shade %d, light %d: scrim %d stacks to %d, want %d", sh, light, sc, both, top);
+        }
+    CHECK(np_scrim_opa(false, 115) == 0 && np_scrim_opa(false, 153) == 0, "paused or volume: the light scrim adds nothing");
+    CHECK(np_scrim_opa(true, 115) > 0 && np_scrim_opa(true, 115) < NP_SCRIM_STRONG, "paused on a light cover: less on top");
+
+    uint16_t *nc = malloc((size_t)NP_COVER_PX * NP_COVER_PX * 2);
+    memset(nc, 0xFF, (size_t)NP_COVER_PX * NP_COVER_PX * 2);
+    np_no_cover_render(nc, NP_COVER_PX);
+    const uint16_t grey = (uint16_t)((0x1E >> 3) << 11 | (0x1E >> 2) << 5 | (0x1E >> 3));
+    CHECK(nc[233 * NP_COVER_PX + 233] == grey && nc[(233 + NP_DISC_R - 2) * NP_COVER_PX + 233] == grey, "grey disc: %04x",
+          nc[233 * NP_COVER_PX + 233]);
+    CHECK(nc[(233 + NP_DISC_R + 2) * NP_COVER_PX + 233] == 0 && nc[0] == 0 && nc[233 * NP_COVER_PX + 233 + NP_EDGE_R] == 0,
+          "black from the disc out, the ring band too");
+    free(nc);
     CHECK(np_face_kind_cover(true, &a, 0), "known: by cover_version");
     np_info_t old;
     parse(BLOCK, &old);

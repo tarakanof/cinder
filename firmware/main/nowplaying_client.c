@@ -34,8 +34,7 @@ typedef struct {
     char built[NP_COVERV_MAX + 1];
     np_info_t last;
     bool last_have;
-    int fails;
-    char fail_version[NP_COVERV_MAX + 1];
+    np_art_retry_t retry;
     int64_t retry_at_ms;
     char url[160];
 } np_shared_t;
@@ -167,7 +166,7 @@ static bool due(np_art_plan_t *plan)
     bool built = S->built_valid && strcmp(S->built, plan->version) == 0;
     xSemaphoreGive(s_lock);
     if (built) return false;
-    if (S->fails && strcmp(S->fail_version, plan->version) == 0 && now_ms() < S->retry_at_ms) return false;
+    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms) return false;
     return true;
 }
 
@@ -310,7 +309,7 @@ static UINT jd_out(JDEC *jd, void *bitmap, JRECT *r)
 }
 
 /* 466 is not a multiple of the 16 px MCU: TJpgDec clips the last MCU, so no padding. */
-static void *decode(const uint8_t *jpg, int len, int px, bool alpha, int64_t *us)
+static void *decode(const uint8_t *jpg, int len, int px, bool alpha, int64_t *us, bool *oom)
 {
     int64_t t0 = esp_timer_get_time();
     void *work = heap_caps_malloc(TJPGD_WORK, MALLOC_CAP_SPIRAM);
@@ -319,7 +318,8 @@ static void *decode(const uint8_t *jpg, int len, int px, bool alpha, int64_t *us
     uint8_t *out = heap_caps_malloc(alpha ? plane + (size_t)px * px : plane, MALLOC_CAP_SPIRAM);
     jd_io_t io = {.src = jpg, .len = (size_t)len, .dst = (uint16_t *)out, .px = px};
     JDEC jd;
-    JRESULT r = work && out ? jd_prepare(&jd, jd_in, work, TJPGD_WORK, &io) : JDR_MEM1;
+    *oom = !work || !out;
+    JRESULT r = !*oom ? jd_prepare(&jd, jd_in, work, TJPGD_WORK, &io) : JDR_MEM1;
     if (r == JDR_OK && ((int)jd.width != px || (int)jd.height != px)) {
         ESP_LOGW(TAG, "picture is %ux%u, want %d", jd.width, jd.height, px);
         r = JDR_PAR;
@@ -361,7 +361,7 @@ void np_client_service(http_conn_t *conn, const char *base)
     strcpy(set.version, plan.version);
     int64_t t0 = esp_timer_get_time(), dec_us = 0;
     int bytes = 0;
-    bool failed = false;
+    bool failed = false, bad = false;
     uint8_t *jpg = plan.version[0] ? heap_caps_malloc(JPEG_MAX, MALLOC_CAP_SPIRAM) : NULL;
     if (plan.version[0] && !jpg) failed = true;
     for (int k = 0; k < NP_ART_KINDS && !failed; k++) {
@@ -369,7 +369,7 @@ void np_client_service(http_conn_t *conn, const char *base)
             !np_art_url(base, (np_art_kind_t)k, np_art_plan_version(&plan, (np_art_kind_t)k), S->url, sizeof S->url))
             continue;
         int len = 0;
-        bool fresh = false;
+        bool fresh = false, oom = false;
         const http_req_opts_t o = {.idempotent = true, .body_len = &len, .on_header = cache_hdr, .hdr_ctx = &fresh};
         int status = http_conn_req_opts(conn, S->url, &o, (char *)jpg, JPEG_MAX);
         void *img = NULL;
@@ -378,9 +378,9 @@ void np_client_service(http_conn_t *conn, const char *base)
             bytes += len;
             if (len >= JPEG_MAX) ESP_LOGW(TAG, "art %s: %d B, over %d", np_art_kind_name((np_art_kind_t)k), len, JPEG_MAX);
             else if (!plan.cover || fresh)
-                img = decode(jpg, len, px, k == NP_ART_ALBUM || (k == NP_ART_ARTIST && !plan.cover), &dec_us);
+                img = decode(jpg, len, px, k == NP_ART_ALBUM || (k == NP_ART_ARTIST && !plan.cover), &dec_us, &oom);
         }
-        np_art_step_t step = np_art_step(&plan, (np_art_kind_t)k, status, fresh, img != NULL);
+        np_art_step_t step = np_art_step(&plan, (np_art_kind_t)k, status, fresh, img != NULL, oom);
         if (step != NP_ART_OK) {
             bool undecoded = status == 200 && img == NULL && (fresh || !plan.cover);
             free(img);
@@ -389,6 +389,7 @@ void np_client_service(http_conn_t *conn, const char *base)
                      status == 200 && plan.cover && !fresh ? ", not the asked version" : "",
                      undecoded ? ", not decoded" : "");
             failed = true;
+            bad = step == NP_ART_BAD;
             break;
         }
         if (k == NP_ART_ARTIST && plan.cover) {
@@ -413,15 +414,19 @@ void np_client_service(http_conn_t *conn, const char *base)
     }
     free(jpg);
     if (failed) {
-        np_art_set_free(&set);
-        if (strcmp(S->fail_version, plan.version) != 0) S->fails = 0;
-        strcpy(S->fail_version, plan.version);
-        S->fails++;
-        S->retry_at_ms = now_ms() + np_art_retry_ms(S->fails);
-        return;
+        bool give_up = np_art_retry_fail(&S->retry, plan.version, bad);
+        S->retry_at_ms = now_ms() + np_art_retry_ms(S->retry.fails);
+        if (!give_up) {
+            np_art_set_free(&set);
+            return;
+        }
+        set.no_cover = true;
+    } else {
+        S->retry.fails = S->retry.bad = 0;
     }
-    S->fails = 0;
-    if (plan.cover)
+    if (set.no_cover)
+        ESP_LOGW(TAG, "cover %s: bad %d times, showing no cover", plan.version, S->retry.bad);
+    else if (plan.cover)
         ESP_LOGI(TAG, "cover %s: %d B in %lld ms (decode %lld ms): cover %s, avatar %s", plan.version, bytes,
                  (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.cover ? "yes" : "no", set.avatar ? "yes" : "no");
     else if (plan.version[0])

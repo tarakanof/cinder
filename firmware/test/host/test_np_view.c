@@ -172,6 +172,168 @@ static void frames(lv_display_t *d, int n)
     }
 }
 
+static uint16_t *make_white(void)
+{
+    uint16_t *c = malloc(NP_COVER_PX * NP_COVER_PX * 2);
+    for (int y = 0; y < NP_COVER_PX; y++)
+        for (int x = 0; x < NP_COVER_PX; x++)
+            c[y * NP_COVER_PX + x] = hypotf(x + 0.5f - 233, y + 0.5f - 233) <= NP_DISC_R ? 0xFFFF : 0;
+    return c;
+}
+
+static int ink(int y0, int y1, int x0, int x1, int min)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = FX + x0; x < FX + x1; x++) n += luma(x, y) > min;
+    return n;
+}
+
+static bool outside_same(const uint16_t *a)
+{
+    for (int y = 0; y < H; y++)
+        for (int x = FX; x < FX + NP_COVER_PX; x++)
+            if (hypotf(x - FX + 0.5f - 233, y + 0.5f - 233) >= NP_DISC_R + 2 && a[y * W + x] != s_fb[y * W + x]) return false;
+    return true;
+}
+
+static void test_scrim(lv_display_t *d, lv_obj_t *root)
+{
+    static uint16_t before[W * H];
+    npc_build(root);
+    np_info_t np = {.state = NP_PLAYING, .has_accent = true, .accent = 0xFF8A5C, .duration_ms = 228000};
+    strcpy(np.title, "White Album");
+    strcpy(np.artist, "Northern Static");
+    strcpy(np.cover_version, "c0ffee-r1");
+    np_art_set_t art = {.is_cover = true, .cover = make_white()};
+    npc_adopt(&art);
+    npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
+                     .pos_ms = 160000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
+    npc_update(&f);
+    refresh(d);
+    save("m1-white-no-hint");
+    int top = luma(FX + 233, 180), band = luma(FX + 73, 300), low = luma(FX + 233, 420);
+    printf("np_view: white cover, no cover_light: above %d, band %d, bottom %d\n", top, band, low);
+    CHECK(top > 245, "above the band the cover is untouched: %d", top);
+    CHECK(abs(band - 255 * (255 - NP_SCRIM_LIGHT) / 255) <= 6 && abs(low - band) <= 4, "the light scrim at the text rows: %d", band);
+    int title_light = ink(285, 316, 140, 326, band + 60);
+    memcpy(before, s_fb, sizeof before);
+
+    np.cover_light = true;
+    npc_update(&f);
+    refresh(d);
+    save("m1-white-light");
+    band = luma(FX + 73, 300);
+    int strong = band, title = ink(285, 316, 140, 326, band + 120), time = ink(356, 381, 160, 306, band + 120);
+    printf("np_view: white cover, cover_light: band %d, title %d px, time %d px; %d areas, %ld px\n", band, title, time,
+           s_areas, s_px);
+    CHECK(abs(band - 255 * (255 - NP_SCRIM_STRONG) / 255) <= 6, "the strong scrim at the text rows: %d", band);
+    CHECK(luma(FX + 233, 180) > 245, "still untouched above: %d", luma(FX + 233, 180));
+    CHECK(title > 300 && title > title_light && time > 150, "white text reads on a white cover: title %d, time %d px", title, time);
+    CHECK(outside_same(before), "the scrim stays inside the disc: the ring and the black band are unchanged");
+
+    f.dim = true;
+    f.dx = 8;
+    npc_update(&f);
+    refresh(d);
+    save("m1-white-dim");
+    band = luma(FX + 73, 300);
+    title = ink(285, 316, 140 + 8, 326 + 8, band + 60);
+    printf("np_view: white cover dimmed: band %d, title %d px\n", band, title);
+    CHECK(band < strong && title > 300, "dimmed: band %d darker, title still %d px", band, title);
+    f.dim = false;
+    f.dx = 0;
+
+    f.state = NPF_PAUSED;
+    npc_update(&f);
+    refresh(d);
+    save("m2-white-light");
+    band = luma(FX + 73, 300);
+    top = luma(FX + 73, 200);
+    printf("np_view: white cover paused: above %d, band %d\n", top, band);
+    CHECK(abs(band - strong) <= 6, "paused: shade and scrim stack to the scrim's level, not darker: %d vs %d", band, strong);
+    CHECK(abs(top - 255 * (255 - 115) / 255) <= 6, "paused: the shade above the band: %d", top);
+    CHECK(luma(FX + 233 - 12, 168) > 200, "the pause bar stays clear of the scrim");
+    np.cover_light = false;
+    npc_update(&f);
+    refresh(d);
+    band = luma(FX + 73, 300);
+    CHECK(abs(band - top) <= 4, "paused, no hint: the light scrim adds nothing to the shade: %d vs %d", band, top);
+
+    f.state = NPF_OFFLINE;
+    np.cover_light = true;
+    npc_update(&f);
+    refresh(d);
+    band = luma(FX + 73, 300);
+    CHECK(abs(band - strong) <= 6, "offline: no darker than the scrim: %d", band);
+    CHECK(luma(FX + 233, 106) < luma(FX + 233, 80) / 3 && ink(130, 200, 180, 286, 200) > 100, "the offline badge sits above the scrim");
+
+    f.state = NPF_PLAYING;
+    f.ring = NP_RING_VOLUME;
+    f.badge = NPC_BADGE_NUMBER;
+    f.badge_text = "62";
+    npc_update(&f);
+    refresh(d);
+    save("m7-white-light");
+    band = luma(FX + 73, 300);
+    CHECK(abs(band - strong) <= 6, "volume: no darker than the scrim: %d", band);
+    CHECK(ink(120, 210, 150, 316, 200) > 300, "the volume number stays clear");
+    f.ring = NP_RING_PROGRESS;
+    f.badge = NPC_BADGE_NONE;
+    f.badge_text = "";
+
+    art = (np_art_set_t){.is_cover = true, .no_cover = true};
+    strcpy(art.version, np.cover_version);
+    npc_adopt(&art);
+    npc_update(&f);
+    refresh(d);
+    save("m1-no-cover");
+    int disc = luma(FX + 233, 180);
+    band = luma(FX + 73, 300);
+    printf("np_view: no-cover look: disc %d, band %d\n", disc, band);
+    CHECK(npc_has_cover() && abs(disc - 0x1E) <= 6, "a bad cover: the grey no-cover disc, not black: %d", disc);
+    CHECK(band < disc && abs(band - 0x1E * (255 - NP_SCRIM_LIGHT) / 255) <= 6, "no cover: only the light scrim, cover_light or not: %d", band);
+    rgb(FX + 233, 233 + NP_EDGE_R, &top, &band, &low);
+    CHECK(top > 240 && band > 120 && band < 150, "the ring is redrawn over it: %d,%d", top, band);
+    f.state = NPF_OFFLINE;
+    npc_update(&f);
+    refresh(d);
+    CHECK(npc_has_cover() && luma(FX + 233, 106) < 20, "offline keeps the no-cover face with the badge");
+
+    f.state = NPF_PLAYING;
+    f.pos_ms = 170000;
+    npc_update(&f);
+    CHECK(strcmp(npc_time_text(), "2:50 / 3:48") == 0, "%s", npc_time_text());
+    f.state = NPF_PAUSED;
+    npc_update(&f);
+    CHECK(strcmp(npc_time_text(), "Paused") == 0, "paused in the same second: %s", npc_time_text());
+    f.state = NPF_PLAYING;
+    npc_update(&f);
+    CHECK(strcmp(npc_time_text(), "2:50 / 3:48") == 0, "playing again in the same second: the relayout redraws the time: %s",
+          npc_time_text());
+    f.state = NPF_OFFLINE;
+    f.pos_ms = 171000;
+    npc_update(&f);
+    CHECK(strcmp(npc_time_text(), "2:50 / 3:48") == 0, "offline from playing freezes: %s", npc_time_text());
+    f.state = NPF_PAUSED;
+    npc_update(&f);
+    f.state = NPF_OFFLINE;
+    f.pos_ms = 172000;
+    npc_update(&f);
+    CHECK(strcmp(npc_time_text(), "2:52 / 3:48") == 0, "offline from paused shows the position once: %s", npc_time_text());
+    f.pos_ms = 175000;
+    npc_update(&f);
+    CHECK(strcmp(npc_time_text(), "2:52 / 3:48") == 0, "then freezes: %s", npc_time_text());
+
+    f.state = NPF_NOTHING;
+    int forgets = s_forgets;
+    npc_update(&f);
+    refresh(d);
+    CHECK(!npc_has_cover() && s_forgets == forgets + 1, "idle drops the no-cover look and asks again later");
+    npc_destroy();
+    lv_obj_clean(root);
+}
+
 static void test_page(lv_display_t *d, lv_obj_t *scr)
 {
     s_forgets = 0;
@@ -357,6 +519,7 @@ int main(int argc, char **argv)
 
     npc_destroy();
     lv_obj_clean(root);
+    test_scrim(d, root);
     test_page(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);

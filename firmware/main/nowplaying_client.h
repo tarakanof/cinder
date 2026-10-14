@@ -23,6 +23,7 @@ typedef struct {
     uint8_t *artist;      /* 64 x 64 RGB565A8 (circle) */
     uint16_t *cover;      /* 466 x 466 RGB565, Ember's circle crop on black */
     uint8_t *avatar;      /* NP_AVATAR_PX square RGB565A8 (circle) */
+    bool no_cover;        /* the cover failed NP_ART_BAD_TRIES times: show the no-cover look */
 } np_art_set_t;
 
 #define NP_CMD_TTL_MS 3000

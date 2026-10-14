@@ -184,6 +184,21 @@ void np_face_look(np_face_state_t s, np_ring_mode_t m, uint32_t accent, np_face_
     }
 }
 
+uint8_t np_scrim_opa(bool light, uint8_t shade)
+{
+    int want = light ? NP_SCRIM_STRONG : NP_SCRIM_LIGHT;
+    if (shade >= want) return 0;
+    return (uint8_t)((255 * (want - shade) + (255 - shade) / 2) / (255 - shade));
+}
+
+void np_no_cover_render(uint16_t *buf, int px)
+{
+    const uint16_t c = (uint16_t)(((NP_COL_NO_COVER >> 19) & 31) << 11 | ((NP_COL_NO_COVER >> 10) & 63) << 5 |
+                                  ((NP_COL_NO_COVER >> 3) & 31));
+    for (size_t i = 0; i < (size_t)px * px; i++) buf[i] = c;
+    np_face_mask(buf, px, px, px / 2.0f, px / 2.0f, NP_DISC_R);
+}
+
 bool np_face_wants_cover(const np_info_t *np) { return np->state != NP_NONE && np->cover_version[0]; }
 
 void np_downscale565(const uint16_t *src, int sp, uint16_t *dst, int dp)
@@ -262,10 +277,9 @@ void np_grey565(const uint16_t *src, uint16_t *dst, int n, float k)
     }
 }
 
-np_take_t np_art_take(const char *set_version, bool set_cover, bool set_pictures, const np_info_t *now, bool view_cover)
+np_take_t np_art_take(const char *set_version, bool set_cover, const np_info_t *now, bool view_cover)
 {
     if (set_cover != view_cover) return NP_TAKE_DROP;
-    if (!set_pictures) return NP_TAKE_ADOPT;
     np_art_plan_t p;
     np_art_plan(now, &p);
     return strcmp(set_version, p.version) == 0 ? NP_TAKE_ADOPT : NP_TAKE_DROP;

@@ -32,6 +32,7 @@ typedef struct {
     bool has_accent;
     uint32_t accent;   /* 0xRRGGBB */
     char cover_version[NP_COVERV_MAX + 1];
+    bool cover_light;  /* the cover's text band is light: Ember sends it only when true */
 } np_info_t;
 
 struct cJSON;
@@ -75,10 +76,20 @@ const char *np_art_plan_version(const np_art_plan_t *p, np_art_kind_t k);
 bool np_accent_parse(const char *s, uint32_t *rgb);
 /* Ember answers a stale v with its current picture and no-cache; only an immutable answer is the asked version. */
 bool np_art_cache_fresh(const char *cache_control);
-typedef enum { NP_ART_OK, NP_ART_SKIP, NP_ART_FAIL } np_art_step_t;
-/* One picture's outcome: SKIP leaves it out of the set, FAIL drops the set and retries with backoff. decoded: false for
-   a body over the cap, a decode error or no memory. fresh: np_art_cache_fresh of the answer. */
-np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded);
+typedef enum { NP_ART_OK, NP_ART_SKIP, NP_ART_FAIL, NP_ART_BAD } np_art_step_t;
+/* One picture's outcome: SKIP leaves it out of the set, FAIL drops the set and retries with backoff, BAD (the asked cover
+   is over the cap or does not decode) is a FAIL that counts towards NP_ART_BAD_TRIES. decoded: false for a body over the
+   cap, a decode error or no memory; oom: it was no memory. fresh: np_art_cache_fresh of the answer. */
+np_art_step_t np_art_step(const np_art_plan_t *p, np_art_kind_t k, int status, bool fresh, bool decoded, bool oom);
+#define NP_ART_BAD_TRIES 3
+typedef struct {
+    char version[NP_COVERV_MAX + 1];
+    int fails;
+    int bad;
+} np_art_retry_t;
+/* A failed fetch of version; another version starts the count again. True once version had NP_ART_BAD_TRIES BAD answers:
+   stop fetching it. The next try is np_art_retry_ms(r->fails) later. */
+bool np_art_retry_fail(np_art_retry_t *r, const char *version, bool bad);
 /* Anything besides the position anchor that the face shows or fetches by. */
 bool np_info_changed(const np_info_t *a, const np_info_t *b);
 
