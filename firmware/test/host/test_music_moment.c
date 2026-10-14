@@ -24,7 +24,8 @@ static void test_key(void)
     CHECK(a != mm_track_key("Glass Harbor", "Northern Static", "Low Tide Radio", "Apple Music"), "another source");
     CHECK(a != mm_track_key("Paper Moons", "Northern Static", "Low Tide Radio", "Plex"), "another title");
     CHECK(mm_track_key("ab", "", "", "") != mm_track_key("a", "b", "", ""), "fields do not run together");
-    CHECK(mm_track_key("", "", "", "") != 0 && mm_track_key(NULL, NULL, NULL, NULL) != 0, "never 0");
+    CHECK(mm_track_key("", "x", "y", "Plex") == 0 && mm_track_key(NULL, NULL, NULL, NULL) == 0, "no title: 0");
+    CHECK(mm_track_key("a", "", "", "") != 0, "a title alone");
 }
 
 typedef struct {
@@ -45,7 +46,7 @@ static void run(rig_t *r, double until)
 {
     for (; r->in.t < until; r->in.t += 1.0 / 60) {
         if (mm_tick(&r->tr, &r->in)) {
-            mm_shown(&r->tr, r->in.track, r->in.t);
+            mm_shown(&r->tr, r->in.t);
             r->shows++;
             r->shown_at = r->in.t;
         }
@@ -152,9 +153,59 @@ static void test_trigger(void)
     rig(&r);
     run(&r, 1);
     r.in.playing = true;
-    r.in.track = 0;
+    r.in.track = mm_track_key("", "x", "y", "Plex");
     run(&r, 30);
-    CHECK(r.shows == 0, "no track key, no moment");
+    CHECK(r.shows == 0, "an empty title, no moment");
+    r.in.track = A;
+    run(&r, 40);
+    CHECK(r.shows == 1, "then the titled track");
+
+    rig(&r);
+    r.in.playing = true;
+    r.in.track = A;
+    run(&r, 10);
+    r.in.track = B;
+    r.in.rest = false;
+    r.in.bot_mood = BOT_WORKING;
+    run(&r, 60);
+    r.in.playing = false;
+    run(&r, 90);
+    r.in.playing = true;
+    r.in.rest = true;
+    r.in.bot_mood = BOT_IDLE;
+    run(&r, 200);
+    CHECK(r.shows == 0, "a track still waiting for its moment, paused briefly: no moment on the resume (%d)", r.shows);
+
+    rig(&r);
+    r.in.playing = true;
+    r.in.track = A;
+    run(&r, 10);
+    r.in.playing = false;
+    run(&r, 20);
+    r.in.have = false;
+    run(&r, 1000);
+    r.in.have = true;
+    run(&r, 1010);
+    r.in.playing = true;
+    run(&r, 1020);
+    r.in.playing = false;
+    run(&r, 1021);
+    r.in.playing = true;
+    run(&r, 1100);
+    CHECK(r.shows == 0, "a gap without the block resolves the stop: the next block is a baseline (%d)", r.shows);
+
+    rig(&r);
+    r.in.playing = false;
+    r.in.track = A;
+    run(&r, 10);
+    r.in.playing = true;
+    run(&r, 130);
+    CHECK(r.shows == 0, "paused at boot, resumed within %.0f s: no moment, as when playing at boot (%d)", MM_RESUME_S, r.shows);
+    r.in.playing = false;
+    run(&r, 800);
+    r.in.playing = true;
+    run(&r, 820);
+    CHECK(r.shows == 1, "resumed after a long pause: a moment");
 }
 
 static void test_frames(void)
@@ -177,6 +228,7 @@ static void test_frames(void)
         }
         if (j % 2 == 1) {
             CHECK(prev.phones_opa == f.phones_opa && prev.phones_dy == f.phones_dy, "phones step on the 15 fps grid only (%d)", j);
+            CHECK(prev.eye_px == f.eye_px && prev.cup_dy == f.cup_dy, "the bob steps at 15 fps (%d)", j);
             for (int i = 0; i < MM_NOTES; i++)
                 CHECK(memcmp(&prev.note[i], &f.note[i], sizeof f.note[i]) == 0, "notes step on the 15 fps grid only (%d)", j);
         }
@@ -204,7 +256,7 @@ static void test_frames(void)
     mm_frame(MM_IN, &f);
     CHECK(f.eye_px == 0 && f.cup_dy == 0, "the bob starts at rest");
     mm_frame(MM_OUT - 1, &f);
-    CHECK(fabsf(f.eye_px) < 0.2f && f.cup_dy == 0, "the bob ends near rest (%.2f)", f.eye_px);
+    CHECK(fabsf(f.eye_px) < 1 && f.cup_dy == 0, "the bob ends near rest (%.2f)", f.eye_px);
     mm_frame(MM_IN + MM_BEAT / 4 + 1, &f);
     CHECK(f.eye_px > 3.5f, "down on the beat's first quarter (%.2f)", f.eye_px);
     CHECK(MM_BEAT * 1.0 / MM_FPS == 0.6, "0.6 s beat");
@@ -268,6 +320,14 @@ static void test_areas(void)
 
 static void test_abort(void)
 {
+    float prev = -5;
+    for (int k = 0; k < 12; k++) {
+        float e = mm_eye_settle(-5, k);
+        CHECK(e >= prev && e <= 0 && e - prev <= 1.3f, "settle tick %d: %.2f after %.2f", k, e, prev);
+        if (k % 2) CHECK(e == mm_eye_settle(-5, k - 1), "settle steps at 15 fps");
+        prev = e;
+    }
+    CHECK(mm_eye_settle(-5, MM_SETTLE_TICKS * MM_BOB_STEP) == 0 && mm_eye_settle(4, 1) > 0, "settled to 0, from either side");
     for (int j = -1; j < MM_TICKS; j++) {
         mm_frame_t f, g;
         mm_frame(j, &f);

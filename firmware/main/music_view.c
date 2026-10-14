@@ -1,27 +1,23 @@
 #include "music_view.h"
 
 #include <math.h>
+#include <stdatomic.h>
+#include <string.h>
 
 #include "esp_attr.h"
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 
 enum { MU_IDLE, MU_PRE, MU_PLAY };
-#define MU_RETRY_S 5.0
 
 static EXT_RAM_BSS_ATTR lv_obj_t *s_parent;
-static EXT_RAM_BSS_ATTR uint8_t *s_arena;
+static EXT_RAM_BSS_ATTR uint8_t s_arena[MM_ARENA];
 static EXT_RAM_BSS_ATTR lv_image_dsc_t s_band, s_cup[2], s_note;
 static EXT_RAM_BSS_ATTR mm_frame_t s_shown, s_cur;
 static EXT_RAM_BSS_ATTR bool s_any, s_held;
-static EXT_RAM_BSS_ATTR int s_state, s_j, s_cur_j, s_count, s_paint_ms, s_failed;
-static EXT_RAM_BSS_ATTR double s_t0, s_retry_at;
-
-void music_view_create(lv_obj_t *parent)
-{
-    s_parent = parent;
-    s_cur_j = -1;
-}
+static EXT_RAM_BSS_ATTR int s_state, s_j, s_cur_j, s_settle_at;
+static EXT_RAM_BSS_ATTR float s_settle_from;
+static EXT_RAM_BSS_ATTR atomic_int s_count, s_paint_ms;
+static EXT_RAM_BSS_ATTR double s_t0;
 
 static lv_image_dsc_t dsc(lv_color_format_t cf, int w, int h, const uint8_t *data, int bpp)
 {
@@ -32,18 +28,17 @@ static lv_image_dsc_t dsc(lv_color_format_t cf, int w, int h, const uint8_t *dat
     };
 }
 
-static bool ensure(void)
+void music_view_create(lv_obj_t *parent)
 {
-    if (s_arena) return true;
-    s_arena = heap_caps_malloc(MM_ARENA, MALLOC_CAP_SPIRAM);
-    if (!s_arena) return false;
+    s_parent = parent;
+    s_cur_j = -1;
+    s_settle_at = -1;
     int64_t t0 = esp_timer_get_time();
     mm_paint(s_arena);
-    s_paint_ms = (int)((esp_timer_get_time() - t0 + 999) / 1000);
+    atomic_store(&s_paint_ms, (int)((esp_timer_get_time() - t0 + 999) / 1000));
     s_band = dsc(LV_COLOR_FORMAT_A8, MM_BAND_W, MM_BAND_H, s_arena + MM_BAND_AT, 1);
     for (int i = 0; i < 2; i++) s_cup[i] = dsc(LV_COLOR_FORMAT_RGB565A8, MM_CUP_W, MM_CUP_H, s_arena + MM_CUP_AT(i), 3);
     s_note = dsc(LV_COLOR_FORMAT_A8, MM_NOTE_W, MM_NOTE_H, s_arena + MM_NOTE_AT, 1);
-    return true;
 }
 
 static void image(lv_layer_t *layer, const lv_image_dsc_t *src, int x, int y, int opa, bool tint)
@@ -83,12 +78,7 @@ bool music_view_busy(void) { return s_state != MU_IDLE; }
 
 bool music_view_start(double t)
 {
-    if (s_held || s_state != MU_IDLE || t < s_retry_at) return false;
-    if (!ensure()) {
-        s_failed++;
-        s_retry_at = t + MU_RETRY_S;
-        return false;
-    }
+    if (s_held || s_state != MU_IDLE) return false;
     s_state = MU_PRE;
     s_t0 = t + MM_PRE_S;
     return true;
@@ -113,6 +103,8 @@ static void end(void)
     s_state = MU_IDLE;
     s_any = false;
     s_cur_j = -1;
+    s_settle_at = -1;
+    memset(&s_shown, 0, sizeof s_shown);
 }
 
 double music_view_poll(double t)
@@ -122,7 +114,8 @@ double music_view_poll(double t)
         s_state = MU_PLAY;
         s_any = false;
         s_j = -1;
-        s_count++;
+        s_settle_at = -1;
+        atomic_store(&s_count, atomic_load(&s_count) + 1);
     }
     return s_state == MU_PLAY ? t - s_t0 : -1;
 }
@@ -141,7 +134,9 @@ static const mm_frame_t *at(int j)
 float music_view_eye_px(double t)
 {
     if (s_state != MU_PLAY) return 0;
-    return at(tick(t))->eye_px;
+    int j = tick(t);
+    if (s_settle_at >= 0 && j >= s_settle_at) return mm_eye_settle(s_settle_from, j - s_settle_at);
+    return at(j)->eye_px;
 }
 
 void music_view_frame(double t)
@@ -169,7 +164,12 @@ void music_view_abort(double t)
     }
     if (s_state != MU_PLAY) return;
     int k = mm_abort_tick(s_j);
-    if (k != s_j) s_t0 = t - (k + 0.5) / MM_FPS;
+    if (k == s_j) return;
+    if (s_j >= 0 && s_settle_at < 0) {
+        s_settle_from = at(s_j)->eye_px;
+        s_settle_at = k;
+    }
+    s_t0 = t - (k + 0.5) / MM_FPS;
 }
 
 void music_view_stop(void)
@@ -183,9 +183,8 @@ void music_view_hold(bool hold)
     if (hold) music_view_stop();
 }
 
-void music_view_stats(int *shown, int *paint_ms, int *failed)
+void music_view_stats(int *shown, int *paint_ms)
 {
-    *shown = s_count;
-    *paint_ms = s_paint_ms;
-    *failed = s_failed;
+    *shown = atomic_load(&s_count);
+    *paint_ms = atomic_load(&s_paint_ms);
 }

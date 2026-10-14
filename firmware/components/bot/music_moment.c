@@ -11,6 +11,7 @@ static uint32_t fnv(uint32_t h, const char *s)
 
 uint32_t mm_track_key(const char *title, const char *artist, const char *album, const char *source)
 {
+    if (!title || !*title) return 0;
     uint32_t h = fnv(fnv(fnv(fnv(2166136261u, title), artist), album), source);
     return h ? h : 1;
 }
@@ -19,7 +20,7 @@ void mm_init(mm_trigger_t *tr)
 {
     memset(tr, 0, sizeof *tr);
     tr->last_at = -INFINITY;
-    tr->stop_at = -INFINITY;
+    tr->stop_at = -1;
     tr->steady_at = INFINITY;
     tr->mood = -1;
 }
@@ -30,29 +31,36 @@ bool mm_tick(mm_trigger_t *tr, const mm_in_t *in)
     if (in->bot_mood != tr->mood || in->shown != tr->was_shown) tr->steady_at = t;
     tr->mood = in->bot_mood;
     tr->was_shown = in->shown;
-    if (!in->have) return false;
-    bool playing = in->playing && in->track;
+    bool playing = in->have && in->playing && in->track;
+    if (!in->have) {
+        tr->base = false;
+        tr->pending = 0;
+        return false;
+    }
     if (!tr->base) {
         tr->base = true;
-        tr->seen = playing ? in->track : 0;
+        tr->cur = in->track;
+        tr->stop_at = playing ? -1 : t;
+        tr->pending = 0;
+        return false;
     }
     if (!playing) {
-        if (!isfinite(tr->stop_at) || tr->stop_at < 0) tr->stop_at = t;
-        if (t - tr->stop_at >= MM_RESUME_S) tr->seen = 0;
+        tr->pending = 0;
+        if (tr->stop_at < 0) tr->stop_at = t;
+        if (in->track) tr->cur = in->track;
         return false;
     }
+    bool start = in->track != tr->cur || (tr->stop_at >= 0 && t - tr->stop_at >= MM_RESUME_S);
+    tr->cur = in->track;
     tr->stop_at = -1;
-    if (in->track == tr->seen) return false;
-    if (t - tr->last_at < MM_SAME_S) {
-        tr->seen = in->track;
-        return false;
-    }
+    if (start) tr->pending = t - tr->last_at < MM_SAME_S ? 0 : in->track;
+    if (!tr->pending) return false;
     return in->rest && in->shown && !in->blocked && t - tr->steady_at >= MM_SETTLE_S && t - in->other_at >= MM_GAP_S;
 }
 
-void mm_shown(mm_trigger_t *tr, uint32_t track, double t)
+void mm_shown(mm_trigger_t *tr, double t)
 {
-    tr->seen = track;
+    tr->pending = 0;
     tr->last_at = t;
 }
 
@@ -101,7 +109,7 @@ void mm_frame(int j, mm_frame_t *f)
         f->phones_dy = -(int)lroundf(MM_DROP * (1 - e));
     } else if (j < MM_OUT) {
         f->phones_opa = 255;
-        float u = (float)((j - MM_IN) % MM_BEAT) / MM_BEAT;
+        float u = (float)(((j - MM_IN) % MM_BEAT) / MM_BOB_STEP * MM_BOB_STEP) / MM_BEAT;
         f->eye_px = beat(u, 4, -5);
         f->cup_dy = (int)lroundf(beat(u, MM_CUP_BOB, -MM_CUP_BOB));
     } else {
@@ -204,6 +212,12 @@ int mm_abort_tick(int j)
     int g = 0;
     while (g < MM_OUT_LEN / 2 - 1 && phones_opa_out(g) > opa) g++;
     return MM_OUT + 2 * g;
+}
+
+float mm_eye_settle(float from, int ticks)
+{
+    int steps = ticks / MM_BOB_STEP;
+    return steps >= MM_SETTLE_TICKS ? 0 : from * (float)(MM_SETTLE_TICKS - steps) / (MM_SETTLE_TICKS + 1);
 }
 
 static const mm_cue_t SCRIPT[] = {{0.0f, MM_HAPPY}, {(float)MM_OUT / MM_FPS, MM_END}};

@@ -546,6 +546,42 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
+MUT="$(fbody "$MAINC" music_tick)"
+for L in 'if (np_client_get(&s_mm_np, &s_mm_gen))' 'bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;' \
+    'if (music_view_busy() && (!on || !bot_page)) {' 'music_view_stop();' \
+    '} else if (music_view_busy() && (s_bot.mood != s_mm_mood || calm || offline || !playing)) {' 'music_view_abort(t);' \
+    '.rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,' \
+    '.blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,' '.other_at = s_wxm.last_at};' \
+    's_mm_mood = s_bot.mood;' 'bot_act_begin(&s_bot, t);' 'double tau = music_view_poll(t);' \
+    'if (c[s_mm_cue].op == MM_HAPPY) bot_act_eyes(&s_bot, BOT_EYES_HAPPY, t);' 'if (music_view_busy()) s_chase.hold = true;'; do
+    printf '%s\n' "$MUT" | grep -qF "$L" || WIRING="$WIRING music_tick:$L"
+done
+[ "$(grep -c 'mm_shown(' "$MAINC")" -eq 1 ] && printf '%s\n' "$MUT" | grep -B1 -F 'mm_shown(&s_mm, t);' | head -1 | grep -qF 'if (mm_tick(&s_mm, &in) && music_view_start(t)) {' ||
+    WIRING="$WIRING music_tick-records-a-moment-only-once-it-started"
+[ "$(printf '%s\n' "$MUT" | grep -cF 'music_unact(t);')" -eq 3 ] || WIRING="$WIRING music_tick-ends-the-act-on-stop-abort-and-the-end-cue"
+body "$MAINC" music_unact | grep -qxF '    if (s_mm_acting && s_bot.mood != s_mm_mood) bot_act_drop(&s_bot, t);' &&
+    body "$MAINC" music_unact | grep -qxF '    else if (s_mm_acting) bot_act_end(&s_bot, true, 0.3, t);' || WIRING="$WIRING music_unact-ends-the-act"
+fbody "$MAINC" page_tick | awk '/^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR}
+    /^    music_tick\(t, calm, offline, pg->frame == page_bot_frame, !s_scene_on && !ds\.view_on && s_scene_resume_at == 0\);$/ {m = NR}
+    /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && m < p)}' ||
+    WIRING="$WIRING page_tick-runs-music_tick-after-the-weather-moment-before-the-chase-and-the-pose"
+fbody "$MAINC" page_tick | awk '/^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} /^    f\.pose\.eye_dy -= music_view_eye_px\(t\) \/ bot_view_radius_px\(\);$/ {e = NR}
+    /^    pages_frame\(&s_nav, &f\);$/ {p = NR} END {exit !(s && e == s + 1 && p > e)}' || WIRING="$WIRING page_tick-adds-the-bob-to-the-pose-before-the-frame"
+for L in 'music_view_hold(true);' 'music_unact(now_s());' 'music_view_hold(false);'; do
+    body "$MAINC" ota_frame | grep -qxF "            $L" || body "$MAINC" ota_frame | grep -qxF "        $L" || WIRING="$WIRING ota_frame:$L"
+done
+[ "$(body "$MAINC" scene_start | grep -A3 -xF '    if (music_view_busy()) {' | tr -d ' \n')" = 'if(music_view_busy()){music_view_stop();music_unact(t);}' ] ||
+    WIRING="$WIRING scene_start-stops-the-music-moment"
+[ "$(body "$MAINC" page_bot_frame | tail -3 | head -2 | tr -d ' \n')" = 'music_view_frame(t);moment_view_frame(t);' ] ||
+    WIRING="$WIRING page_bot_frame-draws-the-music-moment-before-the-weather-moment"
+NPC="$D/../../main/nowplaying_client.c"
+body "$NPC" np_client_feed | awk '/xSemaphoreGive\(s_lock\);/ {g = NR} /ESP_LOG[A-Z]\(/ {n++; if (!g) bad = 1} END {exit !(g && n && !bad)}' ||
+    WIRING="$WIRING np_client_feed-logs-only-after-the-lock"
+if [ -n "$WIRING" ]; then
+    echo "run.sh: FAIL music moment wiring:$WIRING" >&2
+    exit 1
+fi
+echo "music moment wiring: trigger, stop, abort and act in music_tick after the weather moment, the bob on the pose, OTA hold, demo stop, draw order, the now-playing log outside its lock"
 body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_client_service\(/ {n = NR} END {exit !(r && n && r < n)}' ||
     WIRING="$WIRING demo-ready-before-the-art-fetch"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&

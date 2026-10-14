@@ -6,6 +6,21 @@
 #include <time.h>
 
 #include "src/display/lv_display_private.h"
+#include "src/misc/lv_event_private.h"
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+static long heap_used(void)
+{
+    malloc_statistics_t st;
+    malloc_zone_statistics(NULL, &st);
+    return (long)st.size_in_use;
+}
+#elif defined(__GLIBC__)
+#include <malloc.h>
+static long heap_used(void) { return (long)mallinfo2().uordblks; }
+#else
+static long heap_used(void) { return 0; }
+#endif
 #include "lvgl.h"
 #include "music_moment.h"
 #include "music_view.h"
@@ -106,6 +121,37 @@ static void shot(const char *name)
     fclose(f);
 }
 
+static double tick_t(int j);
+static uint16_t s_inc[W * H];
+static int s_full_checks;
+
+static void check_full(lv_display_t *d, const char *what, int j)
+{
+    memcpy(s_inc, s_fb, sizeof s_fb);
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(d);
+    long diff = 0;
+    for (int i = 0; i < W * H; i++) diff += s_fb[i] != s_inc[i];
+    CHECK(diff == 0, "%s tick %d: %ld px differ from a full redraw", what, j, diff);
+    s_full_checks++;
+}
+
+static void play(lv_display_t *d, double base, const char *what, int step, int abort_at)
+{
+    CHECK(music_view_start(base), "%s: starts", what);
+    int j = 0;
+    for (; music_view_busy() && j < MM_TICKS + 40; j += step) {
+        double t = base + tick_t(j);
+        if (j >= abort_at && j < abort_at + step) music_view_abort(t);
+        music_view_poll(t);
+        music_view_frame(t);
+        refresh(d);
+        CHECK(s_areas <= 1, "%s tick %d: %d areas", what, j, s_areas);
+        check_full(d, what, j);
+    }
+    CHECK(!music_view_busy(), "%s: over", what);
+}
+
 static double tick_t(int j) { return MM_PRE_S + (j + 0.5) / MM_FPS; }
 
 static void test_play(lv_display_t *d, lv_obj_t *root)
@@ -113,6 +159,7 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
     mm_box_t ext;
     mm_extent(&ext);
     uint32_t cbs = lv_obj_get_event_count(root);
+    long heap_play = 0, heap_end = 0;
     CHECK(music_view_start(0), "starts");
     CHECK(!music_view_start(0.1), "one at a time");
     CHECK(music_view_busy(), "busy in the pre-roll");
@@ -124,12 +171,16 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
     double ms = 0, max_ms = 0;
     for (int j = 0; j < MM_TICKS + 2; j++) {
         double t = tick_t(j);
+        long h = heap_used();
         double tau = music_view_poll(t);
+        if (j == 0) heap_play = heap_used() - h;
         if (j < MM_TICKS) CHECK(fabs(tau - (j + 0.5) / MM_FPS) < 1e-9, "tick %d: tau %.3f", j, tau);
         mm_frame_t f;
         mm_frame(j, &f);
         CHECK(music_view_eye_px(t) == f.eye_px, "tick %d: eye px", j);
+        h = heap_used();
         music_view_frame(t);
+        if (j == MM_TICKS) heap_end = heap_used() - h;
         double r = refresh(d);
         if (s_areas) {
             frames++;
@@ -157,14 +208,18 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
             shot("music_notes");
         }
         if (j == 6) shot("music_arrive");
+        check_full(d, "play", j);
     }
     CHECK(!music_view_busy() && lv_obj_get_event_count(root) == cbs, "over: the draw callback is gone");
     CHECK(lit_in(&ext) == 0, "nothing left on screen: %ld px", lit_in(&ext));
+    CHECK(heap_play > 0 && heap_play <= 64 && heap_end == -heap_play, "heap: attach +%ld B, end %+ld B", heap_play, heap_end);
+    printf("music view: attaching the draw callback takes %ld B of heap (host, lv_event_dsc_t %zu B), the end gives back %ld B\n", heap_play,
+           sizeof(lv_event_dsc_t), -heap_end);
     printf("music view: %d redraws, max %d area, max %ld px, avg %ld px, render avg %.3f ms max %.3f ms (host)\n", frames, max_areas, max_px,
            frames ? total_px / frames : 0, frames ? ms / frames : 0, max_ms);
-    int shown, paint_ms, failed;
-    music_view_stats(&shown, &paint_ms, &failed);
-    CHECK(shown == 1 && failed == 0, "stats: %d shown, %d failed", shown, failed);
+    int shown, paint_ms;
+    music_view_stats(&shown, &paint_ms);
+    CHECK(shown == 1, "stats: %d shown", shown);
 }
 
 static void test_abort(lv_display_t *d)
@@ -178,9 +233,12 @@ static void test_abort(lv_display_t *d)
         refresh(d);
     }
     double t = base + tick_t(60);
+    double before = music_view_eye_px(base + tick_t(59));
     music_view_abort(t);
     music_view_poll(t);
-    CHECK(music_view_eye_px(t) == 0, "the bob stops at once");
+    float e0 = music_view_eye_px(t);
+    CHECK(fabsf(e0) <= fabsf((float)before) && (before == 0 || e0 != 0), "the bob settles, no snap: %.2f after %.2f", e0, before);
+    CHECK(music_view_eye_px(base + tick_t(60 + MM_SETTLE_TICKS * MM_BOB_STEP)) == 0, "settled");
     int ticks = 0;
     for (; music_view_busy() && ticks < 40; ticks++) {
         t = base + tick_t(60 + ticks);
@@ -212,6 +270,12 @@ static void test_abort(lv_display_t *d)
     CHECK(music_view_start(400), "released");
     music_view_stop();
     refresh(d);
+    play(d, 500, "every third tick", 3, 1 << 20);
+    play(d, 600, "every fifth tick", 5, 1 << 20);
+    play(d, 700, "abort in the arrival", 1, 3);
+    play(d, 800, "abort in the arrival, skipping", 2, 6);
+    play(d, 900, "abort in the hold", 1, 100);
+    printf("music view: %d ticks equal to a full redraw\n", s_full_checks);
 }
 
 int main(int argc, char **argv)
@@ -230,6 +294,9 @@ int main(int argc, char **argv)
     lv_obj_t *root = lv_obj_create(scr);
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, W, H);
+    lv_obj_t *kid = lv_obj_create(root);
+    lv_obj_remove_style_all(kid);
+    lv_obj_set_size(kid, 0, 0);
     music_view_create(root);
     refresh(d);
     test_play(d, root);

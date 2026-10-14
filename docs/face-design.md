@@ -52,7 +52,7 @@ Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.
 - **No cover** (M15): vinyl only when there is no cover; no cover-on-vinyl variant. Plain label, spin = 8 baked label frames at 4 fps (1 area, the 104 px label). Grooves never redraw.
 - **Burn-in**: existing rule (dim after 3 min, 8 px drift once a minute) stays; the drift is one full redraw per minute, fine.
 - **BLE remote**: vector glyphs on black, the relative step arc on the edge ring: cheap.
-- **Bot music moments**: headphones + notes are small sprites around the eyes; the beat bob moves one box (eyes + cups) at ≤ 30 fps. Built for M13 ([`features.md`](features.md) "Bot music moments"): one box per 30 fps tick (eyes, cups and the moving notes), happy eyes; M14 is not built (no cover on the bot page).
+- **Bot music moments**: headphones + notes are small sprites around the eyes; the beat bob moves one box (eyes + cups) at ≤ 30 fps. Built for M13 ([`features.md`](features.md) "Bot music moments"): one box per step (eyes, cups and the moving notes), the bob at 15 fps until the knob measures room for 30, happy eyes; M14 is not built (no cover on the bot page).
 
 ## Bot weather moments (v2)
 

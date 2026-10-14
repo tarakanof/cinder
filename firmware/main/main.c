@@ -890,7 +890,7 @@ static __attribute__((noinline)) void music_tick(double t, bool calm, bool offli
                   .blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,
                   .other_at = s_wxm.last_at};
     if (mm_tick(&s_mm, &in) && music_view_start(t)) {
-        mm_shown(&s_mm, s_mm_key, t);
+        mm_shown(&s_mm, t);
         s_mm_mood = s_bot.mood;
         bot_act_begin(&s_bot, t);
         s_mm_acting = true;
@@ -1289,10 +1289,9 @@ static void stats_task(void *arg)
         failed_logged = failed;
         if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);
         refused_logged = refused;
-        int music, paint_ms, music_failed;
-        music_view_stats(&music, &paint_ms, &music_failed);
-        if (music || music_failed)
-            ESP_LOGI(TAG, "music moments: %d shown, paint %d ms, %d starts without the PSRAM arena", music, paint_ms, music_failed);
+        int music, paint_ms;
+        music_view_stats(&music, &paint_ms);
+        ESP_LOGI(TAG, "music moments: %d shown, sprites painted at boot in %d ms", music, paint_ms);
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         for (int i = 0; i < REFR_KINDS; i++)
             if (kc[i].n)
