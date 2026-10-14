@@ -3675,6 +3675,65 @@ static int eye_px(const bot_pose_t *p)
     return eye_one(p, 0, a, &rows) + eye_one(p, 1, a, &rows);
 }
 
+static void test_swap_in_shut_hold(void)
+{
+    int asks = 0, swaps = 0, shown = 0, worst = 0;
+    for (int seed = 1; seed <= 60; seed++)
+        for (int kind = 0; kind < 2; kind++) {
+            bot_t b;
+            bot_init(&b, seed, 0);
+            bot_set_sleep_after(&b, 0);
+            double t = settle_open(&b, 0);
+            if (kind == 0) bot_act_begin(&b, t);
+            for (double end = t + 1; t < end; t += 1.0 / 240) bot_pose(&b, t);
+            while (b.blinking) bot_pose(&b, t += 1.0 / 240);
+            b.next_blink_at = t;
+            bot_pose(&b, t);
+            double hold_at = b.blink_start + 0.075 * b.blink_speed + fmax(b.blink_lag, 0) + 0.035 * b.blink_speed * (0.2 + 0.6 * (seed % 5) / 4.0);
+            for (; t < hold_at; t += 0.001) bot_pose(&b, t);
+            bot_eyes_t eyes = bot_pose(&b, t).eyes;
+            if (kind == 0) bot_act_eyes(&b, eyes == BOT_EYES_ROUND ? BOT_EYES_HAPPY : BOT_EYES_ROUND, t);
+            else bot_set_mood(&b, seed % 2 ? BOT_WAITING : BOT_ERROR, t);
+            asks++;
+            for (double end = t + 2; t < end; t += 1.0 / 240) {
+                bot_pose_t p = bot_pose(&b, t);
+                if (p.eyes != eyes) {
+                    int px = eye_px(&p);
+                    swaps++;
+                    shown += px > 0;
+                    if (px > worst) worst = px;
+                    eyes = p.eyes;
+                }
+            }
+        }
+    printf("shut hold: %d asks in a blink's shut hold, %d swaps, %d with eye pixels showing (worst %d px)\n", asks, swaps, shown, worst);
+    CHECK(swaps >= asks && !shown, "shut hold: a beat or costume asked while the lids hold shut swaps behind a blink that hides the eyes (%d of %d show, "
+          "worst %d px)", shown, swaps, worst);
+
+    int early = 0, heavy = 0;
+    for (int seed = 1; seed <= 30; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        double t = settle_open(&b, 0);
+        bot_set_mood(&b, BOT_SLEEPY, t);
+        for (double end = t + 4; t < end; t += 1.0 / 240) bot_pose(&b, t);
+        while (b.blinking) bot_pose(&b, t += 1.0 / 240);
+        b.next_blink_at = t;
+        bot_pose(&b, t);
+        if (!b.blink_heavy) continue;
+        heavy++;
+        double ends = b.blink_start + fmax(b.blink_lag, 0) + 0.55 + b.blink_hold;
+        for (double at = b.blink_start + 0.2; t < at; t += 0.001) bot_pose(&b, t);
+        bot_act_eyes(&b, BOT_EYES_ROUND, t);
+        double swapped = -1;
+        for (double end = t + 3; t < end && swapped < 0; t += 1.0 / 240)
+            if (bot_pose(&b, t).eyes == BOT_EYES_ROUND) swapped = t;
+        early += swapped >= 0 && swapped < ends;
+    }
+    CHECK(heavy > 20 && early == heavy, "heavy blink: a costume asked 0.2 s in (still closing) swaps in that blink, not after a reclose (%d of %d)",
+          early, heavy);
+}
+
 static double shut_frac(const bot_pose_t *p, int e)
 {
     bot_stroke_t st[2];
@@ -4525,6 +4584,7 @@ int main(void)
     test_beat_hidden();
     test_blink_line();
     test_blink_reopen();
+    test_swap_in_shut_hold();
     test_lid_quantum();
     test_wait_phases();
     test_wait_nudge();
