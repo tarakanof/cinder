@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ember_host.h"
 #include "knob_view.h"
 #include "pomo.h"
 #include "view_policy.h"
@@ -59,6 +60,46 @@ static void test_parse(void)
     CHECK(strcmp(v.lead, "M4") == 0 && v.hosts == 2 && strcmp(v.lead_color, "#B48CFF") == 0 &&
               strcmp(v.tool, "claude") == 0,
           "lead %s hosts %d colour %s tool %s", v.lead, v.hosts, v.lead_color, v.tool);
+    CHECK(v.lead_project[0] == 0, "no lead_project: empty");
+
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":2,\"errors\":0,\"running\":0,\"done\":0,\"source\":\"\","
+                          "\"lead\":\"M4\",\"lead_project\":\"learn-language\"}}",
+                          &v),
+          "lead_project parses");
+    CHECK(strcmp(v.lead_project, "learn-language") == 0, "lead_project %s", v.lead_project);
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":\"\\u0449\\u0438\\u0442 caf\\u00e9 \\ud83d\\ude42\"}}",
+                          &v),
+          "UTF-8 lead_project parses");
+    CHECK(strcmp(v.lead_project, "shchit cafe ?") == 0, "folded to ASCII: %s", v.lead_project);
+    CHECK(knob_view_parse("{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":7}}", &v) && v.lead_project[0] == 0,
+          "a non-string lead_project is ignored");
+    char json[200], want[KNOB_VIEW_SOURCE_MAX + 1];
+    memset(want, 'a', 62);
+    want[62] = 0;
+    snprintf(json, sizeof json, "{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":\"%s\\u0449\\u0449\"}}", want);
+    CHECK(knob_view_parse(json, &v), "a long project parses");
+    CHECK(strcmp(v.lead_project, want) == 0, "a letter that does not fit whole is left out: %zu bytes", strlen(v.lead_project));
+    want[60] = 0;
+    snprintf(json, sizeof json, "{\"v\":1,\"mood\":{\"waiting\":1,\"lead_project\":\"%s\\u0449\\u0449\"}}", want);
+    CHECK(knob_view_parse(json, &v), "60 + two wide letters parse");
+    CHECK(strlen(v.lead_project) == 64 && strcmp(v.lead_project + 60, "shch") == 0 && strncmp(v.lead_project, want, 60) == 0,
+          "one whole letter fits, the second is left out: %s", v.lead_project + 56);
+
+    ember_host_info_t h;
+    const char *const odd[] = {"\\ud83d\\ude42", "\\u4fee\\u590d\\u767b\\u5f55", "\\u2603 \\u2603"};
+    for (size_t i = 0; i < sizeof odd / sizeof odd[0]; i++) {
+        snprintf(json, sizeof json,
+                 "{\"v\":1,\"mood\":{\"waiting\":2,\"source\":\"\",\"lead\":\"m4\",\"hosts\":2,\"lead_project\":\"%s\"}}",
+                 odd[i]);
+        CHECK(knob_view_parse(json, &v), "odd project %zu parses", i);
+        ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, &h);
+        CHECK(v.lead_project[0] == '?' && strcmp(h.text, "M4 +1") == 0 && h.sub[0] == 0,
+              "folded to only '?' (%s): the host label (%s)", v.lead_project, h.text);
+    }
+    snprintf(json, sizeof json, "{\"v\":1,\"mood\":{\"waiting\":2,\"lead\":\"m4\",\"hosts\":2,\"lead_project\":\"caf\\u00e9 \\ud83d\\ude42\"}}");
+    CHECK(knob_view_parse(json, &v), "mixed project parses");
+    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, &h);
+    CHECK(strcmp(h.text, "cafe ? +1") == 0 && strcmp(h.sub, "M4") == 0, "a letter left: the project (%s|%s)", h.text, h.sub);
 
     CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"pomo\":{\"phase\":\"short_break\",\"running\":true,\"paused\":true,"
                           "\"remaining_sec\":120,\"planned_sec\":300,\"round\":2}}",

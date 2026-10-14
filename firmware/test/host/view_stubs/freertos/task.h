@@ -1,7 +1,7 @@
 #pragma once
 #include "FreeRTOS.h"
 
-/* Pinned tasks run as threads; one created "with caps" (the outline's rim task) never starts, its notifications drop. */
+/* Pinned tasks run as threads; the one created "with caps" (the outline's rim task) is the only one notified. */
 typedef void *TaskHandle_t;
 typedef void (*host_task_fn)(void *);
 typedef struct {
@@ -35,12 +35,32 @@ static inline BaseType_t xTaskCreatePinnedToCore(host_task_fn fn, const char *na
 static inline BaseType_t xTaskCreatePinnedToCoreWithCaps(host_task_fn fn, const char *name, uint32_t stack, void *arg, int prio,
                                                          TaskHandle_t *handle, int core, unsigned caps)
 {
-    (void)fn, (void)name, (void)stack, (void)arg, (void)prio, (void)core, (void)caps;
-    static int dummy;
-    if (handle) *handle = &dummy;
-    return pdPASS;
+    (void)caps;
+    return xTaskCreatePinnedToCore(fn, name, stack, arg, prio, handle, core);
 }
 
-static inline void xTaskNotifyGive(TaskHandle_t t) { (void)t; }
-static inline uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t ticks) { (void)clear, (void)ticks; return 0; }
+static pthread_mutex_t host_notify_m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t host_notify_c = PTHREAD_COND_INITIALIZER;
+static uint32_t host_notify_n;
+
+static inline void xTaskNotifyGive(TaskHandle_t t)
+{
+    (void)t;
+    pthread_mutex_lock(&host_notify_m);
+    host_notify_n++;
+    pthread_cond_signal(&host_notify_c);
+    pthread_mutex_unlock(&host_notify_m);
+}
+
+static inline uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t ticks)
+{
+    (void)ticks;
+    pthread_mutex_lock(&host_notify_m);
+    while (!host_notify_n) pthread_cond_wait(&host_notify_c, &host_notify_m);
+    uint32_t n = host_notify_n;
+    host_notify_n = clear ? 0 : n - 1;
+    pthread_mutex_unlock(&host_notify_m);
+    return n;
+}
+
 static inline void vTaskDelay(TickType_t t) { (void)t; }
