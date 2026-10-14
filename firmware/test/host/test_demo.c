@@ -5,6 +5,7 @@
 
 #include "demo.h"
 #include "knob_view.h"
+#include "np_cover.h"
 #include "view_policy.h"
 
 static int failures;
@@ -463,6 +464,37 @@ static void ember_asleep(const char *dir)
     free(j);
 }
 
+static void ember_nowplaying(const char *dir)
+{
+    static const struct {
+        const char *file;
+        np_face_state_t want;
+        bool cover;
+    } S[] = {
+        {"nowplaying.playing.json", NPF_PLAYING, true},
+        {"nowplaying.paused.json", NPF_PAUSED, true},
+        {"nowplaying.offline.json", NPF_OFFLINE, true},
+        {"nowplaying.nothing.json", NPF_NOTHING, false},
+    };
+    for (size_t i = 0; i < sizeof S / sizeof S[0]; i++) {
+        char *j = load(dir, S[i].file);
+        CHECK(j != NULL, "Ember's %s scene", S[i].file);
+        if (!j) continue;
+        static knob_view_t v, dv;
+        CHECK(knob_view_read_full(j, &v, NULL, &dv) == KNOB_VIEW_OK && v.demo.page == DEMO_PAGE_NOWPLAYING && dv.has_np,
+              "%s: the now-playing page with a block", S[i].file);
+        CHECK(np_face_wants_cover(&dv.np) == S[i].cover && dv.np.has_accent == S[i].cover,
+              "%s: cover face %d, accent %d", S[i].file, np_face_wants_cover(&dv.np), dv.np.has_accent);
+        np_art_plan_t p;
+        np_art_plan(&dv.np, &p);
+        CHECK(p.cover == S[i].cover && p.want[NP_ART_COVER] == S[i].cover && !p.want[NP_ART_BACKDROP],
+              "%s: fetches the cover only", S[i].file);
+        np_face_state_t st = np_face_state(dv.has_np, dv.np.state, v.demo.offline, np_face_wants_cover(&dv.np));
+        CHECK(st == S[i].want, "%s: face state %d, want %d", S[i].file, st, S[i].want);
+        free(j);
+    }
+}
+
 int main(int argc, char **argv)
 {
     test_act();
@@ -480,6 +512,7 @@ int main(int argc, char **argv)
     if (argc > 1) CHECK(parse_dir(argv[1], true) >= 4, "own demo fixtures");
     int ember = argc > 2 ? parse_dir(argv[2], false) : 0;
     if (ember) ember_asleep(argv[2]);
+    if (ember) ember_nowplaying(argv[2]);
     if (failures) {
         printf("demo: %d failure(s)\n", failures);
         return 1;

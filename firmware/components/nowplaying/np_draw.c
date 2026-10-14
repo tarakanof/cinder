@@ -82,6 +82,11 @@ static void grow(float *lo, float *hi, float v)
 
 bool np_ring_dirty(const np_ring_t *ring, float f0, float f1, int w, int h, np_rect_t *out)
 {
+    return np_ring_dirty_m(ring, f0, f1, ring->hw + 2, w, h, out);
+}
+
+bool np_ring_dirty_m(const np_ring_t *ring, float f0, float f1, float m, int w, int h, np_rect_t *out)
+{
     f0 = clamp01(f0);
     f1 = clamp01(f1);
     if (f0 == f1) return false;
@@ -93,7 +98,6 @@ bool np_ring_dirty(const np_ring_t *ring, float f0, float f1, int w, int h, np_r
         grow(&x0, &x1, (float)(ring->cx + ring->r * sin(ext[i])));
         grow(&y0, &y1, (float)(ring->cy - ring->r * cos(ext[i])));
     }
-    float m = ring->hw + 2;
     int ix0 = ((int)floorf(x0 - m)) & ~1, iy0 = ((int)floorf(y0 - m)) & ~1;
     int ix1 = ((int)ceilf(x1 + m)) | 1, iy1 = ((int)ceilf(y1 + m)) | 1;
     if (ix0 < 0) ix0 = 0;

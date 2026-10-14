@@ -664,10 +664,10 @@ cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/i
     "$D/test_view.c" -lm \
     -o "${OUT}_view"
 cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
-    "$K/knob_view.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$J/cJSON.c" \
+    "$K/knob_view.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$J/cJSON.c" \
     "$D/test_demo.c" -lm -o "${OUT}_demo"
 cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$J" "$K/knob_view.c" "$DM/demo.c" \
-    "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$J/cJSON.c" "$D/test_np.c" -lm -o "${OUT}_np"
+    "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$J/cJSON.c" "$D/test_np.c" -lm -o "${OUT}_np"
 LV="$D/../../managed_components/lvgl__lvgl"
 TITLE_FONT=0
 if [ -d "$LV" ]; then

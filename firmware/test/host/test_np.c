@@ -2,11 +2,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "cJSON.h"
 #include "knob_view.h"
 #include "np.h"
 #include "np_ctl.h"
+#include "np_cover.h"
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -391,6 +393,222 @@ static void test_masks(void)
     CHECK(asym == 0, "symmetric: %d", asym);
 }
 
+static const char *COVER_BLOCK =
+    "{\"state\":\"playing\",\"source\":\"plex\",\"title\":\"Example Song\",\"artist\":\"Example Artist\","
+    "\"album\":\"Example Album\",\"track_id\":\"4242\",\"duration_ms\":330000,\"position_ms\":61000,"
+    "\"position_at\":1782043198000,\"art_version\":\"fb43cf74b67a\",\"album_art\":true,\"volume\":40,"
+    "\"accent\":\"#6C22E6\",\"cover_version\":\"fb43cf74b67a-r1\"}";
+
+static void test_cover_parse(void)
+{
+    np_info_t np;
+    CHECK(parse(COVER_BLOCK, &np) && np.has_accent && np.accent == 0x6C22E6 && strcmp(np.cover_version, "fb43cf74b67a-r1") == 0,
+          "accent and cover_version");
+    CHECK(np_face_wants_cover(&np), "cover face");
+    parse(BLOCK, &np);
+    CHECK(!np.has_accent && !np.cover_version[0] && !np_face_wants_cover(&np), "an older Ember: no cover data");
+    uint32_t c = 7;
+    CHECK(np_accent_parse("#a0b1C2", &c) && c == 0xA0B1C2, "lower and upper hex");
+    static const char *const BAD[] = {"", "#", "#12345", "#1234567", "123456", "#12345g", "#-12345", " #123456"};
+    for (size_t i = 0; i < sizeof BAD / sizeof BAD[0]; i++) {
+        c = 7;
+        CHECK(!np_accent_parse(BAD[i], &c) && c == 7, "bad accent '%s'", BAD[i]);
+    }
+    CHECK(!np_accent_parse(NULL, &c), "NULL accent");
+    CHECK(parse("{\"state\":\"playing\",\"accent\":\"red\",\"cover_version\":\"a b\"}", &np) && !np.has_accent &&
+              !np.cover_version[0],
+          "bad values dropped");
+    char longv[128];
+    snprintf(longv, sizeof longv, "{\"state\":\"playing\",\"cover_version\":\"%0*d\"}", NP_COVERV_MAX + 1, 0);
+    CHECK(parse(longv, &np) && !np.cover_version[0], "an over-long cover_version is dropped, not cut");
+    snprintf(longv, sizeof longv, "{\"state\":\"playing\",\"cover_version\":\"%0*d\"}", NP_COVERV_MAX, 0);
+    CHECK(parse(longv, &np) && strlen(np.cover_version) == NP_COVERV_MAX, "the longest cover_version fits");
+    parse("{\"state\":\"none\",\"accent\":\"#6C22E6\",\"cover_version\":\"x-r1\"}", &np);
+    CHECK(!np.has_accent && !np_face_wants_cover(&np), "nothing playing: no cover");
+}
+
+static void test_cover_plan(void)
+{
+    np_info_t np;
+    np_art_plan_t p;
+    char url[160];
+    parse(COVER_BLOCK, &np);
+    np_art_plan(&np, &p);
+    CHECK(p.cover && strcmp(p.version, "fb43cf74b67a-r1") == 0 && p.want[NP_ART_COVER] && !p.want[NP_ART_BACKDROP] &&
+              !p.want[NP_ART_ALBUM] && !p.want[NP_ART_ARTIST],
+          "the cover only");
+    CHECK(np_art_url("http://h", NP_ART_COVER, np_art_plan_version(&p, NP_ART_COVER), url, sizeof url) &&
+              strcmp(url, "http://h/v1/nowplaying/art?kind=cover&size=466&v=fb43cf74b67a-r1") == 0,
+          "%s", url);
+    np.artist_art = true;
+    np_art_plan(&np, &p);
+    CHECK(p.want[NP_ART_COVER] && p.want[NP_ART_ARTIST] && strcmp(np_art_plan_version(&p, NP_ART_ARTIST), "fb43cf74b67a") == 0,
+          "the artist picture at art_version");
+    CHECK(np_art_url("http://h", NP_ART_ARTIST, np_art_plan_version(&p, NP_ART_ARTIST), url, sizeof url) &&
+              strcmp(url, "http://h/v1/nowplaying/art?kind=artist&size=64&v=fb43cf74b67a") == 0,
+          "%s", url);
+    np.album_art = false;
+    np_art_plan(&np, &p);
+    CHECK(p.want[NP_ART_COVER], "a cover from the artist picture");
+    np.cover_version[0] = 0;
+    np.album_art = true;
+    np_art_plan(&np, &p);
+    CHECK(!p.cover && p.want[NP_ART_BACKDROP] && !p.want[NP_ART_COVER] && strcmp(p.version, "fb43cf74b67a") == 0,
+          "without cover_version: today's pictures");
+    CHECK(np_art_px(NP_ART_COVER) == 466 && strcmp(np_art_kind_name(NP_ART_COVER), "cover") == 0, "cover kind");
+}
+
+static const np_ring_t EDGE = {.cx = 233, .cy = 233, .r = NP_EDGE_R, .hw = NP_EDGE_HW};
+
+static int changed_outside(const uint16_t *a, const uint16_t *b, np_rect_t d)
+{
+    int out = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            if (a[y * W + x] != b[y * W + x] && (x < d.x || x >= d.x + d.w || y < d.y || y >= d.y + d.h)) out++;
+    return out;
+}
+
+static uint16_t c565(uint32_t c) { return (uint16_t)((((c >> 16) & 0xFF) >> 3) << 11 | (((c >> 8) & 0xFF) >> 2) << 5 | ((c & 0xFF) >> 3)); }
+
+static void test_edge(void)
+{
+    static uint8_t glow[NP_GLOW_PX * NP_GLOW_PX];
+    np_glow_a8(glow);
+    int c = NP_GLOW_PX / 2;
+    CHECK(glow[c * NP_GLOW_PX + c] >= 250 && glow[0] < 3, "glow: centre %d, corner %d", glow[c * NP_GLOW_PX + c], glow[0]);
+    int e = glow[c * NP_GLOW_PX + c + NP_GLOW_R];
+    CHECK(e > 100 && e < 155, "glow at r %d: %d", NP_GLOW_R, e);
+
+    uint16_t *full = malloc(W * H * 2), *part = malloc(W * H * 2), *other = malloc(W * H * 2);
+    const uint16_t SENT = 0x1234;
+    np_edge_style_t st;
+    const uint32_t ACC = 0x6C22E6;
+    np_edge_style(&st, NP_RING_PROGRESS, ACC);
+    for (int i = 0; i < W * H; i++) full[i] = SENT;
+    np_edge_render(&EDGE, full, W, H, (np_rect_t){0, 0, W, H}, 0.6f, &st, glow);
+    int inside = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+            if (hypotf(x + 0.5f - 233, y + 0.5f - 233) < NP_EDGE_IN - 0.01f && full[y * W + x] != SENT) inside++;
+    CHECK(inside == 0, "%d cover pixels written", inside);
+    CHECK(full[233 * W + 233] == SENT && full[(233 - NP_DISC_R + 1) * W + 233] == SENT, "the cover stays");
+    CHECK(full[0] == 0 && full[233 * W + 233 + NP_EDGE_IN + 1] != SENT, "the band is ours, black outside the ring");
+    CHECK(full[(233 + NP_EDGE_R) * W + 233] == c565(ACC), "arc at 6 o'clock in the accent: %04x", full[(233 + NP_EDGE_R) * W + 233]);
+    CHECK(full[233 * W + 233 - NP_EDGE_R] == c565(NP_COL_TRACK), "track at 9 o'clock");
+    float hx, hy;
+    np_ring_point(&EDGE, 0.6f, &hx, &hy);
+    CHECK(full[(int)hy * W + (int)hx] == c565(NP_COL_HEAD), "head dot at the progress point");
+    int gx = (int)hx, gy = (int)hy, glowed = 0;
+    for (int y = gy - 20; y <= gy + 20; y++)
+        for (int x = gx - 20; x <= gx + 20; x++) {
+            float d = hypotf(x + 0.5f - hx, y + 0.5f - hy), r = hypotf(x + 0.5f - 233, y + 0.5f - 233);
+            if (d > NP_HEAD_R + 2 && d < 15 && r > NP_EDGE_R + NP_EDGE_HW + 2 && full[y * W + x] != 0) glowed++;
+        }
+    CHECK(glowed > 20, "accent glow around the head outside the ring: %d px", glowed);
+
+    float steps[][2] = {{0.6f, 0.605f}, {0, 0.004f}, {0.995f, 1}, {0.249f, 0.251f}, {0.3f, 0.7f}};
+    for (size_t k = 0; k < sizeof steps / sizeof steps[0]; k++)
+        for (int m = 0; m < 2; m++) {
+            np_edge_style(&st, m ? NP_RING_VOLUME : NP_RING_PROGRESS, ACC);
+            for (int i = 0; i < W * H; i++) part[i] = other[i] = SENT;
+            np_edge_render(&EDGE, part, W, H, (np_rect_t){0, 0, W, H}, steps[k][0], &st, glow);
+            np_edge_render(&EDGE, other, W, H, (np_rect_t){0, 0, W, H}, steps[k][1], &st, glow);
+            np_rect_t d;
+            CHECK(np_edge_dirty(&EDGE, steps[k][0], steps[k][1], W, H, &d), "dirty %zu", k);
+            CHECK(changed_outside(part, other, d) == 0, "step %zu mode %d: change outside the box", k, m);
+            np_edge_render(&EDGE, part, W, H, d, steps[k][1], &st, glow);
+            int diff = 0;
+            for (int i = 0; i < W * H; i++) diff += part[i] != other[i];
+            CHECK(diff == 0, "step %zu mode %d: box redraw differs from a full one in %d px", k, m, diff);
+            CHECK(d.x % 2 == 0 && d.y % 2 == 0 && d.w % 2 == 0 && d.h % 2 == 0, "even box");
+        }
+    np_rect_t d;
+    np_edge_dirty(&EDGE, 0.6f, 0.6f + 1.0f / 214, W, H, &d);
+    CHECK(d.w <= 70 && d.h <= 70, "a 1 s step on a 3:34 track is one small box: %dx%d", d.w, d.h);
+    np_edge_dirty(&EDGE, 0.40f, 0.42f, W, H, &d);
+    CHECK(d.w * d.h <= 90 * 90, "a 2-point volume detent: %dx%d", d.w, d.h);
+
+    np_edge_style(&st, NP_RING_VOLUME, ACC);
+    for (int i = 0; i < W * H; i++) part[i] = SENT;
+    np_edge_render(&EDGE, part, W, H, (np_rect_t){0, 0, W, H}, 0.9f, &st, glow);
+    uint16_t start = part[(233 - NP_EDGE_R) * W + 233 + 14], late = part[233 * W + 233 - NP_EDGE_R];
+    CHECK(((start >> 11) & 31) == 31 && ((start >> 5) & 63) >= 60, "volume starts white: %04x", start);
+    CHECK(((late >> 5) & 63) < ((start >> 5) & 63) - 10, "and tints toward the accent: %04x", late);
+
+    np_edge_style(&st, NP_RING_PROGRESS, ACC);
+    for (int i = 0; i < W * H; i++) part[i] = SENT;
+    int64_t reps = 0;
+    clock_t t0 = clock();
+    for (; reps < 20; reps++) np_edge_render(&EDGE, part, W, H, (np_rect_t){0, 0, W, H}, 0.6f, &st, glow);
+    printf("np: full edge render %.2f ms (host)\n", (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / reps);
+    np_edge_dirty(&EDGE, 0.6f, 0.6f + 1.0f / 214, W, H, &d);
+    t0 = clock();
+    for (reps = 0; reps < 2000; reps++) np_edge_render(&EDGE, part, W, H, d, 0.6f + 1.0f / 214, &st, glow);
+    printf("np: 1 s step box %dx%d, %.3f ms (host)\n", d.w, d.h, (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / reps);
+    free(full);
+    free(part);
+    free(other);
+}
+
+static void test_ring_mode(void)
+{
+    np_ctl_t c;
+    np_ctl_init(&c);
+    np_ctl_server(&c, NP_PLAYING, 40, 0);
+    CHECK(np_ring_mode(&c, 10) == NP_RING_PROGRESS, "progress before a turn");
+    np_ctl_turn(&c, 1, 10);
+    CHECK(np_ring_mode(&c, 10) == NP_RING_VOLUME, "a detent switches at once");
+    CHECK(np_ring_mode(&c, 10 + NP_VOL_SHOW_S - 0.01) == NP_RING_VOLUME, "held");
+    np_ctl_turn(&c, 2, 11);
+    CHECK(np_ring_mode(&c, 11 + NP_VOL_SHOW_S - 0.01) == NP_RING_VOLUME, "each detent restarts the 1.5 s");
+    CHECK(np_ring_mode(&c, 11 + NP_VOL_SHOW_S) == NP_RING_PROGRESS, "back to progress 1.5 s after the last detent");
+    CHECK(NP_VOL_SHOW_S == 1.5, "1.5 s");
+    np_ctl_init(&c);
+    np_ctl_server(&c, NP_PLAYING, -1, 0);
+    np_ctl_turn(&c, 1, 20);
+    CHECK(np_ring_mode(&c, 20) == NP_RING_PROGRESS, "an unknown level keeps the progress ring (the badge shows +N)");
+}
+
+static void test_face_state(void)
+{
+    CHECK(np_face_state(false, NP_NONE, false, false) == NPF_WAITING, "waiting for Ember");
+    CHECK(np_face_state(true, NP_NONE, false, false) == NPF_NOTHING, "nothing playing");
+    CHECK(np_face_state(true, NP_PLAYING, false, true) == NPF_PLAYING, "playing");
+    CHECK(np_face_state(true, NP_PAUSED, false, true) == NPF_PAUSED, "paused");
+    CHECK(np_face_state(true, NP_PLAYING, true, true) == NPF_OFFLINE, "offline keeps the last cover");
+    CHECK(np_face_state(true, NP_PLAYING, true, false) == NPF_OFFLINE_EMPTY, "offline without a cover");
+    CHECK(np_face_live(NPF_PLAYING) && np_face_live(NPF_PAUSED) && !np_face_live(NPF_OFFLINE) && !np_face_live(NPF_NOTHING),
+          "live states");
+    np_face_look_t l;
+    np_face_look(NPF_PLAYING, NP_RING_PROGRESS, 0x6C22E6, &l);
+    CHECK(l.shade == 0 && l.ring == 0x6C22E6 && !l.pause_icon && !l.offline_badge, "playing: full cover, accent ring");
+    np_face_look(NPF_PAUSED, NP_RING_PROGRESS, 0x6C22E6, &l);
+    CHECK(l.shade > 100 && l.ring == NP_COL_PAUSED && l.pause_icon, "paused: dimmed, grey ring, pause icon");
+    np_face_look(NPF_PAUSED, NP_RING_VOLUME, 0x6C22E6, &l);
+    CHECK(l.shade == 153 && l.ring == 0x6C22E6 && !l.pause_icon, "volume over paused");
+    np_face_look(NPF_PLAYING, NP_RING_VOLUME, 0x6C22E6, &l);
+    CHECK(l.shade == 153, "volume dims the cover to 40 %%");
+    np_face_look(NPF_OFFLINE, NP_RING_VOLUME, 0x6C22E6, &l);
+    CHECK(l.ring == NP_COL_OFFLINE && l.offline_badge && l.time_col == NP_COL_PAUSED && l.shade > 0 && l.shade < 115,
+          "offline: grey ring, badge, no volume");
+}
+
+static void test_downscale(void)
+{
+    uint16_t src[64 * 64], dst[NP_AVATAR_PX * NP_AVATAR_PX];
+    for (int i = 0; i < 64 * 64; i++) src[i] = 0x7BEF;
+    np_downscale565(src, 64, dst, NP_AVATAR_PX);
+    int bad = 0;
+    for (int i = 0; i < NP_AVATAR_PX * NP_AVATAR_PX; i++) bad += dst[i] != 0x7BEF;
+    CHECK(bad == 0, "flat stays flat: %d", bad);
+    for (int y = 0; y < 64; y++)
+        for (int x = 0; x < 64; x++) src[y * 64 + x] = x < 31 ? 0 : 0xFFFF;
+    np_downscale565(src, 64, dst, NP_AVATAR_PX);
+    CHECK(dst[0] == 0 && dst[NP_AVATAR_PX - 1] == 0xFFFF && dst[21] != 0 && dst[21] != 0xFFFF && dst[20] == 0 && dst[22] == 0xFFFF,
+          "edge averaged: %04x", dst[21]);
+}
+
 int main(void)
 {
     test_parse();
@@ -402,6 +620,12 @@ int main(void)
     test_ring();
     test_masks();
     test_ctl();
+    test_cover_parse();
+    test_cover_plan();
+    test_edge();
+    test_ring_mode();
+    test_face_state();
+    test_downscale();
     if (failures) {
         printf("np: %d failure(s)\n", failures);
         return 1;
