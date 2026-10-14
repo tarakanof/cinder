@@ -561,9 +561,9 @@ fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_
 body "$MAINC" scene_end | awk '/^    s_half = s_scene_half;$/ {h = NR} /^    if \(s_half\.snapped\) \{$/ {i = NR}
     /^        s_half\.snapped = false;$/ {f = NR} /^        s_half\.hold_deg = 0;$/ {d = NR} END {exit !(h && i == h + 1 && f == i + 1 && d == f + 1)}' ||
     WIRING="$WIRING scene_end-re-aims-a-snapped-half-chase"
-body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            if \(s_scene_on\) \{$/ {o = NR} /^                ember_client_demo_input\(\);$/ {i = NR}
-    /^                scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
-    END {exit !(p && o == p + 1 && i == o + 1 && e == i + 1 && r == e + 2 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-scene"
+body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
+    /^            if \(s_scene_on\) scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
+    END {exit !(p && i == p + 1 && e == i + 1 && r == e + 1 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-or-offered-demo"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1

@@ -563,10 +563,8 @@ static bool ota_frame(void)
     if (ota_face_frame()) {
         if (!s_ota_paused) {
             s_ota_paused = true;
-            if (s_scene_on) {
-                ember_client_demo_input();
-                scene_end(now_s());
-            }
+            ember_client_demo_input();
+            if (s_scene_on) scene_end(now_s());
             s_scene_resume_at = 0;
             pages_pause();
             bot_view_rim_hold(true);
