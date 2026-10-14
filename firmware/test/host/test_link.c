@@ -231,6 +231,7 @@ static void test_join_label(void)
         {{.online = true, .has_url = true}, JOIN_NOT_PAIRED, "Not paired", true, "URL without a device token"},
         {{.online = true, .has_url = true, .has_device = true, .update_knob = true}, JOIN_UPDATE_KNOB, "Update knob", true, "view too new for the knob"},
         {{.online = true, .has_url = true, .has_device = true, .update_ember = true}, JOIN_UPDATE_EMBER, "Update Ember", true, "view too old for the knob"},
+        {{.online = true}, JOIN_NONE, "", true, "no Ember URL yet: no label"},
         {{.setup = true, .join_failures = 9, .unauthorized = true}, JOIN_NONE, "", true, "setup hides every label"},
         {{.join_failures = 2, .has_url = true, .has_device = true}, JOIN_NONE, "", true, "2 join failures: not yet"},
         {{.online = true, .join_failures = 5, .has_url = true, .has_device = true}, JOIN_NONE, "", true, "online again: failures are stale"},
