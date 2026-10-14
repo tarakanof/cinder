@@ -1,0 +1,450 @@
+#include "np_cover_view.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "esp_heap_caps.h"
+
+LV_FONT_DECLARE(font_digits_96);
+
+#define SCREEN_W 472
+#define SCREEN_H 466
+#define FACE NP_COVER_PX
+#define FACE_X ((SCREEN_W - FACE) / 2)
+
+#define TITLE_W 340
+#define ARTIST_W 320
+#define TIME_W 260
+#define IDLE_W 340
+#define AVATAR_DY 21
+#define TITLE_DY 67
+#define ARTIST_DY 101
+#define TIME_DY 135
+#define IDLE_DY 111
+#define NUM_DY (-69)
+#define VOL_ICON_DY (-134)
+#define BADGE_DY (-69)
+#define BADGE_PX 132
+#define BADGE_RADIUS 26
+#define PAUSE_DY (-65)
+#define PAUSE_PX 104
+#define PAUSE_BAR_W 13
+#define PAUSE_BAR_H 46
+#define PAUSE_BAR_DX 12
+
+#define COL_TEXT 0xF4F4F2
+#define COL_SUB 0xBDBDBD
+#define FACE_DIM_OPA 109
+#define TEXT_DIM_OPA LV_OPA_50
+
+static const np_ring_t EDGE = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = NP_EDGE_R, .hw = NP_EDGE_HW};
+
+typedef struct {
+    lv_image_dsc_t img_dsc, avatar_dsc;
+    uint8_t glow[NP_GLOW_PX * NP_GLOW_PX];
+    np_edge_style_t style;
+    char title[2 * NP_TEXT_MAX + 1];
+    char artist[2 * NP_TEXT_MAX + 1];
+    char time[40];
+    char idle[32];
+    char badge[24];
+    char num[8];
+    char work[4 * NP_TEXT_MAX + 8];
+    char fit[4 * NP_TEXT_MAX + 8];
+} npc_mem_t;
+static npc_mem_t *M;
+
+static lv_obj_t *s_img, *s_shade, *s_avatar, *s_title, *s_artist, *s_time, *s_idle;
+static lv_obj_t *s_pause, *s_vol_icon, *s_num, *s_badge, *s_badge_lbl;
+static uint16_t *s_buf;
+static uint8_t *s_avatar_buf;
+static bool s_has_cover, s_ring_on, s_vinyl_on;
+static float s_frac;
+static int s_state = -1;
+static long long s_sec = -1;
+static int s_shade_opa = -1;
+static int s_dim = -1;
+static int s_dx, s_dy;
+static uint32_t s_time_col;
+
+static void dsc_init(lv_image_dsc_t *d, int px, lv_color_format_t cf)
+{
+    memset(d, 0, sizeof *d);
+    d->header.magic = LV_IMAGE_HEADER_MAGIC;
+    d->header.cf = cf;
+    d->header.w = px;
+    d->header.h = px;
+    d->header.stride = px * 2;
+    d->data_size = (uint32_t)px * px * (cf == LV_COLOR_FORMAT_RGB565A8 ? 3 : 2);
+}
+
+bool npc_init(void)
+{
+    M = heap_caps_calloc(1, sizeof *M, MALLOC_CAP_SPIRAM);
+    if (!M) return false;
+    dsc_init(&M->img_dsc, FACE, LV_COLOR_FORMAT_RGB565);
+    dsc_init(&M->avatar_dsc, NP_AVATAR_PX, LV_COLOR_FORMAT_RGB565A8);
+    np_glow_a8(M->glow);
+    return true;
+}
+
+static void show(lv_obj_t *o, bool on)
+{
+    if (on) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+static lv_obj_t *plain(lv_obj_t *parent, int w, int h)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, w, h);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    return o;
+}
+
+static lv_obj_t *label(lv_obj_t *root, const lv_font_t *font, int width, int dy, uint32_t col)
+{
+    lv_obj_t *l = lv_label_create(root);
+    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(col), 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    if (width > 0) {
+        lv_obj_set_size(l, width, lv_font_get_line_height(font));
+        lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_CLIP);
+    }
+    lv_obj_align(l, LV_ALIGN_CENTER, 0, dy);
+    lv_obj_remove_flag(l, LV_OBJ_FLAG_CLICKABLE);
+    lv_label_set_text_static(l, "");
+    lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+    return l;
+}
+
+void npc_build(lv_obj_t *root)
+{
+    s_img = lv_image_create(root);
+    lv_obj_set_pos(s_img, FACE_X, 0);
+    lv_obj_add_flag(s_img, LV_OBJ_FLAG_HIDDEN);
+
+    s_shade = plain(root, 2 * NP_DISC_R, 2 * NP_DISC_R);
+    lv_obj_set_style_radius(s_shade, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_shade, lv_color_black(), 0);
+    lv_obj_align(s_shade, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(s_shade, LV_OBJ_FLAG_HIDDEN);
+
+    s_avatar = lv_image_create(root);
+    lv_obj_align(s_avatar, LV_ALIGN_CENTER, 0, AVATAR_DY);
+    lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
+
+    s_title = label(root, &lv_font_montserrat_30, TITLE_W, TITLE_DY, COL_TEXT);
+    s_artist = label(root, &lv_font_montserrat_24, ARTIST_W, ARTIST_DY, COL_SUB);
+    s_time = label(root, &lv_font_montserrat_24, TIME_W, TIME_DY, 0xD6D6D6);
+    s_idle = label(root, &lv_font_montserrat_30, IDLE_W, IDLE_DY, COL_SUB);
+
+    s_pause = plain(root, PAUSE_PX, PAUSE_PX);
+    lv_obj_set_style_radius(s_pause, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(s_pause, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_pause, 140, 0);
+    lv_obj_align(s_pause, LV_ALIGN_CENTER, 0, PAUSE_DY);
+    for (int i = -1; i <= 1; i += 2) {
+        lv_obj_t *bar = plain(s_pause, PAUSE_BAR_W, PAUSE_BAR_H);
+        lv_obj_set_style_radius(bar, 4, 0);
+        lv_obj_set_style_bg_color(bar, lv_color_hex(COL_TEXT), 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_align(bar, LV_ALIGN_CENTER, i * PAUSE_BAR_DX, 0);
+    }
+    lv_obj_add_flag(s_pause, LV_OBJ_FLAG_HIDDEN);
+
+    s_vol_icon = label(root, &lv_font_montserrat_30, 0, VOL_ICON_DY, COL_TEXT);
+    lv_label_set_text_static(s_vol_icon, LV_SYMBOL_VOLUME_MAX);
+    s_num = label(root, &font_digits_96, 0, NUM_DY, COL_TEXT);
+
+    s_badge = plain(root, BADGE_PX, BADGE_PX);
+    lv_obj_set_style_radius(s_badge, BADGE_RADIUS, 0);
+    lv_obj_set_style_bg_color(s_badge, lv_color_hex(0x0A0A0A), 0);
+    lv_obj_set_style_bg_opa(s_badge, 219, 0);
+    lv_obj_set_style_border_color(s_badge, lv_color_hex(0x3A3A3A), 0);
+    lv_obj_set_style_border_width(s_badge, 2, 0);
+    lv_obj_align(s_badge, LV_ALIGN_CENTER, 0, BADGE_DY);
+    s_badge_lbl = lv_label_create(s_badge);
+    lv_obj_set_style_text_color(s_badge_lbl, lv_color_hex(COL_TEXT), 0);
+    lv_obj_set_style_text_align(s_badge_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(s_badge_lbl, BADGE_PX - 16);
+    lv_label_set_text_static(s_badge_lbl, "");
+    lv_obj_center(s_badge_lbl);
+    lv_obj_add_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
+
+    s_state = -1;
+    s_sec = -1;
+    s_shade_opa = -1;
+    s_dim = -1;
+    s_dx = s_dy = 0;
+    s_ring_on = s_vinyl_on = false;
+    M->title[0] = M->artist[0] = M->time[0] = M->idle[0] = M->badge[0] = M->num[0] = 0;
+}
+
+void npc_destroy(void)
+{
+    free(s_buf);
+    free(s_avatar_buf);
+    s_buf = NULL;
+    s_avatar_buf = NULL;
+    s_has_cover = s_ring_on = s_vinyl_on = false;
+    s_img = s_shade = s_avatar = s_title = s_artist = s_time = s_idle = NULL;
+    s_pause = s_vol_icon = s_num = s_badge = s_badge_lbl = NULL;
+    s_state = -1;
+}
+
+bool npc_has_cover(void) { return s_has_cover; }
+
+static void set_buf(uint16_t *b)
+{
+    if (b != s_buf) free(s_buf);
+    s_buf = b;
+    M->img_dsc.data = (const uint8_t *)b;
+    lv_image_set_src(s_img, &M->img_dsc);
+    lv_obj_invalidate(s_img);
+    s_ring_on = s_vinyl_on = false;
+}
+
+static bool ensure_buf(void)
+{
+    if (s_buf) return true;
+    uint16_t *b = heap_caps_calloc((size_t)FACE * FACE, 2, MALLOC_CAP_SPIRAM);
+    if (!b) return false;
+    set_buf(b);
+    return true;
+}
+
+static void clear_buf(void)
+{
+    memset(s_buf, 0, (size_t)FACE * FACE * 2);
+    lv_obj_invalidate(s_img);
+    s_ring_on = s_vinyl_on = false;
+}
+
+void npc_adopt(np_art_set_t *in)
+{
+    if (!s_img) return;
+    if (in->cover) {
+        set_buf(in->cover);
+        in->cover = NULL;
+        s_has_cover = true;
+    } else if (s_has_cover && s_buf) {
+        clear_buf();
+        s_has_cover = false;
+    }
+    lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
+    free(s_avatar_buf);
+    s_avatar_buf = in->avatar;
+    in->avatar = NULL;
+    M->avatar_dsc.data = s_avatar_buf;
+    if (s_avatar_buf) lv_image_set_src(s_avatar, &M->avatar_dsc);
+    s_state = -1;
+}
+
+void npc_fit_text(char *txt, const lv_font_t *font, int max_w)
+{
+    lv_point_t sz;
+    lv_text_get_size(&sz, txt, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    if (sz.x <= max_w) return;
+    size_t lo = 0, hi = strlen(txt);
+    char *tmp = M->fit;
+    if (hi + 4 > sizeof M->fit) hi = sizeof M->fit - 4;
+    while (lo < hi) {
+        size_t mid = (lo + hi + 1) / 2;
+        memcpy(tmp, txt, mid);
+        strcpy(tmp + mid, "...");
+        lv_text_get_size(&sz, tmp, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w) lo = mid;
+        else hi = mid - 1;
+    }
+    while (lo > 0 && (txt[lo - 1] == ' ' || txt[lo - 1] == '-')) lo--;
+    strcpy(txt + lo, "...");
+}
+
+static void text_set(lv_obj_t *l, char *shown, size_t cap, const char *txt)
+{
+    if (strcmp(shown, txt) == 0) return;
+    strlcpy(shown, txt, cap);
+    lv_label_set_text_static(l, shown);
+}
+
+static void ring_draw(float frac, const np_edge_style_t *st)
+{
+    if (!s_ring_on || memcmp(st, &M->style, sizeof *st) != 0) {
+        M->style = *st;
+        np_edge_render(&EDGE, s_buf, FACE, FACE, (np_rect_t){0, 0, FACE, FACE}, frac, st, M->glow);
+        lv_obj_invalidate(s_img);
+    } else {
+        np_rect_t d;
+        if (!np_edge_dirty(&EDGE, s_frac, frac, FACE, FACE, &d)) return;
+        np_edge_render(&EDGE, s_buf, FACE, FACE, d, frac, st, M->glow);
+        lv_area_t a = {.x1 = d.x + FACE_X, .y1 = d.y, .x2 = d.x + FACE_X + d.w - 1, .y2 = d.y + d.h - 1};
+        lv_obj_invalidate_area(s_img, &a);
+    }
+    s_ring_on = true;
+    s_frac = frac;
+}
+
+static void place_text(int dx, int dy)
+{
+    lv_obj_align(s_avatar, LV_ALIGN_CENTER, dx, AVATAR_DY + dy);
+    lv_obj_align(s_title, LV_ALIGN_CENTER, dx, TITLE_DY + dy);
+    lv_obj_align(s_artist, LV_ALIGN_CENTER, dx, ARTIST_DY + dy);
+    lv_obj_align(s_time, LV_ALIGN_CENTER, dx, TIME_DY + dy);
+}
+
+static void hide_overlays(void)
+{
+    show(s_pause, false);
+    show(s_vol_icon, false);
+    show(s_num, false);
+    show(s_badge, false);
+    show(s_shade, false);
+    M->badge[0] = M->num[0] = 0;
+    s_shade_opa = 0;
+}
+
+static void idle_update(const npc_frame_t *f, bool relayout)
+{
+    const char *line = f->state == NPF_OFFLINE_EMPTY ? "Ember offline"
+                       : f->state == NPF_WAITING   ? "Waiting for Ember"
+                                                   : "Nothing playing";
+    if (relayout) {
+        show(s_avatar, false);
+        show(s_title, false);
+        show(s_artist, false);
+        show(s_time, false);
+        hide_overlays();
+        show(s_idle, true);
+        show(s_img, true);
+        lv_obj_set_style_image_opa(s_img, LV_OPA_COVER, 0);
+        s_dim = -1;
+        if (s_has_cover) {
+            s_has_cover = false;
+            np_client_forget_art();
+        }
+    }
+    if (!s_vinyl_on || f->dx != s_dx || f->dy != s_dy) {
+        clear_buf();
+        np_vinyl_render(s_buf, FACE, FACE, FACE / 2.0f + f->dx, FACE / 2.0f + NP_VINYL_DY + f->dy);
+        s_vinyl_on = true;
+        s_dx = f->dx;
+        s_dy = f->dy;
+        lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
+    }
+    text_set(s_idle, M->idle, sizeof M->idle, line);
+}
+
+static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
+{
+    bool number = f->badge == NPC_BADGE_NUMBER && f->badge_text;
+    const char *num = number ? f->badge_text : "";
+    if (strcmp(num, M->num) != 0) {
+        strlcpy(M->num, num, sizeof M->num);
+        lv_label_set_text_static(s_num, M->num);
+        show(s_num, number);
+        show(s_vol_icon, number);
+    }
+    const char *b = "";
+    const lv_font_t *font = &lv_font_montserrat_24;
+    if (f->badge == NPC_BADGE_ICON && f->badge_text) {
+        b = f->badge_text;
+        font = &lv_font_montserrat_48;
+    } else if (f->badge == NPC_BADGE_ERROR && f->badge_text) {
+        b = f->badge_text;
+    } else if (look->offline_badge) {
+        b = "Ember\noffline";
+    }
+    if (strcmp(b, M->badge) != 0) {
+        strlcpy(M->badge, b, sizeof M->badge);
+        lv_obj_set_style_text_font(s_badge_lbl, font, 0);
+        lv_label_set_text_static(s_badge_lbl, M->badge);
+        show(s_badge, M->badge[0] != 0);
+    }
+    show(s_pause, look->pause_icon && !M->badge[0] && !number);
+}
+
+void npc_update(const npc_frame_t *f)
+{
+    if (!s_img || !M || !ensure_buf()) return;
+    bool relayout = (int)f->state != s_state;
+    bool idle = f->state == NPF_WAITING || f->state == NPF_NOTHING || f->state == NPF_OFFLINE_EMPTY;
+    if (idle) {
+        idle_update(f, relayout);
+        s_state = f->state;
+        return;
+    }
+    const np_info_t *np = f->np;
+    np_face_look_t look;
+    np_face_look(f->state, f->ring, np->has_accent ? np->accent : NP_ACCENT_DEFAULT, &look);
+    if (relayout) {
+        show(s_idle, false);
+        show(s_img, true);
+        show(s_title, true);
+        show(s_artist, true);
+        show(s_time, true);
+        if (s_vinyl_on) clear_buf();
+        s_sec = -1;
+    }
+    show(s_avatar, s_avatar_buf != NULL);
+
+    if (f->text_fresh || relayout) {
+        char *w = M->work;
+        np_text_fold(np->title[0] ? np->title : "Unknown track", w, sizeof M->title);
+        npc_fit_text(w, &lv_font_montserrat_30, TITLE_W);
+        text_set(s_title, M->title, sizeof M->title, w);
+        np_text_fold(np->artist[0] ? np->artist : np->album, w, sizeof M->artist);
+        npc_fit_text(w, &lv_font_montserrat_24, ARTIST_W);
+        text_set(s_artist, M->artist, sizeof M->artist, w);
+    }
+
+    bool frozen = f->state == NPF_OFFLINE && s_sec >= 0;
+    if (!frozen && (f->pos_ms / 1000 != s_sec || relayout)) {
+        s_sec = f->pos_ms / 1000;
+        char p[16], d[16];
+        np_format_time(f->pos_ms, p, sizeof p);
+        np_format_time(f->dur_ms, d, sizeof d);
+        if (f->state == NPF_PAUSED) strlcpy(M->work, "Paused", sizeof M->work);
+        else if (f->dur_ms > 0) snprintf(M->work, sizeof M->work, "%s / %s", p, d);
+        else strlcpy(M->work, p, sizeof M->work);
+        text_set(s_time, M->time, sizeof M->time, M->work);
+    }
+    if (look.time_col != s_time_col || relayout) {
+        s_time_col = look.time_col;
+        lv_obj_set_style_text_color(s_time, lv_color_hex(look.time_col), 0);
+    }
+
+    float frac;
+    if (f->ring == NP_RING_VOLUME) frac = f->vol / 100.0f;
+    else if (frozen && s_ring_on) frac = s_frac;
+    else frac = f->dur_ms > 0 ? (float)((double)(s_sec * 1000) / (double)f->dur_ms) : 0;
+    if (frac > 1) frac = 1;
+    np_edge_style_t st;
+    np_edge_style(&st, f->ring, look.ring);
+    ring_draw(frac, &st);
+
+    if (look.shade != s_shade_opa) {
+        s_shade_opa = look.shade;
+        lv_obj_set_style_bg_opa(s_shade, look.shade, 0);
+        show(s_shade, look.shade > 0);
+    }
+    badge_update(f, &look);
+
+    if ((int)f->dim != s_dim) {
+        s_dim = f->dim;
+        lv_obj_set_style_image_opa(s_img, f->dim ? FACE_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_image_opa(s_avatar, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(s_title, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(s_artist, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(s_time, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+    }
+    if (relayout || f->dx != s_dx || f->dy != s_dy) {
+        s_dx = f->dx;
+        s_dy = f->dy;
+        place_text(f->dx, f->dy);
+    }
+    s_state = f->state;
+}

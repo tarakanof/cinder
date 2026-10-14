@@ -13,6 +13,7 @@
 #include "esp_random.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "np_cover.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "pomo_client.h"
@@ -29,11 +30,11 @@ typedef struct {
     np_art_set_t pending;
     bool has_pending;
     bool built_valid;
-    char built[NP_ARTV_MAX + 1];
+    char built[NP_COVERV_MAX + 1];
     np_info_t last;
     bool last_have;
     int fails;
-    char fail_version[NP_ARTV_MAX + 1];
+    char fail_version[NP_COVERV_MAX + 1];
     int64_t retry_at_ms;
     char url[160];
 } np_shared_t;
@@ -75,6 +76,8 @@ void np_art_set_free(np_art_set_t *s)
     free(s->backdrop);
     free(s->album);
     free(s->artist);
+    free(s->cover);
+    free(s->avatar);
     memset(s, 0, sizeof *s);
 }
 
@@ -95,10 +98,13 @@ void np_client_feed(const np_info_t *np)
         changed |= memcmp(&before, &sn->anchor, sizeof before) != 0 || !same ||
                     strcmp(S->last.art_version, np->art_version) != 0 || S->last.album_art != np->album_art ||
                     S->last.artist_art != np->artist_art || S->last.volume != np->volume ||
-                    strcmp(S->last.track_id, np->track_id) != 0;
+                    strcmp(S->last.track_id, np->track_id) != 0 ||
+                    strcmp(S->last.cover_version, np->cover_version) != 0 || S->last.has_accent != np->has_accent ||
+                    S->last.accent != np->accent;
         if (!same || !S->last_have)
-            ESP_LOGI(TAG, "%s, %lld s, art %s", np->state == NP_PLAYING ? "playing" : np->state == NP_PAUSED ? "paused" : "nothing playing",
-                     np->duration_ms / 1000, np->art_version[0] ? np->art_version : "none");
+            ESP_LOGI(TAG, "%s, %lld s, art %s, cover %s", np->state == NP_PLAYING ? "playing" : np->state == NP_PAUSED ? "paused" : "nothing playing",
+                     np->duration_ms / 1000, np->art_version[0] ? np->art_version : "none",
+                     np->cover_version[0] ? np->cover_version : "none");
         sn->info = *np;
         S->last = *np;
     } else {
@@ -334,13 +340,23 @@ static void *decode(const uint8_t *jpg, int len, int px, bool alpha, int64_t *us
     return out;
 }
 
+static uint8_t *avatar_bake(const uint16_t *src, int px)
+{
+    const size_t plane = (size_t)NP_AVATAR_PX * NP_AVATAR_PX * 2;
+    uint8_t *out = heap_caps_malloc(plane + (size_t)NP_AVATAR_PX * NP_AVATAR_PX, MALLOC_CAP_SPIRAM);
+    if (!out) return NULL;
+    np_downscale565(src, px, (uint16_t *)out, NP_AVATAR_PX);
+    np_circle_alpha(out + plane, NP_AVATAR_PX);
+    return out;
+}
+
 void np_client_service(http_conn_t *conn, const char *base)
 {
     np_art_plan_t plan;
     if (!S) return;
     np_client_run_controls(conn, base);
     if (!due(&plan)) return;
-    np_art_set_t set = {0};
+    np_art_set_t set = {.is_cover = plan.cover};
     strcpy(set.version, plan.version);
     int64_t t0 = esp_timer_get_time(), dec_us = 0;
     int bytes = 0;
@@ -348,7 +364,9 @@ void np_client_service(http_conn_t *conn, const char *base)
     uint8_t *jpg = plan.version[0] ? heap_caps_malloc(JPEG_MAX, MALLOC_CAP_SPIRAM) : NULL;
     if (plan.version[0] && !jpg) failed = true;
     for (int k = 0; k < NP_ART_KINDS && !failed; k++) {
-        if (!plan.want[k] || !np_art_url(base, (np_art_kind_t)k, plan.version, S->url, sizeof S->url)) continue;
+        if (!plan.want[k] ||
+            !np_art_url(base, (np_art_kind_t)k, np_art_plan_version(&plan, (np_art_kind_t)k), S->url, sizeof S->url))
+            continue;
         int len = 0;
         const http_req_opts_t o = {.idempotent = true, .body_len = &len};
         int status = http_conn_req_opts(conn, S->url, &o, (char *)jpg, JPEG_MAX);
@@ -364,7 +382,21 @@ void np_client_service(http_conn_t *conn, const char *base)
             continue;
         }
         int px = np_art_px((np_art_kind_t)k);
-        void *img = decode(jpg, len, px, k != NP_ART_BACKDROP, &dec_us);
+        bool alpha = k == NP_ART_ALBUM || (k == NP_ART_ARTIST && !plan.cover);
+        void *img = decode(jpg, len, px, alpha, &dec_us);
+        if (k == NP_ART_ARTIST && plan.cover) {
+            if (img) {
+                int64_t m0 = esp_timer_get_time();
+                set.avatar = avatar_bake(img, px);
+                dec_us += esp_timer_get_time() - m0;
+            }
+            free(img);
+            continue;
+        }
+        if (k == NP_ART_COVER) {
+            set.cover = img;
+            continue;
+        }
         if (k == NP_ART_BACKDROP && img) {
             int64_t m0 = esp_timer_get_time();
             np_face_mask(img, px, px, px / 2.0f, px / 2.0f, FACE_DISK_R);
@@ -384,7 +416,10 @@ void np_client_service(http_conn_t *conn, const char *base)
         return;
     }
     S->fails = 0;
-    if (plan.version[0])
+    if (plan.cover)
+        ESP_LOGI(TAG, "cover %s: %d B in %lld ms (decode %lld ms): cover %s, avatar %s", plan.version, bytes,
+                 (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.cover ? "yes" : "no", set.avatar ? "yes" : "no");
+    else if (plan.version[0])
         ESP_LOGI(TAG, "art %s: %d B in %lld ms (decode %lld ms): backdrop %s, album %s, artist %s", plan.version,
                  bytes, (esp_timer_get_time() - t0) / 1000, dec_us / 1000, set.backdrop ? "yes" : "no",
                  set.album ? "yes" : "no", set.artist ? "yes" : "no");

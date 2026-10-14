@@ -526,8 +526,17 @@ static void test_edge(void)
     np_rect_t d;
     np_edge_dirty(&EDGE, 0.6f, 0.6f + 1.0f / 214, W, H, &d);
     CHECK(d.w <= 70 && d.h <= 70, "a 1 s step on a 3:34 track is one small box: %dx%d", d.w, d.h);
-    np_edge_dirty(&EDGE, 0.40f, 0.42f, W, H, &d);
-    CHECK(d.w * d.h <= 90 * 90, "a 2-point volume detent: %dx%d", d.w, d.h);
+    int step_px = 0, detent_px = 0;
+    np_rect_t sb = d, db = d;
+    for (int i = 0; i < 1000; i++) {
+        float f = i / 1000.0f;
+        if (np_edge_dirty(&EDGE, f, f + 1.0f / 120, W, H, &d) && d.w * d.h > step_px) step_px = d.w * d.h, sb = d;
+        if (np_edge_dirty(&EDGE, f, f + NP_VOL_STEP / 100.0f, W, H, &d) && d.w * d.h > detent_px) detent_px = d.w * d.h, db = d;
+    }
+    CHECK(step_px <= 72 * 72, "a 1 s step on a 2:00 track, worst box %dx%d", sb.w, sb.h);
+    CHECK(detent_px <= 96 * 96, "a 2-point volume detent, worst box %dx%d", db.w, db.h);
+    printf("np: worst boxes: 1 s step on a 2:00 track %dx%d (%d px), volume detent %dx%d (%d px)\n", sb.w, sb.h, step_px,
+           db.w, db.h, detent_px);
 
     np_edge_style(&st, NP_RING_VOLUME, ACC);
     for (int i = 0; i < W * H; i++) part[i] = SENT;

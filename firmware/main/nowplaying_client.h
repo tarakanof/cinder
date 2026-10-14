@@ -16,10 +16,13 @@ typedef struct {
 
 /* NULL = that picture does not exist or failed to decode. */
 typedef struct {
-    char version[NP_ARTV_MAX + 1];
+    char version[NP_COVERV_MAX + 1];
+    bool is_cover;        /* the np_cover set: cover and avatar, none of the others */
     uint16_t *backdrop;   /* 466 x 466 RGB565, masked to the face disk */
     uint8_t *album;       /* 240 x 240 RGB565A8 (circle) */
     uint8_t *artist;      /* 64 x 64 RGB565A8 (circle) */
+    uint16_t *cover;      /* 466 x 466 RGB565, Ember's circle crop on black */
+    uint8_t *avatar;      /* NP_AVATAR_PX square RGB565A8 (circle) */
 } np_art_set_t;
 
 #define NP_CMD_TTL_MS 3000
