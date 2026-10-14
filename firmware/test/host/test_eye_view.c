@@ -8,10 +8,13 @@
 #include "bot_shape.h"
 #include "bot_view.h"
 #include "lvgl.h"
+#include "offline_glyph.h"
 
 #define W 472
 #define H 466
 #define EYE_RGB 0xF4F4F2
+#define OFFLINE_RGB 0x5A5A5A
+#define RIM_HW 4.5
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -79,6 +82,69 @@ static void compare(const char *name, int *stale, int *off, int *lit)
     printf("eye view %s: %d lit px, %d off, %d stale\n", name, *lit, *off, *stale);
 }
 
+static double seg_dist(double px, double py, double ax, double ay, double bx, double by)
+{
+    double vx = bx - ax, vy = by - ay, t = ((px - ax) * vx + (py - ay) * vy) / (vx * vx + vy * vy);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return hypot(px - ax - t * vx, py - ay - t * vy);
+}
+
+static void test_offline(lv_display_t *d, int eye_bottom)
+{
+    static uint8_t g[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
+    offline_glyph_raster(g);
+    int gx = 236 - OFFLINE_GLYPH_W / 2, gy = 233 + BOT_VIEW_OFFLINE_DY - OFFLINE_GLYPH_H / 2;
+    bot_pose_t p = {.mood = BOT_IDLE, .face = BOT_IDLE, .eyes = BOT_EYES_DASH, .scale_x = 1, .scale_y = 1};
+    bot_view_update(&p, 100);
+    lv_refr_now(d);
+    expect(&p);
+    bot_view_set_offline(true);
+    lv_refr_now(d);
+    const int r5 = OFFLINE_RGB >> 19, g6 = (OFFLINE_RGB >> 10) & 63, b5 = (OFFLINE_RGB >> 3) & 31;
+    int off = 0, stray = 0, lit = 0, top = H, bottom = -1;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            int i = y * W + x;
+            if (s_want[i] > 0) continue;
+            bool in = x >= gx && x < gx + OFFLINE_GLYPH_W && y >= gy && y < gy + OFFLINE_GLYPH_H;
+            float a = in ? g[(y - gy) * OFFLINE_GLYPH_W + (x - gx)] / 255.0f : 0;
+            uint16_t c = s_fb[i];
+            if (!in) {
+                stray += c != 0;
+                continue;
+            }
+            if (a > 0.5f) {
+                lit++;
+                if (y < top) top = y;
+                if (y > bottom) bottom = y;
+            }
+            int r = c >> 11, gg = (c >> 5) & 63, b = c & 31;
+            if (abs(r - (int)lroundf(r5 * a)) > 1 || abs(gg - (int)lroundf(g6 * a)) > 2 || abs(b - (int)lroundf(b5 * a)) > 1) off++;
+        }
+    printf("offline glyph on screen: %d lit px, rows %d..%d, %d off, %d stray; lowest eye row %d\n", lit, top, bottom, off, stray, eye_bottom);
+    CHECK(lit > 600 && !off && !stray, "the glyph is drawn once, in grey, where it belongs: %d lit, %d off, %d stray", lit, off, stray);
+    CHECK(top - eye_bottom >= 30, "clear of the eyes in every pose above: glyph top %d, eyes end %d", top, eye_bottom);
+    double bx[BOT_RING_POINTS], by[BOT_RING_POINTS], r = bot_view_radius_px(), gap = 1e9;
+    bot_body_ring(0, bx, by);
+    for (int y = 0; y < OFFLINE_GLYPH_H; y++)
+        for (int x = 0; x < OFFLINE_GLYPH_W; x++) {
+            if (!g[y * OFFLINE_GLYPH_W + x]) continue;
+            for (int k = 0; k < BOT_RING_POINTS; k++) {
+                int n = (k + 1) % BOT_RING_POINTS;
+                double dd = seg_dist(gx + x + 0.5, gy + y + 0.5, 236 + r * bx[k], 233 - r * by[k], 236 + r * bx[n], 233 - r * by[n]);
+                if (dd < gap) gap = dd;
+            }
+        }
+    printf("offline glyph: %.1f px from the idle outline's centre line\n", gap);
+    CHECK(gap - RIM_HW >= 16, "clear of the 9 px outline and the glint: %.1f px", gap - RIM_HW);
+    bot_view_set_offline(false);
+    lv_refr_now(d);
+    int left = 0;
+    for (int y = gy; y < gy + OFFLINE_GLYPH_H; y++)
+        for (int x = gx; x < gx + OFFLINE_GLYPH_W; x++) left += s_fb[y * W + x] != 0 && s_want[y * W + x] <= 0;
+    CHECK(!left, "online again: the glyph is gone (%d px)", left);
+}
+
 int main(void)
 {
     lv_init();
@@ -113,6 +179,7 @@ int main(void)
         {"happy swap blink shut (hidden)", BOT_EYES_HAPPY, 0.4, 0.5, 0.95, 0.95, true},
         {"reopened", BOT_EYES_DASH, 0.3, 0.4, 0, 0, false},
     };
+    int eye_bottom = -1;
     for (size_t k = 0; k < sizeof f / sizeof f[0]; k++) {
         bot_pose_t p = {.mood = BOT_IDLE, .face = BOT_IDLE, .eyes = f[k].eyes, .gaze_x = f[k].gx, .gaze_y = f[k].gy,
                         .lid_l = f[k].lid, .lid_r = f[k].lid, .blink_l = f[k].blink, .blink_r = f[k].blink, .hide = f[k].hide,
@@ -125,7 +192,13 @@ int main(void)
         CHECK(!stale, "%s: %d px still lit where no eye is (the vacated area must clear)", f[k].name, stale);
         bool gone = f[k].hide && f[k].blink >= BOT_BLINK_HIDE;
         CHECK(!off && (gone ? lit == 0 : lit > 100), "%s: %d px off the expected eye, %d lit", f[k].name, off, lit);
+        for (int i = W * H - 1; i >= 0; i--)
+            if (s_want[i] > 0) {
+                if (i / W > eye_bottom) eye_bottom = i / W;
+                break;
+            }
     }
+    test_offline(d, eye_bottom);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;
 }

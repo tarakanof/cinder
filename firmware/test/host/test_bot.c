@@ -10,6 +10,7 @@
 #include "ring_glint.h"
 #include "glint_chase.h"
 #include "label_wipe.h"
+#include "offline_glyph.h"
 #include "orbit_table.h"
 #include "rim_job.h"
 #include "rim_beat.h"
@@ -4568,8 +4569,54 @@ static void test_rim_slots_model(void)
     CHECK(!g.open_mismatch, "never the face's eyes with another outline on open lids (%d frames)", g.open_mismatch);
 }
 
+static int arc_runs(const uint8_t *a, double cx, double cy, double r, int *dark)
+{
+    int runs = 0, gaps = 0, lit = 0, off = 0;
+    for (double deg = -44; deg <= 44; deg += 0.25) {
+        double t = deg * M_PI / 180;
+        int x = (int)floor(cx + r * sin(t)), y = (int)floor(cy - r * cos(t));
+        uint8_t v = a[y * OFFLINE_GLYPH_W + x];
+        if (v >= 200 && !lit) runs++, lit = 1, off = 0;
+        if (v <= 32 && !off) gaps += lit, off = 1, lit = 0;
+    }
+    *dark = gaps - (off ? 1 : 0);
+    return runs;
+}
+
+static void test_offline_glyph(void)
+{
+    static uint8_t a[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
+    offline_glyph_raster(a);
+    int x0 = OFFLINE_GLYPH_W, x1 = -1, y0 = OFFLINE_GLYPH_H, y1 = -1, edge = 0;
+    for (int y = 0; y < OFFLINE_GLYPH_H; y++)
+        for (int x = 0; x < OFFLINE_GLYPH_W; x++) {
+            int v = a[y * OFFLINE_GLYPH_W + x];
+            if (v >= 128) {
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+            if ((x == 0 || y == 0 || x == OFFLINE_GLYPH_W - 1 || y == OFFLINE_GLYPH_H - 1) && v > edge) edge = v;
+        }
+    printf("offline glyph: ink %d x %d at (%d, %d), border max %d\n", x1 - x0 + 1, y1 - y0 + 1, x0, y0, edge);
+    CHECK(x1 - x0 + 1 >= 56 && x1 - x0 + 1 <= 62 && y1 - y0 + 1 >= 44, "about 60 px wide: %d x %d", x1 - x0 + 1, y1 - y0 + 1);
+    CHECK(abs((x0 + x1) - (OFFLINE_GLYPH_W - 1)) <= 1, "centred across: %d..%d", x0, x1);
+    CHECK(edge < 128, "nothing clipped at the box edge (%d)", edge);
+    CHECK(a[42 * OFFLINE_GLYPH_W + 30] == 255 && a[42 * OFFLINE_GLYPH_W + 31] == 255, "the dot at the fan's pivot");
+    CHECK(a[5 * OFFLINE_GLYPH_W + 30] == 255 && a[5 * OFFLINE_GLYPH_W + 31] == 255, "the outer arc's top");
+    int slash = 1;
+    for (int i = 0; i <= 42; i++) slash &= a[(4 + i) * OFFLINE_GLYPH_W + 10 + i] >= 200;
+    CHECK(slash, "one unbroken diagonal slash, top left to bottom right");
+    int dark, runs = arc_runs(a, 31, 42, 37, &dark);
+    CHECK(runs == 3 && dark == 2, "the outer arc is cut on both sides of the slash: %d lit runs, %d gaps", runs, dark);
+    runs = arc_runs(a, 31, 42, 25.5, &dark);
+    CHECK(runs == 3 && dark == 2, "the middle arc too: %d lit runs, %d gaps", runs, dark);
+}
+
 int main(void)
 {
+    test_offline_glyph();
     test_rim_beat();
     test_mood_beat();
     test_mood_beat_gaps();
