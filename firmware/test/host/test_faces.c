@@ -333,22 +333,24 @@ static void test_bake_yield(void)
         if (C[c].o == &dim) CHECK(t.hero == WX_HERO_MOON_SMALL, "%s: the small moon hero", C[c].what);
         if (C[c].o == &next) CHECK(t.days.on && t.days.n == 3, "%s: three rows (%d)", C[c].what, t.days.n);
         wx_bake_out_t o[2];
-        double plain = INFINITY, gap = INFINITY;
+        double plain = INFINITY, gap = INFINITY, share = INFINITY, last = 0;
         int calls = 0;
-        for (int run = 0; run < 8; run++) {
-            int k = run >= 3;
+        for (int run = 0; run < 10; run++) {
+            int k = run & 1;
             double t0 = cpu_ms();
             bake(&t, k, bg[k], hero[k], still[k], sn, drift[k], dn, lut[k], &ring[k], &o[k]);
-            if (!k && cpu_ms() - t0 < plain) plain = cpu_ms() - t0;
-            if (k && s_gap < gap) gap = s_gap;
-            if (k) calls = s_yields - 1;
+            if (!k) {
+                last = cpu_ms() - t0;
+                continue;
+            }
+            calls = s_yields - 1;
+            if (last > 0 && s_gap / last < share) share = s_gap / last, gap = s_gap, plain = last;
         }
         CHECK(!memcmp(bg[0], bg[1], sizeof bg[0]) && !memcmp(hero[0], hero[1], sizeof hero[0]) && !memcmp(still[0], still[1], sn) &&
                   !memcmp(drift[0], drift[1], dn) && !memcmp(&o[0], &o[1], sizeof o[0]),
               "%s: a bake with the yield hook paints what one without it does", C[c].what);
-        double share = plain > 0 ? gap / plain : 1;
         if (share > worst) worst = share;
-        printf("bake yield %s: %d calls, %.2f ms CPU without the hook, longest stretch without a call %.3f ms (%.0f %%, best of 5)\n",
+        printf("bake yield %s: %d calls, %.2f ms CPU without the hook, longest stretch without a call %.3f ms (%.0f %%, best of 5 pairs)\n",
                C[c].what, calls, plain, gap, 100 * share);
         CHECK(calls > 400, "%s: %d yield calls, want one before every painted row", C[c].what, calls);
         CHECK(share <= 0.12, "%s: %.0f %% of the bake ran without a yield call, want 12 %% at most", C[c].what, 100 * share);
