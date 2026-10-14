@@ -159,7 +159,7 @@ double bot_asleep_in(const bot_t *b, double t);
    no saccades of its own and ignores bot_look (a knob turn) and bot_push (its hop). act_eyes: a bot_eyes_t costume,
    or -1 for the mood's eyes; it swaps in at the close of the blink it starts. The lid floor eases to lid over dur s
    and stays after the act ends until set again. Begin wakes an asleep bot and pauses a sleepy one's countdown to
-   asleep; bot_act_end and bot_act_drop resume it. */
+   asleep (a look or push meanwhile sets it back to BOT_ASLEEP_AFTER_S); bot_act_end and bot_act_drop resume it. */
 void bot_act_begin(bot_t *b, double t);
 void bot_act_gaze(bot_t *b, double x, double y, bool glide, double t);
 void bot_act_lid(bot_t *b, double lid, double dur, double t);

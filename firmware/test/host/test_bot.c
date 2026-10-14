@@ -1714,6 +1714,47 @@ static void test_asleep_guards(void)
     bot_act_drop(&b, 400);
     CHECK(!bot_pose(&b, 609.9).asleep && bot_pose(&b, 610.1).asleep, "a second end resumes nothing");
 
+    for (int how = 0; how < 2; how++) {
+        bot_init(&b, 46, 0);
+        bot_set_mood(&b, BOT_SLEEPY, 0);
+        bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 1);
+        if (how == 0) bot_push(&b, BOT_ASLEEP_AFTER_S + 3);
+        else bot_look(&b, 0.5, 0.2, BOT_ASLEEP_AFTER_S + 3);
+        CHECK(!b.hopping && b.gaze_to_x == 0, "input %d mid-act: no hop or look", how);
+        bot_act_end(&b, true, 0.3, BOT_ASLEEP_AFTER_S + 16);
+        CHECK(fabs(bot_asleep_in(&b, BOT_ASLEEP_AFTER_S + 16) - BOT_ASLEEP_AFTER_S) < 1e-9,
+              "input %d mid-act: the full 10 min from the act's end (%.1f s left)", how, bot_asleep_in(&b, BOT_ASLEEP_AFTER_S + 16));
+    }
+    bot_init(&b, 47, 0);
+    bot_set_mood(&b, BOT_WORKING, 0);
+    bot_act_begin(&b, 10);
+    bot_push(&b, 11);
+    bot_act_end(&b, true, 0.3, 12);
+    CHECK(b.sleep_left < 0 && bot_asleep_in(&b, 12) == 0, "input mid-act outside sleepy: no countdown");
+
+    bot_init(&b, 48, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 5);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 4);
+    bot_act_end(&b, true, 0.3, 700);
+    CHECK(!bot_pose(&b, 704.9).asleep && bot_pose(&b, 705.1).asleep, "a nested begin keeps the first time left: asleep 5 s after the end");
+
+    bot_init(&b, 49, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 5);
+    bot_set_mood(&b, BOT_WORKING, 700);
+    bot_set_mood(&b, BOT_SLEEPY, 701);
+    bot_act_end(&b, true, 0.3, 702);
+    CHECK(fabs(bot_asleep_in(&b, 702) - (BOT_ASLEEP_AFTER_S - 1)) < 1e-9,
+          "sleepy again mid-act: its own 10 min, not the old act's 5 s (%.1f s left)", bot_asleep_in(&b, 702));
+
+    bot_init(&b, 50, 0);
+    bot_set_mood(&b, BOT_SLEEPY, 0);
+    bot_act_begin(&b, BOT_ASLEEP_AFTER_S - 5);
+    bot_sleep_in(&b, 30, 700);
+    bot_act_end(&b, true, 0.3, 702);
+    CHECK(fabs(bot_asleep_in(&b, 702) - 28) < 1e-9, "bot_sleep_in mid-act wins over the paused time left (%.1f s left)", bot_asleep_in(&b, 702));
+
     bot_init(&b, 42, 0);
     bot_set_mood(&b, BOT_SLEEPY, 0);
     slept = false;
@@ -1820,11 +1861,36 @@ static void test_sleepy_transitions(void)
             bot_pose(&b, at);
             tried++;
             bot_set_mood(&b, BOT_WORKING, at);
-            half += late ? b.blink_start < at : b.blink_start == at;
+            double shut_start = at - 0.075 * b.blink_speed - b.blink_lag;
+            half += late ? fabs(b.blink_start - shut_start) < 1e-9 : b.blink_start > shut_start + 1e-6;
         }
     }
-    CHECK(tried >= 20 && half == tried, "a heavy blink past half closed (0.64) hands over shut, one at 0.16 does not: %d of %d", half,
+    CHECK(tried >= 20 && half == tried, "a heavy blink past half closed (0.64) hands over shut, one at 0.16 part way: %d of %d", half,
           tried);
+    int changes = 0, drops = 0;
+    double worst_drop = 0;
+    for (uint64_t seed = 1; seed <= 24; seed++) {
+        for (int k = 0; k < 8; k++) {
+            bot_t b;
+            bot_init(&b, seed * 13 + (uint64_t)k, 0);
+            bot_set_mood(&b, BOT_SLEEPY, 0);
+            double t = 0, at = 3 + 2.37 * k + 0.11 * (double)seed;
+            for (; t < at; t += 1.0 / 60) bot_pose(&b, t);
+            bot_t c = b;
+            bot_pose_t was = bot_pose(&c, t);
+            bot_set_mood(&b, k % 2 ? BOT_WORKING : BOT_DONE, t);
+            changes++;
+            for (double u = t; u < t + 0.1; u += 1.0 / 240) {
+                bot_pose_t p = bot_pose(&b, u);
+                double d = fmax(was.lid_l - p.lid_l, was.lid_r - p.lid_r);
+                if (fmin(p.lid_l, p.lid_r) >= 0.999) break;
+                if (d > 0.02) { drops++; worst_drop = fmax(worst_drop, d); }
+                was = p;
+            }
+        }
+    }
+    CHECK(!drops, "leaving sleepy: the mood blink closes from the lid showing, %d of %d changes drop a lid first (worst %.3f)", drops, changes,
+          worst_drop);
     bot_t b;
     bot_init(&b, 3, 0);
     bot_sleep(&b, 1);

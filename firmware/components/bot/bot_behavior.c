@@ -292,6 +292,15 @@ static void breathe(bot_t *b, double t)
 
 static double sleepy_lid(const bot_t *b, double slump) { return slump * (0.80 + 0.12 * b->breath); }
 
+static double heavy_lid(const bot_t *b, double t)
+{
+    double slump = tween_value(&b->slump, t), heavy;
+    if (b->asleep) heavy = tween_value(&b->sleep_lid, t);
+    else if (b->mood == BOT_SLEEPY) heavy = fmax(sleepy_lid(b, slump), tween_value(&b->sleep_lid, t));
+    else heavy = slump * 0.55;
+    return fmax(heavy, tween_value(&b->act_lid, t));
+}
+
 static double micro_gap(bot_t *b)
 {
     return b->mood == BOT_SLEEPY ? lognormal(b, 2, 0.4, 0.8, 5) : lognormal(b, 0.8, 0.4, 0.3, 2.5);
@@ -521,6 +530,8 @@ static void enter(bot_t *b, bot_mood_t m, double t)
 {
     bool waking = b->mood == BOT_SLEEPY;
     bool shut = b->asleep || (b->blinking && b->blink_heavy && blink_lid(b, t - b->blink_start) >= 0.5);
+    double was = heavy_lid(b, t);
+    if (b->blinking) was += (1 - was) * fmax(blink_lid(b, t - b->blink_start), blink_lid(b, t - b->blink_start - b->blink_lag));
     b->mood = m;
     b->mood_since = t;
     b->beat_by = t + BOT_BEAT_MAX_S;
@@ -533,7 +544,10 @@ static void enter(bot_t *b, bot_mood_t m, double t)
         start_blink(b, t);
         b->blink_heavy = false;
         if (b->blink_speed < 1.6) b->blink_speed = 1.6;
-        if (shut) b->blink_start = t - 0.075 * b->blink_speed - b->blink_lag;
+        if (waking) {
+            double h = heavy_lid(b, t), bl = shut || h >= 1 ? 1 : clamp01((was - h) / (1 - h));
+            b->blink_start = t - 0.075 * b->blink_speed * sqrt(bl) - b->blink_lag;
+        }
     } else {
         b->double_blink_pending = true;
     }
@@ -666,11 +680,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
 
     breathe(b, t);
     bot_pose_t p = {.mood = b->mood, .scale_x = 1, .scale_y = 1, .breath = b->breath, .asleep = b->asleep};
-    double slump = tween_value(&b->slump, t), heavy;
-    if (b->asleep) heavy = tween_value(&b->sleep_lid, t);
-    else if (b->mood == BOT_SLEEPY) heavy = fmax(sleepy_lid(b, slump), tween_value(&b->sleep_lid, t));
-    else heavy = slump * 0.55;
-    heavy = fmax(heavy, tween_value(&b->act_lid, t));
+    double slump = tween_value(&b->slump, t), heavy = heavy_lid(b, t);
     double bl = 0, br = 0;
     bool now = !due || b->rim_ready || t >= b->beat_by;
     if (due && !b->blinking) {
@@ -762,9 +772,15 @@ bot_pose_t bot_pose(bot_t *b, double t)
     return p;
 }
 
+static bool act_input(bot_t *b)
+{
+    if (b->acting && b->sleep_left >= 0) b->sleep_left = BOT_ASLEEP_AFTER_S;
+    return b->acting;
+}
+
 void bot_look(bot_t *b, double x, double y, double t)
 {
-    if (b->acting) return;
+    if (act_input(b)) return;
     rouse(b, t);
     start_saccade_to(b, t, SAC_NORMAL, x, y);
     b->next_saccade_at = b->gaze_hold = t + 2.5;
@@ -861,7 +877,7 @@ static void track_step(bot_t *b, double t)
 
 void bot_push(bot_t *b, double t)
 {
-    if (b->acting || !bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
+    if (act_input(b) || !bot_anim_allowed(BOT_ANIM_USER_INPUT, b->calm)) return;
     rouse(b, t);
     start_hop(b, t, 1, HOP_LEN_S);
     b->popping = true; b->pop_start = t;
