@@ -103,6 +103,7 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
     const double straight = 0.06;
     double lean = (fabs(cx) - straight) / (REST_X * 0.6 - straight);
     lean = lean < 0 ? 0 : (lean > 1 ? 1 : lean);
+    double sg = cx < 0 ? -1 : 1;
     double sep = (p->eyes == BOT_EYES_ROUND ? 0.5 : 0.44) * fx * (1 + (scale - 1) * 0.5);
     const double deg = M_PI / 180;
     double bh = p->asleep ? 1 : 1 + 0.025 * p->breath;
@@ -110,19 +111,19 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
 
     for (int e = 0; e < 2; e++) {
         double side = e == 0 ? -1 : 1, lid = e == 0 ? p->lid_l : p->lid_r;
-        double rise = p->eyes == BOT_EYES_DASH ? 0.04 * side * lean : 0;
+        double rise = p->eyes == BOT_EYES_DASH ? 0.04 * side * lean * sg : 0;
         double ex = cx + side * sep / 2, ey = cy + rise + by, ffx = fx * scale, ffy = fy * scale, fh = ffy * bh;
 #define L(a, b) ((a) + ((b) - (a)) * lid)
         bot_stroke_t *s = &out[e];
         switch (p->eyes) {
         case BOT_EYES_DASH:
-            capsule(s, ex, ey, L(0.14, 0.24) * ffx, L(0.38, 0.06) * fh, L(27, -6) * lean * deg);
+            capsule(s, ex, ey, L(0.14, 0.24) * ffx, L(0.38, 0.06) * fh, L(27, -6) * lean * sg * deg);
             break;
         case BOT_EYES_ANGRY:
             capsule(s, ex, ey, L(0.13, 0.22) * ffx, L(0.3, 0.06) * fh, L(55, 10) * deg * -side);
             break;
         case BOT_EYES_ROUND:
-            capsule(s, ex, ey, L(0.3, 0.34) * ffx, L(0.44, 0.05) * fh, 10 * lean * deg);
+            capsule(s, ex, ey, L(0.3, 0.34) * ffx, L(0.44, 0.05) * fh, 10 * lean * sg * deg);
             break;
         case BOT_EYES_HAPPY: {
             double w = 0.3 * ffx, h = L(0.16, 0.03) * fh;

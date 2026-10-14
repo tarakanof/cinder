@@ -147,6 +147,51 @@ static void test_eye_strokes_finite(void)
     }
 }
 
+static bool stroke_mirrors(const bot_stroke_t *a, const bot_stroke_t *b)
+{
+    if (a->n != b->n || fabs(a->width - b->width) > 1e-12) return false;
+    bool fwd = true, rev = true;
+    for (int i = 0; i < a->n; i++) {
+        int j = a->n - 1 - i;
+        fwd = fwd && fabs(a->x[i] + b->x[i]) < 1e-12 && fabs(a->y[i] - b->y[i]) < 1e-12;
+        rev = rev && fabs(a->x[i] + b->x[j]) < 1e-12 && fabs(a->y[i] - b->y[j]) < 1e-12;
+    }
+    return fwd || rev;
+}
+
+static void test_tilt_mirror(void)
+{
+    const bot_eyes_t eyes[] = {BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_ANGRY, BOT_EYES_HAPPY};
+    int cases = 0, bad[4] = {0};
+    for (int k = 0; k < 4; k++)
+        for (double gx = 0.02; gx <= 1.0; gx += 0.07)
+            for (double gy = -0.7; gy <= 0.81; gy += 0.15)
+                for (int v = 0; v < 4; v++) {
+                    bot_pose_t r = {.eyes = eyes[k], .gaze_x = gx, .gaze_y = gy, .scale_x = 1, .scale_y = 1,
+                                    .lid_l = 0.1 * v, .lid_r = 0.05 * v, .triangle = v == 1, .slump = v == 2 ? 0.6 : 0,
+                                    .breath = v == 3 ? -0.7 : 0.3, .orbit = v == 3, .asleep = v == 2};
+                    bot_pose_t l = r;
+                    l.gaze_x = -gx;
+                    l.lid_l = r.lid_r;
+                    l.lid_r = r.lid_l;
+                    bot_stroke_t sr[2], sl[2];
+                    bot_eye_strokes(&r, 1.15, sr);
+                    bot_eye_strokes(&l, 1.15, sl);
+                    cases++;
+                    if (!stroke_mirrors(&sl[0], &sr[1]) || !stroke_mirrors(&sl[1], &sr[0])) bad[k]++;
+                }
+    CHECK(!bad[0] && !bad[1] && !bad[2] && !bad[3],
+          "tilt: a left glance must be the exact mirror of a right glance (dash %d, round %d, angry %d, happy %d of %d)",
+          bad[0], bad[1], bad[2], bad[3], cases);
+    bot_pose_t p = {.eyes = BOT_EYES_DASH, .gaze_x = -0.8, .gaze_y = 0.2, .scale_x = 1, .scale_y = 1};
+    bot_stroke_t s[2];
+    bot_eye_strokes(&p, 1.15, s);
+    double yl = (s[0].y[0] + s[0].y[1]) / 2, yr = (s[1].y[0] + s[1].y[1]) / 2;
+    double top_l = s[0].y[0] > s[0].y[1] ? s[0].x[0] : s[0].x[1], bot_l = s[0].y[0] > s[0].y[1] ? s[0].x[1] : s[0].x[0];
+    CHECK(yl > yr + 0.05, "tilt: looking left raises the left (leading) eye, %.3f vs %.3f", yl, yr);
+    CHECK(top_l > bot_l, "tilt: looking left leans the dash's top to the right (\"/\"), as looking right gives \"\\\"");
+}
+
 static int compare_raster(const float *xs, const float *ys, int npts, float hw, int alpha_mode)
 {
     static uint16_t a[BOT_RASTER_MAX_W * 200], b[BOT_RASTER_MAX_W * 200];
@@ -3903,6 +3948,7 @@ int main(void)
     test_sleepy_after_idle();
     test_error_triangle_geometry();
     test_eye_strokes_finite();
+    test_tilt_mirror();
     printf(failures ? "%d FAILED\n" : "all bot tests passed\n", failures);
     return failures ? 1 : 0;
 }
