@@ -86,7 +86,9 @@ echo "$STATS" | grep -qxF '    int failed_logged = 0, refused_logged = 0;' &&
 echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds refused by wx_cloud_shape, drawn blank", refused);' &&
     echo "$STATS" | grep -A1 -F 'if (refused > refused_logged) ESP_LOGE(' | tail -1 | grep -qxF '        refused_logged = refused;' &&
     [ "$(grep -c 'refused_logged' "$MAINC")" -eq 3 ] &&
-    body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        s_refused += wxm_paint(&s_m, &s_l, s_arena, bake_yield);' ||
+    body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' &&
+    grep -qxF 'static atomic_int s_refused;' "$D/../../main/moment_view.c" && [ "$(grep -c 's_refused' "$D/../../main/moment_view.c")" -eq 3 ] &&
+    body "$D/../../main/moment_view.c" moment_view_stats | grep -qxF '    *refused = atomic_load(&s_refused);' ||
     WIRING="$WIRING stats-logs-refused-moment-clouds-only-when-the-count-grows"
 WMP="$D/../../components/weather/wx_moment_paint.c"
 [ "$(grep -c 'cloud(&im' "$WMP")" -gt 0 ] && [ "$(grep -c 'cloud(&im' "$WMP")" -eq "$(grep -cxE ' +refused \+= cloud\(&im[^;]*\);' "$WMP")" ] &&
@@ -486,7 +488,7 @@ body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);
 body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
     WIRING="$WIRING app_main-creates-the-moments"
 grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MAINC" || WIRING="$WIRING trigger-in-PSRAM"
-[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'wxm_paint(&s_m, &s_l, s_arena, bake_yield);' ||
+[ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' ||
     WIRING="$WIRING wxm_paint-only-in-the-bake-task-with-the-yield-hook"
 body "$MVC" moment_bake_task | awk '/s_yield_at = t0;/ {y = NR} /wxm_paint\(/ {p = NR} END {exit !(y && p > y)}' &&
     body "$MVC" bake_yield | grep -qF 'if (esp_timer_get_time() - s_yield_at < MV_YIELD_US) return;' &&
