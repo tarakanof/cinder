@@ -23,7 +23,6 @@
 
 static const char *TAG = "np";
 
-#define JPEG_MAX (96 * 1024)
 #define FACE_DISK_R 188.0f   /* the ring band r 194..202 must stay black: np_ring_render composites on black */
 
 typedef struct {
@@ -33,6 +32,8 @@ typedef struct {
     bool has_pending;
     bool built_valid;
     char built[NP_COVERV_MAX + 1];
+    bool held_valid;
+    char held[NP_COVERV_MAX + 1];
     np_info_t last;
     bool last_have;
     np_art_retry_t retry;
@@ -134,6 +135,7 @@ void np_client_forget_art(void)
     if (S->has_pending) np_art_set_free(&S->pending);
     S->has_pending = false;
     S->built_valid = false;
+    S->held_valid = false;
     xSemaphoreGive(s_lock);
 }
 
@@ -165,9 +167,12 @@ static bool due(np_art_plan_t *plan)
     np_art_plan(&S->last, plan);
     xSemaphoreTake(s_lock, portMAX_DELAY);
     bool built = S->built_valid && strcmp(S->built, plan->version) == 0;
+    bool held = S->held_valid && strcmp(S->held, plan->version) == 0;
     xSemaphoreGive(s_lock);
     if (built) return false;
-    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms) return false;
+    if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms &&
+        (held || !np_art_gave_up(&S->retry, plan->version)))
+        return false;
     return true;
 }
 
@@ -358,7 +363,10 @@ void np_client_service(http_conn_t *conn, const char *base)
     if (!S) return;
     np_client_run_controls(conn, base);
     if (!due(&plan)) return;
-    if (np_art_gave_up(&S->retry, plan.version)) plan.want[NP_ART_COVER] = false;
+    bool gave_up = np_art_gave_up(&S->retry, plan.version);
+    bool hold = gave_up && S->retry.fails && now_ms() < S->retry_at_ms;
+    if (gave_up) plan.want[NP_ART_COVER] = false;
+    if (hold) memset(plan.want, 0, sizeof plan.want);
     np_art_set_t set = {.is_cover = plan.cover};
     strcpy(set.version, plan.version);
     int64_t t0 = esp_timer_get_time(), dec_us = 0;
@@ -366,7 +374,7 @@ void np_client_service(http_conn_t *conn, const char *base)
     bool failed = false, bad = false;
     bool fetch = false;
     for (int k = 0; k < NP_ART_KINDS; k++) fetch |= plan.want[k];
-    uint8_t *jpg = fetch ? heap_caps_malloc(JPEG_MAX, MALLOC_CAP_SPIRAM) : NULL;
+    uint8_t *jpg = fetch ? heap_caps_malloc(NP_JPEG_MAX, MALLOC_CAP_SPIRAM) : NULL;
     if (fetch && !jpg) failed = true;
     for (int k = 0; k < NP_ART_KINDS && !failed; k++) {
         if (!plan.want[k] ||
@@ -375,12 +383,12 @@ void np_client_service(http_conn_t *conn, const char *base)
         int len = 0;
         bool fresh = false, oom = false;
         const http_req_opts_t o = {.idempotent = true, .body_len = &len, .on_header = cache_hdr, .hdr_ctx = &fresh};
-        int status = http_conn_req_opts(conn, S->url, &o, (char *)jpg, JPEG_MAX);
+        int status = http_conn_req_opts(conn, S->url, &o, (char *)jpg, NP_JPEG_MAX);
         void *img = NULL;
         int px = np_art_px((np_art_kind_t)k);
         if (status == 200) {
             bytes += len;
-            if (len >= JPEG_MAX) ESP_LOGW(TAG, "art %s: %d B, over %d", np_art_kind_name((np_art_kind_t)k), len, JPEG_MAX);
+            if (len >= NP_JPEG_MAX) ESP_LOGW(TAG, "art %s: %d B, over %d", np_art_kind_name((np_art_kind_t)k), len, NP_JPEG_MAX);
             else if (!plan.cover || fresh)
                 img = decode(jpg, len, px, k == NP_ART_ALBUM || (k == NP_ART_ARTIST && !plan.cover), &dec_us, &oom);
         }
@@ -416,16 +424,17 @@ void np_client_service(http_conn_t *conn, const char *base)
         else if (k == NP_ART_ALBUM) set.album = img;
         else set.artist = img;
     }
-    free(jpg);
-    np_art_end_t end = np_art_end(&S->retry, plan.version, plan.cover, failed, bad);
+    heap_caps_free(jpg);
+    np_art_end_t end = hold ? NP_ART_END_NO_COVER_RETRY : np_art_end(&S->retry, plan.version, plan.cover, failed, bad);
     if (failed) S->retry_at_ms = now_ms() + np_art_retry_ms(S->retry.fails);
     if (end == NP_ART_END_DROP) {
         np_art_set_free(&set);
         return;
     }
-    set.no_cover = end == NP_ART_END_NO_COVER;
+    set.no_cover = end == NP_ART_END_NO_COVER || end == NP_ART_END_NO_COVER_RETRY;
     if (set.no_cover)
-        ESP_LOGW(TAG, "cover %s: bad %d times, no cover", plan.version, S->retry.bad);
+        ESP_LOGW(TAG, "cover %s: bad %d times, no cover%s", plan.version, S->retry.bad,
+                 end == NP_ART_END_NO_COVER_RETRY ? ", avatar later" : "");
     else if (plan.cover)
         ESP_LOGI(TAG, "cover %s: %d B in %lld ms (decode %lld ms): cover %s, avatar %s", plan.version, bytes,
                  (long long)((esp_timer_get_time() - t0) / 1000), (long long)(dec_us / 1000), set.cover ? "yes" : "no", set.avatar ? "yes" : "no");
@@ -442,8 +451,13 @@ void np_client_service(http_conn_t *conn, const char *base)
         if (S->has_pending) np_art_set_free(&S->pending);
         S->pending = set;
         S->has_pending = true;
-        S->built_valid = true;
-        strcpy(S->built, plan.version);
+        if (end == NP_ART_END_NO_COVER_RETRY) {
+            S->held_valid = true;
+            strcpy(S->held, plan.version);
+        } else {
+            S->built_valid = true;
+            strcpy(S->built, plan.version);
+        }
         S->gen++;
     } else {
         np_art_set_free(&set);

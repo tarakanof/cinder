@@ -19,7 +19,7 @@ typedef enum { ANS_GOOD, ANS_OVER, ANS_UNDECODABLE, ANS_500 } answer_t;
 
 static int64_t s_us = 1000000;
 static answer_t s_cover = ANS_GOOD, s_artist = ANS_GOOD;
-static int s_cover_gets, s_artist_gets, s_jpg_allocs;
+static int s_cover_gets, s_artist_gets, s_jpg_allocs, s_jpg_live;
 static bool s_jpg_fail;
 static UINT s_px;
 static JRESULT s_jd;
@@ -27,9 +27,15 @@ static JRESULT s_jd;
 int64_t esp_timer_get_time(void) { return s_us; }
 int host_heap_fail(size_t n)
 {
-    if (n != 96 * 1024) return 0;
+    if (n != NP_JPEG_MAX) return 0;
     s_jpg_allocs++;
+    if (!s_jpg_fail) s_jpg_live++;
     return s_jpg_fail;
+}
+
+void host_heap_freed(void *p)
+{
+    if (p) s_jpg_live--;
 }
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...) { (void)level, (void)tag, (void)fmt; }
 uint32_t esp_random(void) { return 4; }
@@ -90,6 +96,7 @@ static void service_at(int64_t ms)
 {
     s_us += ms * 1000;
     np_client_service(&s_conn, "http://ember");
+    CHECK(s_jpg_live == 0, "every JPEG buffer freed after the pass (%d live)", s_jpg_live);
 }
 
 static bool take(np_art_set_t *set)
@@ -207,17 +214,35 @@ static void test_avatar_retry(void)
     give_up(&a);
     back_from_idle(&a);
     s_artist = ANS_500;
-    int artist = s_artist_gets, cover = s_cover_gets;
+    int artist = s_artist_gets, cover = s_cover_gets, allocs = s_jpg_allocs;
     service_at(10);
-    CHECK(s_artist_gets == artist + 1 && !take(&set), "given up, the avatar fails: nothing published");
+    CHECK(s_artist_gets == artist + 1 && s_jpg_allocs == allocs + 1, "given up: the avatar fetch uses the JPEG buffer");
+    CHECK(take(&set) && set.no_cover && !set.avatar && !set.cover, "the avatar fails: no_cover at once, without it");
+    np_art_set_free(&set);
     service_at(1000);
-    CHECK(s_artist_gets == artist + 1, "the avatar retry backs off");
+    CHECK(s_artist_gets == artist + 1 && !take(&set), "the avatar retry backs off");
+
+    back_from_idle(&a);
+    service_at(10);
+    CHECK(s_artist_gets == artist + 1 && s_cover_gets == cover, "back from idle in the backoff: no download");
+    CHECK(take(&set) && set.no_cover && !set.avatar, "and no_cover at once");
+    np_art_set_free(&set);
+    service_at(10);
+    CHECK(s_artist_gets == artist + 1 && !take(&set), "then the backoff holds");
+    np_client_set_visible(false);
+    np_client_set_visible(true);
+    service_at(10);
+    CHECK(s_artist_gets == artist + 1 && take(&set) && set.no_cover, "a hidden page too: no_cover at once, no download");
+    np_art_set_free(&set);
+
     service_at(4000);
-    CHECK(s_artist_gets == artist + 2 && !take(&set), "and tries again after 5 s");
+    CHECK(s_artist_gets == artist + 2 && take(&set) && set.no_cover && !set.avatar, "after 5 s the avatar fails again");
+    np_art_set_free(&set);
+    service_at(5000);
+    CHECK(s_artist_gets == artist + 2, "the backoff grows to 10 s");
     s_artist = ANS_GOOD;
-    service_at(10000);
-    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && set.avatar && !set.cover,
-          "the avatar comes: no_cover with it");
+    service_at(5000);
+    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && set.avatar && !set.cover, "the avatar comes: no_cover with it");
     np_art_set_free(&set);
     service_at(120000);
     CHECK(s_cover_gets == cover && s_artist_gets == artist + 3 && !np_client_pending(), "then nothing more");
@@ -225,7 +250,8 @@ static void test_avatar_retry(void)
     back_from_idle(&a);
     s_jpg_fail = true;
     service_at(10);
-    CHECK(!take(&set), "given up, no buffer for the avatar: nothing published");
+    CHECK(take(&set) && set.no_cover && !set.avatar, "given up, no JPEG buffer: no_cover without the avatar");
+    np_art_set_free(&set);
     s_jpg_fail = false;
     service_at(5000);
     CHECK(take(&set) && set.no_cover && set.avatar, "the avatar on the retry");

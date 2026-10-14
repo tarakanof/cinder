@@ -338,7 +338,8 @@ np_art_end_t np_art_end(np_art_retry_t *r, const char *version, bool cover, bool
 {
     if (failed) {
         bool late = np_art_gave_up(r, version);
-        return np_art_retry_fail(r, version, bad) && cover && !late ? NP_ART_END_NO_COVER : NP_ART_END_DROP;
+        bool gave_up = np_art_retry_fail(r, version, bad) && cover;
+        return !gave_up ? NP_ART_END_DROP : late ? NP_ART_END_NO_COVER_RETRY : NP_ART_END_NO_COVER;
     }
     if (strcmp(r->version, version) != 0) return NP_ART_END_PUBLISH;
     if (cover && np_art_gave_up(r, version)) {

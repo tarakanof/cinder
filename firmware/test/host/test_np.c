@@ -717,18 +717,17 @@ static void test_review_fixes(void)
     CHECK(np_art_end(&e, "v1-r1", true, false, false) == NP_ART_END_NO_COVER && e.bad == NP_ART_BAD_TRIES,
           "given up, the cover skipped: still no cover, the count kept");
     CHECK(e.fails == 0, "a no-cover publish leaves no backoff");
-    CHECK(np_art_end(&e, "v1-r1", true, true, false) == NP_ART_END_DROP && e.fails == 1 && np_art_retry_ms(e.fails) == 5000 &&
+    CHECK(np_art_end(&e, "v1-r1", true, true, false) == NP_ART_END_NO_COVER_RETRY && e.fails == 1 && np_art_retry_ms(e.fails) == 5000 &&
               np_art_gave_up(&e, "v1-r1"),
-          "given up, a failed avatar: drop and retry from a 5 s backoff");
-    CHECK(np_art_end(&e, "v1-r1", true, true, false) == NP_ART_END_DROP && np_art_retry_ms(e.fails) == 10000, "and back off further");
+          "given up, a failed avatar: no cover now, retry from a 5 s backoff");
+    CHECK(np_art_end(&e, "v1-r1", true, true, false) == NP_ART_END_NO_COVER_RETRY && np_art_retry_ms(e.fails) == 10000, "and back off further");
     CHECK(np_art_end(&e, "v1-r1", true, false, false) == NP_ART_END_NO_COVER && e.fails == 0 && e.bad == NP_ART_BAD_TRIES,
           "the avatar comes: no cover, the backoff cleared, still given up");
     np_art_retry_t gu = {0};
     np_art_retry_fail(&gu, "v5-r1", true);
     np_art_retry_fail(&gu, "v5-r1", false);
     np_art_retry_fail(&gu, "v5-r1", true);
-    CHECK(np_art_retry_fail(&gu, "v5-r1", true) && gu.fails == 0,
-          "giving up zeroes the backoff");
+    CHECK(np_art_retry_fail(&gu, "v5-r1", true) && gu.fails == 0, "giving up zeroes the backoff");
     np_art_retry_t q = {0};
     np_art_end(&q, "v4-r1", true, true, true);
     np_art_end(&q, "v4-r1", true, true, true);

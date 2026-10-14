@@ -738,7 +738,7 @@ fi
 "${OUT}_view"
 "${OUT}_demo" "$D/fixtures/demo" "$D/fixtures/ember/demo"
 "${OUT}_np"
-cc $CFLAGS -DHOST_HEAP_FAIL -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" \
+cc $CFLAGS -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" \
     -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
     "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$J/cJSON.c" "$D/test_np_client.c" \
     -lm -lpthread -o "${OUT}_np_client"
