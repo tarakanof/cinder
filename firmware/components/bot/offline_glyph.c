@@ -7,11 +7,10 @@
 #define HALF_DEG 45.0f
 #define HW 3.5f
 #define DOT_R 4.0f
-#define CUT 1.5f
-#define SLASH_X0 11.0f
-#define SLASH_Y0 7.0f
-#define SLASH_X1 51.0f
-#define SLASH_Y1 47.0f
+#define X_CX 50.5f
+#define X_CY 44.0f
+#define X_ARM 5.0f
+#define X_HW 2.25f
 
 static const float ARC_R[] = {16.0f, 27.0f, 38.0f};
 
@@ -26,12 +25,19 @@ static float arc_dist(float x, float y, float r)
     return hypotf(fabsf(dx) - ex, dy - ey) - HW;
 }
 
-static float slash_dist(float x, float y)
+static float seg_dist(float x, float y, float x0, float y0, float x1, float y1)
 {
-    float vx = SLASH_X1 - SLASH_X0, vy = SLASH_Y1 - SLASH_Y0;
-    float t = ((x - SLASH_X0) * vx + (y - SLASH_Y0) * vy) / (vx * vx + vy * vy);
+    float vx = x1 - x0, vy = y1 - y0;
+    float t = ((x - x0) * vx + (y - y0) * vy) / (vx * vx + vy * vy);
     t = t < 0 ? 0 : t > 1 ? 1 : t;
-    return hypotf(x - SLASH_X0 - t * vx, y - SLASH_Y0 - t * vy);
+    return hypotf(x - x0 - t * vx, y - y0 - t * vy);
+}
+
+static float cross_dist(float x, float y)
+{
+    float a = seg_dist(x, y, X_CX - X_ARM, X_CY - X_ARM, X_CX + X_ARM, X_CY + X_ARM);
+    float b = seg_dist(x, y, X_CX - X_ARM, X_CY + X_ARM, X_CX + X_ARM, X_CY - X_ARM);
+    return fminf(a, b) - X_HW;
 }
 
 void offline_glyph_raster(uint8_t *a8)
@@ -39,10 +45,9 @@ void offline_glyph_raster(uint8_t *a8)
     for (int py = 0; py < OFFLINE_GLYPH_H; py++) {
         for (int px = 0; px < OFFLINE_GLYPH_W; px++) {
             float x = (float)px + 0.5f, y = (float)py + 0.5f;
-            float fan = cover(hypotf(x - PIVOT_X, y - PIVOT_Y) - DOT_R);
-            for (int k = 0; k < 3; k++) fan = fmaxf(fan, cover(arc_dist(x, y, ARC_R[k])));
-            float s = slash_dist(x, y);
-            float a = fmaxf(fan * (1 - cover(s - HW - CUT)), cover(s - HW));
+            float a = cover(hypotf(x - PIVOT_X, y - PIVOT_Y) - DOT_R);
+            for (int k = 0; k < 3; k++) a = fmaxf(a, cover(arc_dist(x, y, ARC_R[k])));
+            a = fmaxf(a, cover(cross_dist(x, y)));
             a8[py * OFFLINE_GLYPH_W + px] = (uint8_t)lroundf(a * 255);
         }
     }

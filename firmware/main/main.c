@@ -33,6 +33,7 @@
 #include "ember_client.h"
 #include "ember_host.h"
 #include "http_conn.h"
+#include "join_label.h"
 #include "pomo_client.h"
 #include "pomo_view.h"
 #include "nowplaying_client.h"
@@ -80,7 +81,7 @@ static int s_reset_progress_shown = -1;
 
 static bool s_setup;
 static lv_obj_t *s_join_label;
-static int s_join_shown;
+static join_label_t s_join_shown;
 static pages_nav_t s_nav = {.n = 1};
 static uint32_t s_settings_gen;
 static knob_settings_t *s_ks_lv;
@@ -685,25 +686,23 @@ static void settings_frame(double t)
 
 static void join_frame(void)
 {
-    int show = s_setup                                                              ? 0
-               : !ember_client_online() && ember_client_join_failures() >= 3          ? 1
-               : ember_client_link() == EMBER_LINK_UNAUTHORIZED                      ? 2
-               : config_store_has_ember_url() && !config_store_has_device()         ? 2
-               : ember_client_view_compat() == EMBER_VIEW_UPDATE_KNOB                ? 3
-               : ember_client_view_compat() == EMBER_VIEW_UPDATE_EMBER               ? 4
-                                                                                      : 0;
+    join_in_t in = {
+        .setup = s_setup,
+        .online = ember_client_online(),
+        .join_failures = ember_client_join_failures(),
+        .unauthorized = ember_client_link() == EMBER_LINK_UNAUTHORIZED,
+        .has_url = config_store_has_ember_url(),
+        .has_device = config_store_has_device(),
+        .update_knob = ember_client_view_compat() == EMBER_VIEW_UPDATE_KNOB,
+        .update_ember = ember_client_view_compat() == EMBER_VIEW_UPDATE_EMBER,
+    };
+    join_label_t show = join_label_pick(&in);
     if (show == s_join_shown) return;
     s_join_shown = show;
-    if (show == 1) {
-        char ssid[CFG_SSID_MAX + 1], text[CFG_SSID_MAX + 16];
-        config_store_ssid(ssid, sizeof ssid);
-        snprintf(text, sizeof text, "Can't join\n%s", ssid);
-        lv_label_set_text(s_join_label, text);
-    } else if (show == 2) {
-        lv_label_set_text(s_join_label, "Not paired");
-    } else if (show >= 3) {
-        lv_label_set_text(s_join_label, show == 3 ? "Update knob" : "Update Ember");
-    }
+    char ssid[CFG_SSID_MAX + 1] = "", text[CFG_SSID_MAX + 16];
+    if (show == JOIN_CANT_JOIN) config_store_ssid(ssid, sizeof ssid);
+    join_label_text(show, ssid, text, sizeof text);
+    lv_label_set_text(s_join_label, text);
     if (show) lv_obj_remove_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
 }
@@ -784,7 +783,7 @@ void page_bot_frame(const page_frame_t *f)
     s_bot_shown = false;
     s_wait_host = host;
     bot_view_set_host(&host);
-    bot_view_set_offline(f->offline && s_join_shown != 1);
+    bot_view_set_offline(join_glyph_shown(f->offline, s_join_shown));
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))
         pose = false;

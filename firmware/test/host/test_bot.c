@@ -4600,6 +4600,41 @@ static int lit_run(const uint8_t *a, int x, int y, int dx, int dy)
     return n;
 }
 
+static double og_gap(const uint8_t *a, double x0, double y0, double x1, double y1, double *lit_at)
+{
+    double len = hypot(x1 - x0, y1 - y0), out = -1;
+    *lit_at = -1;
+    for (double t = 0; t <= len; t += 0.05) {
+        int v = OG_A((int)floor(x0 + t * (x1 - x0) / len), (int)floor(y0 + t * (y1 - y0) / len));
+        if (out < 0 && v < 32) out = t;
+        if (out >= 0 && v >= 32) {
+            *lit_at = t;
+            return t - out;
+        }
+    }
+    return -1;
+}
+
+static double og_bilerp(const uint8_t *a, double x, double y)
+{
+    x -= 0.5, y -= 0.5;
+    int ix = (int)floor(x), iy = (int)floor(y);
+    double fx = x - ix, fy = y - iy, v[2][2];
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            int px = ix + i, py = iy + j;
+            v[j][i] = px < 0 || py < 0 || px >= OFFLINE_GLYPH_W || py >= OFFLINE_GLYPH_H ? 0 : OG_A(px, py);
+        }
+    return (v[0][0] * (1 - fx) + v[0][1] * fx) * (1 - fy) + (v[1][0] * (1 - fx) + v[1][1] * fx) * fy;
+}
+
+static double og_arc_end(const uint8_t *a, double r, int side)
+{
+    double deg = 40;
+    while (deg < 80 && og_bilerp(a, OG_PX + side * r * sin(deg * M_PI / 180), OG_PY - r * cos(deg * M_PI / 180)) >= 127.5) deg += 0.01;
+    return deg;
+}
+
 static void test_offline_glyph(void)
 {
     static uint8_t a[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
@@ -4621,37 +4656,56 @@ static void test_offline_glyph(void)
     CHECK(x1 - x0 + 1 >= 56 && x1 - x0 + 1 <= 62 && y1 - y0 + 1 >= 44, "about 60 px wide: %d x %d", x1 - x0 + 1, y1 - y0 + 1);
     CHECK(abs((x0 + x1) - (OFFLINE_GLYPH_W - 1)) <= 1, "centred across: %d..%d", x0, x1);
     CHECK(edge < 128, "nothing clipped at the box edge (%d)", edge);
-    CHECK(partial >= 250, "anti-aliased edges: %d partial px", partial);
+    CHECK(partial >= 200 && partial <= 600, "anti-aliased edges: %d partial px", partial);
     CHECK(OG_A(31, 1) >= 100 && OG_A(31, 1) <= 155, "the outer arc's top edge half covered: %d", OG_A(31, 1));
     CHECK(OG_A(31, 43) == 255 && OG_A(30, 43) == 255, "the dot at the fan's pivot");
     int w = lit_run(a, 31, 2, 0, 1) + (OG_A(31, 1) >= 128);
     CHECK(w >= 6 && w <= 8, "7 px arc stroke at the outer arc's top: %d", w);
-    int sx = 48;
-    while (sx > 0 && OG_A(sx - 1, 44) >= 128) sx--;
-    w = lit_run(a, sx, 44, 1, 0);
-    CHECK(w >= 9 && w <= 11, "7 px slash: %d px across a row (7 x sqrt 2)", w);
-    int slash = 1;
-    for (int i = 0; i <= 40; i++) slash &= OG_A(11 + i, 7 + i) >= 200;
-    CHECK(slash, "one unbroken diagonal slash, top left to bottom right");
-    double gap0 = -1, gap1 = -1;
-    for (double t = 0; t <= 14 && gap1 < 0; t += 0.25) {
-        int v = OG_A((int)floor(OG_PX + t * M_SQRT1_2), (int)floor(OG_PY - t * M_SQRT1_2));
-        if (gap0 < 0 && v < 32) gap0 = t;
-        if (gap0 >= 0 && v >= 128) gap1 = t;
-    }
-    printf("offline glyph: dot to slash %.2f px\n", gap1 - gap0);
-    CHECK(gap0 > 0 && gap1 - gap0 >= 2.5, "the dot clears the slash: dark from %.2f to %.2f px", gap0, gap1);
     const double radii[] = {16, 27, 38};
     for (int k = 0; k < 3; k++) {
         int dark;
         double piece;
         int runs = arc_runs(a, radii[k], &dark, &piece);
-        printf("offline glyph: arc r %.0f: %d lit runs, %d gaps, shortest %.1f px along the arc\n", radii[k], runs, dark, piece);
-        if (k == 0)
-            CHECK(runs == 2 && dark == 1, "inner arc: its near piece, the gap, the slash over its top: %d lit runs, %d gaps", runs, dark);
-        else
-            CHECK(runs == 3 && dark == 2, "arc r %.0f: a piece either side of the slash (3 lit runs counting the slash, 2 gaps): %d, %d", radii[k], runs, dark);
-        CHECK(piece >= 5, "arc r %.0f: shortest lit run %.1f px", radii[k], piece);
+        double whole = 88 * M_PI / 180 * radii[k];
+        printf("offline glyph: arc r %.0f: %d lit runs, %d gaps, shortest %.1f of %.1f px along the arc\n", radii[k], runs, dark, piece, whole);
+        CHECK(runs == 1 && dark == 0 && piece >= whole - 0.5, "arc r %.0f: one unbroken lit run across +-44 deg: %d runs, %d gaps, %.1f px",
+              radii[k], runs, dark, piece);
+    }
+    for (int k = 0; k < 3; k++)
+        for (int side = -1; side <= 1; side += 2) {
+            double end = og_arc_end(a, radii[k], side), want = 45 + 2 * asin(1.75 / radii[k]) * 180 / M_PI;
+            printf("offline glyph: arc r %.0f %s cap ends at %.2f deg, a 45 deg sweep ends at %.2f\n", radii[k], side < 0 ? "left" : "right", end, want);
+            CHECK(fabs(end - want) * M_PI / 180 * radii[k] <= 0.35, "arc r %.0f sweeps 45 deg each side: its %s cap ends %.2f px off along the arc",
+                  radii[k], side < 0 ? "left" : "right", (end - want) * M_PI / 180 * radii[k]);
+        }
+    int dot = 1;
+    for (int x = 27; x <= 34; x++) dot &= OG_A(x, 43) >= 200;
+    CHECK(dot && OG_A(26, 43) < 32 && OG_A(35, 43) < 32, "a dot of r 4: (27..34, 43) lit, (26, 43) %d and (35, 43) %d dark", OG_A(26, 43),
+          OG_A(35, 43));
+    const int no_slash[][2] = {{16, 12}, {17, 13}, {18, 14}, {25, 21}, {26, 22}, {36, 32}, {38, 34}, {40, 36}, {42, 38}};
+    for (size_t i = 0; i < sizeof no_slash / sizeof no_slash[0]; i++)
+        CHECK(OG_A(no_slash[i][0], no_slash[i][1]) < 32, "no slash: (%d, %d) on 0.9.78's diagonal between the arcs is dark: %d",
+              no_slash[i][0], no_slash[i][1], OG_A(no_slash[i][0], no_slash[i][1]));
+    CHECK(OG_A(50, 44) == 255, "the x's centre lit: %d", OG_A(50, 44));
+    const int arms[][2] = {{46, 40}, {48, 42}, {53, 46}, {55, 48}, {46, 48}, {48, 46}, {53, 42}, {55, 40}};
+    for (size_t i = 0; i < sizeof arms / sizeof arms[0]; i++)
+        CHECK(OG_A(arms[i][0], arms[i][1]) >= 200, "the x's %s diagonal lit at (%d, %d): %d", i < 4 ? "falling" : "rising", arms[i][0], arms[i][1],
+              OG_A(arms[i][0], arms[i][1]));
+    int sx = 47;
+    while (sx > 0 && OG_A(sx - 1, 39) >= 128) sx--;
+    w = lit_run(a, sx, 39, 1, 0);
+    CHECK(w >= 5 && w <= 7, "4.5 px x stroke: %d px across a row (4.5 x sqrt 2)", w);
+    CHECK(OG_A(50, 39) < 32 && OG_A(50, 49) < 32 && OG_A(45, 44) < 32 && OG_A(56, 44) < 32, "the x's four notches are dark");
+    double half = 45 * M_PI / 180, at;
+    double cap = og_gap(a, OG_PX + 16 * sin(half), OG_PY - 16 * cos(half), 45.5, 39, &at);
+    printf("offline glyph: inner arc to x %.2f px, dot to x %.2f and %.2f px\n", cap, og_gap(a, OG_PX, OG_PY, 45.5, 39, &at),
+           og_gap(a, OG_PX, OG_PY, 45.5, 49, &at));
+    CHECK(OG_A(42, 31) == 255 && cap >= 2, "a dark gap of 2 px or more between the inner arc's end cap and the x: %.2f", cap);
+    const double ends[][2] = {{45.5, 39}, {45.5, 49}};
+    for (int k = 0; k < 2; k++) {
+        double g = og_gap(a, OG_PX, OG_PY, ends[k][0], ends[k][1], &at);
+        CHECK(g >= 2 && at <= 14, "the dot clears the x's %s arm by 2 px or more and the x sits near it: gap %.2f, lit at %.2f px",
+              k ? "lower" : "upper", g, at);
     }
 }
 

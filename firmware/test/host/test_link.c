@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "join_label.h"
 #include "link_state.h"
 
 static int failures;
@@ -216,6 +217,41 @@ static void test_names(void)
           "names");
 }
 
+static void test_join_label(void)
+{
+    static const struct {
+        join_in_t in;
+        join_label_t want;
+        const char *text;
+        bool glyph;
+        const char *what;
+    } C[] = {
+        {{.online = true, .has_url = true, .has_device = true}, JOIN_NONE, "", true, "online and paired: no label"},
+        {{.join_failures = 3, .has_url = true, .has_device = true}, JOIN_CANT_JOIN, "Can't join\nHome", false, "3 Wi-Fi join failures"},
+        {{.online = true, .has_url = true}, JOIN_NOT_PAIRED, "Not paired", true, "URL without a device token"},
+        {{.online = true, .has_url = true, .has_device = true, .update_knob = true}, JOIN_UPDATE_KNOB, "Update knob", true, "view too new for the knob"},
+        {{.online = true, .has_url = true, .has_device = true, .update_ember = true}, JOIN_UPDATE_EMBER, "Update Ember", true, "view too old for the knob"},
+        {{.online = true}, JOIN_NONE, "", true, "no Ember URL yet: no label"},
+        {{.setup = true, .join_failures = 9, .unauthorized = true}, JOIN_NONE, "", true, "setup hides every label"},
+        {{.join_failures = 2, .has_url = true, .has_device = true}, JOIN_NONE, "", true, "2 join failures: not yet"},
+        {{.online = true, .join_failures = 5, .has_url = true, .has_device = true}, JOIN_NONE, "", true, "online again: failures are stale"},
+        {{.join_failures = 3, .unauthorized = true, .update_knob = true}, JOIN_CANT_JOIN, "Can't join\nHome", false, "can't join beats not paired"},
+        {{.online = true, .has_url = true, .has_device = true, .unauthorized = true, .update_ember = true}, JOIN_NOT_PAIRED, "Not paired", true, "401 beats update"},
+        {{.online = true, .has_url = true, .has_device = true, .update_knob = true, .update_ember = true}, JOIN_UPDATE_KNOB, "Update knob", true, "update knob beats update Ember"},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        join_label_t l = join_label_pick(&C[i].in);
+        char text[64] = "x";
+        join_label_text(l, "Home", text, sizeof text);
+        CHECK(l == C[i].want, "%s: label %d, want %d", C[i].what, l, C[i].want);
+        CHECK(strcmp(text, C[i].text) == 0, "%s: text \"%s\", want \"%s\"", C[i].what, text, C[i].text);
+        CHECK(join_glyph_shown(true, l) == C[i].glyph, "%s: offline glyph %s", C[i].what, C[i].glyph ? "hidden" : "shown");
+        CHECK(!join_glyph_shown(false, l), "%s: glyph shown while online", C[i].what);
+    }
+    for (int l = JOIN_NONE; l <= JOIN_UPDATE_EMBER; l++)
+        CHECK(join_glyph_shown(true, (join_label_t)l) == (l != JOIN_CANT_JOIN), "label %d: the glyph hides only under Can't join", l);
+}
+
 int main(void)
 {
     test_counts();
@@ -224,6 +260,7 @@ int main(void)
     test_no_replay();
     test_wrong_host();
     test_names();
+    test_join_label();
     printf(failures ? "%d FAILED\n" : "all link tests passed\n", failures);
     return failures ? 1 : 0;
 }
