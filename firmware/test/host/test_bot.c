@@ -805,6 +805,9 @@ static void test_pose_same(void)
     p = base;
     p.lap = true;
     CHECK(!bot_pose_same(&base, &p, R), "a glint lap starting: redraw");
+    p = base;
+    p.hide = true;
+    CHECK(!bot_pose_same(&base, &p, R), "a blink starting to carry a swap (hide): redraw");
 }
 
 static int count_hops(bot_t *b, double t0, double seconds, bool *popped)
@@ -2549,7 +2552,7 @@ static void test_reading_blink_phases(void)
             bool open = false;
             for (double u = b.gaze_start; u < b.gaze_start + 0.025; u += fine) {
                 bot_pose_t q = bot_pose(&c, u);
-                open |= fmin(q.lid_l, q.lid_r) < 0.9 - 1e-9;
+                open |= fmin(q.blink_l, q.blink_r) < BOT_BLINK_HIDE - 1e-9;
             }
             open_at += open;
         }
@@ -2561,15 +2564,15 @@ static void test_reading_blink_phases(void)
                 if (d > 0.06) { pops++; worst_pop = fmax(worst_pop, d); }
                 if (l[e] == 0 && k[e] > 0.002) { cuts++; worst_cut = fmax(worst_cut, k[e]); }
             }
-            most = fmax(most, fmin(q.lid_l, q.lid_r));
-            if (most >= 0.9) low = fmin(low, fmax(q.lid_l, q.lid_r));
+            most = fmax(most, fmin(q.blink_l, q.blink_r));
+            if (most >= BOT_BLINK_HIDE) low = fmin(low, fmax(q.lid_l, q.lid_r));
             if (low <= 0.01) reopened = true;
             if (reopened && fmax(q.lid_l, q.lid_r) > 0.1) again = true;
             was = q;
         }
         if (turn || cover) {
             need++;
-            shut += most >= 0.9 - 1e-9;
+            shut += most >= BOT_BLINK_HIDE - 1e-9;
             doubles += again;
 
         }
@@ -3635,36 +3638,108 @@ static void test_error_overlaps(void)
 #define BEAT_PX_W 160
 #define BEAT_PX_H 200
 
-static int eye_px(const bot_pose_t *p)
+static int eye_one(const bot_pose_t *p, int e, uint8_t *a, int *rows)
 {
-    static uint8_t a[BEAT_PX_W * BEAT_PX_H];
     static bot_raster_scratch_t sc;
     const double R = 195.72;
     bot_stroke_t st[2];
     bot_eye_strokes(p, 1.15, st);
-    int n = 0;
-    for (int e = 0; e < 2; e++) {
-        double xs[BOT_STROKE_MAX], ys[BOT_STROKE_MAX], wd = st[e].width * R * (p->scale_x + p->scale_y) / 2, x0 = 1e9, y0 = 1e9, y1 = -1e9;
-        float fx[BOT_STROKE_MAX], fy[BOT_STROKE_MAX];
-        int segs[BOT_STROKE_MAX];
-        for (int i = 0; i < st[e].n; i++) {
-            xs[i] = 236 + R * (p->offset_x + p->scale_x * st[e].x[i]);
-            ys[i] = 233 - R * (p->offset_y * 0.45 - (1 - p->scale_y) + p->scale_y * st[e].y[i]);
-            fx[i] = (float)xs[i];
-            fy[i] = (float)ys[i];
-            segs[i] = i;
-            x0 = fmin(x0, xs[i]);
-            y0 = fmin(y0, ys[i]);
-            y1 = fmax(y1, ys[i]);
-        }
-        int ox = ((int)floor(x0 - wd / 2 - 1)) & ~1, oy = ((int)floor(y0 - wd / 2 - 1)) & ~1, h = ((int)ceil(y1 + wd / 2 + 1) - oy + 1) & ~1;
-        if (h > BEAT_PX_H) h = BEAT_PX_H;
-        float line = (float)bot_lid_line_y(ys, st[e].n, wd, st[e].lid, st[e].keep);
-        bot_raster_lid_box(line, &oy, &h);
-        bot_raster_stroke_below(&sc, NULL, a, line, BEAT_PX_W, h, ox, oy, fx, fy, st[e].n - 1, segs, (float)wd / 2, 0xF4F4F2, 1.0f);
-        for (int i = 0; i < BEAT_PX_W * h; i++) n += a[i] != 0;
+    double xs[BOT_STROKE_MAX], ys[BOT_STROKE_MAX], wd = st[e].width * R * (p->scale_x + p->scale_y) / 2, x0 = 1e9, y0 = 1e9, y1 = -1e9;
+    float fx[BOT_STROKE_MAX], fy[BOT_STROKE_MAX];
+    int segs[BOT_STROKE_MAX];
+    for (int i = 0; i < st[e].n; i++) {
+        xs[i] = 236 + R * (p->offset_x + p->scale_x * st[e].x[i]);
+        ys[i] = 233 - R * (p->offset_y * 0.45 - (1 - p->scale_y) + p->scale_y * st[e].y[i]);
+        fx[i] = (float)xs[i];
+        fy[i] = (float)ys[i];
+        segs[i] = i;
+        x0 = fmin(x0, xs[i]);
+        y0 = fmin(y0, ys[i]);
+        y1 = fmax(y1, ys[i]);
     }
+    int ox = ((int)floor(x0 - wd / 2 - 1)) & ~1, oy = ((int)floor(y0 - wd / 2 - 1)) & ~1, h = ((int)ceil(y1 + wd / 2 + 1) - oy + 1) & ~1;
+    if (h > BEAT_PX_H) h = BEAT_PX_H;
+    float line = (float)bot_lid_line_y(ys, st[e].n, wd, st[e].lid, st[e].keep);
+    bot_raster_lid_box(line, &oy, &h);
+    bot_raster_stroke_below(&sc, NULL, a, line, BEAT_PX_W, h, ox, oy, fx, fy, st[e].n - 1, segs, (float)wd / 2, 0xF4F4F2, 1.0f);
+    *rows = h;
+    int n = 0;
+    for (int i = 0; i < BEAT_PX_W * h; i++) n += a[i] != 0;
     return n;
+}
+
+static int eye_px(const bot_pose_t *p)
+{
+    static uint8_t a[BEAT_PX_W * BEAT_PX_H];
+    int rows;
+    return eye_one(p, 0, a, &rows) + eye_one(p, 1, a, &rows);
+}
+
+static void test_blink_line(void)
+{
+    static const bot_mood_t M[] = {BOT_IDLE, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE, BOT_SLEEPY};
+    static uint8_t a[BEAT_PX_W * BEAT_PX_H];
+    int empty[6] = {0}, split = 0, happy_frames = 0, blinks = 0;
+    for (int k = 0; k < 6; k++)
+        for (int seed = 1; seed <= 4; seed++) {
+            bot_t b;
+            bot_init(&b, seed, 0);
+            bot_set_sleep_after(&b, 0);
+            double t0 = settle_open(&b, 0);
+            if (M[k] != BOT_IDLE) bot_set_mood(&b, M[k], t0);
+            bool was = false;
+            for (double t = t0; t < t0 + 120; t += 1.0 / 60) {
+                bot_pose_t p = bot_pose(&b, t);
+                bool entry = t < t0 + 3;
+                blinks += b.blinking && !was;
+                was = b.blinking;
+                if (!b.blinking) continue;
+                int rows, lit[2] = {eye_one(&p, 0, a, &rows), 0};
+                if (p.eyes == BOT_EYES_HAPPY) {
+                    happy_frames++;
+                    for (int e = 0; e < 2; e++) {
+                        lit[e] = eye_one(&p, e, a, &rows);
+                        int runs = 0;
+                        bool in = false;
+                        for (int x = 0; x < BEAT_PX_W; x++) {
+                            bool any = false;
+                            for (int y = 0; y < rows && !any; y++) any = a[y * BEAT_PX_W + x] != 0;
+                            runs += any && !in;
+                            in = any;
+                        }
+                        split += runs > 1;
+                    }
+                } else {
+                    lit[1] = eye_one(&p, 1, a, &rows);
+                }
+                empty[k] += !entry && (!lit[0] || !lit[1]);
+            }
+        }
+    printf("blink line: %d blinks, eyes gone in %d %d %d %d %d %d frames (idle working waiting error done sleepy), %d happy frames, %d split\n",
+           blinks, empty[0], empty[1], empty[2], empty[3], empty[4], empty[5], happy_frames, split);
+    CHECK(!empty[0] && !empty[1] && !empty[2] && !empty[3] && !empty[4] && !empty[5],
+          "blink line: an ordinary or heavy blink keeps the closed-eye line (0.3 x width), never an empty face");
+    CHECK(happy_frames > 100 && !split, "blink line: a happy arc never splits in two through a blink (%d frames)", split);
+}
+
+static void test_lid_quantum(void)
+{
+    static const bot_eyes_t E[] = {BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_ANGRY};
+    double travel[3];
+    for (int k = 0; k < 3; k++) {
+        bot_pose_t p = {.eyes = E[k], .gaze_x = 0.2, .gaze_y = 0.3, .scale_x = 1, .scale_y = 1, .lid_l = 0.5, .lid_r = 0.5};
+        bot_stroke_t a[2], c[2];
+        bot_eye_strokes(&p, 1.15, a);
+        p.lid_l = p.lid_r = 0.6;
+        bot_eye_strokes(&p, 1.15, c);
+        const double R = 195.72;
+        double ya[2] = {-R * a[1].y[0], -R * a[1].y[1]}, yc[2] = {-R * c[1].y[0], -R * c[1].y[1]};
+        travel[k] = (bot_lid_line_y(yc, 2, R * c[1].width, 0.6, c[1].keep) - bot_lid_line_y(ya, 2, R * a[1].width, 0.5, a[1].keep)) / 0.1 / R;
+    }
+    printf("lid line travel per lid: dash %.3f, round %.3f, angry %.3f body radii (BOT_LID_REACH %.2f)\n", travel[0], travel[1], travel[2],
+           BOT_LID_REACH);
+    CHECK(fabs(BOT_LID_REACH / travel[0] - 0.5) < 0.05 && fabs(BOT_LID_REACH / travel[1] - 0.5) < 0.05 && BOT_LID_REACH / travel[2] > 0.5,
+          "BOT_LID_REACH is half the lid line's travel for dash and round (a redraw per whole pixel), finer for angry");
 }
 
 static void test_beat_hidden(void)
@@ -4331,6 +4406,8 @@ int main(void)
     test_error_exit_continuity();
     test_error_overlaps();
     test_beat_hidden();
+    test_blink_line();
+    test_lid_quantum();
     test_wait_phases();
     test_wait_nudge();
     test_wait_restart();

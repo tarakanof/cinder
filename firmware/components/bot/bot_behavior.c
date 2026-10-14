@@ -254,6 +254,7 @@ static void next_target(bot_t *b, double *x, double *y, double *fix)
 static void start_blink(bot_t *b, double t)
 {
     b->blinking = true;
+    b->blink_swap = false;
     b->blink_start = t;
     b->last_blink_at = t;
     b->blink_lag = rng_range(b, 0, 0.02);
@@ -721,11 +722,13 @@ bot_pose_t bot_pose(bot_t *b, double t)
         }
         bl = blink_lid(b, u);
         br = blink_lid(b, u - b->blink_lag);
+        if (b->swap_eyes_on_close || due) b->blink_swap = true;
         if (b->swap_eyes_on_close && fmin(bl, br) >= LID_SHUT && now) swap_eyes(b, t);
         if (u - fmax(b->blink_lag, 0) >= blink_length(b)) {
             bool beat_due = b->face != b->mood;
             if (b->swap_eyes_on_close && !b->double_blink_pending && !beat_due) swap_eyes(b, t);
             b->blinking = false;
+            b->blink_swap = false;
             if (b->double_blink_pending) {
                 b->double_blink_pending = false;
                 b->blinking = true;
@@ -741,6 +744,7 @@ bot_pose_t bot_pose(bot_t *b, double t)
     p.lid_r = heavy + (1 - heavy) * br;
     p.blink_l = bl;
     p.blink_r = br;
+    p.hide = b->blink_swap;
     double giggle = loud ? giggle_lid(b, t) : 0;
     p.lid_l = fmax(p.lid_l, giggle);
     p.lid_r = fmax(p.lid_r, giggle);
@@ -960,12 +964,12 @@ double bot_asleep_in(const bot_t *b, double t)
 
 bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
 {
-    if (a->mood != b->mood || a->face != b->face || a->eyes != b->eyes || a->asleep != b->asleep || a->lap != b->lap) return false;
+    if (a->mood != b->mood || a->face != b->face || a->eyes != b->eyes || a->asleep != b->asleep || a->lap != b->lap || a->hide != b->hide) return false;
     double step = 0.5 / (radius_px < 1 ? 1 : radius_px);
     double breath = step / (a->asleep ? BOT_BREATH_BOB : BOT_BREATH_REACH), lid = step / BOT_LID_REACH;
 #define Q(v, s) round((v) / (s))
 #define SAME(f, s) (Q(a->f, s) == Q(b->f, s))
-    return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, lid) && SAME(lid_r, lid) && SAME(blink_l, lid) && SAME(blink_r, lid) && SAME(breath, breath) && SAME(eye_dy, step) &&
+    return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, lid) && SAME(lid_r, lid) && SAME(breath, breath) && SAME(eye_dy, step) &&
            SAME(triangle, step) && SAME(slump, step) && SAME(badge, step) && SAME(offset_x, step) &&
            SAME(offset_y, step) && SAME(hop_dy, step) && SAME(orbit, step) && SAME(scale_x, step / 2) &&
            SAME(scale_y, step / 2);

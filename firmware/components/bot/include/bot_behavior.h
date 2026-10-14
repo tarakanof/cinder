@@ -18,7 +18,7 @@ typedef struct {
     bot_eyes_t eyes;
     double gaze_x, gaze_y;
     double lid_l, lid_r;
-    double blink_l, blink_r; /* the blink's part of each lid, 0..1: from BOT_BLINK_HIDE the lid line hides the eye whole */
+    double blink_l, blink_r; /* the blink's part of each lid, 0..1 */
     double triangle;
     double slump;
     double badge;
@@ -29,6 +29,7 @@ typedef struct {
     double breath;  /* -1..1: eye height and centre awake, the centre's bob asleep */
     double eye_dy;  /* the eye centres' shift, error's huff */
     bool asleep;
+    bool hide;      /* this blink carries an eye swap: from BOT_BLINK_HIDE it hides the eyes whole */
     bool lap;       /* done's glint lap runs */
     double lap_at;  /* while lap: when it started, on bot_pose's clock */
 } bot_pose_t;
@@ -55,7 +56,7 @@ typedef struct {
     int rd_line, rd_lines, rd_steps;
     bool rd_turn, rd_moment;
 
-    bool blinking, blink_heavy;
+    bool blinking, blink_heavy, blink_swap;
     double blink_start, blink_lag, blink_speed, blink_hold;
     bool double_blink_pending;
     double next_blink_at, last_blink_at;
@@ -89,12 +90,12 @@ typedef struct {
 
 #define BOT_SLEEP_AFTER_S 300.0
 #define BOT_ASLEEP_AFTER_S 600.0
-/* bot_pose_same's half pixel, body radii per unit: breath's eye centre (edges ~2x), the asleep bob; half the lid line's
-   travel per lid (about 0.4), so a lid redraws per whole pixel of its line. */
+/* Body radii per unit that bot_pose_same quantises to half a pixel: breath's eye centre (edges ~2x), the asleep bob; for
+   the lids half the lid line's travel (dash and round about 0.4 per lid), so the line redraws per whole pixel. */
 #define BOT_BREATH_REACH 0.006
 #define BOT_BREATH_BOB 0.0077
 #define BOT_LID_REACH 0.2
-/* A blink this far shut hides the eye whole (no bottom strip); eye shapes swap only then. */
+/* A blink carrying an eye swap hides the eyes whole from this far shut (no bottom strip); the shapes swap only then. */
 #define BOT_BLINK_HIDE 0.9
 /* bot_rim_tone's flag on top of the mood, and bot_rim_key's for the triangle outline. */
 #define BOT_RIM_ASLEEP 0x100

@@ -111,7 +111,7 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
 
     for (int e = 0; e < 2; e++) {
         double side = e == 0 ? -1 : 1, lid = e == 0 ? p->lid_l : p->lid_r;
-        double blink = e == 0 ? p->blink_l : p->blink_r;
+        double blink = !p->hide ? 0 : e == 0 ? p->blink_l : p->blink_r;
         double hide = blink / BOT_BLINK_HIDE;
         hide = hide < 0 ? 0 : (hide > 1 ? 1 : hide);
         double lc = lid < 0 ? 0 : (lid > 1 ? 1 : lid);
@@ -121,7 +121,7 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
         double ex = cx + side * sep / 2, ey = cy + rise + by - droop, ffx = fx * scale, ffy = fy * scale, fh = ffy * bh;
 #define L(a, b) ((a) + ((b) - (a)) * lid)
         bot_stroke_t *s = &out[e];
-        s->lid = p->eyes == BOT_EYES_HAPPY ? hide : lc;
+        s->lid = p->eyes == BOT_EYES_HAPPY ? (hide >= 1 ? 1 : 0) : lc;
         s->keep = p->eyes == BOT_EYES_HAPPY ? 0 : BOT_LID_KEEP * (1 - hide);
         switch (p->eyes) {
         case BOT_EYES_DASH:
