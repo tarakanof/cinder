@@ -2990,6 +2990,7 @@ static void test_mood_beat_gaps(void)
     }
     CHECK(!bad, "a frame gap across the closing blink, outline ready: the beat on another closure, never open (%d of %d bad, lowest lid %.2f)",
           bad, n, worst);
+
 }
 
 static void test_done_reward(void)
@@ -3297,7 +3298,7 @@ static struct {
     fake_buf_t *canvas;
     int notify, badge_key;
     unsigned raster_gen;
-    int replaced, races;
+    int replaced, races, off_frames, off_vars, on_vars;
 } M;
 static _Thread_local int s_me;
 
@@ -3336,6 +3337,10 @@ static void m_raster(void *ctx, void *buf, int shape, int tone, float sx, float 
     (void)ctx;
     fake_buf_t *f = buf;
     unsigned gen = rim_job_gen(&M.s.job);
+    if (sx != 1.0f || sy != 1.0f) {
+        M.off_vars += M.off_frames >= 3;
+        M.on_vars += M.off_frames == 0;
+    }
     f->writing = true;
     for (int i = 0; i < M.raster_frames; i++) m_give(0);
     M.replaced += rim_job_gen(&M.s.job) != gen;
@@ -3388,7 +3393,7 @@ static void m_swapped(void *ctx, int key)
 }
 
 typedef struct {
-    int frames, tears, wrong_slot, badge_off, open_mismatch, returns, return_mismatch, beats, beat_open, ota_own, ota_unswapped;
+    int stale_vars, frames, tears, wrong_slot, badge_off, open_mismatch, returns, return_mismatch, beats, beat_open, ota_own, ota_unswapped;
     double worst_open;
 } model_log_t;
 
@@ -3422,11 +3427,13 @@ static void model_run(uint64_t seed, int race_pct, model_log_t *g)
     bool on_page = true, ota = false, held = false, back = false;
     bot_mood_t last_face = b.face;
     float ratio = 1;
+    double quiet_from = 0;
+    int last_job = -1;
     for (double t = 0; t < 40; t += 1.0 / 60) {
         g->frames++;
         if (t >= next_mood) {
             bot_set_mood(&b, (bot_mood_t)((int)RND(6) % 6), t);
-            next_mood = t + 0.03 + RND(1.5);
+            next_mood = t + (RND(1) < 0.3 ? 2 + RND(2) : 0.03 + RND(1.5));
         }
         if (on_page && t >= page_off) {
             on_page = false;
@@ -3453,10 +3460,14 @@ static void model_run(uint64_t seed, int race_pct, model_log_t *g)
             continue;
         }
         if (held) {
+            quiet_from = t;
             held = false;
             rim_slots_hold(&M.s, false, &ops);
         }
-        bot_rim_ready(&b, rim_slots_feed(&M.s, bot_rim_key(b.mood, b.asleep), &ops));
+        M.off_frames = on_page ? 0 : M.off_frames + 1;
+        if (back || M.s.beat.job != last_job) quiet_from = t;
+        last_job = M.s.beat.job;
+        bot_rim_ready(&b, rim_slots_feed(&M.s, bot_rim_key(b.mood, b.asleep), on_page, &ops));
         bot_pose_t p = bot_pose(&b, t);
         bool beat = p.face != last_face;
         last_face = p.face;
@@ -3481,6 +3492,9 @@ static void model_run(uint64_t seed, int race_pct, model_log_t *g)
                     g->beat_open += lid_max(&p) < 0.9;
                 }
             }
+            unsigned gen = rim_job_gen(&M.s.job);
+            g->stale_vars += t - quiet_from > 1.5 && t - b.mood_since > 1.5 && M.s.beat.job == last_job &&
+                             (atomic_load(&M.s.var_gen[RIM_SLOT_BASE - 1]) != gen || atomic_load(&M.s.var_gen[RIM_SLOT_BASE + 1]) != gen);
             g->returns += back;
             back = false;
         }
@@ -3501,12 +3515,18 @@ static void model_run(uint64_t seed, int race_pct, model_log_t *g)
 static void test_rim_slots_model(void)
 {
     model_log_t g = {0};
-    int replaced = 0, races = 0;
+    int replaced = 0, races = 0, off_vars = 0, on_vars = 0;
     for (int seed = 1; seed <= 80; seed++) {
         model_run((uint64_t)seed, seed % 5 == 0 ? 0 : 35, &g);
         replaced += M.replaced;
         races += M.races;
+        off_vars += M.off_vars;
+        on_vars += M.on_vars;
     }
+    printf("rim slots model: %d variant rasters on the bot page, %d started off it, %d frames on it without -1 and +1 1.5 s after a "
+           "change, return or hold\n", on_vars, off_vars, g.stale_vars);
+    CHECK(!off_vars && on_vars > 1000, "off the bot page only bases render; the variants wait for the page (%d started off it)", off_vars);
+    CHECK(!g.stale_vars, "back on the page the variants follow (%d frames without -1 and +1)", g.stale_vars);
     printf("rim slots model: %d frames, %d beats, %d page returns, %d OTA holds swapped and %d not, %d rasters replaced mid-way, %d race "
            "switches; %d tears, %d wrong slots, %d badge off, %d open mismatches (worst %.2f s after a change), %d on return, %d beats open\n",
            g.frames, g.beats, g.returns, g.ota_own, g.ota_unswapped, replaced, races, g.tears, g.wrong_slot, g.badge_off, g.open_mismatch,

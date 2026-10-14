@@ -657,10 +657,10 @@ static void rim_sync(double t)
     label_place();
 }
 
-bool bot_view_rim_feed(bot_mood_t m, bool asleep)
+bool bot_view_rim_feed(bot_mood_t m, bool asleep, bool shown)
 {
     if (!s_rim_task) return true;
-    return rim_slots_feed(&s_slots, bot_rim_key(m, asleep), &RIM_OPS);
+    return rim_slots_feed(&s_slots, bot_rim_key(m, asleep), shown, &RIM_OPS);
 }
 
 void bot_view_rim_pose(const bot_pose_t *p, double t)

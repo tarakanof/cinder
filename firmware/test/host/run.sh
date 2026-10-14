@@ -376,7 +376,7 @@ BVC="$D/../../main/bot_view.c"
 RSC="$C/rim_slots.c"
 body "$BVC" rim_task | grep -qxF '        rim_slots_run(&s_slots, rim_raster_cb, rim_yield, &work);' || WIRING="$WIRING rim_task-runs-rim_slots_run"
 body "$RSC" rim_slots_run | grep -qF 'if (!rim_job_take(&s->job, &gen, &shape, &tone)) return;' || WIRING="$WIRING rim_task-skips-a-held-take"
-body "$RSC" rim_slots_run | grep -qF 'if (!rim_job_live(&s->job, gen)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
+body "$RSC" rim_slots_run | grep -qF 'if (!rim_job_live(&s->job, gen) || !atomic_load(&s->vars)) break;' || WIRING="$WIRING rim_task-stops-a-dead-job"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL rim wiring:$WIRING" >&2
     exit 1
@@ -538,7 +538,7 @@ fi
 echo "waiting restart wiring: page shown, new lead or more hosts, demo scene number before the mood"
 grep -A1 -F '    bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);' "$MAINC" | grep -qxF '    bot_set_ring(&s_bot, s_ks_lv->working_ring);' ||
     WIRING="$WIRING bot-told-the-working-ring-setting"
-fbody "$MAINC" page_tick | awk '/^    bot_rim_ready\(&s_bot, bot_view_rim_feed\(s_bot\.mood, s_bot\.asleep\)\);$/ {r = NR} /^    f\.pose = bot_pose\(&s_bot, t\);$/ {p = NR}
+fbody "$MAINC" page_tick | awk '/^    bot_rim_ready\(&s_bot, bot_view_rim_feed\(s_bot\.mood, s_bot\.asleep, pg->frame == page_bot_frame\)\);$/ {r = NR} /^    f\.pose = bot_pose\(&s_bot, t\);$/ {p = NR}
     /^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} END {exit !(r && p == r + 1 && s == p + 1)}' ||
     WIRING="$WIRING page_tick-feeds-the-outline-before-the-pose"
 if [ -n "$WIRING" ]; then

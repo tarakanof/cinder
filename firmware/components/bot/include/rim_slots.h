@@ -31,7 +31,7 @@ typedef struct {
     int order[RIM_SLOTS - 1];
     atomic_uint var_gen[RIM_SLOTS];
     atomic_uint base_gen;
-    atomic_bool own;
+    atomic_bool own, vars;
     rim_beat_t beat;
     int shown;
 } rim_slots_t;
@@ -42,9 +42,9 @@ void rim_slots_init(rim_slots_t *s, void *const buf[RIM_SLOTS]);
 /* rim task, once woken: the job's base into the spare slot while it is not swapped, then its missing variants, until
    the job is replaced or held; yield after each raster. */
 void rim_slots_run(rim_slots_t *s, rim_slots_raster_t raster, void (*yield)(void *ctx), void *ctx);
-/* LVGL task, every frame on any page, before bot_pose: starts the job for key (bot_rim_key) when it changes; returns
-   bot_rim_ready's input for key's mood. */
-bool rim_slots_feed(rim_slots_t *s, int key, const rim_slots_ops_t *ops);
+/* LVGL task, every frame on any page, before bot_pose: bot_rim_ready's input for key's (bot_rim_key) mood. shown: the bot
+   page shows; off it the task renders bases only, and showing it again wakes the task for the variants. */
+bool rim_slots_feed(rim_slots_t *s, int key, bool shown, const rim_slots_ops_t *ops);
 /* LVGL task, on the bot page: the pose's outline (want), its face's (face), height/width ratio and time; swaps when the
    face asks and the base is ready. Returns the slot to show (rim_slots_show). */
 int rim_slots_sync(rim_slots_t *s, int want, int face, float ratio, double t, const rim_slots_ops_t *ops);

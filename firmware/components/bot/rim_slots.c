@@ -26,6 +26,7 @@ void rim_slots_init(rim_slots_t *s, void *const buf[RIM_SLOTS])
     }
     atomic_init(&s->base_gen, UINT_MAX);
     atomic_init(&s->own, false);
+    atomic_init(&s->vars, true);
     rim_beat_init(&s->beat);
 }
 
@@ -42,7 +43,7 @@ void rim_slots_run(rim_slots_t *s, rim_slots_raster_t raster, void (*yield)(void
         yield(ctx);
     }
     for (int k = 0; k < RIM_SLOTS - 1; k++) {
-        if (!rim_job_live(&s->job, gen)) break;
+        if (!rim_job_live(&s->job, gen) || !atomic_load(&s->vars)) break;
         int v = s->order[k];
         if (atomic_load(&s->var_gen[v]) == gen || (v == RIM_SLOT_SPARE && !atomic_load(&s->own))) continue;
         RS_RACE_POINT(s, 3);
@@ -73,6 +74,7 @@ static void slots_swap(rim_slots_t *s, const rim_slots_ops_t *ops)
     void *old = s->buf[RIM_SLOT_BASE];
     s->buf[RIM_SLOT_BASE] = s->buf[RIM_SLOT_SPARE];
     s->buf[RIM_SLOT_SPARE] = old;
+    RS_RACE_POINT(s, 7);
     rim_slots_show(s, RIM_SLOT_BASE, ops);
     RS_RACE_POINT(s, 6);
     atomic_store(&s->own, true);
@@ -82,9 +84,10 @@ static void slots_swap(rim_slots_t *s, const rim_slots_ops_t *ops)
 
 static bool base_ready(rim_slots_t *s) { return atomic_load(&s->base_gen) == rim_job_gen(&s->job); }
 
-bool rim_slots_feed(rim_slots_t *s, int key, const rim_slots_ops_t *ops)
+bool rim_slots_feed(rim_slots_t *s, int key, bool shown, const rim_slots_ops_t *ops)
 {
-    if (rim_beat_want(&s->beat, key)) slots_start(s, ops);
+    if (shown && !atomic_exchange(&s->vars, true) && s->beat.job >= 0) ops->wake(ops->ctx);
+    if (!shown) atomic_store(&s->vars, false);
     return rim_beat_ready(&s->beat, (int)bot_rim_mood(key), base_ready(s));
 }
 

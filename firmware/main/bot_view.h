@@ -30,8 +30,8 @@ void bot_view_chase(bool merge, bool wipe);
    (a empty) when the label shows no icon. Redraws nothing: bot_view_icon_redraw(a) does. */
 bool bot_view_icon_off(bool off, lv_area_t *a);
 void bot_view_icon_redraw(const lv_area_t *a);
-/* LVGL task only, every frame on any page before bot_pose: starts the outline job for m and asleep; returns bot_rim_ready's input. */
-bool bot_view_rim_feed(bot_mood_t m, bool asleep);
+/* LVGL task only, every frame on any page before bot_pose: bot_rim_ready's input; shown: the bot page shows (off it, bases only). */
+bool bot_view_rim_feed(bot_mood_t m, bool asleep, bool shown);
 /* LVGL task only, every frame on any page right after bot_pose: the outline follows the pose's face (swaps while hidden too). */
 void bot_view_rim_pose(const bot_pose_t *p, double t);
 /* LVGL task only: true drops the background outline job until false, which redoes it. */
