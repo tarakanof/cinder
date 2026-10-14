@@ -455,6 +455,13 @@ body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment
 body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_offline(join_glyph_shown(f->offline, s_join_shown));' &&
     body "$MAINC" join_frame | grep -qxF '    join_label_t show = join_label_pick(&in);' &&
     body "$MAINC" join_frame | grep -qxF '    s_join_shown = show;' || WIRING="$WIRING page_bot_frame-asks-join_glyph_shown-with-the-shown-join-label"
+JF="$(body "$MAINC" join_frame)"
+for L in '.setup = s_setup,' '.online = ember_client_online(),' '.join_failures = ember_client_join_failures(),' \
+    '.unauthorized = ember_client_link() == EMBER_LINK_UNAUTHORIZED,' '.has_url = config_store_has_ember_url(),' \
+    '.has_device = config_store_has_device(),' '.update_knob = ember_client_view_compat() == EMBER_VIEW_UPDATE_KNOB,' \
+    '.update_ember = ember_client_view_compat() == EMBER_VIEW_UPDATE_EMBER,'; do
+    printf '%s\n' "$JF" | grep -qxF "        $L" || WIRING="$WIRING join_frame:$L"
+done
 body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);' &&
     grep -qxF 'static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];' "$BVC" &&
     [ "$(grep -c 'offline_glyph_raster(' "$BVC")" -eq 1 ] || WIRING="$WIRING offline-glyph-rastered-once-into-PSRAM"
