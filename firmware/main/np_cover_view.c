@@ -1,9 +1,11 @@
 #include "np_cover_view.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "arc_text.h"
 #include "esp_heap_caps.h"
 
 LV_FONT_DECLARE(font_digits_96);
@@ -41,6 +43,11 @@ LV_FONT_DECLARE(font_digits_96);
 #define SCRIM_STOP(y) (((y) - SCRIM_TOP) * 255 / (2 * NP_DISC_R))
 #define FACE_DIM_OPA 109
 #define TEXT_DIM_OPA LV_OPA_50
+#define V15_TIME_DY (-123)
+#define V15_SHADE_R (NP_V15_R + 1)
+#define COL_V15_ARTIST 0x9A9A9A
+
+enum { CHG_NONE, CHG_ARMED, CHG_RUN };
 
 static const np_ring_t EDGE = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = NP_EDGE_R, .hw = NP_EDGE_HW};
 
@@ -57,6 +64,24 @@ typedef struct {
     char shown[NP_COVERV_MAX + 1];
     char work[4 * NP_TEXT_MAX + 8];
     char fit[4 * NP_TEXT_MAX + 8];
+    char arc_title[2 * NP_TEXT_MAX + 1];
+    float arc_w[NP_TEXT_MAX];
+    arc_item_t arc_it[NP_TEXT_MAX];
+    char arc_artist[2 * NP_TEXT_MAX + 1];
+    np_art_set_t pend;
+    bool pend_vinyl, chg_from, swapped;
+    int chg;
+    double chg_t0;
+    double sweep_t0, sweep_dur;
+    bool sweeping, shown_live;
+    uint32_t accent;
+    bool accent_ok;
+    int layout;
+    int frame;
+    bool text_dirty;
+    int text_dx, text_dy;
+    int shade_small;
+    long long time_ms;
 } npc_mem_t;
 static npc_mem_t *M;
 
@@ -210,6 +235,13 @@ void npc_build(lv_obj_t *root)
     s_ring_on = false;
     s_avatar_grey = -1;
     M->title[0] = M->artist[0] = M->time[0] = M->idle[0] = M->badge[0] = M->num[0] = 0;
+    M->arc_title[0] = M->arc_artist[0] = 0;
+    M->chg = CHG_NONE;
+    M->sweeping = M->shown_live = false;
+    M->layout = -1;
+    M->frame = -1;
+    M->shade_small = -1;
+    M->accent_ok = false;
 }
 
 static void vinyl_free(void)
@@ -218,11 +250,19 @@ static void vinyl_free(void)
     s_vinyl_buf = NULL;
 }
 
+static void chg_drop(void)
+{
+    np_art_set_free(&M->pend);
+    M->pend_vinyl = false;
+    M->chg = CHG_NONE;
+}
+
 static void buf_free(void)
 {
     free(s_buf);
     s_buf = NULL;
     s_has_cover = s_no_cover = s_no_cover_painted = s_ring_on = false;
+    chg_drop();
 }
 
 void npc_destroy(void)
@@ -271,18 +311,44 @@ static void avatar_src(bool grey)
     lv_image_set_src(s_avatar, grey && s_grey_buf ? &M->grey_dsc : &M->avatar_dsc);
 }
 
+static uint32_t accent_of(const np_info_t *np, bool vinyl)
+{
+    if (np->has_accent) return np->accent;
+    return vinyl ? NP_ACCENT_VINYL : NP_ACCENT_DEFAULT;
+}
+
 static void paint_no_cover(void)
 {
     if (s_no_cover_painted || !ensure_buf()) return;
-    np_no_cover_render(s_buf, FACE);
+    np_v15_render(s_buf, FACE, FACE, (np_rect_t){0, 0, FACE, FACE}, M->frame < 0 ? 0 : M->frame, M->accent);
     lv_obj_invalidate(s_img);
     s_ring_on = false;
     s_no_cover_painted = true;
+    M->text_dirty = true;
 }
 
-void npc_adopt(np_art_set_t *in)
+static void avatar_take(uint8_t *avatar)
 {
-    if (!s_img) return;
+    lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
+    free(s_avatar_buf);
+    free(s_grey_buf);
+    s_avatar_buf = avatar;
+    s_grey_buf = NULL;
+    M->avatar_dsc.data = s_avatar_buf;
+    if (s_avatar_buf) {
+        const size_t n = (size_t)NP_AVATAR_PX * NP_AVATAR_PX;
+        s_grey_buf = heap_caps_malloc(n * 3, MALLOC_CAP_SPIRAM);
+        if (s_grey_buf) {
+            np_grey565((const uint16_t *)s_avatar_buf, (uint16_t *)s_grey_buf, (int)n, 0.75f);
+            memcpy(s_grey_buf + n * 2, s_avatar_buf + n * 2, n);
+        }
+        M->grey_dsc.data = s_grey_buf;
+        avatar_src(false);
+    }
+}
+
+static void apply_set(np_art_set_t *in)
+{
     if (in->cover) {
         set_buf(in->cover);
         in->cover = NULL;
@@ -297,24 +363,57 @@ void npc_adopt(np_art_set_t *in)
         s_has_cover = s_no_cover = false;
     }
     strlcpy(M->shown, npc_has_cover() ? in->version : "", sizeof M->shown);
-    lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
-    free(s_avatar_buf);
-    free(s_grey_buf);
-    s_avatar_buf = in->avatar;
-    s_grey_buf = NULL;
+    avatar_take(in->avatar);
     in->avatar = NULL;
-    M->avatar_dsc.data = s_avatar_buf;
-    if (s_avatar_buf) {
-        const size_t n = (size_t)NP_AVATAR_PX * NP_AVATAR_PX;
-        s_grey_buf = heap_caps_malloc(n * 3, MALLOC_CAP_SPIRAM);
-        if (s_grey_buf) {
-            np_grey565((const uint16_t *)s_avatar_buf, (uint16_t *)s_grey_buf, (int)n, 0.75f);
-            memcpy(s_grey_buf + n * 2, s_avatar_buf + n * 2, n);
-        }
-        M->grey_dsc.data = s_grey_buf;
-        avatar_src(false);
+}
+
+static void chg_arm(void)
+{
+    M->chg_from = npc_has_cover();
+    M->chg = CHG_ARMED;
+}
+
+void npc_adopt(np_art_set_t *in)
+{
+    if (!s_img) return;
+    if (M->shown_live && (in->cover || in->no_cover)) {
+        np_art_set_free(&M->pend);
+        M->pend = *in;
+        memset(in, 0, sizeof *in);
+        M->pend_vinyl = false;
+        chg_arm();
+        return;
     }
+    chg_drop();
+    apply_set(in);
+    M->accent_ok = false;
     s_state = -1;
+}
+
+static void chg_vinyl(void)
+{
+    np_art_set_free(&M->pend);
+    M->pend_vinyl = true;
+    chg_arm();
+}
+
+static void chg_swap(const np_info_t *np)
+{
+    if (M->pend_vinyl) {
+        M->accent = accent_of(np, true);
+        s_has_cover = s_no_cover_painted = false;
+        s_no_cover = true;
+        strlcpy(M->shown, np->cover_version, sizeof M->shown);
+        avatar_take(NULL);
+        paint_no_cover();
+    } else {
+        M->accent = accent_of(np, !M->pend.cover);
+        apply_set(&M->pend);
+        np_art_set_free(&M->pend);
+    }
+    M->pend_vinyl = false;
+    M->accent_ok = true;
+    s_ring_on = false;
 }
 
 void npc_fit_text(char *txt, const lv_font_t *font, int max_w)
@@ -407,6 +506,8 @@ static void idle_update(const npc_frame_t *f, bool relayout)
         show(s_img, false);
         if (npc_has_cover()) np_client_forget_art();
         buf_free();
+        M->shown_live = M->sweeping = false;
+        M->layout = -1;
         show(s_vinyl, vinyl_ready());
         show(s_idle, true);
         lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
@@ -453,35 +554,197 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
     show(s_pause, look->pause_icon && !M->badge[0] && !number);
 }
 
+static void arc_line(lv_layer_t *layer, const lv_font_t *font, const char *text, float r, uint32_t rgb, int dx, int dy)
+{
+    float *w = M->arc_w;
+    arc_item_t *it = M->arc_it;
+    int n = 0;
+    for (const char *p = text; *p && n < NP_TEXT_MAX; p++)
+        w[n++] = (float)lv_font_get_glyph_width(font, (uint8_t)p[0], (uint8_t)p[1]);
+    if (!n) return;
+    arc_text_layout(FACE / 2.0f + dx, FACE / 2.0f + dy, r, w, n, it);
+    for (int i = 0; i < n; i++) {
+        lv_draw_letter_dsc_t d;
+        lv_draw_letter_dsc_init(&d);
+        d.font = font;
+        d.color = lv_color_hex(rgb);
+        d.unicode = (uint8_t)text[i];
+        d.rotation = (int32_t)lroundf(it[i].rot_deg * 10);
+        lv_point_t pt = {(int32_t)lroundf(it[i].x), (int32_t)lroundf(it[i].y)};
+        lv_draw_letter(layer, &d, &pt);
+    }
+}
+
+static void v15_text(int dx, int dy)
+{
+    np_rect_t b = np_v15_text_box();
+    np_v15_render(s_buf, FACE, FACE, b, M->frame < 0 ? 0 : M->frame, M->accent);
+    lv_obj_t *c = lv_canvas_create(NULL);
+    if (c) {
+        lv_canvas_set_buffer(c, s_buf, FACE, FACE, LV_COLOR_FORMAT_RGB565);
+        lv_layer_t layer;
+        lv_canvas_init_layer(c, &layer);
+        arc_line(&layer, &lv_font_montserrat_30, M->arc_title, NP_V15_TITLE_R, COL_TEXT, dx, dy);
+        arc_line(&layer, &lv_font_montserrat_24, M->arc_artist, NP_V15_ARTIST_R, COL_V15_ARTIST, dx, dy);
+        lv_canvas_finish_layer(c, &layer);
+        lv_obj_delete(c);
+    }
+    lv_area_t a = {.x1 = b.x + FACE_X, .y1 = b.y, .x2 = b.x + FACE_X + b.w - 1, .y2 = b.y + b.h - 1};
+    lv_obj_invalidate_area(s_img, &a);
+    M->text_dx = dx;
+    M->text_dy = dy;
+    M->text_dirty = false;
+}
+
+static void v15_strings(const np_info_t *np)
+{
+    char *w = M->work;
+    np_text_fold(np->title[0] ? np->title : "Unknown track", w, sizeof M->arc_title);
+    npc_fit_text(w, &lv_font_montserrat_30, NP_V15_TEXT_W);
+    if (strcmp(w, M->arc_title) != 0) {
+        strlcpy(M->arc_title, w, sizeof M->arc_title);
+        M->text_dirty = true;
+    }
+    np_text_fold(np->artist[0] ? np->artist : np->album, w, sizeof M->arc_artist);
+    npc_fit_text(w, &lv_font_montserrat_24, NP_V15_TEXT_W);
+    if (strcmp(w, M->arc_artist) != 0) {
+        strlcpy(M->arc_artist, w, sizeof M->arc_artist);
+        M->text_dirty = true;
+    }
+}
+
+static void v15_spin(int frame)
+{
+    if (frame == M->frame) return;
+    M->frame = frame;
+    if (!s_no_cover_painted) return;
+    np_rect_t b = np_v15_label_box();
+    np_v15_render(s_buf, FACE, FACE, b, frame, M->accent);
+    lv_area_t a = {.x1 = b.x + FACE_X, .y1 = b.y, .x2 = b.x + FACE_X + b.w - 1, .y2 = b.y + b.h - 1};
+    lv_obj_invalidate_area(s_img, &a);
+}
+
+static void layout_set(bool v15)
+{
+    M->layout = v15;
+    show(s_title, !v15);
+    show(s_artist, !v15);
+    show(s_time, true);
+    if (v15) {
+        show(s_avatar, false);
+        M->arc_title[0] = M->arc_artist[0] = 0;
+    }
+}
+
+static void shade_geometry(bool small)
+{
+    if ((int)small == M->shade_small) return;
+    M->shade_small = small;
+    int px = 2 * (small ? V15_SHADE_R : NP_DISC_R);
+    lv_obj_set_size(s_shade, px, px);
+    lv_obj_align(s_shade, LV_ALIGN_CENTER, 0, small ? NP_V15_CY - FACE / 2 : 0);
+}
+
+static float sweep_k(double now)
+{
+    if (!M->sweeping) return 1;
+    float k = np_sweep_k(now - M->sweep_t0, M->sweep_dur);
+    if (k >= 1) M->sweeping = false;
+    return k;
+}
+
+static void sweep_start(double now, double dur)
+{
+    M->sweeping = true;
+    M->sweep_t0 = now;
+    M->sweep_dur = dur;
+}
+
+static uint8_t chg_step(const npc_frame_t *f, float *keep)
+{
+    *keep = 1;
+    if (M->chg == CHG_NONE) return 0;
+    if (M->chg == CHG_ARMED) {
+        M->chg = CHG_RUN;
+        M->chg_t0 = f->now;
+        M->swapped = false;
+    }
+    np_change_t c;
+    np_change_at(f->now - M->chg_t0, M->chg_from, &c);
+    if (c.swap && !M->swapped) {
+        M->swapped = true;
+        chg_swap(f->np);
+        if (M->chg_from) sweep_start(f->now, NP_REGROW_S);
+    }
+    if (c.done) M->chg = CHG_NONE;
+    *keep = c.keep;
+    return c.fade;
+}
+
+static void time_text(const npc_frame_t *f, long long shown_ms, bool v15)
+{
+    char p[16], d[16];
+    if (f->state == NPF_PAUSED) {
+        strlcpy(M->work, "Paused", sizeof M->work);
+    } else if (v15 && f->dur_ms > 0) {
+        long long left = f->dur_ms - shown_ms;
+        np_format_time(left < 0 ? 0 : left, p, sizeof p);
+        snprintf(M->work, sizeof M->work, "-%s", p);
+    } else {
+        np_format_time(shown_ms, p, sizeof p);
+        np_format_time(f->dur_ms, d, sizeof d);
+        if (f->dur_ms > 0) snprintf(M->work, sizeof M->work, "%s / %s", p, d);
+        else strlcpy(M->work, p, sizeof M->work);
+    }
+    text_set(s_time, M->time, sizeof M->time, M->work);
+}
+
 void npc_update(const npc_frame_t *f)
 {
     if (!s_img || !M) return;
-    bool relayout = (int)f->state != s_state;
     bool idle = f->state == NPF_WAITING || f->state == NPF_NOTHING || f->state == NPF_OFFLINE_EMPTY;
     if (idle) {
-        idle_update(f, relayout);
+        idle_update(f, (int)f->state != s_state);
         s_state = f->state;
         return;
     }
     if (!ensure_buf()) return;
-    if (s_no_cover) paint_no_cover();
     const np_info_t *np = f->np;
+    if (!M->shown_live && np_face_live(f->state)) sweep_start(f->now, NP_ARRIVE_S);
+    M->shown_live = true;
+    if (!np->cover_version[0] && !s_no_cover && !(M->chg != CHG_NONE && M->pend_vinyl)) chg_vinyl();
+    float keep;
+    uint8_t fade = chg_step(f, &keep);
+    bool held = M->accent_ok && npc_has_cover() && strcmp(M->shown, np->cover_version) != 0;
+    if (!held) {
+        uint32_t a = accent_of(np, s_no_cover);
+        if (a != M->accent && s_no_cover_painted) s_no_cover_painted = false;
+        M->accent = a;
+        M->accent_ok = true;
+    }
+    if (s_no_cover) paint_no_cover();
+    bool v15 = s_no_cover;
+    bool relayout = (int)f->state != s_state || (int)v15 != M->layout;
     np_face_look_t look;
-    np_face_look(f->state, f->ring, np->has_accent ? np->accent : NP_ACCENT_DEFAULT, &look);
+    np_face_look(f->state, f->ring, M->accent, &look);
     bool frozen = f->state == NPF_OFFLINE && s_sec >= 0 && s_state != NPF_PAUSED;
     if (relayout) {
         show(s_idle, false);
         show(s_vinyl, false);
         vinyl_free();
         show(s_img, true);
-        show(s_title, true);
-        show(s_artist, true);
-        show(s_time, true);
+        layout_set(v15);
     }
-    show(s_avatar, s_avatar_buf != NULL);
+    show(s_avatar, !v15 && s_avatar_buf != NULL);
     if (s_avatar_buf && (int)look.avatar_grey != s_avatar_grey) avatar_src(look.avatar_grey);
 
-    if (f->text_fresh || relayout) {
+    if (v15) {
+        if (f->text_fresh || relayout || !M->arc_title[0]) v15_strings(np);
+        if (M->text_dirty || f->dx != M->text_dx || f->dy != M->text_dy) v15_text(f->dx, f->dy);
+        int frame = f->state == NPF_PLAYING && M->chg == CHG_NONE ? (int)fmod(floor(f->now * NP_V15_FPS), NP_V15_FRAMES)
+                                                                   : M->frame;
+        v15_spin(frame < 0 ? 0 : frame);
+    } else if (f->text_fresh || relayout) {
         char *w = M->work;
         np_text_fold(np->title[0] ? np->title : "Unknown track", w, sizeof M->title);
         npc_fit_text(w, &lv_font_montserrat_30, TITLE_W);
@@ -491,34 +754,36 @@ void npc_update(const npc_frame_t *f)
         text_set(s_artist, M->artist, sizeof M->artist, w);
     }
 
-    if (!frozen && (f->pos_ms / 1000 != s_sec || relayout)) {
+    if (f->ring == NP_RING_VOLUME || f->state == NPF_OFFLINE) M->sweeping = false;
+    float k = sweep_k(f->now);
+    if (!frozen) {
         s_sec = f->pos_ms / 1000;
-        char p[16], d[16];
-        np_format_time(f->pos_ms, p, sizeof p);
-        np_format_time(f->dur_ms, d, sizeof d);
-        if (f->state == NPF_PAUSED) strlcpy(M->work, "Paused", sizeof M->work);
-        else if (f->dur_ms > 0) snprintf(M->work, sizeof M->work, "%s / %s", p, d);
-        else strlcpy(M->work, p, sizeof M->work);
-        text_set(s_time, M->time, sizeof M->time, M->work);
+        long long shown = (long long)((double)(s_sec * 1000) * k);
+        if (shown / 1000 != M->time_ms / 1000 || relayout) {
+            M->time_ms = shown;
+            time_text(f, shown, v15);
+        }
     }
     if (look.time_col != s_time_col || relayout) {
         s_time_col = look.time_col;
-        lv_obj_set_style_text_color(s_time, lv_color_hex(look.time_col), 0);
+        lv_obj_set_style_text_color(s_time, lv_color_hex(v15 && look.time_col == 0xD6D6D6 ? COL_SUB : look.time_col), 0);
     }
 
     float frac;
     if (f->ring == NP_RING_VOLUME) frac = f->vol / 100.0f;
     else if (frozen && s_ring_on) frac = s_frac;
-    else frac = f->dur_ms > 0 ? (float)((double)(s_sec * 1000) / (double)f->dur_ms) : 0;
+    else frac = f->dur_ms > 0 ? (float)((double)(s_sec * 1000) / (double)f->dur_ms) * k * keep : 0;
     if (frac > 1) frac = 1;
     np_edge_style_t st;
     np_edge_style(&st, f->ring, look.ring);
     ring_draw(frac, &st);
 
-    if (look.shade != s_shade_opa) {
-        s_shade_opa = look.shade;
-        lv_obj_set_style_bg_opa(s_shade, look.shade, 0);
-        show(s_shade, look.shade > 0);
+    shade_geometry(v15 && M->chg == CHG_NONE);
+    int shade = np_shade_mix(look.shade, fade);
+    if (shade != s_shade_opa) {
+        s_shade_opa = shade;
+        lv_obj_set_style_bg_opa(s_shade, (lv_opa_t)shade, 0);
+        show(s_shade, shade > 0);
     }
     int scrim = s_has_cover ? np_scrim_opa(np->cover_light && strcmp(M->shown, np->cover_version) == 0, look.shade) : 0;
     if (scrim != s_scrim_opa) {
@@ -540,6 +805,7 @@ void npc_update(const npc_frame_t *f)
         s_dx = f->dx;
         s_dy = f->dy;
         place_text(f->dx, f->dy);
+        if (v15) lv_obj_align(s_time, LV_ALIGN_CENTER, f->dx, V15_TIME_DY + f->dy);
     }
     s_state = f->state;
 }

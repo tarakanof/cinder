@@ -200,6 +200,29 @@ static bool outside_same(const uint16_t *a)
     return true;
 }
 
+typedef struct {
+    int frames, max_areas, full;
+    long max_px, px;
+} run_t;
+
+static run_t run(lv_display_t *d, npc_frame_t *f, double secs, double step)
+{
+    run_t r = {0};
+    for (double t = 0; t < secs; t += step) {
+        f->now += step;
+        npc_update(f);
+        refresh(d);
+        r.frames += s_areas > 0;
+        if (s_areas > r.max_areas) r.max_areas = s_areas;
+        if (s_px > r.max_px) r.max_px = s_px;
+        if (s_px >= 200000) r.full++;
+        r.px += s_px;
+    }
+    return r;
+}
+
+static int v15_label(void) { return luma(FX + NP_V15_CX - 30, NP_V15_CY + 30); }
+
 static void test_scrim(lv_display_t *d, lv_obj_t *root)
 {
     static uint16_t before[W * H];
@@ -213,6 +236,8 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     npc_adopt(&art);
     npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
                      .pos_ms = 160000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
+    npc_update(&f);
+    f.now += 2;
     npc_update(&f);
     refresh(d);
     save("m1-white-no-hint");
@@ -297,51 +322,134 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     art = (np_art_set_t){.is_cover = true, .no_cover = true};
     strcpy(art.version, np.cover_version);
     npc_adopt(&art);
-    npc_update(&f);
-    refresh(d);
-    save("m1-no-cover");
-    int disc = luma(FX + 233, 180);
+    run(d, &f, 1.6, 1 / 60.0);
+    save("m15-bad-cover");
+    int label = v15_label(), rec = luma(FX + NP_V15_CX, NP_V15_CY - 100);
     band = luma(FX + 73, 300);
-    printf("np_view: no-cover look: disc %d, band %d\n", disc, band);
-    CHECK(npc_has_cover() && abs(disc - 0x1E) <= 6, "a bad cover: the grey no-cover disc, not black: %d", disc);
-    CHECK(abs(band - disc) <= 2, "no cover: no scrim on the flat disc, cover_light or not: %d vs %d", band, disc);
+    printf("np_view: M15 for a bad cover: label %d, record %d, band %d\n", label, rec, band);
+    CHECK(npc_has_cover() && label > 180 && rec < 40, "a bad cover: M15's vinyl, through black: label %d, record %d", label, rec);
+    CHECK(band < 10, "no cover: no scrim, the text is on black: %d", band);
+    CHECK(ink(285, 316, 140, 326, 200) < 40, "the straight title is hidden: %d px", ink(285, 316, 140, 326, 200));
+    CHECK(ink(350, 425, 100, 366, 180) > 300, "the curved title and artist: %d px", ink(350, 425, 100, 366, 180));
     rgb(FX + 233, 233 + NP_EDGE_R, &top, &band, &low);
-    CHECK(top > 240 && band > 120 && band < 150, "the ring is redrawn over it: %d,%d", top, band);
+    CHECK(top > 240 && band > 120 && band < 150, "the ring regrows in the accent: %d,%d", top, band);
     f.state = NPF_OFFLINE;
     npc_update(&f);
     refresh(d);
-    CHECK(npc_has_cover() && luma(FX + 233, 106) < 20, "offline keeps the no-cover face with the badge");
+    CHECK(npc_has_cover() && luma(FX + 233, 106) < 20, "offline keeps M15 with the badge");
 
     f.state = NPF_PLAYING;
     f.pos_ms = 170000;
     npc_update(&f);
-    CHECK(strcmp(npc_time_text(), "2:50 / 3:48") == 0, "%s", npc_time_text());
+    CHECK(strcmp(npc_time_text(), "-0:58") == 0, "M15 counts down: %s", npc_time_text());
     f.state = NPF_PAUSED;
     npc_update(&f);
     CHECK(strcmp(npc_time_text(), "Paused") == 0, "paused in the same second: %s", npc_time_text());
     f.state = NPF_PLAYING;
     npc_update(&f);
-    CHECK(strcmp(npc_time_text(), "2:50 / 3:48") == 0, "playing again in the same second: the relayout redraws the time: %s",
+    CHECK(strcmp(npc_time_text(), "-0:58") == 0, "playing again in the same second: the relayout redraws the time: %s",
           npc_time_text());
     f.state = NPF_OFFLINE;
     f.pos_ms = 171000;
     npc_update(&f);
-    CHECK(strcmp(npc_time_text(), "2:50 / 3:48") == 0, "offline from playing freezes: %s", npc_time_text());
+    CHECK(strcmp(npc_time_text(), "-0:58") == 0, "offline from playing freezes: %s", npc_time_text());
     f.state = NPF_PAUSED;
     npc_update(&f);
     f.state = NPF_OFFLINE;
     f.pos_ms = 172000;
     npc_update(&f);
-    CHECK(strcmp(npc_time_text(), "2:52 / 3:48") == 0, "offline from paused shows the position once: %s", npc_time_text());
+    CHECK(strcmp(npc_time_text(), "-0:56") == 0, "offline from paused shows the position once: %s", npc_time_text());
     f.pos_ms = 175000;
     npc_update(&f);
-    CHECK(strcmp(npc_time_text(), "2:52 / 3:48") == 0, "then freezes: %s", npc_time_text());
+    CHECK(strcmp(npc_time_text(), "-0:56") == 0, "then freezes: %s", npc_time_text());
 
     f.state = NPF_NOTHING;
     int forgets = s_forgets;
     npc_update(&f);
     refresh(d);
     CHECK(!npc_has_cover() && s_forgets == forgets + 1, "idle drops the no-cover look and asks again later");
+    npc_destroy();
+    lv_obj_clean(root);
+}
+
+static uint16_t *make_flat(uint16_t c565)
+{
+    uint16_t *c = malloc(NP_COVER_PX * NP_COVER_PX * 2);
+    for (int y = 0; y < NP_COVER_PX; y++)
+        for (int x = 0; x < NP_COVER_PX; x++)
+            c[y * NP_COVER_PX + x] = hypotf(x + 0.5f - 233, y + 0.5f - 233) <= NP_DISC_R ? c565 : 0;
+    return c;
+}
+
+static void test_change(lv_display_t *d, lv_obj_t *root)
+{
+    npc_build(root);
+    np_info_t np = {.state = NP_PLAYING, .has_accent = true, .accent = 0xFF8A5C, .duration_ms = 228000};
+    strcpy(np.title, "Low Tide Radio");
+    strcpy(np.artist, "Glass Harbor");
+    strcpy(np.cover_version, "a0-r1");
+    np_art_set_t art = {.is_cover = true, .cover = make_flat(0xFFFF)};
+    strcpy(art.version, np.cover_version);
+    npc_adopt(&art);
+    npc_frame_t f = {.now = 200, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
+                     .pos_ms = 134000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
+    npc_update(&f);
+    run(d, &f, 1.5, 0.1);
+    f.text_fresh = false;
+
+    strcpy(np.title, "Paper Moons");
+    strcpy(np.cover_version, "b0-r1");
+    np.accent = 0x7FA8FF;
+    f.pos_ms = 100000;
+    f.text_fresh = true;
+    npc_update(&f);
+    refresh(d);
+    f.text_fresh = false;
+    int r, g, b;
+    rgb(FX + 233 + NP_EDGE_R, 233, &r, &g, &b);
+    CHECK(r > 240 && b < 110, "while the new cover loads the ring keeps the old accent: %d,%d,%d", r, g, b);
+    CHECK(luma(FX + 233, 150) > 240, "and the old cover stays");
+
+    art = (np_art_set_t){.is_cover = true, .cover = make_flat(0x001F)};
+    strcpy(art.version, np.cover_version);
+    npc_adopt(&art);
+    CHECK(!art.cover, "the view holds the new cover");
+    int lum[64], areas[64], n = 0, black = -1, full = 0, max_areas = 0;
+    long px = 0;
+    for (int i = 0; i < 64; i++) {
+        f.now += 1 / 60.0;
+        f.pos_ms = 100000 + (long long)(i * 1000 / 60);
+        npc_update(&f);
+        refresh(d);
+        lum[n] = luma(FX + 233, 150);
+        rgb(FX + 233, 150, &r, &g, &b);
+        areas[n] = s_areas;
+        if (s_areas > max_areas) max_areas = s_areas;
+        px += s_px;
+        full += s_px >= 200000;
+        if (black < 0 && r < 8 && b < 8) black = n;
+        n++;
+    }
+    int levels = 0, last = -1;
+    for (int i = 0; i < n; i++)
+        if (abs(lum[i] - last) > 3) {
+            levels++;
+            last = lum[i];
+        }
+    rgb(FX + 233, 150, &r, &g, &b);
+    printf("np_view: M8 track change: %d distinct levels, black at frame %d (%.0f ms), %d full-image areas, at most %d areas, "
+           "%ld px in %d frames\n",
+           levels, black, black * 1000 / 60.0, full, max_areas, px, n);
+    CHECK(lum[10] > 240, "the old cover holds ~0.25 s: %d", lum[10]);
+    CHECK(black >= 20 && black <= 24, "fades to black in 3 steps after the hold: frame %d", black);
+    CHECK(levels >= 6 && levels <= 8, "3 steps out, black, 3 steps in: %d levels", levels);
+    CHECK(b > 240 && r < 10, "the new cover is in: %d,%d,%d", r, g, b);
+    CHECK(full <= 1 && max_areas <= 3, "one full-image area at the swap, else the shade and the ring: %d full, %d areas", full,
+          max_areas);
+    run(d, &f, 1.0, 1 / 30.0);
+    rgb(FX + 233 + NP_EDGE_R, 233, &r, &g, &b);
+    CHECK(b > 240 && r < 160, "re-tinted on the black frame and regrown in the new accent: %d,%d,%d", r, g, b);
+    (void)areas;
     npc_destroy();
     lv_obj_clean(root);
 }
@@ -365,7 +473,7 @@ static void test_no_cover_oom(lv_display_t *d, lv_obj_t *root)
     f.pos_ms = 11000;
     npc_update(&f);
     refresh(d);
-    CHECK(abs(luma(FX + 233, 180) - 0x1E) <= 6, "the buffer comes later: grey, not black: %d", luma(FX + 233, 180));
+    CHECK(v15_label() > 180, "the buffer comes later: M15's vinyl, not black: %d", v15_label());
     npc_destroy();
     lv_obj_clean(root);
 }
@@ -407,6 +515,30 @@ static void test_page(lv_display_t *d, lv_obj_t *scr)
     rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
     CHECK(r > 240 && g > 120 && g < 150, "accent ring: %d,%d,%d", r, g, b);
 
+    np_info_t bare = {.state = NP_PLAYING, .duration_ms = 160000, .position_ms = 62000};
+    strcpy(bare.title, "Untitled demo");
+    strcpy(bare.artist, "Home recording");
+    publish(&bare);
+    frames(d, 20);
+    save("m15-no-picture");
+    int label = luma(FX + NP_V15_CX - 30, NP_V15_CY + 30);
+    rgb(FX + 233 + NP_EDGE_R, 233, &r, &g, &b);
+    printf("np_view: M15 for a track with no picture: label %d, ring %d,%d,%d\n", label, r, g, b);
+    CHECK(label > 180, "a track with no picture: the cover face with M15's vinyl: %d", label);
+    CHECK(r > 240 && g > 160 && g < 200 && b < 100, "the ring in the vinyl amber: %d,%d,%d", r, g, b);
+    long spin_px = 0;
+    int spin = 0, spin_max = 0;
+    for (int i = 0; i < 60; i++) {
+        s_now_us += 1000000 / 60;
+        np_view_update(s_now_us / 1e6, false);
+        refresh(d);
+        spin += s_areas;
+        spin_px += s_px;
+        if (s_areas > spin_max) spin_max = s_areas;
+    }
+    printf("np_view: M15 playing, 1 s: %d areas, %ld px (label at %d fps, ring and time once)\n", spin, spin_px, NP_V15_FPS);
+    CHECK(spin >= 4 && spin <= 7 && spin_max <= 3, "M15: the label 4 times a second plus the ring and time: %d areas", spin);
+
     np.cover_version[0] = 0;
     publish(&np);
     frames(d, 2);
@@ -445,14 +577,29 @@ int main(int argc, char **argv)
     strcpy(np.artist, "Northern Static");
     strcpy(np.cover_version, "fb43cf74b67a-r1");
     np_art_set_t art = {.is_cover = true, .cover = make_cover(), .avatar = make_avatar()};
+    strcpy(art.version, np.cover_version);
     npc_adopt(&art);
     CHECK(!art.cover && !art.avatar && npc_has_cover(), "the view takes the pictures");
     npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
                      .pos_ms = 134000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
     npc_update(&f);
     refresh(d);
-    save("m1-playing");
+    save("m1-arrival-start");
+    CHECK(strcmp(npc_time_text(), "0:00 / 3:48") == 0, "the arrival counts up from 0: %s", npc_time_text());
     int r, g, b;
+    rgb(FX + 233 + 40, 233 - NP_EDGE_R + 2, &r, &g, &b);
+    CHECK(r < 60, "the ring starts empty: %d,%d,%d", r, g, b);
+    run_t ar = run(d, &f, NP_ARRIVE_S + 0.2, 1 / 60.0);
+    printf("np_view: arrival sweep: %d frames drawn, at most %d areas and %ld px a frame, %ld px in all\n", ar.frames,
+           ar.max_areas, ar.max_px, ar.px);
+    CHECK(ar.frames >= 30 && ar.frames <= 42 && ar.max_areas <= 2 && ar.full == 0, "arrival: %d frames, %d areas, %d full",
+          ar.frames, ar.max_areas, ar.full);
+    CHECK(strcmp(npc_time_text(), "2:14 / 3:48") == 0, "counted up to the position: %s", npc_time_text());
+    f.now += 1;
+    npc_update(&f);
+    refresh(d);
+    CHECK(s_areas == 0, "then still: %d areas", s_areas);
+    save("m1-playing");
     rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
     CHECK(r > 240 && g > 120 && g < 150 && b < 110, "accent arc at 6 o'clock: %d,%d,%d", r, g, b);
     rgb(FX + 233 - NP_EDGE_R, 233, &r, &g, &b);
@@ -557,6 +704,7 @@ int main(int argc, char **argv)
     lv_obj_clean(root);
     test_scrim(d, root);
     test_no_cover_oom(d, root);
+    test_change(d, root);
     test_page(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
