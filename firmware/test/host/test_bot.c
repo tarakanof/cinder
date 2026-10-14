@@ -2707,7 +2707,18 @@ static void test_wait_restart(void)
     wait_to(&b, &t, 200);
     CHECK(b.w_phase == 3, "phase C at 200 s, got %d", b.w_phase);
     bot_wait_restart(&b, t);
-    CHECK(b.w_t0 == 0, "phase C before a reminder period: no restart");
+    CHECK(b.w_t0 == 0 && b.w_phase == 3, "phase C before a reminder period: no restart yet");
+    wait_run(&b, t, 125, 1.0 / 120, &w);
+    bool remind = false;
+    for (int i = 0; i < w.hops; i++) remind |= w.hop[i].kind == HOP_REMIND;
+    CHECK(b.w_t0 >= BOT_WAIT_REMIND_S && b.w_t0 < BOT_WAIT_REMIND_S + 0.01 && w.hops >= 5 && fabs(w.hop[0].t - b.w_t0 - 0.6) < 0.01 &&
+              !remind && b.w_phase == 2,
+          "a restart asked at 200 s waits for the gate: phase A from %.2f s, first hop %.2f s after, no reminder", b.w_t0,
+          w.hops ? w.hop[0].t - b.w_t0 : -1);
+
+    bot_init(&b, 0x5E, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
     wait_to(&b, &t, 320);
     bot_wait_restart(&b, t);
     wait_run(&b, t, 25, 1.0 / 120, &w);
@@ -2722,7 +2733,16 @@ static void test_wait_restart(void)
     bot_wait_restart(&b, t);
     wait_to(&b, &t, 100);
     bot_wait_restart(&b, t);
-    CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart");
+    CHECK(b.w_t0 == w0 && b.w_phase == 2, "phases A and B: no restart yet");
+    wait_to(&b, &t, BOT_WAIT_REMIND_S + 1);
+    CHECK(b.w_t0 >= BOT_WAIT_REMIND_S && b.w_t0 < BOT_WAIT_REMIND_S + 0.02 && b.w_phase == 1 && !b.w_pending,
+          "asked twice in A and B: one restart at the gate (%.2f s)", b.w_t0);
+    wait_to(&b, &t, 2 * BOT_WAIT_REMIND_S + 2);
+    CHECK(b.w_t0 < BOT_WAIT_REMIND_S + 0.02 && b.w_phase == 3, "and none after it, unasked");
+
+    bot_init(&b, 0x65, 0);
+    bot_set_mood(&b, BOT_WAITING, 0);
+    t = 0;
     wait_to(&b, &t, BOT_WAIT_REMIND_S - 1);
     double h0 = b.hop_start;
     for (; b.hop_start == h0; t += 1.0 / 120) bot_pose(&b, t);
@@ -2732,6 +2752,20 @@ static void test_wait_restart(void)
     CHECK(!w.snaps && w.hops >= 1 && w.hop[0].t >= end - 1e-9 && w.hop[0].t < end + 0.02 && b.burst_hop_at == INFINITY,
           "a restart mid-reminder: the reminder's second hop dropped, the next hop after its end (%.3f s, ends %.3f s)",
           w.hops ? w.hop[0].t - first : -1, end - first);
+
+    int cases = 0, kept = 0;
+    for (int seed = 0; seed < 20; seed++) {
+        bot_init(&b, 0x70 + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        for (t = 0; t < 15 && !(b.next_hop_at - t > 0.05 && b.next_hop_at - t < 0.5 && !b.hopping); t += 1.0 / 120) bot_pose(&b, t);
+        if (t >= 15) continue;
+        cases++;
+        double due = b.next_hop_at;
+        bot_wait_scene(&b, 1, t);
+        for (double h = b.hop_start; b.hop_start == h && t < due + 1; t += 1.0 / 120) bot_pose(&b, t);
+        kept += b.next_hop_at != due && b.hop_start >= due && b.hop_start < due + 0.01;
+    }
+    CHECK(cases >= 10 && kept == cases, "a restart in phase A keeps a hop due sooner than 0.6 s (%d of %d)", kept, cases);
 
     static const double every[] = {0.5, 2.5, 7.5, 60};
     for (size_t i = 0; i < sizeof every / sizeof every[0]; i++) {
@@ -2816,6 +2850,52 @@ static void test_wait_restart(void)
     bot_act_begin(&b, t);
     wait_run(&b, t, 20, 1.0 / 120, &w);
     CHECK(w.peeks == 0, "acting: no peeks (%d)", w.peeks);
+}
+
+static void test_wait_hop_chain(void)
+{
+    int doubles = 0, double_bad = 0, reminders = 0, long_rem = 0, rem_bad = 0;
+    for (int seed = 0; seed < 40; seed++) {
+        bot_t b;
+        bot_init(&b, 0xC4A + (uint64_t)seed, 0);
+        bot_set_mood(&b, BOT_WAITING, 0);
+        double t = 0;
+        for (; t < 20 && b.burst_hop_at == INFINITY; t += 1.0 / 120) bot_pose(&b, t);
+        if (b.burst_hop_at != INFINITY) {
+            doubles++;
+            double_bad += b.burst_hop_at != b.hop_start + b.hop_len;
+        }
+        for (; t < BOT_WAIT_REMIND_S + 2 && !(b.hopping && b.hop_start >= BOT_WAIT_REMIND_S); t += 1.0 / 120) bot_pose(&b, t);
+        if (!b.hopping || b.hop_start < BOT_WAIT_REMIND_S) continue;
+        reminders++;
+        long_rem += b.hop_len > 1.05;
+        rem_bad += b.burst_hop_at != b.hop_start + fmax(1.05, b.hop_len);
+    }
+    CHECK(doubles >= 5 && !double_bad, "a double hop's second is set for the first's end (%d of %d off)", double_bad, doubles);
+    CHECK(reminders == 40 && long_rem >= 3 && !rem_bad, "a reminder's second at 1.05 s or the first's end if later (%d of %d off, %d longer)",
+          rem_bad, reminders, long_rem);
+
+    static const int kinds[] = {HOP_PLAIN, HOP_BURST, HOP_REMIND};
+    int early = 0, waited = 0;
+    for (size_t k = 0; k < sizeof kinds / sizeof kinds[0]; k++) {
+        for (int seed = 0; seed < 10; seed++) {
+            bot_t b;
+            bot_init(&b, 0xC5A + (uint64_t)seed, 0);
+            bot_set_mood(&b, BOT_WAITING, 0);
+            double t = 0, at = kinds[k] == HOP_REMIND ? 200 : 1;
+            for (; t < at; t += 1.0 / 120) bot_pose(&b, t);
+            b.calm = false;
+            bot_hop(&b, t);
+            double start = b.hop_start, end = start + b.hop_len;
+            if (kinds[k] == HOP_PLAIN) b.next_hop_at = t + 0.3;
+            if (kinds[k] == HOP_BURST) b.burst_hop_at = t + 0.3, b.burst_h = 0.6;
+            if (kinds[k] == HOP_REMIND) b.next_rem_at = t + 0.3, b.nudge_at = -INFINITY, b.next_nudge_at = INFINITY;
+            for (; b.hop_start == start && t < end + 0.5; t += 1.0 / 120) bot_pose(&b, t);
+            early += b.hop_start < end;
+            waited += b.hop_start != start && b.hop_start < end + 0.02;
+        }
+    }
+    CHECK(!early && waited == 30, "a plain, second or reminder hop due mid-hop waits for its end (%d early, %d of 30 right after)", early, waited);
 }
 
 static void test_wait_demo(void)
@@ -3635,6 +3715,7 @@ int main(void)
     test_wait_phases();
     test_wait_nudge();
     test_wait_restart();
+    test_wait_hop_chain();
     test_wait_demo();
     test_reading();
     test_reading_redraws();

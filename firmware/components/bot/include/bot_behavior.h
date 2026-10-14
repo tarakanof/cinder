@@ -63,6 +63,7 @@ typedef struct {
     double pop_start, hop_start, next_hop_at;
     double hop_h, hop_len;
     int w_phase;
+    bool w_pending;
     unsigned w_scene;
     double w_t0, burst_hop_at, burst_h, next_peek_at, next_nudge_at, next_rem_at, nudge_at, gaze_hold;
     double sleep_after_s;
@@ -140,7 +141,7 @@ void bot_hold_gaze(bot_t *b, double until);
 /* A quiet weather moment on: working's gaze stays in y -0.19..0.15 from this frame (lines 0-2, no mark, turns at the viewer). */
 void bot_read_moment(bot_t *b, bool on, double t);
 void bot_push(bot_t *b, double t);
-/* Waiting back to phase A once a reminder period has passed since the last start; nothing in other moods. */
+/* Waiting back to phase A once a reminder period has passed since the last start, asked earlier: when it has; nothing in other moods. */
 void bot_wait_restart(bot_t *b, double t);
 /* scene: the playing demo scene's number, 0 none; nonzero takes the demo timings, a change restarts waiting at A. */
 void bot_wait_scene(bot_t *b, unsigned scene, double t);

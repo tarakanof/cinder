@@ -411,6 +411,7 @@ static void wait_restart(bot_t *b, double t)
 {
     b->w_t0 = t;
     b->w_phase = 1;
+    b->w_pending = false;
     b->next_hop_at = fmin(b->next_hop_at, t + WAIT_FIRST_HOP_S);
     b->burst_hop_at = b->next_peek_at = b->next_nudge_at = b->next_rem_at = INFINITY;
 }
@@ -427,6 +428,7 @@ static void wait_tick(bot_t *b, double t)
 {
     if (b->mood != BOT_WAITING) return;
     double c = b->w_scene ? BOT_WAIT_DEMO_C_S : BOT_WAIT_C_S, rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
+    if (b->w_pending && t - b->w_t0 >= rem) wait_restart(b, t);
     double el = t - b->w_t0;
     int ph = el < BOT_WAIT_B_S ? 1 : el < c ? 2 : 3;
     if (ph != b->w_phase) {
@@ -573,7 +575,9 @@ void bot_set_calm(bot_t *b, bool calm, double t)
 void bot_wait_restart(bot_t *b, double t)
 {
     double rem = b->w_scene ? BOT_WAIT_DEMO_REMIND_S : BOT_WAIT_REMIND_S;
-    if (b->mood == BOT_WAITING && t - b->w_t0 >= rem) wait_restart(b, t);
+    if (b->mood != BOT_WAITING) return;
+    if (t - b->w_t0 >= rem) wait_restart(b, t);
+    else b->w_pending = true;
 }
 
 void bot_wait_scene(bot_t *b, unsigned scene, double t)
