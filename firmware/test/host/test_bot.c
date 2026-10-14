@@ -743,7 +743,7 @@ static void test_pose_same(void)
     p.scale_y += 0.1 * px;
     CHECK(bot_pose_same(&base, &p, R), "under half a pixel: no redraw");
     double *fields[] = {&p.gaze_x, &p.gaze_y, &p.triangle, &p.slump, &p.badge,
-                        &p.scale_x, &p.scale_y, &p.offset_x, &p.offset_y, &p.hop_dy, &p.orbit};
+                        &p.scale_x, &p.scale_y, &p.offset_x, &p.offset_y, &p.hop_dy, &p.orbit, &p.eye_dy};
     for (size_t i = 0; i < sizeof fields / sizeof fields[0]; i++) {
         p = base;
         *fields[i] += 0.4 * px;
@@ -3381,6 +3381,161 @@ static void test_mood_beat_gaps(void)
           "(lid %.2f, blink alone %.2f)", worst, blink);
 }
 
+static void test_error_shake(void)
+{
+    int bad = 0, crossings_bad = 0, runs = 0;
+    double peak_all = 0, late_all = 0;
+    for (int seed = 1; seed <= 40; seed++) {
+        bot_t a, c;
+        bot_init(&a, seed, 0);
+        bot_init(&c, seed, 0);
+        double t0 = settle_open(&a, 0);
+        settle_open(&c, 0);
+        bot_set_calm(&c, true, 0);
+        bot_set_mood(&a, BOT_ERROR, t0);
+        bot_set_mood(&c, BOT_ERROR, t0);
+        double tb = -1, peak = 0, early = 0, late = 0, prev = 0;
+        int cross = 0;
+        for (double t = t0; t < t0 + 4; t += 0.001) {
+            bot_pose_t p = bot_pose(&a, t), q = bot_pose(&c, t);
+            if (tb < 0 && p.face == BOT_ERROR) tb = t;
+            double d = p.offset_x - q.offset_x, u = tb < 0 ? -1 : t - tb - BOT_SHAKE_AT_S;
+            if (u < 0) early = fmax(early, fabs(d));
+            else if (u < BOT_SHAKE_S) {
+                peak = fmax(peak, fabs(d));
+                if (d * prev < 0) cross++;
+                if (d != 0) prev = d;
+            } else late = fmax(late, fabs(d));
+        }
+        runs++;
+        if (early > 0 || tb < 0) bad++;
+        if (cross != 5) crossings_bad++;
+        peak_all = fmax(peak_all, peak);
+        late_all = fmax(late_all, late);
+    }
+    CHECK(!bad, "shake: %d of %d runs move the eyes before the beat + %.1f s", bad, runs, BOT_SHAKE_AT_S);
+    CHECK(peak_all > 0.8 * BOT_SHAKE_AMP && peak_all <= BOT_SHAKE_AMP, "shake: peak %.4f, want about %.4f (6 px)", peak_all, BOT_SHAKE_AMP);
+    CHECK(!crossings_bad, "shake: %d of %d runs not 3 cycles (5 sign changes) in %.1f s", crossings_bad, runs, BOT_SHAKE_S);
+    CHECK(late_all == 0, "shake: over after %.1f s (%.4f later)", BOT_SHAKE_S, late_all);
+
+    bot_t b;
+    bot_init(&b, 5, 0);
+    double t0 = settle_open(&b, 0), moved = 0;
+    bot_set_mood(&b, BOT_ERROR, t0);
+    bot_set_mood(&b, BOT_IDLE, t0 + 0.05);
+    bot_t r;
+    bot_init(&r, 5, 0);
+    settle_open(&r, 0);
+    bot_set_mood(&r, BOT_ERROR, t0);
+    bot_set_mood(&r, BOT_IDLE, t0 + 0.05);
+    bot_set_calm(&r, true, 0);
+    for (double t = t0 + 0.05; t < t0 + 3; t += 0.001) moved = fmax(moved, fabs(bot_pose(&b, t).offset_x - bot_pose(&r, t).offset_x));
+    CHECK(moved == 0, "shake: error left before its beat shakes nothing (%.4f)", moved);
+}
+
+static void test_error_huff(void)
+{
+    int huffs = 0, n_gaps = 0, outside = 0, shape_bad = 0;
+    double gaps[200], first_min = 1e9, dip = 0, lid = 0;
+    for (int seed = 1; seed <= 12; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_set_sleep_after(&b, 0);
+        double t0 = settle_open(&b, 0), tb = -1, last = -1, start = -1;
+        bot_set_mood(&b, BOT_ERROR, t0);
+        bool was = false;
+        for (double t = t0; t < t0 + 400; t += 1.0 / 120) {
+            bot_pose_t p = bot_pose(&b, t);
+            if (tb < 0 && p.face == BOT_ERROR) tb = t;
+            bool on = p.eye_dy < 0;
+            if (on && !was) {
+                huffs++;
+                start = t;
+                if (last < 0) first_min = fmin(first_min, t - tb);
+                else if (n_gaps < 200) gaps[n_gaps++] = t - last;
+                last = t;
+            }
+            if (on) {
+                double k = sin(M_PI * (t - b.huff_at) / BOT_HUFF_S);
+                if (fabs(p.eye_dy + BOT_HUFF_DIP * k) > 1e-9 || p.lid_l < BOT_HUFF_LID * k - 1e-9) shape_bad++;
+                dip = fmin(dip, p.eye_dy);
+                lid = fmax(lid, fmin(p.lid_l, p.lid_r) * (b.blinking ? 0 : 1));
+                if (t - start > BOT_HUFF_S) shape_bad++;
+            }
+            was = on;
+        }
+        bot_set_mood(&b, BOT_WORKING, t0 + 400);
+        for (double t = t0 + 400; t < t0 + 520; t += 1.0 / 60) outside += bot_pose(&b, t).eye_dy != 0;
+    }
+    for (int i = 1; i < n_gaps; i++)
+        for (int j = i; j > 0 && gaps[j] < gaps[j - 1]; j--) { double x = gaps[j]; gaps[j] = gaps[j - 1]; gaps[j - 1] = x; }
+    double med = n_gaps ? gaps[n_gaps / 2] : 0;
+    printf("error huffs: %d in 12 x 400 s, median gap %.1f s (%.1f-%.1f), first after %.1f s\n", huffs, med, n_gaps ? gaps[0] : 0,
+           n_gaps ? gaps[n_gaps - 1] : 0, first_min);
+    CHECK(med > 20 && med < 30 && gaps[0] >= BOT_HUFF_MEDIAN_S / 2 - 0.02 && gaps[n_gaps - 1] <= BOT_HUFF_MEDIAN_S * 2 + 0.02,
+          "huff: every lognormal(%.0f s) in %.1f-%.0f s, median %.1f", BOT_HUFF_MEDIAN_S, BOT_HUFF_MEDIAN_S / 2, BOT_HUFF_MEDIAN_S * 2, med);
+    CHECK(first_min >= BOT_SHAKE_AT_S + BOT_HUFF_MEDIAN_S / 2 - 0.02, "huff: the first one after the shake, %.1f s after the beat", first_min);
+    CHECK(!shape_bad && fabs(dip + BOT_HUFF_DIP) < 1e-3 && fabs(lid - BOT_HUFF_LID) < 0.01,
+          "huff: eyes dip %.3f and lids squeeze to %.2f as a half sine over %.1f s (%d bad frames)", dip, lid, BOT_HUFF_S, shape_bad);
+    CHECK(!outside, "huff: none outside error (%d frames)", outside);
+    bot_pose_t e0 = {.eyes = BOT_EYES_ANGRY, .gaze_x = 0.3, .scale_x = 1, .scale_y = 1, .triangle = 1}, e1 = e0;
+    e1.eye_dy = -BOT_HUFF_DIP;
+    bot_stroke_t s0[2], s1[2];
+    bot_eye_strokes(&e0, 1.15, s0);
+    bot_eye_strokes(&e1, 1.15, s1);
+    CHECK(fabs(s1[0].y[0] - s0[0].y[0] + BOT_HUFF_DIP) < 1e-12 && fabs(s1[1].y[1] - s0[1].y[1] + BOT_HUFF_DIP) < 1e-12 &&
+              s1[0].x[0] == s0[0].x[0],
+          "huff: eye_dy moves the eyes down");
+
+    bot_t b;
+    bot_init(&b, 3, 0);
+    bot_set_sleep_after(&b, 0);
+    double t0 = settle_open(&b, 0);
+    bot_set_calm(&b, true, t0);
+    bot_set_mood(&b, BOT_ERROR, t0);
+    int calm = 0, animating = 0;
+    for (double t = t0; t < t0 + 200; t += 1.0 / 60) calm += bot_pose(&b, t).eye_dy != 0;
+    CHECK(!calm, "huff: none while calm (%d frames)", calm);
+    bot_set_calm(&b, false, t0 + 200);
+    for (double t = t0 + 200; t < t0 + 400; t += 1.0 / 60) {
+        bot_pose_t p = bot_pose(&b, t);
+        if (p.eye_dy != 0) animating += !b.animating;
+    }
+    CHECK(!animating, "huff: counts as animating (%d frames not)", animating);
+}
+
+static void test_error_gaze(void)
+{
+    int sac = 0, calm = 0, dart = 0, other = 0, fix_bad = 0;
+    for (int seed = 1; seed <= 20; seed++) {
+        bot_t b;
+        bot_init(&b, seed, 0);
+        bot_set_sleep_after(&b, 0);
+        double t0 = settle_open(&b, 0), seen = -1;
+        bot_set_mood(&b, BOT_ERROR, t0);
+        for (double t = t0 + 1; t < t0 + 300; t += 1.0 / 60) {
+            bot_pose(&b, t);
+            if (b.gaze_start == seen || b.gaze_dur <= 0.0251) continue;
+            seen = b.gaze_start;
+            double x = b.gaze_to_x, y = b.gaze_to_y, fix = b.next_saccade_at - b.gaze_start - b.gaze_dur;
+            sac++;
+            if ((fabs(x) <= 0.08 + 1e-9 && fabs(y - 0.1) <= 0.08 + 1e-9) || (fabs(x) <= 0.15 + 1e-9 && fabs(y + 0.5) <= 0.1 + 1e-9)) {
+                calm++;
+                fix_bad += fix < 1.2 - 1e-9 || fix > 2.5 + 1e-9;
+            } else if (fabs(x) >= 0.7 - 1e-9 && fabs(x) <= 0.9 + 1e-9 && fabs(y) <= 0.3 + 1e-9) {
+                dart++;
+                fix_bad += fix < 0.4 - 1e-9 || fix > 0.9 + 1e-9;
+            } else {
+                other++;
+            }
+        }
+    }
+    double share = sac ? (double)calm / sac : 0;
+    printf("error gaze: %d saccades, %.0f %% viewer or down, %.0f %% darts, %d other\n", sac, 100 * share, 100.0 * dart / (sac ? sac : 1), other);
+    CHECK(!other && share > 0.66 && share < 0.74, "error gaze: 70 %% to the viewer or down-centre, 30 %% side darts (%.2f, %d other)", share, other);
+    CHECK(!fix_bad, "error gaze: %d fixations outside 1.2-2.5 s (viewer, down) or 0.4-0.9 s (darts)", fix_bad);
+}
+
 static void test_done_reward(void)
 {
     bot_t b;
@@ -3973,6 +4128,9 @@ int main(void)
     test_mood_beat_view();
     test_rim_slots_model();
     test_done_reward();
+    test_error_shake();
+    test_error_huff();
+    test_error_gaze();
     test_wait_phases();
     test_wait_nudge();
     test_wait_restart();

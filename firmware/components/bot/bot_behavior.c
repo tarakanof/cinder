@@ -225,7 +225,7 @@ static void read_target(bot_t *b, double *x, double *y, double *fix, double *mul
     *x = b->read_x; *y = read_line_y(b) + jitter(b, 0.02);
 }
 
-static void next_target(bot_t *b, double *x, double *y)
+static void next_target(bot_t *b, double *x, double *y, double *fix)
 {
     double r = rng_unit(b);
     switch (b->mood) {
@@ -238,8 +238,12 @@ static void next_target(bot_t *b, double *x, double *y)
         *x = r < 0.875 ? -0.7 : 0.7; *y = jitter(b, 0.2); return;
     case BOT_SLEEPY:
         *x = jitter(b, 0.5); *y = rng_range(b, -0.5, -0.2); return;
-    case BOT_ERROR:
-        *x = jitter(b, 0.9); *y = jitter(b, 0.7); return;
+    case BOT_ERROR: {
+        if (r < 0.45) { *x = VIEWER_X + jitter(b, 0.08); *y = VIEWER_Y + jitter(b, 0.08); *fix = lognormal(b, 1.7, 0.3, 1.2, 2.5); return; }
+        if (r < 0.7) { *x = jitter(b, 0.15); *y = -0.5 + jitter(b, 0.1); *fix = lognormal(b, 1.7, 0.3, 1.2, 2.5); return; }
+        double side = rng_unit(b) < 0.5 ? -1 : 1;
+        *x = side * rng_range(b, 0.7, 0.9); *y = jitter(b, 0.3); *fix = rng_range(b, 0.4, 0.9); return;
+    }
     case BOT_DONE:
     default:
         if (r < 0.5) { *x = BADGED_REST_X + jitter(b, 0.08); *y = BADGED_REST_Y + jitter(b, 0.06); return; }
@@ -359,7 +363,7 @@ static void start_saccade(bot_t *b, double t, bool glide)
     double tx, ty, fix = -1, mul = 1;
     bool blink = false;
     if (b->mood == BOT_WORKING) read_target(b, &tx, &ty, &fix, &mul, &blink);
-    else next_target(b, &tx, &ty);
+    else next_target(b, &tx, &ty, &fix);
     start_saccade_to(b, t, glide ? SAC_GLIDE : blink ? SAC_TURN : mul != 1 ? SAC_SWEEP : SAC_NORMAL, tx, ty);
     if (fix >= 0 || mul != 1) {
         double hold = b->next_saccade_at - b->gaze_start - b->gaze_dur;
@@ -487,11 +491,17 @@ static void wait_tick(bot_t *b, double t)
     }
 }
 
+static double huff_gap(bot_t *b) { return lognormal(b, BOT_HUFF_MEDIAN_S, 0.35, BOT_HUFF_MEDIAN_S / 2, BOT_HUFF_MEDIAN_S * 2); }
+
 static void beat(bot_t *b, double t)
 {
     bool badged = b->mood == BOT_WAITING || b->mood == BOT_DONE;
     b->face = b->mood;
     b->badge = tween(tween_value(&b->badge, t), badged ? 1 : 0, t, 0.35, badged ? EASE_OUT_BACK : EASE_IN_OUT);
+    if (b->mood == BOT_ERROR) {
+        b->shake_at = t + BOT_SHAKE_AT_S;
+        b->next_huff_at = b->shake_at + huff_gap(b);
+    }
     if (b->mood != BOT_DONE) return;
     b->done_hop_at = t + BOT_DONE_HOP_S;
     b->giggle_at = t + BOT_GIGGLE_S;
@@ -560,6 +570,8 @@ static void enter(bot_t *b, bot_mood_t m, double t)
     b->triangle = tween(tween_value(&b->triangle, t), m == BOT_ERROR ? 1 : 0, t, morph, EASE_IN_OUT);
     b->slump = tween(tween_value(&b->slump, t), m == BOT_SLEEPY ? 1 : 0, t, m == BOT_SLEEPY ? 1.6 : morph, EASE_IN_OUT);
     b->done_hop_at = b->giggle_at = b->lap_at = INFINITY;
+    b->shake_at = b->huff_at = -INFINITY;
+    b->next_huff_at = INFINITY;
     b->popping = m != BOT_SLEEPY && bot_anim_allowed(BOT_ANIM_MOOD_POP, b->calm);
     b->pop_start = t;
     if (m == BOT_WORKING) b->rd_turn = true;
@@ -611,6 +623,8 @@ void bot_init(bot_t *b, uint64_t seed, double now)
     b->eyes = BOT_EYES_DASH;
     b->rim_ready = b->ring = true;
     b->done_hop_at = b->giggle_at = b->lap_at = INFINITY;
+    b->shake_at = b->huff_at = -INFINITY;
+    b->next_huff_at = INFINITY;
     b->mood_since = now;
     b->sleep_after_s = BOT_SLEEP_AFTER_S;
     b->gaze_from_x = b->gaze_to_x = REST_X;
@@ -681,6 +695,10 @@ bot_pose_t bot_pose(bot_t *b, double t)
     if (t >= b->done_hop_at && !b->hopping) {
         if (loud) start_hop(b, t, BOT_DONE_HOP_H, HOP_LEN_S);
         b->done_hop_at = INFINITY;
+    }
+    if (b->mood == BOT_ERROR && t >= b->next_huff_at) {
+        b->huff_at = t;
+        b->next_huff_at = t + huff_gap(b);
     }
 
     breathe(b, t);
@@ -770,7 +788,17 @@ bot_pose_t bot_pose(bot_t *b, double t)
         p.scale_y *= sy;
         p.badge *= 1 + PULSE * sin(M_PI * nu / BOT_NUDGE_S);
     }
-    b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping || nudging || giggle > 0 || p.lap ||
+    bool fx = bot_anim_allowed(BOT_ANIM_ERROR_FX, b->calm);
+    double su = (t - b->shake_at) / BOT_SHAKE_S, hu = (t - b->huff_at) / BOT_HUFF_S;
+    bool shaking = fx && su >= 0 && su < 1, huffing = fx && hu >= 0 && hu < 1;
+    if (shaking) p.offset_x += BOT_SHAKE_AMP * sin(2 * M_PI * BOT_SHAKE_CYCLES * su) * (1 - su);
+    if (huffing) {
+        double k = sin(M_PI * hu);
+        p.eye_dy = -BOT_HUFF_DIP * k;
+        p.lid_l = fmax(p.lid_l, BOT_HUFF_LID * k);
+        p.lid_r = fmax(p.lid_r, BOT_HUFF_LID * k);
+    }
+    b->animating = b->blinking || sac_active || b->tracking || b->hopping || b->popping || nudging || giggle > 0 || p.lap || shaking || huffing ||
                    tween_active(&b->triangle, t) || tween_active(&b->slump, t) || tween_active(&b->badge, t) ||
                    tween_active(&b->lean_x, t) || tween_active(&b->lean_y, t) || tween_active(&b->act_lid, t) ||
                    tween_active(&b->sleep_lid, t);
@@ -934,7 +962,7 @@ bool bot_pose_same(const bot_pose_t *a, const bot_pose_t *b, double radius_px)
     double breath = step / (a->asleep ? BOT_BREATH_BOB : BOT_BREATH_REACH), lid = step / BOT_LID_REACH;
 #define Q(v, s) round((v) / (s))
 #define SAME(f, s) (Q(a->f, s) == Q(b->f, s))
-    return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, lid) && SAME(lid_r, lid) && SAME(breath, breath) &&
+    return SAME(gaze_x, step) && SAME(gaze_y, step) && SAME(lid_l, lid) && SAME(lid_r, lid) && SAME(breath, breath) && SAME(eye_dy, step) &&
            SAME(triangle, step) && SAME(slump, step) && SAME(badge, step) && SAME(offset_x, step) &&
            SAME(offset_y, step) && SAME(hop_dy, step) && SAME(orbit, step) && SAME(scale_x, step / 2) &&
            SAME(scale_y, step / 2);

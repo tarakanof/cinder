@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 typedef enum { BOT_IDLE, BOT_SLEEPY, BOT_WORKING, BOT_WAITING, BOT_ERROR, BOT_DONE } bot_mood_t;
-typedef enum { BOT_ANIM_WAIT_HOP, BOT_ANIM_MOOD_POP, BOT_ANIM_GLINT_CHASE, BOT_ANIM_USER_INPUT, BOT_ANIM_DONE_REWARD } bot_anim_t;
+typedef enum { BOT_ANIM_WAIT_HOP, BOT_ANIM_MOOD_POP, BOT_ANIM_GLINT_CHASE, BOT_ANIM_USER_INPUT, BOT_ANIM_DONE_REWARD, BOT_ANIM_ERROR_FX } bot_anim_t;
 typedef enum { BOT_EYES_DASH, BOT_EYES_ROUND, BOT_EYES_HAPPY, BOT_EYES_ANGRY } bot_eyes_t;
 
 /* Distances in body radii; times are monotonic seconds. */
@@ -26,6 +26,7 @@ typedef struct {
     double hop_dy;  /* the hop's lift alone, also in offset_y */
     double orbit;   /* 0..1 */
     double breath;  /* -1..1: eye height and centre awake, the centre's bob asleep */
+    double eye_dy;  /* the eye centres' shift, error's huff */
     bool asleep;
     bool lap;       /* done's glint lap runs */
     double lap_at;  /* while lap: when it started, on bot_pose's clock */
@@ -70,6 +71,7 @@ typedef struct {
     bool calm;
     bool rim_ready, ring, beat_gapped, beat_held;
     double done_hop_at, giggle_at, lap_at, beat_by;
+    double shake_at, huff_at, next_huff_at;
 
     double breath, breath_ph, breath_per, breath_t;
     bool asleep;
@@ -117,6 +119,15 @@ typedef struct {
 #define BOT_GIGGLE_GAP_S 0.15
 #define BOT_LAP_AT_S 1.8
 #define BOT_LAP_S 3.0
+/* Error's frustration: a shake of the eyes after the beat, then a huff (eyes dip, lids squeeze) every lognormal. */
+#define BOT_SHAKE_AT_S 0.3
+#define BOT_SHAKE_S 0.4
+#define BOT_SHAKE_CYCLES 3
+#define BOT_SHAKE_AMP 0.0307
+#define BOT_HUFF_S 0.5
+#define BOT_HUFF_DIP 0.03
+#define BOT_HUFF_LID 0.45
+#define BOT_HUFF_MEDIAN_S 25.0
 
 void bot_init(bot_t *b, uint64_t seed, double now);
 bool bot_set_mood(bot_t *b, bot_mood_t m, double t);

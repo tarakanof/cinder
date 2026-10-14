@@ -107,7 +107,7 @@ void bot_eye_strokes(const bot_pose_t *p, double scale, bot_stroke_t out[2])
     double sep = (p->eyes == BOT_EYES_ROUND ? 0.5 : 0.44) * fx * (1 + (scale - 1) * 0.5);
     const double deg = M_PI / 180;
     double bh = p->asleep ? 1 : 1 + 0.025 * p->breath;
-    double by = (p->asleep ? BOT_BREATH_BOB : BOT_BREATH_REACH) * p->breath;
+    double by = (p->asleep ? BOT_BREATH_BOB : BOT_BREATH_REACH) * p->breath + p->eye_dy;
 
     for (int e = 0; e < 2; e++) {
         double side = e == 0 ? -1 : 1, lid = e == 0 ? p->lid_l : p->lid_r;
