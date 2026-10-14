@@ -13,6 +13,7 @@ typedef host_task_t *TaskHandle_t;
 typedef void (*host_task_fn)(void *);
 
 __attribute__((weak)) _Thread_local host_task_t *host_task_self;
+__attribute__((weak)) host_task_t host_task_shared = {.m = PTHREAD_MUTEX_INITIALIZER, .c = PTHREAD_COND_INITIALIZER};
 
 static void *host_task_run(void *p)
 {
@@ -56,7 +57,7 @@ static inline void xTaskNotifyGive(TaskHandle_t t)
 static inline uint32_t ulTaskNotifyTake(BaseType_t clear, TickType_t ticks)
 {
     (void)ticks;
-    host_task_t *t = host_task_self;
+    host_task_t *t = host_task_self ? host_task_self : &host_task_shared;
     pthread_mutex_lock(&t->m);
     while (!t->n) pthread_cond_wait(&t->c, &t->m);
     uint32_t n = t->n;
