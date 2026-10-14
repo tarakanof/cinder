@@ -452,9 +452,12 @@ body "$MAINC" moment_unact | grep -qF 'if (s_acting && s_bot.mood != s_moment_mo
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
 body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy(), chase->chasing && chase->label_opa > 0);' ||
     WIRING="$WIRING page_bot_frame-merges-the-eyes-into-one-area-during-a-moment"
-body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_offline(f->offline && !s_join_shown);' ||
-    WIRING="$WIRING page_bot_frame-hides-the-offline-glyph-under-the-join-label"
-body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(glyph);' && body "$BVC" bot_view_create | grep -qF 'heap_caps_malloc(OFFLINE_GLYPH_W * OFFLINE_GLYPH_H, MALLOC_CAP_SPIRAM);' &&
+body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_offline(f->offline && s_join_shown != 1);' &&
+    body "$MAINC" join_frame | awk '/^    if \(show == 1\) \{$/ {o = NR} /snprintf\(text, sizeof text, "Can.t join\\n%s", ssid\);/ {c = NR}
+        /lv_label_set_text\(s_join_label, "Not paired"\);/ {n = NR} /"Update knob" : "Update Ember"/ {u = NR} END {exit !(o && c > o && c < o + 4 && n > c && u > n)}' ||
+    WIRING="$WIRING page_bot_frame-hides-the-offline-glyph-only-under-the-two-line-cant-join-label"
+body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);' &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];' "$BVC" &&
     [ "$(grep -c 'offline_glyph_raster(' "$BVC")" -eq 1 ] || WIRING="$WIRING offline-glyph-rastered-once-into-PSRAM"
 body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
     WIRING="$WIRING app_main-creates-the-moments"

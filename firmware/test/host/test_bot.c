@@ -4569,49 +4569,90 @@ static void test_rim_slots_model(void)
     CHECK(!g.open_mismatch, "never the face's eyes with another outline on open lids (%d frames)", g.open_mismatch);
 }
 
-static int arc_runs(const uint8_t *a, double cx, double cy, double r, int *dark)
+#define OG_PX 31.0
+#define OG_PY 43.0
+#define OG_A(x, y) a[(y) * OFFLINE_GLYPH_W + (x)]
+
+static int arc_runs(const uint8_t *a, double r, int *dark, double *shortest)
 {
     int runs = 0, gaps = 0, lit = 0, off = 0;
-    for (double deg = -44; deg <= 44; deg += 0.25) {
+    double start = 0, len = 1e9;
+    for (double deg = -44; deg <= 44.001; deg += 0.25) {
         double t = deg * M_PI / 180;
-        int x = (int)floor(cx + r * sin(t)), y = (int)floor(cy - r * cos(t));
-        uint8_t v = a[y * OFFLINE_GLYPH_W + x];
-        if (v >= 200 && !lit) runs++, lit = 1, off = 0;
-        if (v <= 32 && !off) gaps += lit, off = 1, lit = 0;
+        int x = (int)floor(OG_PX + r * sin(t)), y = (int)floor(OG_PY - r * cos(t));
+        uint8_t v = OG_A(x, y);
+        if (v >= 200 && !lit) runs++, lit = 1, off = 0, start = deg;
+        if (v <= 32 && !off) {
+            if (lit && deg - start < len) len = deg - start;
+            gaps += lit, off = 1, lit = 0;
+        }
     }
+    if (lit && 44 - start < len) len = 44 - start;
     *dark = gaps - (off ? 1 : 0);
+    *shortest = len * M_PI / 180 * r;
     return runs;
+}
+
+static int lit_run(const uint8_t *a, int x, int y, int dx, int dy)
+{
+    int n = 0;
+    while (x >= 0 && y >= 0 && x < OFFLINE_GLYPH_W && y < OFFLINE_GLYPH_H && OG_A(x, y) >= 128) n++, x += dx, y += dy;
+    return n;
 }
 
 static void test_offline_glyph(void)
 {
     static uint8_t a[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
     offline_glyph_raster(a);
-    int x0 = OFFLINE_GLYPH_W, x1 = -1, y0 = OFFLINE_GLYPH_H, y1 = -1, edge = 0;
+    int x0 = OFFLINE_GLYPH_W, x1 = -1, y0 = OFFLINE_GLYPH_H, y1 = -1, edge = 0, partial = 0;
     for (int y = 0; y < OFFLINE_GLYPH_H; y++)
         for (int x = 0; x < OFFLINE_GLYPH_W; x++) {
-            int v = a[y * OFFLINE_GLYPH_W + x];
+            int v = OG_A(x, y);
             if (v >= 128) {
                 if (x < x0) x0 = x;
                 if (x > x1) x1 = x;
                 if (y < y0) y0 = y;
                 if (y > y1) y1 = y;
             }
+            partial += v > 0 && v < 255;
             if ((x == 0 || y == 0 || x == OFFLINE_GLYPH_W - 1 || y == OFFLINE_GLYPH_H - 1) && v > edge) edge = v;
         }
-    printf("offline glyph: ink %d x %d at (%d, %d), border max %d\n", x1 - x0 + 1, y1 - y0 + 1, x0, y0, edge);
+    printf("offline glyph: ink %d x %d at (%d, %d), border max %d, %d anti-aliased px\n", x1 - x0 + 1, y1 - y0 + 1, x0, y0, edge, partial);
     CHECK(x1 - x0 + 1 >= 56 && x1 - x0 + 1 <= 62 && y1 - y0 + 1 >= 44, "about 60 px wide: %d x %d", x1 - x0 + 1, y1 - y0 + 1);
     CHECK(abs((x0 + x1) - (OFFLINE_GLYPH_W - 1)) <= 1, "centred across: %d..%d", x0, x1);
     CHECK(edge < 128, "nothing clipped at the box edge (%d)", edge);
-    CHECK(a[42 * OFFLINE_GLYPH_W + 30] == 255 && a[42 * OFFLINE_GLYPH_W + 31] == 255, "the dot at the fan's pivot");
-    CHECK(a[5 * OFFLINE_GLYPH_W + 30] == 255 && a[5 * OFFLINE_GLYPH_W + 31] == 255, "the outer arc's top");
+    CHECK(partial >= 250, "anti-aliased edges: %d partial px", partial);
+    CHECK(OG_A(31, 1) >= 100 && OG_A(31, 1) <= 155, "the outer arc's top edge half covered: %d", OG_A(31, 1));
+    CHECK(OG_A(31, 43) == 255 && OG_A(30, 43) == 255, "the dot at the fan's pivot");
+    int w = lit_run(a, 31, 2, 0, 1) + (OG_A(31, 1) >= 128);
+    CHECK(w >= 6 && w <= 8, "7 px arc stroke at the outer arc's top: %d", w);
+    int sx = 48;
+    while (sx > 0 && OG_A(sx - 1, 44) >= 128) sx--;
+    w = lit_run(a, sx, 44, 1, 0);
+    CHECK(w >= 9 && w <= 11, "7 px slash: %d px across a row (7 x sqrt 2)", w);
     int slash = 1;
-    for (int i = 0; i <= 42; i++) slash &= a[(4 + i) * OFFLINE_GLYPH_W + 10 + i] >= 200;
+    for (int i = 0; i <= 40; i++) slash &= OG_A(11 + i, 7 + i) >= 200;
     CHECK(slash, "one unbroken diagonal slash, top left to bottom right");
-    int dark, runs = arc_runs(a, 31, 42, 37, &dark);
-    CHECK(runs == 3 && dark == 2, "the outer arc is cut on both sides of the slash: %d lit runs, %d gaps", runs, dark);
-    runs = arc_runs(a, 31, 42, 25.5, &dark);
-    CHECK(runs == 3 && dark == 2, "the middle arc too: %d lit runs, %d gaps", runs, dark);
+    double gap0 = -1, gap1 = -1;
+    for (double t = 0; t <= 14 && gap1 < 0; t += 0.25) {
+        int v = OG_A((int)floor(OG_PX + t * M_SQRT1_2), (int)floor(OG_PY - t * M_SQRT1_2));
+        if (gap0 < 0 && v < 32) gap0 = t;
+        if (gap0 >= 0 && v >= 128) gap1 = t;
+    }
+    printf("offline glyph: dot to slash %.2f px\n", gap1 - gap0);
+    CHECK(gap0 > 0 && gap1 - gap0 >= 2.5, "the dot clears the slash: dark from %.2f to %.2f px", gap0, gap1);
+    const double radii[] = {16, 27, 38};
+    for (int k = 0; k < 3; k++) {
+        int dark;
+        double piece;
+        int runs = arc_runs(a, radii[k], &dark, &piece);
+        printf("offline glyph: arc r %.0f: %d lit runs, %d gaps, shortest %.1f px along the arc\n", radii[k], runs, dark, piece);
+        if (k == 0)
+            CHECK(runs == 2 && dark == 1, "inner arc: its near piece, the gap, the slash over its top: %d lit runs, %d gaps", runs, dark);
+        else
+            CHECK(runs == 3 && dark == 2, "arc r %.0f: a piece either side of the slash (3 lit runs counting the slash, 2 gaps): %d, %d", radii[k], runs, dark);
+        CHECK(piece >= 5, "arc r %.0f: shortest lit run %.1f px", radii[k], piece);
+    }
 }
 
 int main(void)

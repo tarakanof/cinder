@@ -784,7 +784,7 @@ void page_bot_frame(const page_frame_t *f)
     s_bot_shown = false;
     s_wait_host = host;
     bot_view_set_host(&host);
-    bot_view_set_offline(f->offline && !s_join_shown);
+    bot_view_set_offline(f->offline && s_join_shown != 1);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))
         pose = false;

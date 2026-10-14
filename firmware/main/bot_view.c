@@ -109,6 +109,7 @@ static void glint_draw_cb(lv_event_t *e);
 #define OFFLINE_RGB 0x5A5A5A
 static lv_obj_t *s_offline;
 static EXT_RAM_BSS_ATTR lv_image_dsc_t s_offline_img;
+static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
 static bool s_offline_on;
 
 static uint32_t mood_rgb(bot_mood_t m)
@@ -227,19 +228,16 @@ void bot_view_create(lv_obj_t *parent)
     assert(s_label_buf && s_icon_buf);
     s_label = canvas_create(parent);
     lv_obj_add_flag(s_label, LV_OBJ_FLAG_HIDDEN);
-    uint8_t *glyph = heap_caps_malloc(OFFLINE_GLYPH_W * OFFLINE_GLYPH_H, MALLOC_CAP_SPIRAM);
-    assert(glyph);
-    offline_glyph_raster(glyph);
+    offline_glyph_raster(s_offline_a8);
     s_offline_img = (lv_image_dsc_t){
         .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8, .w = OFFLINE_GLYPH_W, .h = OFFLINE_GLYPH_H,
                    .stride = OFFLINE_GLYPH_W},
         .data_size = OFFLINE_GLYPH_W * OFFLINE_GLYPH_H,
-        .data = glyph,
+        .data = s_offline_a8,
     };
     s_offline = lv_image_create(parent);
     lv_image_set_src(s_offline, &s_offline_img);
     lv_obj_set_style_image_recolor(s_offline, lv_color_hex(OFFLINE_RGB), 0);
-    lv_obj_set_style_image_recolor_opa(s_offline, LV_OPA_COVER, 0);
     lv_obj_set_pos(s_offline, (int)CX - OFFLINE_GLYPH_W / 2, (int)CY + BOT_VIEW_OFFLINE_DY - OFFLINE_GLYPH_H / 2);
     lv_obj_remove_flag(s_offline, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_offline, LV_OBJ_FLAG_HIDDEN);

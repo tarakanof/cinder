@@ -3,17 +3,17 @@
 #include <math.h>
 
 #define PIVOT_X 31.0f
-#define PIVOT_Y 42.0f
+#define PIVOT_Y 43.0f
 #define HALF_DEG 45.0f
 #define HW 3.5f
-#define DOT_R 5.0f
-#define CUT 2.5f
-#define SLASH_X0 10.0f
-#define SLASH_Y0 4.0f
-#define SLASH_X1 52.0f
-#define SLASH_Y1 46.0f
+#define DOT_R 4.0f
+#define CUT 1.5f
+#define SLASH_X0 11.0f
+#define SLASH_Y0 7.0f
+#define SLASH_X1 51.0f
+#define SLASH_Y1 47.0f
 
-static const float ARC_R[] = {14.0f, 25.5f, 37.0f};
+static const float ARC_R[] = {16.0f, 27.0f, 38.0f};
 
 static float cover(float d) { return d >= 0.5f ? 0 : d <= -0.5f ? 1 : 0.5f - d; }
 
