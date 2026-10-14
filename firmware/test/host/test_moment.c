@@ -1174,6 +1174,13 @@ static void test_paint(void)
     AT(1, 186, 165, 0xE6ECF2, "left foot");
     AT(1, 280, 165, 0xE6ECF2, "right foot");
 
+    for (int a = 0; a < N_ALL; a++)
+        for (int v = 0; v < 4; v++) {
+            m = variant(ALL[a], v);
+            wxm_layout(&m, &l);
+            int refused = wxm_paint(&m, &l, s_arena, NULL);
+            CHECK(refused == 0, "%s variant %d: %d clouds refused by wx_cloud_shape, drawn blank", KIND[m.kind], v, refused);
+        }
     for (int a = 0; a < N_ALL; a++) {
         m = variant(ALL[a], 2);
         wxm_layout(&m, &l);

@@ -1207,7 +1207,7 @@ static void stats_task(void *arg)
     static EXT_RAM_BSS_ATTR http_conn_stats_t prev, ns;
     static EXT_RAM_BSS_ATTR refr_kind_t kc[REFR_KINDS], kt;
     static EXT_RAM_BSS_ATTR dev_wifi_t w;
-    int failed_logged = 0;
+    int failed_logged = 0, refused_logged = 0;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
@@ -1228,11 +1228,13 @@ static void stats_task(void *arg)
                  s_nav.page);
         ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
                  s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
-        int moments, bake_ms, failed;
-        moment_view_stats(&moments, &bake_ms, &failed);
+        int moments, bake_ms, failed, refused;
+        moment_view_stats(&moments, &bake_ms, &failed, &refused);
         ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
         if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts without the PSRAM arena or the bake task", failed);
         failed_logged = failed;
+        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds refused by wx_cloud_shape, drawn blank", refused);
+        refused_logged = refused;
         static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
         for (int i = 0; i < REFR_KINDS; i++)
             if (kc[i].n)

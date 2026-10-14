@@ -28,7 +28,7 @@ static EXT_RAM_BSS_ATTR wxm_frame_t s_shown;
 static EXT_RAM_BSS_ATTR bool s_any;
 static EXT_RAM_BSS_ATTR double s_t0, s_play_at;
 static EXT_RAM_BSS_ATTR int s_k;
-static EXT_RAM_BSS_ATTR int s_count, s_bake_ms, s_failed;
+static EXT_RAM_BSS_ATTR int s_count, s_bake_ms, s_failed, s_refused;
 static EXT_RAM_BSS_ATTR double s_retry_at;
 static EXT_RAM_BSS_ATTR int64_t s_yield_at;
 
@@ -48,7 +48,7 @@ static void moment_bake_task(void *arg)
         if (!atomic_compare_exchange_strong(&s_bake, &queued, BAKE_RUNNING)) continue;
         int64_t t0 = esp_timer_get_time();
         s_yield_at = t0;
-        wxm_paint(&s_m, &s_l, s_arena, bake_yield);
+        s_refused += wxm_paint(&s_m, &s_l, s_arena, bake_yield);
         s_bake_ms = (int)((esp_timer_get_time() - t0) / 1000);
         atomic_store(&s_bake, BAKE_DONE);
     }
@@ -245,9 +245,10 @@ void moment_view_hold(bool hold)
     if (hold) moment_view_stop();
 }
 
-void moment_view_stats(int *shown, int *bake_ms, int *failed)
+void moment_view_stats(int *shown, int *bake_ms, int *failed, int *refused)
 {
     *shown = s_count;
     *bake_ms = s_bake_ms;
     *failed = s_failed;
+    *refused = s_refused;
 }
