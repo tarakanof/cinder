@@ -92,13 +92,13 @@ static void test_parse(void)
                  "{\"v\":1,\"mood\":{\"waiting\":2,\"source\":\"\",\"lead\":\"m4\",\"hosts\":2,\"lead_project\":\"%s\"}}",
                  odd[i]);
         CHECK(knob_view_parse(json, &v), "odd project %zu parses", i);
-        ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, &h);
+        ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, v.done, &h);
         CHECK(v.lead_project[0] == '?' && strcmp(h.text, "M4 +1") == 0 && h.sub[0] == 0,
               "folded to only '?' (%s): the host label (%s)", v.lead_project, h.text);
     }
     snprintf(json, sizeof json, "{\"v\":1,\"mood\":{\"waiting\":2,\"lead\":\"m4\",\"hosts\":2,\"lead_project\":\"caf\\u00e9 \\ud83d\\ude42\"}}");
     CHECK(knob_view_parse(json, &v), "mixed project parses");
-    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, &h);
+    ember_host_lead_info(v.source, v.lead, v.hosts, v.lead_project, v.waiting, v.done, &h);
     CHECK(strcmp(h.text, "cafe ? +1") == 0 && strcmp(h.sub, "M4") == 0, "a letter left: the project (%s|%s)", h.text, h.sub);
 
     CHECK(knob_view_parse("{\"v\":1,\"mood\":{},\"pomo\":{\"phase\":\"short_break\",\"running\":true,\"paused\":true,"

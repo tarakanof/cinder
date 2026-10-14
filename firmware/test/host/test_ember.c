@@ -229,28 +229,28 @@ static void test_lead(void)
     CHECK(strlen(small) == 3, "cap respected (%s)", small);
 
     ember_host_info_t was, now;
-    ember_host_lead_info("", "studio", 0, "", 1, &was);
+    ember_host_lead_info("", "studio", 0, "", 1, 0, &was);
     now = was;
     CHECK(was.lead && was.count == 1 && !ember_host_lead_new(&was, &now), "same lead and count: not new");
-    ember_host_lead_info("", "studio", 2, "", 1, &now);
+    ember_host_lead_info("", "studio", 2, "", 1, 0, &now);
     CHECK(strcmp(now.text, "STUDIO +1") == 0 && now.count == 1 && now.lead == was.lead, "one more host (%s)", now.text);
     CHECK(!ember_host_lead_new(&was, &now), "one more host, same sessions: not new");
-    ember_host_lead_info("", "studio", 0, "", 2, &now);
+    ember_host_lead_info("", "studio", 0, "", 2, 0, &now);
     CHECK(now.count == 2 && ember_host_lead_new(&was, &now), "no project, one more session on the same host: new");
     CHECK(!ember_host_lead_new(&now, &was), "one session fewer: not new");
     now = was;
     now.tool = 2;
     now.color = 0x123456;
     CHECK(!ember_host_lead_new(&was, &now), "tool or colour alone: not new");
-    ember_host_lead_info("", "m4", 0, "", 1, &now);
+    ember_host_lead_info("", "m4", 0, "", 1, 0, &now);
     CHECK(ember_host_lead_new(&was, &now), "another lead: new");
-    ember_host_lead_info("", "macbook-pro-1", 0, "", 1, &was);
-    ember_host_lead_info("", "macbook-pro-2", 0, "", 1, &now);
+    ember_host_lead_info("", "macbook-pro-1", 0, "", 1, 0, &was);
+    ember_host_lead_info("", "macbook-pro-2", 0, "", 1, 0, &now);
     CHECK(strcmp(was.text, now.text) == 0 && ember_host_lead_new(&was, &now), "hosts alike in the label: another lead (%s)",
           now.text);
     ember_host_info_t none = {0};
     CHECK(ember_host_lead_new(&none, &was), "a first lead: new");
-    ember_host_lead_info("", "", 0, NULL, 0, &now);
+    ember_host_lead_info("", "", 0, NULL, 0, 0, &now);
     CHECK(now.lead == 0 && now.text[0] == 0 && !ember_host_lead_new(&none, &now), "no lead: nobody, not new");
 
     CHECK(ember_host_color("#B48CFF") == 0xB48CFF, "upper");
@@ -311,6 +311,14 @@ static void test_project(void)
     CHECK(out[0] == 0, "nothing printable: none, no bare +N (%s)", out);
     ember_host_project_label("? ??? -", 1, out, sizeof out);
     CHECK(out[0] == 0, "no letter or digit: none (%s)", out);
+    ember_host_project_label("??????????a", 0, out, sizeof out);
+    CHECK(out[0] == 0, "a letter past the 10 slots: none (%s)", out);
+    ember_host_project_label("?????????a", 0, out, sizeof out);
+    CHECK(strcmp(out, "?????????a") == 0, "a letter in the 10th slot (%s)", out);
+    ember_host_project_label("?????????a", 1, out, sizeof out);
+    CHECK(out[0] == 0, "a letter cut by the dots: none (%s)", out);
+    ember_host_project_label("????????a?b", 0, out, sizeof out);
+    CHECK(strcmp(out, "????????a...") == 0, "a letter before the dots (%s)", out);
     ember_host_project_label("?7", 0, out, sizeof out);
     CHECK(strcmp(out, "?7") == 0, "one digit is enough (%s)", out);
     ember_host_project_label(NULL, 1, out, sizeof out);
@@ -320,46 +328,99 @@ static void test_project(void)
     CHECK(strcmp(small, "learn") == 0, "cap respected (%s)", small);
 
     ember_host_info_t a, b;
-    ember_host_lead_info("", "m4", 0, "ember", 1, &a);
+    ember_host_lead_info("", "m4", 0, "ember", 1, 0, &a);
     CHECK(strcmp(a.text, "ember") == 0 && a.sub[0] == 0 && a.count == 1, "one session, one host: no +N, no host line (%s|%s)",
           a.text, a.sub);
-    ember_host_lead_info("", "m4", 0, "ember", 3, &a);
+    ember_host_lead_info("", "m4", 0, "ember", 3, 0, &a);
     CHECK(strcmp(a.text, "ember +2") == 0 && a.sub[0] == 0 && a.count == 3, "+N counts the other sessions, not hosts (%s)",
           a.text);
-    ember_host_lead_info("", "macbook-pro", 2, "learn-language", 3, &a);
+    ember_host_lead_info("", "macbook-pro", 2, "learn-language", 3, 0, &a);
     CHECK(strcmp(a.text, "learn-la... +2") == 0 && strcmp(a.sub, "MACBOOK-PR") == 0, "two hosts: host line (%s|%s)", a.text,
           a.sub);
-    ember_host_lead_info("m4", "", 2, "ember", 2, &a);
+    ember_host_lead_info("m4", "", 2, "ember", 2, 0, &a);
     CHECK(strcmp(a.sub, "M4") == 0, "host line from source without a lead (%s)", a.sub);
-    ember_host_lead_info("", "m4", 3, "", 4, &a);
+    ember_host_lead_info("", "m4", 3, "", 4, 0, &a);
     CHECK(strcmp(a.text, "M4 +2") == 0 && a.sub[0] == 0 && a.count == 4, "no project: today's label, sessions counted (%s)",
           a.text);
-    ember_host_lead_info("", "m4", 3, "??", 4, &a);
+    ember_host_lead_info("", "m4", 3, "??", 4, 0, &a);
     CHECK(strcmp(a.text, "M4 +2") == 0 && a.count == 4, "folded to only '?': today's label (%s)", a.text);
 
-    ember_host_lead_info("", "m4", 0, "ember", 1, &a);
-    ember_host_lead_info("", "m4", 2, "ember", 2, &b);
+    ember_host_lead_info("", "m4", 0, "ember", 1, 0, &a);
+    ember_host_lead_info("", "m4", 2, "ember", 2, 0, &b);
     CHECK(a.lead == b.lead && ember_host_lead_new(&a, &b), "one more waiting session: new");
     CHECK(!ember_host_lead_new(&b, &a), "one session fewer: not new");
-    ember_host_lead_info("", "m5", 2, "ember", 2, &a);
+    ember_host_lead_info("", "m5", 2, "ember", 2, 0, &a);
     CHECK(!ember_host_lead_new(&b, &b) && ember_host_lead_new(&b, &a), "same project on another host: new");
-    ember_host_lead_info("", "m4", 2, "cinder", 2, &a);
+    ember_host_lead_info("", "m4", 2, "cinder", 2, 0, &a);
     CHECK(ember_host_lead_new(&b, &a), "another project: new");
-    ember_host_lead_info("", "m4", 5, "ember", 2, &a);
+    ember_host_lead_info("", "m4", 5, "ember", 2, 0, &a);
     CHECK(!ember_host_lead_new(&b, &a), "more hosts, same sessions: not new");
-    ember_host_lead_info("", "m4", 2, "cinder", 1, &a);
+    ember_host_lead_info("", "m4", 2, "cinder", 1, 0, &a);
     CHECK(!ember_host_lead_new(&b, &a), "newest answered, an older one leads with fewer sessions: not new");
-    ember_host_lead_info("", "m4", 2, "", 2, &a);
+    ember_host_lead_info("", "m4", 2, "", 2, 0, &a);
     CHECK(ember_host_lead_new(&b, &a) && a.lead != b.lead, "project gone at the same count: another lead");
-    ember_host_lead_info("", "macbook-pro-a", 2, "ember", 2, &a);
-    ember_host_lead_info("", "macbook-pro-b", 2, "ember", 2, &b);
+    ember_host_lead_info("", "macbook-pro-a", 2, "ember", 2, 0, &a);
+    ember_host_lead_info("", "macbook-pro-b", 2, "ember", 2, 0, &b);
     CHECK(strcmp(a.sub, b.sub) == 0 && ember_host_lead_new(&a, &b), "same project, hosts alike in the label: new");
+}
+
+static void test_done_lead(void)
+{
+    struct {
+        const char *source, *lead, *project;
+        int hosts, waiting, done;
+        const char *text, *sub;
+    } c[] = {
+        {"", "m4", "ember", 1, 0, 1, "ember", ""},
+        {"", "m4", "ember", 1, 0, 3, "ember +2", ""},
+        {"", "macbook-pro", "learn-language", 2, 0, 3, "learn-la... +2", "MACBOOK-PR"},
+        {"m5", "", "ember", 2, 0, 1, "ember", "M5"},
+        {"", "m4", "ember", 1, 2, 5, "ember +1", ""},
+        {"", "m4", "ember", 1, 0, 0, "ember", ""},
+        {"", "m4", "", 2, 0, 3, "M4 +1", ""},
+        {"", "m4", "??", 3, 0, 4, "M4 +2", ""},
+    };
+    for (size_t k = 0; k < sizeof c / sizeof c[0]; k++) {
+        ember_host_info_t h;
+        ember_host_lead_info(c[k].source, c[k].lead, c[k].hosts, c[k].project, c[k].waiting, c[k].done, &h);
+        CHECK(strcmp(h.text, c[k].text) == 0 && strcmp(h.sub, c[k].sub) == 0 && h.count == c[k].waiting,
+              "done %zu: '%s' over '%s', count %d (want '%s' over '%s', %d)", k, h.text, h.sub, h.count, c[k].text, c[k].sub,
+              c[k].waiting);
+    }
+
+    struct {
+        const char *lead_a, *proj_a;
+        int wait_a, done_a;
+        const char *lead_b, *proj_b;
+        int wait_b, done_b;
+        bool fresh;
+        const char *why;
+    } t[] = {
+        {"m4", "ember", 0, 1, "m5", "ember", 0, 1, false, "another done lead"},
+        {"m4", "ember", 0, 1, "m4", "cinder", 0, 1, false, "another done project"},
+        {"m4", "ember", 0, 1, "m4", "ember", 0, 3, false, "more done sessions"},
+        {"m4", "ember", 0, 3, "m5", "cinder", 0, 2, false, "fewer done sessions, another lead"},
+        {"m4", "ember", 0, 3, "m4", "ember", 1, 3, true, "done to waiting"},
+        {"m4", "ember", 0, 1, "m5", "cinder", 1, 0, true, "done to waiting on another host"},
+        {"m4", "ember", 0, 3, "m4", "cinder", 1, 0, true, "done to waiting, fewer sessions than were done"},
+        {"m4", "ember", 1, 0, "m5", "cinder", 0, 1, false, "waiting to done"},
+        {"m4", "ember", 1, 2, "m5", "cinder", 1, 2, true, "another waiting lead with done sessions around"},
+        {"m4", "ember", 1, 0, "m4", "ember", 1, 4, false, "done sessions added while waiting"},
+        {"", NULL, 0, 0, "m4", "ember", 0, 1, false, "a first done lead"},
+    };
+    for (size_t k = 0; k < sizeof t / sizeof t[0]; k++) {
+        ember_host_info_t a, b;
+        ember_host_lead_info("", t[k].lead_a, 1, t[k].proj_a, t[k].wait_a, t[k].done_a, &a);
+        ember_host_lead_info("", t[k].lead_b, 1, t[k].proj_b, t[k].wait_b, t[k].done_b, &b);
+        CHECK(ember_host_lead_new(&a, &b) == t[k].fresh, "latch %zu, %s: %s", k, t[k].why, t[k].fresh ? "new" : "not new");
+    }
 }
 
 int main(void)
 {
     test_lead();
     test_project();
+    test_done_lead();
     test_priority();
     test_time();
     test_pick();

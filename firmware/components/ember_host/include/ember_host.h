@@ -43,17 +43,19 @@ typedef struct {
 
 void ember_host_lead_label(const char *source, const char *lead, int hosts, char *out, size_t cap);
 
-/* Printable ASCII of project only (other bytes, so whole UTF-8 sequences, are dropped); "" without a letter or digit.
+/* Printable ASCII of project only (other bytes, so whole UTF-8 sequences, are dropped); "" without a letter or digit in the
+   shown part.
    At most EMBER_LABEL_SLOTS slots, EMBER_ELLIPSIS counting as one; others > 0 adds " +N" (N capped at 99). */
 void ember_host_project_label(const char *project, int others, char *out, size_t cap);
 
-/* Fills text, sub, lead and count from the view's mood; color and tool are left alone. */
-void ember_host_lead_info(const char *source, const char *lead, int hosts, const char *project, int waiting,
+/* Fills text, sub, lead and count from the view's mood; color and tool are left alone.
+   " +N" counts the other waiting sessions, or the other done ones when none waits. */
+void ember_host_lead_info(const char *source, const char *lead, int hosts, const char *project, int waiting, int done,
                           ember_host_info_t *out);
 
 int32_t ember_host_color(const char *hex);
 
-/* A higher count, or another lead at the same count. */
+/* A higher waiting count, or another lead at the same non-zero waiting count. */
 bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now);
 
 ember_tool_t ember_host_tool(const char *s);

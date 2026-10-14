@@ -156,12 +156,10 @@ void ember_host_project_label(const char *project, int others, char *out, size_t
     out[0] = 0;
     for (const unsigned char *p = (const unsigned char *)(project ? project : ""); *p; p++) {
         if (!shown(*p) || (!n && *p == ' ')) continue;
-        word |= alnum(*p);
         if (n < EMBER_PROJECT_SLOTS) name[n++] = (char)*p;
         else more |= *p != ' ';
     }
     while (n && name[n - 1] == ' ') n--;
-    if (!word) return;
     char suffix[8] = "";
     if (others > 0) snprintf(suffix, sizeof suffix, " +%d", others > 99 ? 99 : others);
     size_t room = EMBER_LABEL_SLOTS - strlen(suffix);
@@ -172,6 +170,8 @@ void ember_host_project_label(const char *project, int others, char *out, size_t
         while (n && name[n - 1] == ' ') n--;
         cut = EMBER_ELLIPSIS;
     }
+    for (size_t i = 0; i < n; i++) word |= alnum((unsigned char)name[i]);
+    if (!word) return;
     snprintf(out, cap, "%.*s%s%s", (int)n, name, cut, suffix);
 }
 
@@ -181,11 +181,11 @@ static uint32_t fnv(uint32_t h, const char *s)
     return (h ^ 0xff) * 16777619u;
 }
 
-void ember_host_lead_info(const char *source, const char *lead, int hosts, const char *project, int waiting,
+void ember_host_lead_info(const char *source, const char *lead, int hosts, const char *project, int waiting, int done,
                           ember_host_info_t *out)
 {
     const char *who = lead && *lead ? lead : source ? source : "";
-    ember_host_project_label(project, waiting - 1, out->text, sizeof out->text);
+    ember_host_project_label(project, (waiting > 0 ? waiting : done) - 1, out->text, sizeof out->text);
     out->sub[0] = 0;
     out->count = waiting;
     if (out->text[0]) {
@@ -199,7 +199,7 @@ void ember_host_lead_info(const char *source, const char *lead, int hosts, const
 
 bool ember_host_lead_new(const ember_host_info_t *was, const ember_host_info_t *now)
 {
-    return now->count > was->count || (now->lead != was->lead && now->count == was->count);
+    return now->count > was->count || (now->count > 0 && now->lead != was->lead && now->count == was->count);
 }
 
 int32_t ember_host_color(const char *hex)

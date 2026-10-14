@@ -409,9 +409,9 @@ body "$BVC" bot_view_update | grep -qF 'int dy = bot_rim_dy(p, s_r, HOP_SCALE);'
 body "$BVC" label_draw | grep -qF 'bool marked = bot_label_mark(s_rim_mood);' &&
     body "$BVC" label_draw | grep -qF 'const uint8_t *mark = marked ? tool_mark(' &&
     body "$BVC" label_draw | grep -qF 'bool icon = marked && (' || WIRING="$WIRING label-icon-from-bot_label_mark"
-body "$BVC" label_draw | grep -qxF '    const char *sub = s_rim_mood == BOT_WAITING ? s_host.sub : "";' &&
+body "$BVC" label_draw | grep -qxF '    const char *sub = s_rim_mood == BOT_WAITING || s_rim_mood == BOT_DONE ? s_host.sub : "";' &&
     body "$BVC" label_draw | grep -qF '(sub[0] ? LABEL_ICON_SUB_R : LABEL_ICON_R)' &&
-    body "$BVC" label_draw | grep -qxF '    arc_line(&layer, &lv_font_montserrat_18, sub, LABEL_SUB_R, text_c);' || WIRING="$WIRING host-line-only-while-waiting"
+    body "$BVC" label_draw | grep -qxF '    arc_line(&layer, &lv_font_montserrat_18, sub, LABEL_SUB_R, text_c);' || WIRING="$WIRING host-line-only-while-waiting-or-done"
 body "$BVC" bot_view_create | awk '/s_badge_gap = circle_create\(/ {g = NR} /s_badge_dot = circle_create\(/ {d = NR}
     /s_eye\[e\]\.canvas = canvas_create\(/ {e = NR} END {exit !(g && d && e && g < d && d < e)}' || WIRING="$WIRING badge-created-before-the-eye-canvases"
 body "$BVC" bot_view_rim_pose | grep -qxF '    s_rim_want = bot_rim_key(p->mood, p->asleep);' &&
@@ -584,7 +584,7 @@ body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host
 fbody "$MAINC" page_tick | awk '/^    bot_wait_scene\(&s_bot, s_scene_on \? s_scene_n : 0, t\);$/ {d = NR} /^    if \(s_scene_on && s_scene_act\.kind == DEMO_ACT_ASLEEP\) bot_sleep\(/ {m = NR} END {exit !(d && m == d + 1)}' ||
     WIRING="$WIRING page_tick-sets-the-demo-scene-before-the-mood"
 body "$MAINC" scene_start | grep -qxF '    if (!++s_scene_n) s_scene_n = 1;' || WIRING="$WIRING scene_start-numbers-the-scene"
-body "$ECL" view_host | grep -qxF '    ember_host_lead_info(v->source, v->lead, v->hosts, v->lead_project, v->waiting, host);' ||
+body "$ECL" view_host | grep -qxF '    ember_host_lead_info(v->source, v->lead, v->hosts, v->lead_project, v->waiting, v->done, host);' ||
     WIRING="$WIRING view_host-fills-lead-and-count"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL waiting restart wiring:$WIRING" >&2
