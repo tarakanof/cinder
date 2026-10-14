@@ -7,6 +7,7 @@
 
 #include "arc_text.h"
 #include "label_wipe.h"
+#include "offline_glyph.h"
 #include "bot_raster.h"
 #include "bot_shape.h"
 #include "rim_slots.h"
@@ -106,8 +107,9 @@ static int s_glint_defer;
 static void glint_draw_cb(lv_event_t *e);
 
 #define OFFLINE_RGB 0x5A5A5A
-#define OFFLINE_DY 140
 static lv_obj_t *s_offline;
+static EXT_RAM_BSS_ATTR lv_image_dsc_t s_offline_img;
+static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
 static bool s_offline_on;
 
 static uint32_t mood_rgb(bot_mood_t m)
@@ -226,11 +228,17 @@ void bot_view_create(lv_obj_t *parent)
     assert(s_label_buf && s_icon_buf);
     s_label = canvas_create(parent);
     lv_obj_add_flag(s_label, LV_OBJ_FLAG_HIDDEN);
-    s_offline = lv_label_create(parent);
-    lv_obj_set_style_text_font(s_offline, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(s_offline, lv_color_hex(OFFLINE_RGB), 0);
-    lv_label_set_text_static(s_offline, LV_SYMBOL_WIFI);
-    lv_obj_align(s_offline, LV_ALIGN_CENTER, 0, OFFLINE_DY);
+    offline_glyph_raster(s_offline_a8);
+    s_offline_img = (lv_image_dsc_t){
+        .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8, .w = OFFLINE_GLYPH_W, .h = OFFLINE_GLYPH_H,
+                   .stride = OFFLINE_GLYPH_W},
+        .data_size = OFFLINE_GLYPH_W * OFFLINE_GLYPH_H,
+        .data = s_offline_a8,
+    };
+    s_offline = lv_image_create(parent);
+    lv_image_set_src(s_offline, &s_offline_img);
+    lv_obj_set_style_image_recolor(s_offline, lv_color_hex(OFFLINE_RGB), 0);
+    lv_obj_set_pos(s_offline, (int)CX - OFFLINE_GLYPH_W / 2, (int)CY + BOT_VIEW_OFFLINE_DY - OFFLINE_GLYPH_H / 2);
     lv_obj_remove_flag(s_offline, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
     if (xTaskCreatePinnedToCoreWithCaps(rim_task, "rim", 2560, NULL, 2, &s_rim_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)

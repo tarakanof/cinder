@@ -5,6 +5,7 @@
 #include "lvgl.h"
 
 #define BOT_VIEW_EYE_SCALE 1.15
+#define BOT_VIEW_OFFLINE_DY 140
 
 void bot_view_create(lv_obj_t *parent);
 /* LVGL task only; t: the frame's time, bot_pose's clock. */
