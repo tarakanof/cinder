@@ -268,6 +268,7 @@ static void test_turn_face(void)
     CHECK(wx_job_show(&J, true) == 0 && wx_job_face(&J) == WXF_TEMP, "reopened: the attached face stays");
     wx_job_done(&J, 5);
     wx_job_step(&J, &ac, 1.0 / 30);
+    CHECK(wx_job_face(&J) == WXF_TEMP, "the ring landing keeps Temperature");
 }
 
 static void test_partial_during_fade_in(void)
