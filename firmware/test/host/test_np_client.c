@@ -21,7 +21,7 @@ static int64_t s_us = 1000000;
 static answer_t s_cover = ANS_GOOD, s_artist = ANS_GOOD;
 static int s_cover_gets, s_artist_gets, s_jpg_allocs, s_jpg_live;
 static bool s_jpg_fail;
-static char s_bad_art[16];
+static char s_bad_art[NP_ARTV_MAX + 1];
 static UINT s_px;
 static JRESULT s_jd;
 
@@ -322,7 +322,7 @@ static void test_handover_table(void)
         s_bad_art[0] = 0;
         s_artist = ANS_GOOD;
         give_up(&v);
-        snprintf(s_bad_art, sizeof s_bad_art, "%s", v.art_version);
+        strcpy(s_bad_art, v.art_version);
         back_from_idle(&v);
         service_at(10);
         CHECK(take(&set) && set.no_cover && !set.avatar, "row %zu: V given up, its avatar failing", r);
