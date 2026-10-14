@@ -885,7 +885,7 @@ static __attribute__((noinline)) void music_tick(double t, bool calm, bool offli
         music_view_abort(t);
         music_unact(t);
     }
-    mm_in_t in = {.t = t, .have = s_mm_np.have, .playing = playing, .track = s_mm_key, .bot_mood = (int)s_bot.mood,
+    mm_in_t in = {.t = t, .have = s_mm_np.have && on, .playing = playing, .track = s_mm_key, .bot_mood = (int)s_bot.mood,
                   .rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,
                   .blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,
                   .other_at = s_wxm.last_at};

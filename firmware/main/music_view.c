@@ -61,7 +61,7 @@ static void origin(int *ox, int *oy)
     *oy = c.y1;
 }
 
-static void draw_cb(lv_event_t *e)
+static void music_draw_cb(lv_event_t *e)
 {
     lv_layer_t *layer = lv_event_get_layer(e);
     const mm_frame_t *f = &s_shown;
@@ -97,7 +97,7 @@ static void end(void)
     static const mm_frame_t none;
     mm_box_t b;
     if (s_state == MU_PLAY) {
-        lv_obj_remove_event_cb(s_parent, draw_cb);
+        lv_obj_remove_event_cb(s_parent, music_draw_cb);
         if (s_any && mm_diff(&s_shown, &none, &b)) invalidate(&b);
     }
     s_state = MU_IDLE;
@@ -110,7 +110,7 @@ static void end(void)
 double music_view_poll(double t)
 {
     if (s_state == MU_PRE && t >= s_t0) {
-        lv_obj_add_event_cb(s_parent, draw_cb, LV_EVENT_DRAW_POST, NULL);
+        lv_obj_add_event_cb(s_parent, music_draw_cb, LV_EVENT_DRAW_POST, NULL);
         s_state = MU_PLAY;
         s_any = false;
         s_j = -1;

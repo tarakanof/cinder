@@ -12,7 +12,7 @@ extern "C" {
 #define MM_IN 16
 #define MM_BEAT 18
 #define MM_BOB_STEP 2
-#define MM_SETTLE_TICKS 3
+#define MM_SETTLE_STEPS 3
 #define MM_BEATS 10
 #define MM_OUT (MM_IN + MM_BEAT * MM_BEATS)
 #define MM_OUT_LEN 12

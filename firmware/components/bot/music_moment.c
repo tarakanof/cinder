@@ -47,7 +47,6 @@ bool mm_tick(mm_trigger_t *tr, const mm_in_t *in)
     if (!playing) {
         tr->pending = 0;
         if (tr->stop_at < 0) tr->stop_at = t;
-        if (in->track) tr->cur = in->track;
         return false;
     }
     bool start = in->track != tr->cur || (tr->stop_at >= 0 && t - tr->stop_at >= MM_RESUME_S);
@@ -217,7 +216,7 @@ int mm_abort_tick(int j)
 float mm_eye_settle(float from, int ticks)
 {
     int steps = ticks / MM_BOB_STEP;
-    return steps >= MM_SETTLE_TICKS ? 0 : from * (float)(MM_SETTLE_TICKS - steps) / (MM_SETTLE_TICKS + 1);
+    return steps >= MM_SETTLE_STEPS ? 0 : from * (float)(MM_SETTLE_STEPS - steps) / (MM_SETTLE_STEPS + 1);
 }
 
 static const mm_cue_t SCRIPT[] = {{0.0f, MM_HAPPY}, {(float)MM_OUT / MM_FPS, MM_END}};

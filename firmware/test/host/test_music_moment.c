@@ -195,6 +195,28 @@ static void test_trigger(void)
     CHECK(r.shows == 0, "a gap without the block resolves the stop: the next block is a baseline (%d)", r.shows);
 
     rig(&r);
+    r.in.playing = true;
+    r.in.track = A;
+    run(&r, 10);
+    r.in.playing = false;
+    run(&r, 20);
+    r.in.track = B;
+    run(&r, 40);
+    r.in.playing = true;
+    run(&r, 60);
+    CHECK(r.shows == 1, "a track skipped to while paused, then played within %.0f s: a moment (%d)", MM_RESUME_S, r.shows);
+
+    rig(&r);
+    r.in.playing = true;
+    r.in.track = A;
+    run(&r, 10);
+    r.in.have = false;
+    run(&r, 110);
+    r.in.have = true;
+    run(&r, 200);
+    CHECK(r.shows == 0, "a demo (no block for the trigger) then the same track: no moment (%d)", r.shows);
+
+    rig(&r);
     r.in.playing = false;
     r.in.track = A;
     run(&r, 10);
@@ -327,7 +349,7 @@ static void test_abort(void)
         if (k % 2) CHECK(e == mm_eye_settle(-5, k - 1), "settle steps at 15 fps");
         prev = e;
     }
-    CHECK(mm_eye_settle(-5, MM_SETTLE_TICKS * MM_BOB_STEP) == 0 && mm_eye_settle(4, 1) > 0, "settled to 0, from either side");
+    CHECK(mm_eye_settle(-5, MM_SETTLE_STEPS * MM_BOB_STEP) == 0 && mm_eye_settle(4, 1) > 0, "settled to 0, from either side");
     for (int j = -1; j < MM_TICKS; j++) {
         mm_frame_t f, g;
         mm_frame(j, &f);

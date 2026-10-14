@@ -7,24 +7,49 @@
 
 #include "src/display/lv_display_private.h"
 #include "src/misc/lv_event_private.h"
-#if defined(__APPLE__)
-#include <malloc/malloc.h>
-static long heap_used(void)
+static long s_lv_bytes;
+
+void lv_mem_init(void) {}
+void lv_mem_deinit(void) {}
+lv_mem_pool_t lv_mem_add_pool(void *mem, size_t bytes)
 {
-    malloc_statistics_t st;
-    malloc_zone_statistics(NULL, &st);
-    return (long)st.size_in_use;
+    (void)mem;
+    (void)bytes;
+    return NULL;
 }
-#define HEAP_FREES 1
-#elif defined(__GLIBC__)
-#include <malloc.h>
-static long heap_used(void) { return (long)mallinfo2().uordblks; }
-#define HEAP_FREES 0
-#else
-static long heap_used(void) { return 0; }
-#define HEAP_FREES 0
-#define HEAP_NONE 1
-#endif
+void lv_mem_remove_pool(lv_mem_pool_t pool) { (void)pool; }
+void lv_mem_monitor_core(lv_mem_monitor_t *mon) { (void)mon; }
+lv_result_t lv_mem_test_core(void) { return LV_RESULT_OK; }
+
+void *lv_malloc_core(size_t n)
+{
+    size_t *p = malloc(n + 16);
+    if (!p) return NULL;
+    p[0] = n;
+    s_lv_bytes += (long)n;
+    return (char *)p + 16;
+}
+
+void lv_free_core(void *q)
+{
+    if (!q) return;
+    size_t *p = (size_t *)((char *)q - 16);
+    s_lv_bytes -= (long)p[0];
+    free(p);
+}
+
+void *lv_realloc_core(void *q, size_t n)
+{
+    if (!q) return lv_malloc_core(n);
+    size_t *p = (size_t *)((char *)q - 16), old = p[0];
+    p = realloc(p, n + 16);
+    if (!p) return NULL;
+    p[0] = n;
+    s_lv_bytes += (long)n - (long)old;
+    return (char *)p + 16;
+}
+
+static long heap_used(void) { return s_lv_bytes; }
 #include "lvgl.h"
 #include "music_moment.h"
 #include "music_view.h"
@@ -216,10 +241,8 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
     }
     CHECK(!music_view_busy() && lv_obj_get_event_count(root) == cbs, "over: the draw callback is gone");
     CHECK(lit_in(&ext) == 0, "nothing left on screen: %ld px", lit_in(&ext));
-#ifndef HEAP_NONE
-    CHECK(heap_play > 0 && heap_play <= 64 && (heap_end == -heap_play || !HEAP_FREES), "heap: attach +%ld B, end %+ld B", heap_play, heap_end);
-#endif
-    printf("music view: attaching the draw callback takes %ld B of heap (host, lv_event_dsc_t %zu B), the end gives back %ld B\n", heap_play,
+    CHECK(heap_play > 0 && heap_play <= 64 && heap_end == -heap_play, "LVGL heap: attach +%ld B, end %+ld B", heap_play, heap_end);
+    printf("music view: attaching the draw callback takes %ld B of LVGL heap (host, lv_event_dsc_t %zu B), the end gives back %ld B\n", heap_play,
            sizeof(lv_event_dsc_t), -heap_end);
     printf("music view: %d redraws, max %d area, max %ld px, avg %ld px, render avg %.3f ms max %.3f ms (host)\n", frames, max_areas, max_px,
            frames ? total_px / frames : 0, frames ? ms / frames : 0, max_ms);
@@ -244,7 +267,7 @@ static void test_abort(lv_display_t *d)
     music_view_poll(t);
     float e0 = music_view_eye_px(t);
     CHECK(fabsf(e0) <= fabsf((float)before) && (before == 0 || e0 != 0), "the bob settles, no snap: %.2f after %.2f", e0, before);
-    CHECK(music_view_eye_px(base + tick_t(60 + MM_SETTLE_TICKS * MM_BOB_STEP)) == 0, "settled");
+    CHECK(music_view_eye_px(base + tick_t(60 + MM_SETTLE_STEPS * MM_BOB_STEP)) == 0, "settled");
     int ticks = 0;
     for (; music_view_busy() && ticks < 40; ticks++) {
         t = base + tick_t(60 + ticks);

@@ -547,7 +547,7 @@ if [ -n "$WIRING" ]; then
 fi
 echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
 MUT="$(fbody "$MAINC" music_tick)"
-for L in 'if (np_client_get(&s_mm_np, &s_mm_gen))' 'bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;' \
+for L in 'if (np_client_get(&s_mm_np, &s_mm_gen))' 'mm_in_t in = {.t = t, .have = s_mm_np.have && on, .playing = playing,' 'bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;' \
     'if (music_view_busy() && (!on || !bot_page)) {' 'music_view_stop();' \
     '} else if (music_view_busy() && (s_bot.mood != s_mm_mood || calm || offline || !playing)) {' 'music_view_abort(t);' \
     '.rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,' \
@@ -744,7 +744,7 @@ if [ -d "$LV" ]; then
         "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" \
         "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
-        "$D/test_music_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_music_view"
+        "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
 fi
 "${OUT}_bot"
 "${OUT}_pomo"
