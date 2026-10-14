@@ -4606,13 +4606,33 @@ static double og_gap(const uint8_t *a, double x0, double y0, double x1, double y
     *lit_at = -1;
     for (double t = 0; t <= len; t += 0.05) {
         int v = OG_A((int)floor(x0 + t * (x1 - x0) / len), (int)floor(y0 + t * (y1 - y0) / len));
-        if (out < 0 && v < 128) out = t;
-        if (out >= 0 && v >= 128) {
+        if (out < 0 && v < 32) out = t;
+        if (out >= 0 && v >= 32) {
             *lit_at = t;
             return t - out;
         }
     }
     return -1;
+}
+
+static double og_bilerp(const uint8_t *a, double x, double y)
+{
+    x -= 0.5, y -= 0.5;
+    int ix = (int)floor(x), iy = (int)floor(y);
+    double fx = x - ix, fy = y - iy, v[2][2];
+    for (int j = 0; j < 2; j++)
+        for (int i = 0; i < 2; i++) {
+            int px = ix + i, py = iy + j;
+            v[j][i] = px < 0 || py < 0 || px >= OFFLINE_GLYPH_W || py >= OFFLINE_GLYPH_H ? 0 : OG_A(px, py);
+        }
+    return (v[0][0] * (1 - fx) + v[0][1] * fx) * (1 - fy) + (v[1][0] * (1 - fx) + v[1][1] * fx) * fy;
+}
+
+static double og_arc_end(const uint8_t *a, double r, int side)
+{
+    double deg = 40;
+    while (deg < 80 && og_bilerp(a, OG_PX + side * r * sin(deg * M_PI / 180), OG_PY - r * cos(deg * M_PI / 180)) >= 127.5) deg += 0.01;
+    return deg;
 }
 
 static void test_offline_glyph(void)
@@ -4651,6 +4671,17 @@ static void test_offline_glyph(void)
         CHECK(runs == 1 && dark == 0 && piece >= whole - 0.5, "arc r %.0f: one unbroken lit run across +-44 deg: %d runs, %d gaps, %.1f px",
               radii[k], runs, dark, piece);
     }
+    for (int k = 0; k < 3; k++)
+        for (int side = -1; side <= 1; side += 2) {
+            double end = og_arc_end(a, radii[k], side), want = 45 + 2 * asin(1.75 / radii[k]) * 180 / M_PI;
+            printf("offline glyph: arc r %.0f %s cap ends at %.2f deg, a 45 deg sweep ends at %.2f\n", radii[k], side < 0 ? "left" : "right", end, want);
+            CHECK(fabs(end - want) * M_PI / 180 * radii[k] <= 0.35, "arc r %.0f sweeps 45 deg each side: its %s cap ends %.2f px off along the arc",
+                  radii[k], side < 0 ? "left" : "right", (end - want) * M_PI / 180 * radii[k]);
+        }
+    int dot = 1;
+    for (int x = 27; x <= 34; x++) dot &= OG_A(x, 43) >= 200;
+    CHECK(dot && OG_A(26, 43) < 32 && OG_A(35, 43) < 32, "a dot of r 4: (27..34, 43) lit, (26, 43) %d and (35, 43) %d dark", OG_A(26, 43),
+          OG_A(35, 43));
     const int no_slash[][2] = {{16, 12}, {17, 13}, {18, 14}, {25, 21}, {26, 22}, {36, 32}, {38, 34}, {40, 36}, {42, 38}};
     for (size_t i = 0; i < sizeof no_slash / sizeof no_slash[0]; i++)
         CHECK(OG_A(no_slash[i][0], no_slash[i][1]) < 32, "no slash: (%d, %d) on 0.9.78's diagonal between the arcs is dark: %d",
