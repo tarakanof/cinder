@@ -30,10 +30,9 @@ typedef struct {
     uint32_t gen;
     np_art_set_t pending;
     bool has_pending;
-    bool built_valid;
-    char built[NP_COVERV_MAX + 1];
-    bool held_valid;
-    char held[NP_COVERV_MAX + 1];
+    bool handed_valid;
+    bool handed_held;
+    char handed[NP_COVERV_MAX + 1];
     np_info_t last;
     bool last_have;
     np_art_retry_t retry;
@@ -134,8 +133,7 @@ void np_client_forget_art(void)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (S->has_pending) np_art_set_free(&S->pending);
     S->has_pending = false;
-    S->built_valid = false;
-    S->held_valid = false;
+    S->handed_valid = false;
     xSemaphoreGive(s_lock);
 }
 
@@ -166,8 +164,8 @@ static bool due(np_art_plan_t *plan)
     if (!atomic_load(&s_visible) || !S->last_have) return false;
     np_art_plan(&S->last, plan);
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool built = S->built_valid && strcmp(S->built, plan->version) == 0;
-    bool held = S->held_valid && strcmp(S->held, plan->version) == 0;
+    bool handed = S->handed_valid && strcmp(S->handed, plan->version) == 0;
+    bool built = handed && !S->handed_held, held = handed && S->handed_held;
     xSemaphoreGive(s_lock);
     if (built) return false;
     if (S->retry.fails && strcmp(S->retry.version, plan->version) == 0 && now_ms() < S->retry_at_ms &&
@@ -447,19 +445,15 @@ void np_client_service(http_conn_t *conn, const char *base)
     np_art_plan(&S->last, &now);
     bool retry = end == NP_ART_END_NO_COVER_RETRY;
     if (strcmp(now.version, plan.version) != 0 ||
-        (retry && S->held_valid && strcmp(S->held, plan.version) == 0)) {
+        (retry && S->handed_valid && S->handed_held && strcmp(S->handed, plan.version) == 0)) {
         np_art_set_free(&set);
     } else if (atomic_load(&s_visible)) {
         if (S->has_pending) np_art_set_free(&S->pending);
         S->pending = set;
         S->has_pending = true;
-        S->held_valid = retry;
-        if (retry) {
-            strcpy(S->held, plan.version);
-        } else {
-            S->built_valid = true;
-            strcpy(S->built, plan.version);
-        }
+        S->handed_valid = true;
+        S->handed_held = retry;
+        strcpy(S->handed, plan.version);
         S->gen++;
     } else {
         np_art_set_free(&set);

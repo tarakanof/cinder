@@ -21,6 +21,7 @@ static int64_t s_us = 1000000;
 static answer_t s_cover = ANS_GOOD, s_artist = ANS_GOOD;
 static int s_cover_gets, s_artist_gets, s_jpg_allocs, s_jpg_live;
 static bool s_jpg_fail;
+static char s_bad_art[16];
 static UINT s_px;
 static JRESULT s_jd;
 
@@ -58,7 +59,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
         a = s_cover;
     } else {
         s_artist_gets++;
-        a = s_artist;
+        a = s_bad_art[0] && strstr(url, s_bad_art) ? ANS_500 : s_artist;
     }
     if (a == ANS_500) return 500;
     if (o->on_header) o->on_header("Cache-Control", "public, max-age=86400, immutable", o->hdr_ctx);
@@ -288,9 +289,73 @@ static void test_skip_back_while_held(void)
     service_at(10);
     CHECK(s_cover_gets + s_artist_gets == gets && take(&set) && set.no_cover && !set.cover, "back to V in its backoff: no_cover at once");
     np_art_set_free(&set);
+    np_client_feed(&w);
+    service_at(10);
+    CHECK(take(&set) && set.cover && !set.no_cover, "and to W again: its cover, not V's grey disc");
+    np_art_set_free(&set);
+    np_client_feed(&v);
+    service_at(10);
+    CHECK(take(&set) && set.no_cover, "and V again: no_cover");
+    np_art_set_free(&set);
     service_at(5000);
     CHECK(take(&set) && set.no_cover && set.avatar, "and the avatar after the backoff");
     np_art_set_free(&set);
+}
+
+static void test_handover_table(void)
+{
+    static const struct {
+        const char *steps, *want;
+    } T[] = {
+        {"VW", "gc"},     {"VWV", "gcg"},   {"VWVW", "gcgc"}, {"VI", "gg"},     {"VIW", "ggc"},  {"VWIV", "gccg"},
+        {"VH", "gg"},     {"VHW", "ggc"},   {"HV", "cg"},     {"I", "c"},       {"IV", "cg"},    {"VT", "gn"},
+        {"VTW", "gnc"},   {"VWT", "gcn"},   {"VWTV", "gcng"}, {"VITW", "ggnc"}, {"WV", "ng"},
+    };
+    np_art_set_t set;
+    for (size_t r = 0; r < sizeof T / sizeof T[0]; r++) {
+        char name[NP_COVERV_MAX + 1];
+        snprintf(name, sizeof name, "tv%zu-r1", r);
+        np_info_t v = block(name);
+        snprintf(v.art_version, sizeof v.art_version, "dead%08zx", r);
+        snprintf(name, sizeof name, "tw%zu-r1", r);
+        np_info_t w = block(name);
+        s_bad_art[0] = 0;
+        s_artist = ANS_GOOD;
+        give_up(&v);
+        snprintf(s_bad_art, sizeof s_bad_art, "%s", v.art_version);
+        back_from_idle(&v);
+        service_at(10);
+        CHECK(take(&set) && set.no_cover && !set.avatar, "row %zu: V given up, its avatar failing", r);
+        np_art_set_free(&set);
+        s_cover = ANS_GOOD;
+        np_client_feed(&w);
+        service_at(10);
+        CHECK(take(&set) && set.cover, "row %zu: W on screen", r);
+        np_art_set_free(&set);
+        const np_info_t *cur = &w;
+        for (int k = 0; T[r].steps[k]; k++) {
+            char st = T[r].steps[k];
+            if (st == 'V' || st == 'W') {
+                cur = st == 'V' ? &v : &w;
+                np_client_feed(cur);
+                service_at(10);
+            } else if (st == 'I') {
+                back_from_idle(cur);
+                service_at(10);
+            } else if (st == 'H') {
+                np_client_set_visible(false);
+                np_client_set_visible(true);
+                service_at(10);
+            } else {
+                service_at(5000);
+            }
+            bool got = take(&set);
+            char saw = !got ? 'n' : set.cover && !set.no_cover ? 'c' : set.no_cover && !set.cover ? 'g' : '?';
+            if (got) np_art_set_free(&set);
+            CHECK(saw == T[r].want[k], "row %zu (%s) step %d '%c': want %c, saw %c", r, T[r].steps, k, st, T[r].want[k], saw);
+        }
+    }
+    s_bad_art[0] = 0;
 }
 
 static void test_no_buffer_when_nothing_to_fetch(void)
@@ -314,6 +379,7 @@ int main(void)
     test_success_resets();
     test_avatar_retry();
     test_skip_back_while_held();
+    test_handover_table();
     test_no_buffer_when_nothing_to_fetch();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);
