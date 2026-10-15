@@ -45,7 +45,7 @@ One rule for every page: **push and turn** (hold the knob down while turning) ch
 
 Detent count per turn and double-push timing need tuning on hardware.
 
-The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember instead of BLE: turn = volume (Plex / Apple Music's own level, 2 points per detent), push = play/pause, double push = next, long push = previous; touch only wakes the face. See `features.md` "Now-playing controls".
+The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember instead of BLE: turn = volume (Plex / Apple Music's own level, 2 points per detent), push = play/pause; a tap shows on-screen ⏮ ⏯ ⏭ (the first tap only shows them), swipe left / right = next / previous track; double and long push do nothing there. See `features.md` "Now-playing controls" and "Touch controls on the music page".
 
 The **weather** page: turn = next / previous weather face (it opens on the most relevant one); push does nothing. See `features.md` "Weather face switching".
 

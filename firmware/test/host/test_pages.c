@@ -96,19 +96,19 @@ static void test_unknown_kept_not_shown(void)
 static bool same_in(page_input_t a, page_input_t b)
 {
     return a.detents == b.detents && a.pushes == b.pushes && a.longs == b.longs && a.touches == b.touches &&
-           a.wakes == b.wakes;
+           a.wakes == b.wakes && a.zone == b.zone && a.hswipes == b.hswipes;
 }
 
 static void test_route(void)
 {
-    const page_input_t in = {.detents = 2, .pushes = 1, .longs = 3, .touches = 4, .wakes = 5};
+    const page_input_t in = {.detents = 2, .pushes = 1, .longs = 3, .touches = 4, .wakes = 5, .zone = 2, .hswipes = -1};
     CHECK(SAME_IN(pages_route(&PAGES[index_of("bot")], in), .detents = 2, .pushes = 5, .longs = 3), "bot");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("pomodoro")], in), .pushes = 5, .longs = 3), "pomodoro: no detents");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("weather")], in), .detents = 2, .pushes = 5, .longs = 3),
           "weather: turns switch faces; pushes and longs reach it and are ignored there");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("nowplaying")], in), .detents = 2, .pushes = 1, .longs = 3,
-                  .touches = 4, .wakes = 5),
-          "nowplaying: raw taps");
+                  .touches = 4, .wakes = 5, .zone = 2, .hswipes = -1),
+          "nowplaying: raw taps with their zone, horizontal swipes");
     CHECK(PAGES[index_of("bot")].flags & PAGE_GLINT, "bot runs the glint");
     for (int i = 0; i < PAGES_N; i++)
         if (strcmp(PAGES[i].id, "bot") != 0) CHECK(!(PAGES[i].flags & PAGE_GLINT), "%s: no glint", PAGES[i].id);
@@ -129,7 +129,7 @@ static void dispatch(const pages_nav_t *nav, page_input_t raw)
 
 static void test_dispatch(void)
 {
-    const page_input_t raw = {.detents = 2, .pushes = 3, .longs = 1, .touches = 4, .wakes = 5};
+    const page_input_t raw = {.detents = 2, .pushes = 3, .longs = 1, .touches = 4, .wakes = 5, .zone = 3, .hswipes = 2};
     pages_nav_t nav = nav_at(index_of("bot"));
     dispatch(&nav, raw);
     CHECK(strcmp(page_log, "bot.in ") == 0 && SAME_IN(page_stub_in, .detents = 2, .pushes = 7, .longs = 1),
@@ -145,7 +145,7 @@ static void test_dispatch(void)
     nav = nav_at(index_of("nowplaying"));
     dispatch(&nav, raw);
     CHECK(strcmp(page_log, "np.in ") == 0 &&
-              SAME_IN(page_stub_in, .detents = 2, .pushes = 3, .longs = 1, .touches = 4, .wakes = 5),
+              SAME_IN(page_stub_in, .detents = 2, .pushes = 3, .longs = 1, .touches = 4, .wakes = 5, .zone = 3, .hswipes = 2),
           "nowplaying gets raw input: %s", page_log);
     dispatch(&nav, (page_input_t){.touches = 1, .wakes = 1});
     CHECK(SAME_IN(page_stub_in, .touches = 1, .wakes = 1), "nowplaying: a tap wakes, never a push (play/pause)");

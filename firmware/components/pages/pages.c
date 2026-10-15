@@ -24,7 +24,7 @@ page_input_t pages_route(const page_desc_t *p, page_input_t in)
     if (!p->input) return (page_input_t){0};
     if (!(p->flags & PAGE_TOUCH_RAW)) {
         in.pushes += in.touches;
-        in.touches = in.wakes = 0;
+        in.touches = in.wakes = in.zone = in.hswipes = 0;
     }
     if (!(p->flags & PAGE_TURN)) in.detents = 0;
     return in;

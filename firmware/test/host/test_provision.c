@@ -438,6 +438,18 @@ static void test_diag_override(void)
               r.input == CL_INPUT_SWIPE_DOWN && r.input_n == 3,
           "three swipes down");
     CHECK(cl_parse("{\"op\":\"input\",\"input\":\"swipe_up\",\"n\":-1}", &r) == CL_E_BAD_VALUE, "swipe n < 1");
+    CHECK(cl_parse("{\"op\":\"input\",\"input\":\"swipe_left\"}", &r) == CL_OK && r.input == CL_INPUT_SWIPE_LEFT &&
+              (int)r.input == 7 && r.input_n == 1,
+          "swipe left (dev tool kind 7)");
+    CHECK(cl_parse("{\"op\":\"input\",\"input\":\"swipe_right\",\"n\":2}", &r) == CL_OK &&
+              (int)r.input == 8 && r.input_n == 2,
+          "swipe right (kind 8)");
+    CHECK(cl_parse("{\"op\":\"input\",\"input\":\"tap_prev\"}", &r) == CL_OK && (int)r.input == 9, "tap prev (kind 9)");
+    CHECK(cl_parse("{\"op\":\"input\",\"input\":\"tap_play\"}", &r) == CL_OK && (int)r.input == 10, "tap play (kind 10)");
+    CHECK(cl_parse("{\"op\":\"input\",\"input\":\"tap_next\",\"n\":3}", &r) == CL_OK && (int)r.input == 11 &&
+              r.input_n == 3,
+          "tap next (kind 11)");
+    CHECK(cl_parse("{\"op\":\"input\",\"input\":\"tap_next\",\"n\":4}", &r) == CL_E_BAD_VALUE, "4 taps");
     CHECK(cl_parse("{\"op\":\"input\"}", &r) == CL_E_BAD_JSON, "input missing");
     CHECK(cl_parse("{\"op\":\"input\",\"input\":\"page\",\"n\":-1}", &r) == CL_OK && r.input == CL_INPUT_PAGE &&
               r.input_n == -1,

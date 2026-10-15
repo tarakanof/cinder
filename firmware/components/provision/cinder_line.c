@@ -8,7 +8,8 @@
 #include "cJSON.h"
 #include "cfg.h"
 
-const char *const CL_INPUT_NAMES[CL_INPUT_COUNT] = {"turn", "push", "long", "touch", "page", "swipe_up", "swipe_down"};
+const char *const CL_INPUT_NAMES[CL_INPUT_COUNT] = {"turn", "push", "long", "touch", "page", "swipe_up", "swipe_down",
+                                                 "swipe_left", "swipe_right", "tap_prev", "tap_play", "tap_next"};
 
 static bool printable(const char *v, bool allow_space)
 {

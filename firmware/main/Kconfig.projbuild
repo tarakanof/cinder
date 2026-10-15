@@ -4,7 +4,7 @@ config CINDER_DEV_INPUT
     bool "USB dev op: inject knob input (CINDER1 {\"op\":\"input\"})"
     default y
     help
-        Lets firmware/tools/input.py send a turn, push, long push, touch or page step
+        Lets firmware/tools/input.py send a turn, push, long push, tap, swipe or page step
         over USB, as if from the hardware (testing the now-playing controls without a hand
         on the knob). Needs physical USB, like set_ember and reset. Off: the op answers
         unknown_op.

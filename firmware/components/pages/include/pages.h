@@ -10,11 +10,11 @@ extern "C" {
 
 #define PAGES_N 4
 
-/* PAGE_TOUCH_RAW: taps reach the page as touches and wakes, not as pushes. PAGE_TURN: the page takes detents. PAGE_GLINT: the working glint and chase run. */
+/* PAGE_TOUCH_RAW: taps reach the page as touches (zone: the last tap's ts_zone_t), wakes and hswipes (> 0 left, < 0 right), not as pushes. PAGE_TURN: the page takes detents. PAGE_GLINT: the working glint and chase run. */
 enum { PAGE_TOUCH_RAW = 1, PAGE_TURN = 2, PAGE_GLINT = 4 };
 
 typedef struct {
-    int detents, pushes, longs, touches, wakes;
+    int detents, pushes, longs, touches, wakes, zone, hswipes;
 } page_input_t;
 
 typedef struct page_frame page_frame_t;

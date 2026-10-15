@@ -36,8 +36,7 @@ static void test_ctl(void)
     np_ctl_server(&c, NP_PLAYING, 40, 0);
 
     np_ctl_push(&c, 1.0);
-    CHECK(tick(&c, 1.1, out) == 0, "push waits for a second one");
-    CHECK(tick(&c, 1.0 + NP_DOUBLE_S + 0.01, out) == 1 && out[0].kind == NP_CMD_PAUSE, "push while playing = pause");
+    CHECK(tick(&c, 1.0, out) == 1 && out[0].kind == NP_CMD_PAUSE, "push while playing = pause, at once");
     CHECK(np_ctl_play_shown(&c, 1.4) == NP_PAUSED, "optimistic: paused at once");
     np_ctl_server(&c, NP_PLAYING, 40, 1.5);
     CHECK(np_ctl_play_shown(&c, 1.5) == NP_PAUSED, "a stale playing answer does not undo it");
@@ -45,20 +44,27 @@ static void test_ctl(void)
     CHECK(!c.play_set && np_ctl_play_shown(&c, 1.8) == NP_PAUSED, "Ember confirms");
 
     np_ctl_push(&c, 2.0);
-    CHECK(tick(&c, 2.4, out) == 1 && np_ctl_play_shown(&c, 2.5) == NP_PLAYING, "optimistic playing");
-    CHECK(np_ctl_play_shown(&c, 2.4 + NP_HOLD_S + 0.1) == NP_PAUSED, "unconfirmed: back to Ember's state");
+    CHECK(tick(&c, 2.0, out) == 1 && np_ctl_play_shown(&c, 2.5) == NP_PLAYING, "optimistic playing");
+    CHECK(np_ctl_play_shown(&c, 2.0 + NP_HOLD_S + 0.1) == NP_PAUSED, "unconfirmed: back to Ember's state");
 
     np_ctl_push(&c, 10.0);
+    int n = tick(&c, 10.0, out);
+    CHECK(n == 1 && out[0].kind == NP_CMD_PLAY, "push 1: play (shown paused)");
     np_ctl_push(&c, 10.2);
-    int n = tick(&c, 10.21, out);
-    CHECK(n == 1 && out[0].kind == NP_CMD_NEXT, "double push = next (%d)", n);
+    n = tick(&c, 10.2, out);
+    CHECK(n == 1 && out[0].kind == NP_CMD_PAUSE, "a quick second push: pause, never next (%d)", n);
     CHECK(tick(&c, 11.0, out) == 0, "and nothing else");
+    np_ctl_server(&c, NP_PLAYING, 40, 12);
     np_ctl_push(&c, 20.0);
-    CHECK(tick(&c, 20.4, out) == 1 && out[0].kind == NP_CMD_PLAY, "slow push 1: play (shown paused)");
-    np_ctl_push(&c, 20.5);
-    CHECK(tick(&c, 20.9, out) == 1 && out[0].kind == NP_CMD_PAUSE, "slow push 2: pause, not a second play");
-    np_ctl_long_push(&c, 30.0);
-    CHECK(tick(&c, 30.0, out) == 1 && out[0].kind == NP_CMD_PREVIOUS, "long push = previous");
+    np_ctl_push(&c, 20.01);
+    n = tick(&c, 20.02, out);
+    CHECK(n == 1 && out[0].kind == NP_CMD_PLAY, "two pushes in one frame: one command for the state wanted (%d)", n);
+    np_ctl_skip(&c, 1, 30.0);
+    CHECK(tick(&c, 30.0, out) == 1 && out[0].kind == NP_CMD_NEXT, "skip forward = next");
+    np_ctl_skip(&c, -1, 31.0);
+    CHECK(tick(&c, 31.0, out) == 1 && out[0].kind == NP_CMD_PREVIOUS, "skip back = previous");
+    np_ctl_skip(&c, 0, 32.0);
+    CHECK(tick(&c, 32.0, out) == 0, "no skip");
 
     np_ctl_init(&c);
     np_ctl_server(&c, NP_PLAYING, 40, 0);
@@ -398,6 +404,49 @@ static const char *COVER_BLOCK =
     "\"album\":\"Example Album\",\"track_id\":\"4242\",\"duration_ms\":330000,\"position_ms\":61000,"
     "\"position_at\":1782043198000,\"art_version\":\"fb43cf74b67a\",\"album_art\":true,\"volume\":40,"
     "\"accent\":\"#6C22E6\",\"cover_version\":\"fb43cf74b67a-r1\"}";
+
+static void test_touch(void)
+{
+    np_ctl_t c;
+    np_cmd_t out[4];
+    np_ctl_init(&c);
+    CHECK(!np_ctl_tap(&c, NP_CMD_NEXT, 1.0) && np_ctl_touch_opa(&c, 1.0) == 0, "nothing playing: a tap shows nothing");
+    np_ctl_server(&c, NP_PLAYING, 40, 2);
+    CHECK(np_ctl_touch_opa(&c, 2.0) == 0, "hidden at first");
+    CHECK(!np_ctl_tap(&c, NP_CMD_PLAY, 2.0) && tick(&c, 2.0, out) == 0, "the first tap only shows them");
+    CHECK(np_ctl_touch_opa(&c, 2.0) == 255 && np_ctl_play_shown(&c, 2.0) == NP_PLAYING, "shown, still playing");
+    CHECK(np_ctl_tap(&c, NP_CMD_PLAY, 3.0) && tick(&c, 3.0, out) == 1 && out[0].kind == NP_CMD_PAUSE, "then play/pause");
+    CHECK(np_ctl_tap(&c, NP_CMD_NEXT, 4.0) && tick(&c, 4.0, out) == 1 && out[0].kind == NP_CMD_NEXT, "next");
+    CHECK(np_ctl_tap(&c, NP_CMD_PREVIOUS, 5.0) && tick(&c, 5.0, out) == 1 && out[0].kind == NP_CMD_PREVIOUS &&
+              c.last == NP_CMD_PREVIOUS && c.last_t == 5.0,
+          "previous, flagged for the badge");
+    CHECK(!np_ctl_tap(&c, NP_CMD_NONE, 6.0) && tick(&c, 6.0, out) == 0, "a tap off the controls runs nothing");
+    CHECK(np_ctl_touch_opa(&c, 6.0 + NP_TOUCH_SHOW_S - 0.01) == 255, "and restarts the timer");
+    int prev = 255, steps = 0;
+    for (double t = 6.0 + NP_TOUCH_SHOW_S; t < 6.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S; t += 0.01) {
+        int o = np_ctl_touch_opa(&c, t);
+        CHECK(o <= prev && o > 0, "fades down at %.2f: %d", t, o);
+        steps += o != prev;
+        prev = o;
+    }
+    CHECK(steps == NP_TOUCH_FADE_STEPS, "fade in %d steps", steps);
+    double gone = 6.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S;
+    CHECK(np_ctl_touch_opa(&c, gone) == 0, "gone after the fade");
+    CHECK(!np_ctl_tap(&c, NP_CMD_NEXT, gone + 1) && tick(&c, gone + 1, out) == 0, "hidden again: a tap only shows them");
+    CHECK(np_ctl_touch_opa(&c, gone + 1 + NP_TOUCH_SHOW_S + 0.1) < 255 &&
+              np_ctl_tap(&c, NP_CMD_NEXT, gone + 1 + NP_TOUCH_SHOW_S + 0.1) && tick(&c, gone + 6, out) == 1,
+          "a tap while fading still counts");
+    np_ctl_skip(&c, 1, 100.0);
+    CHECK(tick(&c, 100.0, out) == 1 && out[0].kind == NP_CMD_NEXT && np_ctl_touch_opa(&c, 100.0) == 0,
+          "a swipe while hidden: next, controls stay hidden");
+    np_ctl_tap(&c, NP_CMD_NONE, 101.0);
+    np_ctl_skip(&c, -1, 104.0);
+    CHECK(np_ctl_touch_opa(&c, 104.0 + NP_TOUCH_SHOW_S - 0.01) == 255, "a swipe while shown restarts the timer");
+    np_ctl_server(&c, NP_NONE, -1, 105.0);
+    CHECK(np_ctl_touch_opa(&c, 105.0) == 0, "nothing playing: hidden");
+    np_ctl_server(&c, NP_PLAYING, 40, 106.0);
+    CHECK(np_ctl_touch_opa(&c, 106.0) == 0 && !np_ctl_tap(&c, NP_CMD_NEXT, 106.0), "a new track: hidden, a tap shows them");
+}
 
 static void test_cover_parse(void)
 {
@@ -946,6 +995,7 @@ int main(void)
     test_ring();
     test_masks();
     test_ctl();
+    test_touch();
     test_cover_parse();
     test_cover_plan();
     test_edge();
