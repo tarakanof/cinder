@@ -1272,7 +1272,6 @@ static void test_dropped_set(lv_display_t *d, lv_obj_t *scr)
     np_view_show(false);
 }
 
-
 static bool label_has(lv_obj_t *o, const char *txt)
 {
     if (lv_obj_check_type(o, &lv_label_class) && !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) && strcmp(lv_label_get_text(o), txt) == 0)
@@ -1297,13 +1296,15 @@ static void test_paused_skip(lv_display_t *d, lv_obj_t *scr)
         if (!legacy) strcpy(a.cover_version, "aaaa0001-r1");
         publish(&a);
         frames(d, 3);
+        uint16_t *acov = track(make_cover());
         if (legacy) {
-            s_pend = (np_art_set_t){.backdrop = (uint16_t *)make_cover()};
+            s_pend = (np_art_set_t){.backdrop = acov};
             strcpy(s_pend.version, a.art_version);
-            s_has_pend = true;
         } else {
-            pend(a.cover_version, false, false, true);
+            s_pend = (np_art_set_t){.is_cover = true, .cover = acov};
+            strcpy(s_pend.version, a.cover_version);
         }
+        s_has_pend = true;
         frames(d, 20);
         CHECK(label_has(scr, "Glass Harbor"), "paused (%s): the first title", legacy ? "old face" : "cover face");
         np_view_skip(1, s_now_us / 1e6);
@@ -1320,6 +1321,23 @@ static void test_paused_skip(lv_display_t *d, lv_obj_t *scr)
         frames(d, 3);
         CHECK(label_has(scr, "Paper Moons") && !label_has(scr, "Glass Harbor"), "paused (%s): the new title shown",
               legacy ? "old face" : "cover face");
+        CHECK(label_has(scr, "Low Tide") && !label_has(scr, "Northern Static"), "paused (%s): the new artist shown",
+              legacy ? "old face" : "cover face");
+        uint16_t *bcov = track(make_flat(0x001F));
+        if (legacy) {
+            s_pend = (np_art_set_t){.backdrop = bcov};
+            strcpy(s_pend.version, b.art_version);
+        } else {
+            s_pend = (np_art_set_t){.is_cover = true, .cover = bcov};
+            strcpy(s_pend.version, b.cover_version);
+        }
+        s_has_pend = true;
+        frames(d, 20);
+        int r, g, bl;
+        rgb(FX + 233, 50, &r, &g, &bl);
+        CHECK(!s_has_pend && bl > 100 && r < 10 && g < 10, "paused (%s): the new art adopted: %d,%d,%d",
+              legacy ? "old face" : "cover face", r, g, bl);
+        if (!legacy) CHECK(freed(acov) == 1, "paused (cover face): the old cover freed once: %d", freed(acov));
         np_view_show(false);
     }
 }
