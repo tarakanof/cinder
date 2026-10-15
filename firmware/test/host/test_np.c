@@ -1182,9 +1182,11 @@ static void test_short_track(void)
     strcpy(a.title, "Jingle");
     np_ctl_track(&c, &a, 0.0);
     double t = 0;
-    for (int lap = 0; lap < 3; lap++)
+    for (int lap = 0; lap < 2; lap++)
         for (long long p = 0; p <= 10000; p += 500) np_ctl_track_pos(&c, p, 10000, t += 0.5);
-    CHECK(np_ctl_info_opa(&c, t, false) == 0, "a 10 s track on repeat-one: no restart, clean once the first 10 s ran out");
+    np_ctl_track_pos(&c, 0, 10000, t += 0.5);
+    np_ctl_track_pos(&c, 500, 10000, t += 0.5);
+    CHECK(np_ctl_info_opa(&c, t, false) == 0, "a 10 s track on repeat-one: the lap 1 s ago is no restart, clean 22 s after the block");
     np_ctl_track_pos(&c, 7500, 8000, t += 0.5);
     np_ctl_track_pos(&c, 200, 8000, t += 0.5);
     CHECK(np_ctl_info_opa(&c, t, false) == 0, "nor an 8 s one");

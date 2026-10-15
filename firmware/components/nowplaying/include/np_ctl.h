@@ -59,7 +59,7 @@ typedef struct {
 
 void np_ctl_init(np_ctl_t *c);
 void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now);
-/* The play state last shown live (the optimistic one of a push not yet confirmed), kept when the link drops; NP_NONE before any live block. */
+/* While live, the last block's state; when the link drops (np_ctl_server with NP_NONE), np_ctl_play_shown at that moment (a push within NP_HOLD_S counts), kept until the next live block; NP_NONE before any. */
 np_play_t np_ctl_held(const np_ctl_t *c);
 void np_ctl_push(np_ctl_t *c, double now);
 /* dir > 0 next, < 0 previous. */

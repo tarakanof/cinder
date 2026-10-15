@@ -1125,7 +1125,8 @@ static void layout_check(const char *face)
         ts_zone_t want = k < 0 ? TS_ZONE_PREV : k > 0 ? TS_ZONE_NEXT : TS_ZONE_PLAY;
         for (int y = TS_CTL_Y - TS_CTL_DX / 2; y < TS_CTL_Y + TS_CTL_DX / 2; y++)
             for (int x = cx - TS_CTL_DX / 2; x < cx + TS_CTL_DX / 2; x++) {
-                if (s_fb[y * W + x] == s_before[y * W + x] || s_fb[y * W + x] == PH565) continue;
+                if (s_fb[y * W + x] == s_before[y * W + x]) continue;
+                if (s_fb[y * W + x] == PH565 && abs(x - TS_CX) <= 30 && y < TS_CTL_Y - TS_CTL_PX / 2) continue;
                 if (x < x0) x0 = x;
                 if (x > x1) x1 = x;
                 if (y < y0) y0 = y;
@@ -1981,6 +1982,16 @@ static void test_offline_push(lv_display_t *d, lv_obj_t *scr)
     frames(d, 2);
     frames_off(d, 150);
     CHECK(title_ink() == 0, "a play pushed, then the drop: offline it fades as the playing face did: %d px", title_ink());
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    frames(d, 120);
+    CHECK(title_ink() == 0, "online, playing, clean");
+    np_view_push(s_now_us / 1e6);
+    frames(d, 40);
+    frames_off(d, 150);
+    CHECK(title_ink() == 0,
+          "a pause pushed and declared offline only 4 s later (past NP_HOLD_S, unconfirmed): the face had gone back to playing, offline keeps that: %d px",
+          title_ink());
     np_view_show(false);
 }
 
@@ -1992,6 +2003,14 @@ static int title_top(void)
     return -1;
 }
 
+static int title_y(lv_obj_t *scr)
+{
+    lv_obj_t *l = label_find(scr, "Long Listen");
+    if (!l) return -1000;
+    lv_obj_update_layout(l);
+    return lv_obj_get_y(l);
+}
+
 static void test_burn_in_gap(lv_display_t *d, lv_obj_t *scr)
 {
     np_view_create(scr);
@@ -1999,9 +2018,14 @@ static void test_burn_in_gap(lv_display_t *d, lv_obj_t *scr)
     np_info_t np;
     cover_track(d, &np, "Long Listen", 900000, 60000, true);
     frames(d, 3);
-    int top0 = title_top();
-    frames(d, 2450);
-    CHECK(title_ink() == 0, "dimmed and drifted for 4 min: clean");
+    int top0 = title_top(), y0 = title_y(scr);
+    int i = 0;
+    while (i < 6000 && title_y(scr) > y0 - 4) {
+        frames(d, 10);
+        i += 10;
+    }
+    CHECK(y0 > -1000 && title_y(scr) <= y0 - 4, "the text drifted up before the tap: title label y %d -> %d after %d frames", y0, title_y(scr), i);
+    CHECK(title_ink() == 0, "dimmed and drifted: clean");
     touch(d, TS_ZONE_NONE);
     int top = title_top();
     save("burn-in-tap");
