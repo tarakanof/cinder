@@ -66,6 +66,7 @@ typedef struct {
     char fit[4 * NP_TEXT_MAX + 8];
     np_ctl_t ctl;
     char badge[24];
+    char held_drop[NP_COVERV_MAX + 1];
 } view_mem_t;
 static view_mem_t *V;
 #define s_face_dsc (V->face_dsc)
@@ -264,6 +265,7 @@ void np_view_show(bool show)
         np_ctl_init(&V->ctl);
         s_vol_shown = -2;
         V->badge[0] = 0;
+        V->held_drop[0] = 0;
         s_error_t = -1e9;
         np_ctl_result_t r;
         np_client_control_result(&r);
@@ -584,8 +586,14 @@ void np_view_update(double now, bool offline)
         if (np_art_take(in.version, in.is_cover, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
             if (in.is_cover) npc_adopt(&in);
             else adopt_art(&in);
+            V->held_drop[0] = 0;
+        } else if (in.is_cover && in.no_cover && in.held) {
+            strcpy(V->held_drop, in.version);
         }
         np_art_set_free(&in);
+    } else if (V->held_drop[0] && np_art_take(V->held_drop, true, np, s_kind == KIND_COVER) == NP_TAKE_ADOPT) {
+        V->held_drop[0] = 0;
+        np_client_forget_art();
     }
     if (fresh || !live) np_ctl_server(&V->ctl, live ? np->state : NP_NONE, live ? np->volume : -1, now);
     if (live) controls_tick(now);

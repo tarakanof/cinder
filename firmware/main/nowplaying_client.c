@@ -449,6 +449,7 @@ void np_client_service(http_conn_t *conn, const char *base)
         np_art_set_free(&set);
     } else if (atomic_load(&s_visible)) {
         if (S->has_pending) np_art_set_free(&S->pending);
+        set.held = retry;
         S->pending = set;
         S->has_pending = true;
         S->handed_valid = true;

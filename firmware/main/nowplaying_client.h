@@ -24,6 +24,7 @@ typedef struct {
     uint16_t *cover;      /* 466 x 466 RGB565, Ember's circle crop on black */
     uint8_t *avatar;      /* NP_AVATAR_PX square RGB565A8 (circle) */
     bool no_cover;        /* the cover failed NP_ART_BAD_TRIES times: show the no-cover look */
+    bool held;            /* no_cover while the avatar backs off: a failed retry is not sent again */
 } np_art_set_t;
 
 #define NP_JPEG_MAX (96 * 1024)
