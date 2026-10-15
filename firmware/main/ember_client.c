@@ -401,9 +401,17 @@ static void watchdog_start(void)
 
 static EXT_RAM_BSS_ATTR demo_t s_demo;
 static portMUX_TYPE s_demo_mux = portMUX_INITIALIZER_UNLOCKED;
-static atomic_bool s_demo_view_on;
-static atomic_bool s_demo_quiet;
+static bool s_demo_view_on;
+static bool s_demo_quiet;
 static atomic_int s_demo_mood = -1;
+
+static void demo_flags(bool view_on, bool quiet)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    s_demo_view_on = view_on;
+    s_demo_quiet = quiet;
+    taskEXIT_CRITICAL(&s_demo_mux);
+}
 
 static bool demo_moved(void)
 {
@@ -849,8 +857,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     P->demo_gen = s_demo.gen;
     taskEXIT_CRITICAL(&s_demo_mux);
     const knob_view_t *e = want ? &P->vs.demo_view : v;
-    atomic_store(&s_demo_quiet, want && e->quiet);
-    if (want) atomic_store(&s_demo_view_on, true);
+    if (want) demo_flags(true, e->quiet);
     view_host(e, host);
     char key[48];
     knob_view_epoch_key(v, key, sizeof key);
@@ -861,7 +868,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
         pomo_client_feed(e->has_pomo ? &e->pomo : NULL, e->pomo_counting, e->ends_at, srv_now, sent, received);
     weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
     np_client_feed(e->has_np ? &e->np : NULL);
-    atomic_store(&s_demo_view_on, want);
+    demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));
     view_brightness();
@@ -991,7 +998,7 @@ static void demo_sync(ember_host_info_t *host, int *mood, bool *fresh)
     if (gen == P->demo_gen) return;
     if (P->vp.legacy || !P->vs.have_view || P->vs.unsupported) {
         P->demo_gen = gen;
-        atomic_store(&s_demo_view_on, false);
+        demo_flags(false, false);
         return;
     }
     double now = pomo_client_now();
@@ -1264,9 +1271,9 @@ void ember_client_demo_status(ember_demo_status_t *out)
     taskENTER_CRITICAL(&s_demo_mux);
     out->playing = demo_playing(&s_demo);
     out->gen = s_demo.gen;
+    out->view_on = s_demo_view_on;
+    out->quiet = s_demo_quiet;
     taskEXIT_CRITICAL(&s_demo_mux);
-    out->view_on = atomic_load(&s_demo_view_on);
-    out->quiet = atomic_load(&s_demo_quiet);
 }
 
 bool ember_client_demo_take(demo_block_t *out, unsigned *gen)
