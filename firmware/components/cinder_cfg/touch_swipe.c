@@ -74,7 +74,7 @@ int ts_tap_counts(unsigned word, int counts[TS_ZONES])
 
 ts_zone_t ts_tap_zone(int x, int y)
 {
-    if (abs(y - TS_CTL_Y) > TS_CTL_BAND) return TS_ZONE_NONE;
+    if (y < TS_CTL_Y - TS_CTL_UP || y > TS_CTL_Y + TS_CTL_DOWN) return TS_ZONE_NONE;
     int dx = x - TS_CX;
     return dx < -TS_CTL_SPLIT ? TS_ZONE_PREV : dx > TS_CTL_SPLIT ? TS_ZONE_NEXT : TS_ZONE_PLAY;
 }

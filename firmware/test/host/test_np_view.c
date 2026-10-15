@@ -1075,6 +1075,28 @@ static bool avatar_seen(void)
     return r > 20 && g * 100 > r * 65;
 }
 
+static int ink_outside(int cx, int cy, int r)
+{
+    int n = 0;
+    for (int y = cy - r - 8; y <= cy + r + 8; y++)
+        for (int x = cx - r - 8; x <= cx + r + 8; x++)
+            n += (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r && luma(x, y) > 200;
+    return n;
+}
+
+static int title_hits(int y0, int y1, int *ink)
+{
+    int hit = 0;
+    *ink = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = FX + 100; x < FX + 370; x++)
+            if (luma(x, y) > 200) {
+                (*ink)++;
+                hit += ts_tap_zone(x, y) != TS_ZONE_NONE || ts_tap_zone(x, y - DRIFT) != TS_ZONE_NONE;
+            }
+    return hit;
+}
+
 static int ink_rows(int cx, int cy, int half)
 {
     int y0 = H, y1 = -1;
@@ -1154,13 +1176,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     s_has_pend = true;
     frames(d, 20);
     CHECK(none_shown() && btn_ink(0) == 0, "cover face: no controls before a tap");
-    int title_ink = 0, title_hit = 0;
-    for (int y = 270; y < 340; y++)
-        for (int x = FX + 100; x < FX + 370; x++)
-            if (luma(x, y) > 200) {
-                title_ink++;
-                title_hit += ts_tap_zone(x, y) != TS_ZONE_NONE || ts_tap_zone(x, y - DRIFT) != TS_ZONE_NONE;
-            }
+    int title_ink, title_hit = title_hits(270, 340, &title_ink);
     CHECK(title_ink > 300 && title_hit == 0, "the title is outside every tap zone, even drifted up %d px: %d of %d px hit", DRIFT,
           title_hit, title_ink);
 
@@ -1319,6 +1335,28 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
           ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4));
     save("touch-badge-legacy");
     frames(d, 20);
+    np_view_turn(60, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4) >= 30 && ink_outside(TS_CX, TS_CTL_Y, TS_CTL_PX / 2) == 0,
+          "old face: 100 stays Montserrat 48, inside the disc: %d rows, %d px out", ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4),
+          ink_outside(TS_CX, TS_CTL_Y, TS_CTL_PX / 2));
+    save("touch-badge-legacy-100");
+    frames(d, 40);
+    old.volume = -1;
+    publish(&old);
+    frames(d, 2);
+    np_view_turn(1, s_now_us / 1e6);
+    frames(d, 1);
+    int rel2 = ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4);
+    save("touch-badge-legacy-rel");
+    np_view_turn(49, s_now_us / 1e6);
+    frames(d, 1);
+    int rel100 = ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4);
+    CHECK(rel2 > 15 && rel2 == rel100 && ink_outside(TS_CX, TS_CTL_Y, TS_CTL_PX / 2) == 0,
+          "old face: a level Ember does not know (+N) keeps one size from +2 to +100, inside the disc: %d vs %d rows", rel2, rel100);
+    frames(d, 20);
+    int lt_ink, lt_hit = title_hits(300, 360, &lt_ink);
+    CHECK(lt_ink > 300 && lt_hit == 0, "old face: the title is outside every tap zone: %d of %d px", lt_hit, lt_ink);
     memcpy(s_before, s_fb, sizeof s_fb);
     CHECK(touch(d, TS_ZONE_PREV) == 0 && all_shown(), "old face: hidden, the first tap only shows them");
     layout_check("old face", true);
