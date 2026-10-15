@@ -65,12 +65,11 @@ static const char *TAG = "cinder";
 
 static atomic_int s_detents;
 static atomic_int s_pushes;
-static atomic_int s_touches;
+static atomic_uint s_touches;
 static atomic_int s_long_pushes;
 static atomic_int s_page_steps;
 static atomic_int s_swipes;
 static atomic_int s_hswipes;
-static atomic_int s_tap_zone;
 static atomic_int s_np_wakes;
 static atomic_bool s_hold_seen;
 static atomic_bool s_button_down;
@@ -204,10 +203,7 @@ void app_input_inject(int kind, int n)
     case 0: atomic_fetch_add(&s_detents, n); break;
     case 1: atomic_fetch_add(&s_pushes, n); break;
     case 2: atomic_fetch_add(&s_long_pushes, n); break;
-    case 3:
-        atomic_store(&s_tap_zone, TS_ZONE_NONE);
-        atomic_fetch_add(&s_touches, n);
-        break;
+    case 3: atomic_fetch_add(&s_touches, ts_tap_word(TS_ZONE_NONE, n)); break;
     case 4: atomic_fetch_add(&s_page_steps, n); break;
     case 5: atomic_fetch_add(&s_swipes, n); break;
     case 6: atomic_fetch_add(&s_swipes, -n); break;
@@ -216,8 +212,7 @@ void app_input_inject(int kind, int n)
     case 9:
     case 10:
     case 11:
-        atomic_store(&s_tap_zone, TS_ZONE_PREV + kind - 9);
-        atomic_fetch_add(&s_touches, n);
+        atomic_fetch_add(&s_touches, ts_tap_word((ts_zone_t)(TS_ZONE_PREV + kind - 9), n));
         break;
     default: break;
     }
@@ -424,8 +419,7 @@ static void touch_cb(lv_event_t *e)
         ts_cancel(&s_touch);
     }
     if (r == TS_TAP) {
-        atomic_store(&s_tap_zone, ts_tap_zone(s_touch.x0, s_touch.y0));
-        atomic_fetch_add(&s_touches, 1);
+        atomic_fetch_add(&s_touches, ts_tap_word(ts_tap_zone(s_touch.x0, s_touch.y0), 1));
     } else if (r == TS_LEFT || r == TS_RIGHT) {
         atomic_fetch_add(&s_hswipes, r == TS_LEFT ? 1 : -1);
     } else if (r != TS_NONE) {
@@ -658,7 +652,8 @@ void page_np_input(const page_input_t *in, double t)
     if (in->detents || in->pushes || in->longs || in->touches || in->wakes || in->hswipes) np_view_input(t);
     if (in->detents) np_view_turn(in->detents, t);
     for (int n = in->pushes; n > 0; n--) np_view_push(t);
-    for (int n = in->touches; n > 0; n--) np_view_tap(in->zone, t);
+    for (int z = 0; z < PAGE_TAP_ZONES; z++)
+        for (int n = in->taps[z]; n > 0; n--) np_view_tap(z, t);
     if (in->hswipes) np_view_skip(in->hswipes, t);
 }
 
@@ -1004,10 +999,9 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     page_input_t in;
     in.detents = atomic_exchange(&s_detents, 0);
     in.pushes = atomic_exchange(&s_pushes, 0);
-    in.touches = atomic_exchange(&s_touches, 0);
+    in.touches = ts_tap_counts(atomic_exchange(&s_touches, 0), in.taps);
     in.longs = atomic_exchange(&s_long_pushes, 0);
     in.wakes = atomic_exchange(&s_np_wakes, 0);
-    in.zone = atomic_load(&s_tap_zone);
     in.hswipes = atomic_exchange(&s_hswipes, 0);
 
     bool offline = ember_client_offline();

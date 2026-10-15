@@ -9,6 +9,7 @@ knob. RAM only: nothing is stored.
     python3 firmware/tools/input.py turn -n -3      # three detents counter-clockwise: volume down
     python3 firmware/tools/input.py touch           # a tap off the controls: wakes the face, shows the touch controls
     python3 firmware/tools/input.py tap_next        # a tap on next (tap_prev, tap_play); runs only while the controls show
+    python3 firmware/tools/input.py tap_play -n 2   # hidden: the first tap shows the controls, the second plays/pauses
     python3 firmware/tools/input.py swipe_left      # swipe left: next track on the music page (swipe_right: previous)
     python3 firmware/tools/input.py page -n -1      # push and turn: the page before
     python3 firmware/tools/input.py swipe_up        # swipe up: the next page (ignored with swipe_pages off)

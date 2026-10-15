@@ -5,6 +5,8 @@
 #include "page_ops.h"
 #include "touch_swipe.h"
 
+_Static_assert(PAGE_TAP_ZONES == TS_ZONES, "page_input_t.taps is indexed by ts_zone_t");
+
 const page_desc_t PAGES[PAGES_N] = {
     {"bot", "mood", PAGE_TURN | PAGE_GLINT, page_bot_show, page_bot_input, page_bot_frame},
     {"pomodoro", "pomo", 0, page_pomo_show, page_pomo_input, page_pomo_frame},
@@ -24,7 +26,8 @@ page_input_t pages_route(const page_desc_t *p, page_input_t in)
     if (!p->input) return (page_input_t){0};
     if (!(p->flags & PAGE_TOUCH_RAW)) {
         in.pushes += in.touches;
-        in.touches = in.wakes = in.zone = in.hswipes = 0;
+        in.touches = in.wakes = in.hswipes = 0;
+        for (int z = 0; z < PAGE_TAP_ZONES; z++) in.taps[z] = 0;
     }
     if (!(p->flags & PAGE_TURN)) in.detents = 0;
     return in;

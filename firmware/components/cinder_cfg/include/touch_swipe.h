@@ -25,6 +25,8 @@ extern "C" {
 #define TS_CTL_PX 88
 #define TS_CTL_BAND 80
 #define TS_CTL_SPLIT 64
+#define TS_ZONES 4
+#define TS_TAP_BITS 8
 
 /* TS_NEXT / TS_PREV: swipe up / down. TS_LEFT / TS_RIGHT: swipe left / right. */
 typedef enum { TS_NONE, TS_TAP, TS_NEXT, TS_PREV, TS_LEFT, TS_RIGHT } ts_result_t;
@@ -46,6 +48,9 @@ ts_result_t ts_release(ts_touch_t *s, int x, int y, double report_t, double now)
 void ts_cancel(ts_touch_t *s);
 /* The music page's control under a tap at x, y: a band of rows around TS_CTL_Y split into three columns. */
 ts_zone_t ts_tap_zone(int x, int y);
+/* Tap counts per zone packed in one word (TS_TAP_BITS each, < 128 per zone), so a count and its zone move together: add ts_tap_word to a shared word, take it whole, split it with ts_tap_counts (returns the total). */
+unsigned ts_tap_word(ts_zone_t zone, int n);
+int ts_tap_counts(unsigned word, int counts[TS_ZONES]);
 
 int ts_page_step(int pos, int n, int steps);
 

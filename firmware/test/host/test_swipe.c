@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "touch_swipe.h"
 
@@ -142,6 +143,23 @@ static void test_zones(void)
                 if (dx * dx + dy * dy <= TS_CTL_PX * TS_CTL_PX / 4)
                     CHECK(ts_tap_zone(cx + dx, TS_CTL_Y + dy) == want, "control %d covers %+d,%+d", k, dx, dy);
     }
+    int c[TS_ZONES];
+    unsigned w = 0;
+    w += ts_tap_word(TS_ZONE_NONE, 1);
+    w += ts_tap_word(TS_ZONE_NEXT, 3);
+    w += ts_tap_word(TS_ZONE_PREV, 1);
+    w += ts_tap_word(TS_ZONE_NONE, 2);
+    CHECK(ts_tap_counts(w, c) == 7 && c[TS_ZONE_NONE] == 3 && c[TS_ZONE_PREV] == 1 && c[TS_ZONE_PLAY] == 0 &&
+              c[TS_ZONE_NEXT] == 3,
+          "queued taps keep their own zones: %d %d %d %d", c[0], c[1], c[2], c[3]);
+    unsigned a = ts_tap_word(TS_ZONE_NONE, 1), b = ts_tap_word(TS_ZONE_PLAY, 1);
+    int ab[TS_ZONES], ba[TS_ZONES];
+    ts_tap_counts(a + b, ab);
+    ts_tap_counts(b + a, ba);
+    CHECK(ab[TS_ZONE_NONE] == 1 && ab[TS_ZONE_PLAY] == 1 && memcmp(ab, ba, sizeof ab) == 0,
+          "an inject between a tap and its take never retargets it");
+    CHECK(ts_tap_counts(ts_tap_word(TS_ZONE_NEXT, 127), c) == 127 && c[TS_ZONE_NEXT] == 127, "127 in the top zone");
+    CHECK(ts_tap_word(TS_ZONE_PLAY, 0) == 0 && ts_tap_word((ts_zone_t)7, 1) == 0 && ts_tap_counts(0, c) == 0, "empty");
     CHECK(TS_CX - TS_CTL_DX - TS_CTL_PX / 2 > 0 && TS_CX + TS_CTL_DX + TS_CTL_PX / 2 < 2 * TS_CX, "controls on screen");
 }
 

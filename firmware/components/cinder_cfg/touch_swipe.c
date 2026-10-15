@@ -55,6 +55,23 @@ ts_result_t ts_release(ts_touch_t *s, int x, int y, double report_t, double now)
 
 void ts_cancel(ts_touch_t *s) { s->down = false; }
 
+unsigned ts_tap_word(ts_zone_t zone, int n)
+{
+    if (zone < TS_ZONE_NONE || zone > TS_ZONE_NEXT || n <= 0) return 0;
+    if (n > 127) n = 127;
+    return (unsigned)n << (TS_TAP_BITS * zone);
+}
+
+int ts_tap_counts(unsigned word, int counts[TS_ZONES])
+{
+    int total = 0;
+    for (int z = 0; z < TS_ZONES; z++) {
+        counts[z] = (int)((word >> (TS_TAP_BITS * z)) & ((1u << TS_TAP_BITS) - 1));
+        total += counts[z];
+    }
+    return total;
+}
+
 ts_zone_t ts_tap_zone(int x, int y)
 {
     if (abs(y - TS_CTL_Y) > TS_CTL_BAND) return TS_ZONE_NONE;
