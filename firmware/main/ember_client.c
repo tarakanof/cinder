@@ -850,7 +850,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     taskEXIT_CRITICAL(&s_demo_mux);
     const knob_view_t *e = want ? &P->vs.demo_view : v;
     atomic_store(&s_demo_quiet, want && e->quiet);
-    atomic_store(&s_demo_view_on, want);
+    if (want) atomic_store(&s_demo_view_on, true);
     view_host(e, host);
     char key[48];
     knob_view_epoch_key(v, key, sizeof key);
@@ -861,6 +861,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
         pomo_client_feed(e->has_pomo ? &e->pomo : NULL, e->pomo_counting, e->ends_at, srv_now, sent, received);
     weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
     np_client_feed(e->has_np ? &e->np : NULL);
+    atomic_store(&s_demo_view_on, want);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));
     view_brightness();
