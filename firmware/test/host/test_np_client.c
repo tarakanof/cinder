@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "music_moment.h"
 #include "nowplaying_client.h"
 #include "pomo_client.h"
 #include "rom/tjpgd.h"
@@ -110,7 +112,7 @@ static void test_give_up(void)
 {
     np_art_set_t set;
     np_info_t a = block("bad0-r1");
-    np_client_feed(&a);
+    np_client_feed(&a, false);
     np_client_set_visible(true);
     s_cover = ANS_OVER;
     service_at(0);
@@ -129,10 +131,10 @@ static void test_give_up(void)
     CHECK(s_cover_gets == 3 && !take(&set), "given up and shown: nothing more");
 
     np_info_t none = {.state = NP_NONE, .volume = -1};
-    np_client_feed(&none);
+    np_client_feed(&none, false);
     service_at(1000);
     if (take(&set)) np_art_set_free(&set);
-    np_client_feed(&a);
+    np_client_feed(&a, false);
     np_client_forget_art();
     int artist = s_artist_gets;
     service_at(10);
@@ -144,7 +146,7 @@ static void test_give_up(void)
 
     s_cover = ANS_GOOD;
     np_info_t b = block("good-r1");
-    np_client_feed(&b);
+    np_client_feed(&b, false);
     service_at(10);
     CHECK(take(&set) && set.cover && !set.no_cover, "a new cover_version fetches again");
     np_art_set_free(&set);
@@ -154,7 +156,7 @@ static void test_success_resets(void)
 {
     np_art_set_t set;
     np_info_t c = block("flaky-r1");
-    np_client_feed(&c);
+    np_client_feed(&c, false);
     s_cover = ANS_OVER;
     service_at(10);
     service_at(5000);
@@ -173,7 +175,7 @@ static void test_success_resets(void)
     np_art_set_free(&set);
 
     np_info_t d = block("busy-r1");
-    np_client_feed(&d);
+    np_client_feed(&d, false);
     s_cover = ANS_500;
     for (int i = 0; i < 8; i++) {
         service_at(60000);
@@ -188,7 +190,7 @@ static void test_success_resets(void)
 static void give_up(const np_info_t *np)
 {
     np_art_set_t set;
-    np_client_feed(np);
+    np_client_feed(np, false);
     s_cover = ANS_OVER;
     service_at(60000);
     service_at(5000);
@@ -201,10 +203,10 @@ static void back_from_idle(const np_info_t *np)
 {
     np_art_set_t set;
     np_info_t none = {.state = NP_NONE, .volume = -1};
-    np_client_feed(&none);
+    np_client_feed(&none, false);
     service_at(1000);
     if (take(&set)) np_art_set_free(&set);
-    np_client_feed(np);
+    np_client_feed(np, false);
     np_client_forget_art();
 }
 
@@ -280,20 +282,20 @@ static void test_skip_back_while_held(void)
     s_artist = ANS_GOOD;
     s_cover = ANS_GOOD;
     np_info_t w = block("good3-r1");
-    np_client_feed(&w);
+    np_client_feed(&w, false);
     service_at(10);
     CHECK(take(&set) && set.cover, "skip to W: its cover");
     np_art_set_free(&set);
     int gets = s_cover_gets + s_artist_gets;
-    np_client_feed(&v);
+    np_client_feed(&v, false);
     service_at(10);
     CHECK(s_cover_gets + s_artist_gets == gets && take(&set) && set.no_cover && !set.cover, "back to V in its backoff: no_cover at once");
     np_art_set_free(&set);
-    np_client_feed(&w);
+    np_client_feed(&w, false);
     service_at(10);
     CHECK(take(&set) && set.cover && !set.no_cover, "and to W again: its cover, not V's grey disc");
     np_art_set_free(&set);
-    np_client_feed(&v);
+    np_client_feed(&v, false);
     service_at(10);
     CHECK(take(&set) && set.no_cover, "and V again: no_cover");
     np_art_set_free(&set);
@@ -332,7 +334,7 @@ static void test_handover_table(void)
         CHECK(take(&set) && set.no_cover && !set.avatar, "row %zu: V given up, its avatar failing", r);
         np_art_set_free(&set);
         s_cover = ANS_GOOD;
-        np_client_feed(&w);
+        np_client_feed(&w, false);
         service_at(10);
         CHECK(take(&set) && set.cover, "row %zu: W on screen", r);
         np_art_set_free(&set);
@@ -342,16 +344,16 @@ static void test_handover_table(void)
             int gets = s_cover_gets + s_artist_gets;
             if (st == 'V' || st == 'W') {
                 cur = st == 'V' ? &v : &w;
-                np_client_feed(cur);
+                np_client_feed(cur, false);
                 service_at(10);
             } else if (st == 'I') {
                 back_from_idle(cur);
                 service_at(10);
             } else if (st == 'i') {
-                np_client_feed(&none);
+                np_client_feed(&none, false);
                 service_at(1000);
                 if (take(&set)) np_art_set_free(&set);
-                np_client_feed(cur);
+                np_client_feed(cur, false);
                 service_at(10);
             } else if (st == 'H') {
                 np_client_set_visible(false);
@@ -377,7 +379,7 @@ static void test_forget_dropped(void)
     np_art_set_t set;
     s_cover = s_artist = ANS_GOOD;
     np_info_t v = block("fdv-r1"), x = block("fdx-r1");
-    np_client_feed(&v);
+    np_client_feed(&v, false);
     service_at(10);
     CHECK(take(&set) && set.cover, "V's cover handed over");
     np_art_set_free(&set);
@@ -396,7 +398,7 @@ static void test_forget_dropped(void)
     service_at(10);
     CHECK(s_cover_gets + s_artist_gets == gets + 2 && !take(&set) && !np_client_pending(), "and the record with it: no third pass");
 
-    np_client_feed(&x);
+    np_client_feed(&x, false);
     service_at(10);
     CHECK(take(&set) && set.cover, "X handed over");
     np_art_set_free(&set);
@@ -437,6 +439,133 @@ static void test_no_buffer_when_nothing_to_fetch(void)
     np_art_set_free(&set);
 }
 
+static void test_demo_block(void)
+{
+    np_snapshot_t sn;
+    uint32_t gen = 0;
+    np_info_t real = block("real-r1"), demo = block("demo-r1");
+    np_client_feed(&real, false);
+    CHECK(np_client_get(&sn, &gen) && sn.have && !sn.demo, "a real block has no demo bit");
+    np_client_feed(&demo, true);
+    CHECK(np_client_get(&sn, &gen) && sn.have && sn.demo && strcmp(sn.info.title, "demo-r1") == 0,
+          "a demo block and its demo bit come in one snapshot");
+    np_client_feed(&demo, false);
+    CHECK(np_client_get(&sn, &gen) && sn.have && !sn.demo, "the same block from the real view: a new gen without the bit");
+    np_client_feed(&demo, true);
+    CHECK(np_client_get(&sn, &gen) && sn.demo, "the bit back on: a new gen");
+    np_client_drop_demo();
+    CHECK(np_client_get(&sn, &gen) && !sn.have && !sn.demo && !sn.info.title[0], "dropping a demo block clears it");
+    np_client_drop_demo();
+    CHECK(!np_client_get(&sn, &gen), "dropping twice: no new gen");
+    np_client_feed(&real, false);
+    CHECK(np_client_get(&sn, &gen), "real block again");
+    np_client_drop_demo();
+    CHECK(!np_client_get(&sn, &gen), "dropping leaves a real block alone");
+    np_client_feed(NULL, true);
+    CHECK(np_client_get(&sn, &gen) && !sn.have && sn.demo, "a demo view without np: no block, the bit set");
+    np_client_drop_demo();
+    CHECK(np_client_get(&sn, &gen) && !sn.have && !sn.demo, "and dropping it clears the bit");
+}
+
+typedef struct {
+    mm_trigger_t tr;
+    np_snapshot_t sn;
+    uint32_t gen;
+    double t;
+    int fired;
+} mm_rig_t;
+
+static void rig_init(mm_rig_t *r)
+{
+    memset(r, 0, sizeof *r);
+    mm_init(&r->tr);
+    r->t = 1000;
+    np_client_get(&r->sn, &r->gen);
+}
+
+static void rig_frame(mm_rig_t *r, bool view_on, bool gated)
+{
+    np_client_get(&r->sn, &r->gen);
+    bool on = gated ? mm_block_on(!view_on, r->sn.demo) : !view_on;
+    uint32_t key = mm_track_key(r->sn.info.title, r->sn.info.artist, r->sn.info.album, r->sn.info.source);
+    mm_in_t in = {.t = r->t, .have = r->sn.have && on, .playing = r->sn.have && r->sn.info.state == NP_PLAYING, .track = key,
+                  .bot_mood = 0, .rest = true, .shown = true, .blocked = !on, .other_at = -INFINITY};
+    if (mm_tick(&r->tr, &in)) {
+        r->fired++;
+        mm_shown(&r->tr, r->t);
+    }
+    r->t += 0.5;
+}
+
+static void rig_run(mm_rig_t *r, bool view_on, bool gated, double s)
+{
+    for (double end = r->t + s; r->t < end;) rig_frame(r, view_on, gated);
+}
+
+static int rig_stale_frame(bool gated)
+{
+    mm_rig_t r;
+    np_info_t real = block("rig-real"), demo = block("rig-demo");
+    np_client_feed(&real, false);
+    rig_init(&r);
+    rig_run(&r, false, gated, 30);
+    np_client_feed(&demo, true);
+    rig_frame(&r, false, gated);
+    rig_run(&r, true, gated, 10);
+    np_client_feed(&real, false);
+    rig_frame(&r, true, gated);
+    rig_run(&r, false, gated, 30);
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none, false);
+    return r.fired;
+}
+
+static int rig_early_return(bool fixed, bool *cleared)
+{
+    mm_rig_t r;
+    np_info_t real = block("rig-real"), demo = block("rig-demo");
+    np_client_feed(&real, false);
+    rig_init(&r);
+    rig_run(&r, false, fixed, 30);
+    np_client_feed(&demo, true);
+    rig_run(&r, true, fixed, 10);
+    if (fixed) np_client_drop_demo();
+    np_client_get(&r.sn, &r.gen);
+    *cleared = !r.sn.have && !r.sn.demo && !r.sn.info.title[0];
+    rig_run(&r, false, fixed, 30);
+    np_client_feed(&real, false);
+    rig_run(&r, false, fixed, 30);
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none, false);
+    return r.fired;
+}
+
+static void test_demo_music_moment(void)
+{
+    CHECK(rig_stale_frame(false) > 0, "control, no gate: a frame with a stale view_on=false and the demo block fires");
+    CHECK(rig_stale_frame(true) == 0, "the gate: a frame that read view_on=false before the demo snapshot does not fire");
+    bool cleared;
+    CHECK(rig_early_return(false, &cleared) > 0 && !cleared, "control, the old early return: the demo block stays and the real view fires");
+    int fired = rig_early_return(true, &cleared);
+    CHECK(cleared, "the early return drops the demo block: no block and no bit, nothing left for a face");
+    CHECK(fired == 0, "and the real view after it is a baseline, no fire (%d)", fired);
+
+    mm_rig_t r;
+    np_info_t real = block("rig-keep"), next = block("rig-next");
+    np_client_feed(&real, false);
+    rig_init(&r);
+    rig_run(&r, false, true, 30);
+    np_client_drop_demo();
+    CHECK(!np_client_get(&r.sn, &r.gen), "the drop keeps a real block: no new gen");
+    rig_run(&r, false, true, 30);
+    CHECK(r.fired == 0 && r.sn.have && strcmp(r.sn.info.title, "rig-keep") == 0, "the real block is still there, no fire");
+    np_client_feed(&next, false);
+    rig_run(&r, false, true, 30);
+    CHECK(r.fired == 1, "and a real next track still fires (%d)", r.fired);
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none, false);
+}
+
 int main(void)
 {
     np_client_init();
@@ -447,6 +576,8 @@ int main(void)
     test_handover_table();
     test_forget_dropped();
     test_no_buffer_when_nothing_to_fetch();
+    test_demo_block();
+    test_demo_music_moment();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);
         return 1;

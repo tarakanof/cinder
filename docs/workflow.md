@@ -37,9 +37,10 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   fails when a caps body does not carry it exactly once or no caps fixture is checked, and
   fails once the fixture has it (then remove
   the entry in the sync commit).
-- Every PR that changes the firmware image bumps `PROJECT_VER` in
-  `firmware/CMakeLists.txt` (patch for fixes and small features); test-, tool- and
-  docs-only PRs don't. The version shows in the checkin.
+- Feature and fix PRs leave `PROJECT_VER` in `firmware/CMakeLists.txt` alone. A
+  separate release PR (`chore(release): X.Y.Z`) bumps it once for everything merged
+  since the last release (patch for fixes and small features), then `release.sh X.Y.Z`
+  tags it. The version shows in the checkin.
 - PR evidence: host test output, a screen snapshot for UI, measured numbers
   (frame time, CPU per core, heap, latency) before and after.
 - Record the feature's design, measurements and user decisions in

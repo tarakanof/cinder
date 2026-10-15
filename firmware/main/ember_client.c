@@ -867,7 +867,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     double srv_est =
         pomo_client_feed(e->has_pomo ? &e->pomo : NULL, e->pomo_counting, e->ends_at, srv_now, sent, received);
     weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
-    np_client_feed(e->has_np ? &e->np : NULL);
+    np_client_feed(e->has_np ? &e->np : NULL, want);
     demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));
@@ -998,6 +998,7 @@ static void demo_sync(ember_host_info_t *host, int *mood, bool *fresh)
     if (gen == P->demo_gen) return;
     if (P->vp.legacy || !P->vs.have_view || P->vs.unsupported) {
         P->demo_gen = gen;
+        np_client_drop_demo();
         demo_flags(false, false);
         return;
     }

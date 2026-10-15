@@ -65,6 +65,8 @@ void mm_shown(mm_trigger_t *tr, double t)
 
 bool mm_recent(const mm_trigger_t *tr, double t) { return t - tr->last_at < MM_GAP_S; }
 
+bool mm_block_on(bool on, bool demo) { return on && !demo; }
+
 static float bezier(float x1, float y1, float x2, float y2, float x)
 {
     if (x <= 0) return 0;

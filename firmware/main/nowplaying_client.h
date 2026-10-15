@@ -10,6 +10,7 @@
 
 typedef struct {
     bool have;
+    bool demo;
     np_info_t info;
     np_anchor_t anchor; /* position on the pomo_client_now() clock */
 } np_snapshot_t;
@@ -46,8 +47,10 @@ void np_client_run_controls(http_conn_t *conn, const char *base);
 /* Once, before the ember task starts. */
 void np_client_init(void);
 
-/* Ember task. np NULL: the page is off in Ember. */
-void np_client_feed(const np_info_t *np);
+/* Ember task. np NULL: the page is off in Ember. demo: np comes from a demo view. */
+void np_client_feed(const np_info_t *np, bool demo);
+/* Ember task. Clears the block if a demo fed it. */
+void np_client_drop_demo(void);
 /* Ember task. */
 bool np_client_pending(void);
 /* Ember task. base: Ember's URL. */

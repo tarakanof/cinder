@@ -894,6 +894,7 @@ static __attribute__((noinline)) void music_tick(double t, bool calm, bool offli
 {
     if (np_client_get(&s_mm_np, &s_mm_gen))
         s_mm_key = mm_track_key(s_mm_np.info.title, s_mm_np.info.artist, s_mm_np.info.album, s_mm_np.info.source);
+    on = mm_block_on(on, s_mm_np.demo);
     bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;
     if (music_view_busy() && (!on || !bot_page)) {
         music_view_stop();
