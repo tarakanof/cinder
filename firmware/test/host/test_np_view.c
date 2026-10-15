@@ -1467,6 +1467,83 @@ static bool label_has(lv_obj_t *o, const char *txt)
     return false;
 }
 
+static bool ink_box(int x0, int x1, int y0, int y1, int min, int *cx2, int *cy2)
+{
+    int bx0 = W, bx1 = -1, by0 = H, by1 = -1;
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++)
+            if (luma(x, y) > min) {
+                if (x < bx0) bx0 = x;
+                if (x > bx1) bx1 = x;
+                if (y < by0) by0 = y;
+                if (y > by1) by1 = y;
+            }
+    *cx2 = bx0 + bx1 + 1;
+    *cy2 = by0 + by1 + 1;
+    return bx1 >= 0;
+}
+
+static void vol_centre_check(const char *face, const char *want, int cx, int cy, int half_w, int half_h)
+{
+    int x2, y2;
+    bool seen = ink_box(cx - half_w, cx + half_w, cy - half_h, cy + half_h, 128, &x2, &y2);
+    printf("np_view: %s volume \"%s\": ink centre %.1f,%.1f (target %d,%d)\n", face, want, x2 / 2.0, y2 / 2.0, cx, cy);
+    CHECK(seen && abs(x2 - 2 * cx) <= 2 && abs(y2 - 2 * cy) <= 2, "%s: the ink of \"%s\" is centred on %d,%d: %.1f,%.1f", face,
+          want, cx, cy, x2 / 2.0, y2 / 2.0);
+}
+
+static void test_vol_centre(lv_display_t *d, lv_obj_t *root, lv_obj_t *scr)
+{
+    static const char *const texts[] = {"0", "1", "7", "11", "50", "100", "+5", "-10"};
+    npc_build(root);
+    np_info_t np = {.state = NP_PLAYING, .duration_ms = 228000};
+    strcpy(np.cover_version, "v0-r1");
+    np_art_set_t art;
+    rig_set(&art, track(make_flat(0x2104)), "v0-r1", false);
+    npc_adopt(&art);
+    npc_frame_t f = {.now = 500, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
+                     .pos_ms = 134000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
+    run(d, &f, 1.5, 0.1);
+    f.text_fresh = false;
+    f.ring = NP_RING_VOLUME;
+    f.badge = NPC_BADGE_NUMBER;
+    for (size_t i = 0; i < sizeof texts / sizeof *texts; i++) {
+        f.badge_text = texts[i];
+        f.now += 0.05;
+        npc_update(&f);
+        refresh(d);
+        char name[32];
+        snprintf(name, sizeof name, "vol-centre-cover-%zu", i);
+        save(name);
+        vol_centre_check("cover face", texts[i], FX + NP_COVER_PX / 2, OFF_CY, 120, 48);
+    }
+    rig_end(root);
+
+    static const struct {
+        int server, turn;
+        const char *want;
+    } turns[] = {{2, -1, "0"}, {5, 1, "7"}, {9, 1, "11"}, {48, 1, "50"}, {98, 1, "100"}, {-1, 3, "+6"}, {-1, -5, "-10"}};
+    for (size_t i = 0; i < sizeof turns / sizeof *turns; i++) {
+        np_view_create(scr);
+        np_view_show(true);
+        np_info_t old = {.state = NP_PLAYING, .duration_ms = 228000, .position_ms = 134000, .album_art = true,
+                         .volume = turns[i].server};
+        strcpy(old.title, "Glass Harbor");
+        strcpy(old.art_version, "fb43cf74b67a");
+        publish(&old);
+        frames(d, 3);
+        np_view_turn(turns[i].turn, s_now_us / 1e6);
+        frames(d, 1);
+        CHECK(label_has(scr, turns[i].want), "old face: the badge shows \"%s\"", turns[i].want);
+        char name[32];
+        snprintf(name, sizeof name, "vol-centre-legacy-%zu", i);
+        save(name);
+        vol_centre_check("old face", turns[i].want, TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 2, TS_CTL_PX / 2 - 2);
+        frames(d, 40);
+        np_view_show(false);
+    }
+}
+
 static void test_paused_skip(lv_display_t *d, lv_obj_t *scr)
 {
     for (int legacy = 0; legacy < 2; legacy++) {
@@ -2057,6 +2134,7 @@ int main(int argc, char **argv)
     test_dropped_set(d, scr);
     test_touch(d, scr);
     test_paused_skip(d, scr);
+    test_vol_centre(d, root, scr);
     test_text_out_npc(d, root);
     test_text_fade(d, scr);
     test_text_fade_review(d, scr);
