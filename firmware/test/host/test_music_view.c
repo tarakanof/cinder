@@ -167,6 +167,7 @@ static void check_full(lv_display_t *d, const char *what, int j)
 
 static void play(lv_display_t *d, double base, const char *what, int step, int abort_at)
 {
+    long h0 = heap_used();
     CHECK(music_view_start(base), "%s: starts", what);
     int j = 0;
     for (; music_view_busy() && j < MM_TICKS + 40; j += step) {
@@ -179,6 +180,8 @@ static void play(lv_display_t *d, double base, const char *what, int step, int a
         check_full(d, what, j);
     }
     CHECK(!music_view_busy(), "%s: over", what);
+    refresh(d);
+    CHECK(heap_used() == h0, "%s: LVGL heap %+ld B after the end", what, heap_used() - h0);
 }
 
 static double tick_t(int j) { return MM_PRE_S + (j + 0.5) / MM_FPS; }
@@ -188,7 +191,7 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
     mm_box_t ext;
     mm_extent(&ext);
     uint32_t cbs = lv_obj_get_event_count(root);
-    long heap_play = 0, heap_end = 0;
+    long heap_play = 0, heap_end = 0, h0 = heap_used();
     CHECK(music_view_start(0), "starts");
     CHECK(!music_view_start(0.1), "one at a time");
     CHECK(music_view_busy(), "busy in the pre-roll");
@@ -241,6 +244,8 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
     }
     CHECK(!music_view_busy() && lv_obj_get_event_count(root) == cbs, "over: the draw callback is gone");
     CHECK(lit_in(&ext) == 0, "nothing left on screen: %ld px", lit_in(&ext));
+    refresh(d);
+    CHECK(heap_used() == h0, "play: LVGL heap %+ld B after the end", heap_used() - h0);
     CHECK(heap_play > 0 && heap_play <= 64 && heap_end == -heap_play, "LVGL heap: attach +%ld B, end %+ld B", heap_play, heap_end);
     printf("music view: attaching the draw callback takes %ld B of LVGL heap (host, lv_event_dsc_t %zu B), the end gives back %ld B\n", heap_play,
            sizeof(lv_event_dsc_t), -heap_end);
@@ -254,6 +259,7 @@ static void test_play(lv_display_t *d, lv_obj_t *root)
 static void test_abort(lv_display_t *d)
 {
     double base = 100;
+    long h0 = heap_used();
     CHECK(music_view_start(base), "starts again");
     for (int j = 0; j < 60; j++) {
         double t = base + tick_t(j);
@@ -280,10 +286,14 @@ static void test_abort(lv_display_t *d)
     mm_box_t ext;
     mm_extent(&ext);
     CHECK(lit_in(&ext) == 0, "nothing left after the abort");
+    refresh(d);
+    CHECK(heap_used() == h0, "abort: LVGL heap %+ld B after the end", heap_used() - h0);
 
     CHECK(music_view_start(200), "and again");
     music_view_abort(200.1);
     CHECK(!music_view_busy(), "a cut in the pre-roll ends it");
+    refresh(d);
+    CHECK(heap_used() == h0, "pre-roll abort: LVGL heap %+ld B after the end", heap_used() - h0);
     CHECK(music_view_start(300), "then starts");
     for (int j = 0; j < 30; j++) {
         music_view_poll(300 + tick_t(j));
@@ -293,12 +303,14 @@ static void test_abort(lv_display_t *d)
     music_view_stop();
     refresh(d);
     CHECK(!music_view_busy() && lit_in(&ext) == 0, "stop: gone at once");
+    CHECK(heap_used() == h0, "stop: LVGL heap %+ld B after the end", heap_used() - h0);
     music_view_hold(true);
     CHECK(!music_view_start(400), "held");
     music_view_hold(false);
     CHECK(music_view_start(400), "released");
     music_view_stop();
     refresh(d);
+    CHECK(heap_used() == h0, "stop in the pre-roll: LVGL heap %+ld B after the end", heap_used() - h0);
     play(d, 500, "every third tick", 3, 1 << 20);
     play(d, 600, "every fifth tick", 5, 1 << 20);
     play(d, 700, "abort in the arrival", 1, 3);
