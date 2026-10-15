@@ -118,9 +118,13 @@ void np_client_drop_demo(void)
 {
     if (!S) return;
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool demo = S->snap.demo;
+    np_snapshot_t *sn = &S->snap;
+    if (sn->demo) {
+        memset(sn, 0, sizeof *sn);
+        S->last_have = false;
+        S->gen++;
+    }
     xSemaphoreGive(s_lock);
-    if (demo) np_client_feed(NULL, false);
 }
 
 bool np_client_get(np_snapshot_t *out, uint32_t *gen)

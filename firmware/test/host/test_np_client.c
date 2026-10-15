@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_timer.h"
+#include "music_moment.h"
 #include "nowplaying_client.h"
 #include "pomo_client.h"
 #include "rom/tjpgd.h"
@@ -465,6 +467,88 @@ static void test_demo_block(void)
     CHECK(np_client_get(&sn, &gen) && !sn.have && !sn.demo, "and dropping it clears the bit");
 }
 
+typedef struct {
+    mm_trigger_t tr;
+    np_snapshot_t sn;
+    uint32_t gen;
+    double t;
+    int fired;
+} mm_rig_t;
+
+static void rig_init(mm_rig_t *r)
+{
+    memset(r, 0, sizeof *r);
+    mm_init(&r->tr);
+    r->t = 1000;
+    np_client_get(&r->sn, &r->gen);
+}
+
+static void rig_frame(mm_rig_t *r, bool view_on, bool gated)
+{
+    np_client_get(&r->sn, &r->gen);
+    bool on = gated ? mm_block_on(!view_on, r->sn.demo) : !view_on;
+    uint32_t key = mm_track_key(r->sn.info.title, r->sn.info.artist, r->sn.info.album, r->sn.info.source);
+    mm_in_t in = {.t = r->t, .have = r->sn.have && on, .playing = r->sn.have && r->sn.info.state == NP_PLAYING, .track = key,
+                  .bot_mood = 0, .rest = true, .shown = true, .blocked = !on, .other_at = -INFINITY};
+    if (mm_tick(&r->tr, &in)) {
+        r->fired++;
+        mm_shown(&r->tr, r->t);
+    }
+    r->t += 0.5;
+}
+
+static void rig_run(mm_rig_t *r, bool view_on, bool gated, double s)
+{
+    for (double end = r->t + s; r->t < end;) rig_frame(r, view_on, gated);
+}
+
+static int rig_scene(bool gated, bool early_return)
+{
+    mm_rig_t r;
+    np_info_t real = block("rig-real"), demo = block("rig-demo");
+    np_client_feed(&real, false);
+    rig_init(&r);
+    rig_run(&r, false, gated, 30);
+    np_client_feed(&demo, true);
+    rig_frame(&r, false, gated);
+    rig_run(&r, true, gated, 10);
+    if (early_return) {
+        if (gated) np_client_drop_demo();
+        rig_run(&r, false, gated, 30);
+        np_client_feed(&real, false);
+    } else {
+        np_client_feed(&real, false);
+        rig_frame(&r, true, gated);
+    }
+    rig_run(&r, false, gated, 30);
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none, false);
+    return r.fired;
+}
+
+static void test_demo_music_moment(void)
+{
+    CHECK(rig_scene(false, false) > 0, "control, the old glue: a frame with a stale view_on=false and the demo block fires");
+    CHECK(rig_scene(true, false) == 0, "a frame that read view_on=false before the demo snapshot does not fire");
+    CHECK(rig_scene(false, true) > 0, "control, the old early return: the stale demo block, then the real view, fires");
+    CHECK(rig_scene(true, true) == 0, "the early return drops the demo block: the real view after it is a baseline, no fire");
+
+    mm_rig_t r;
+    np_info_t real = block("rig-keep"), next = block("rig-next");
+    np_client_feed(&real, false);
+    rig_init(&r);
+    rig_run(&r, false, true, 30);
+    np_client_drop_demo();
+    CHECK(!np_client_get(&r.sn, &r.gen), "the drop keeps a real block: no new gen");
+    rig_run(&r, false, true, 30);
+    CHECK(r.fired == 0 && r.sn.have && strcmp(r.sn.info.title, "rig-keep") == 0, "the real block is still there, no fire");
+    np_client_feed(&next, false);
+    rig_run(&r, false, true, 30);
+    CHECK(r.fired == 1, "and a real next track still fires (%d)", r.fired);
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none, false);
+}
+
 int main(void)
 {
     np_client_init();
@@ -476,6 +560,7 @@ int main(void)
     test_forget_dropped();
     test_no_buffer_when_nothing_to_fetch();
     test_demo_block();
+    test_demo_music_moment();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);
         return 1;

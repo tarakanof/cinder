@@ -594,8 +594,8 @@ body "$ECL" apply_view | awk '/np_client_feed\(/ {n++} /demo_flags\(/ {if (n) {a
     WIRING="$WIRING apply_view-marks-a-demo-np-block"
 [ "$(body "$ECL" demo_sync | awk '/^    if \(P->vp\.legacy \|\| !P->vs\.have_view \|\| P->vs\.unsupported\) \{$/ {on = 1; next} on && /^    }$/ {exit} on' | tr -d ' \n')" = \
     'P->demo_gen=gen;np_client_drop_demo();demo_flags(false,false);return;' ] || WIRING="$WIRING demo_sync-early-return-drops-the-demo-np-block"
-printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /^    on = on && !s_mm_np\.demo;$/ {o = NR} /\(!on \|\| !bot_page\)/ && !u {u = NR}
-    END {exit !(k && o == k + 1 && u > o)}' || WIRING="$WIRING music_tick-ignores-a-demo-np-block"
+printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /[^=!<>]= / && /(^|[^a-z_.])on = / {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
+    /\(!on \|\| !bot_page\)/ && !u {u = NR} END {exit !(k && n == 1 && o == k + 1 && u > o)}' || WIRING="$WIRING music_tick-ignores-a-demo-np-block"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
     body "$ECL" apply_view | grep -qxF '    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
     WIRING="$WIRING quiet-dim-only-in-apply_view"
@@ -792,7 +792,7 @@ fi
 "${OUT}_np"
 cc $CFLAGS -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" \
     -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
-    "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$D/test_np_client.c" \
+    "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$C/music_moment.c" "$D/test_np_client.c" \
     -lm -lpthread -o "${OUT}_np_client"
 "${OUT}_np_client"
 if [ "$TITLE_FONT" = 1 ]; then

@@ -83,6 +83,8 @@ void mm_init(mm_trigger_t *tr);
 bool mm_tick(mm_trigger_t *tr, const mm_in_t *in);
 void mm_shown(mm_trigger_t *tr, double t);
 bool mm_recent(const mm_trigger_t *tr, double t);
+/* music_tick's gate for the trigger; demo: the now-playing snapshot came from a demo view. */
+bool mm_block_on(bool on, bool demo);
 
 typedef struct {
     int x, y, opa;
