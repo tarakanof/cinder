@@ -569,6 +569,9 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
     if (strcmp(num, M->num) != 0) {
         strlcpy(M->num, num, sizeof M->num);
         lv_label_set_text_static(s_num, M->num);
+        int nx, ny;
+        npc_ink_offset(&font_digits_96, M->num, &nx, &ny);
+        lv_obj_align(s_num, LV_ALIGN_CENTER, nx, NUM_DY + ny);
         show(s_num, number);
         show(s_vol_icon, number);
     }
@@ -898,6 +901,28 @@ void npc_update(const npc_frame_t *f)
 bool npc_vinyl(void) { return s_no_cover; }
 
 const char *npc_time_text(void) { return M ? M->time : ""; }
+
+void npc_ink_offset(const lv_font_t *font, const char *text, int *dx, int *dy)
+{
+    int x = 0, left = 0, right = 0, top = 0, bottom = 0;
+    bool any = false;
+    for (const char *p = text; *p; p++) {
+        lv_font_glyph_dsc_t g;
+        if (!lv_font_get_glyph_dsc(font, &g, (uint8_t)*p, (uint8_t)p[1])) continue;
+        if (g.box_w && g.box_h) {
+            int l = x + g.ofs_x, r = l + g.box_w, t = g.ofs_y + g.box_h;
+            if (!any || l < left) left = l;
+            if (!any || r > right) right = r;
+            if (!any || t > top) top = t;
+            if (!any || g.ofs_y < bottom) bottom = g.ofs_y;
+            any = true;
+        }
+        x += g.adv_w;
+    }
+    int h = lv_font_get_line_height(font);
+    *dx = any ? (2 * (x / 2) - left - right) / 2 : 0;
+    *dy = any ? (2 * (h / 2) - 2 * (h - font->base_line) + top + bottom) / 2 : 0;
+}
 
 lv_obj_t *npc_round(lv_obj_t *root, int dx)
 {

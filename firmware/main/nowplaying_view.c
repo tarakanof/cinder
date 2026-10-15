@@ -583,6 +583,9 @@ static int legacy_controls(double now)
         strlcpy(V->badge, text, sizeof V->badge);
         lv_obj_set_style_text_font(s_badge_lbl, font, 0);
         lv_label_set_text_static(s_badge_lbl, V->badge);
+        int nx = 0, ny = 0;
+        if (kind == NPC_BADGE_NUMBER) npc_ink_offset(font, V->badge, &nx, &ny);
+        lv_obj_align(s_badge_lbl, LV_ALIGN_CENTER, nx, ny);
         show(s_badge, V->badge[0] != 0);
     }
     return hi;
