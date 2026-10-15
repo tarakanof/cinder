@@ -54,10 +54,13 @@ typedef struct {
     uint32_t track_key;
     bool track_set, was_paused;
     long long track_pos;
+    np_play_t held;
 } np_ctl_t;
 
 void np_ctl_init(np_ctl_t *c);
 void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now);
+/* While live, the last block's state; when the link drops (np_ctl_server with NP_NONE), np_ctl_play_shown at that moment (a push within NP_HOLD_S counts), kept until the next live block; NP_NONE before any. */
+np_play_t np_ctl_held(const np_ctl_t *c);
 void np_ctl_push(np_ctl_t *c, double now);
 /* dir > 0 next, < 0 previous. */
 void np_ctl_skip(np_ctl_t *c, int dir, double now);
@@ -65,7 +68,7 @@ void np_ctl_skip(np_ctl_t *c, int dir, double now);
 bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now);
 /* Touch controls' opacity 0-255: full for NP_TOUCH_SHOW_S after the last tap, then NP_TOUCH_FADE_STEPS steps down over NP_TOUCH_FADE_S. */
 int np_ctl_touch_opa(const np_ctl_t *c, double now);
-/* 255 until age reaches hold, then NP_TOUCH_FADE_STEPS steps down to 0 over NP_TOUCH_FADE_S. */
+/* 255 until age reaches hold (at age == hold too, so a timer started this frame is full), then NP_TOUCH_FADE_STEPS steps down to 0 over NP_TOUCH_FADE_S. */
 int np_fade_opa(double age, double hold);
 /* A block for another track (title, artist, album, source or track_id) restarts the info timer; the first one after init or a state:none block too. */
 void np_ctl_track(np_ctl_t *c, const np_info_t *np, double now);

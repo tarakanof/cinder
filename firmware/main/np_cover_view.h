@@ -43,6 +43,6 @@ const char *npc_time_text(void);
 /* A TS_CTL_PX dark disc on the touch-control row, dx from its centre, hidden; child 0 is its centred label (Montserrat 30). The controls and both faces' badge use it. */
 lv_obj_t *npc_round(lv_obj_t *root, int dx);
 void npc_round_lit(lv_obj_t *o, bool lit);
-/* ASCII text: the LV_ALIGN_CENTER offset that puts its ink centre on an even-sized parent's centre. */
+/* One line of ASCII text, no letter spacing (the label's own style must add none): the LV_ALIGN_CENTER offset that puts its ink centre on an even-sized parent's centre. */
 void npc_ink_offset(const lv_font_t *font, const char *text, int *dx, int *dy);
 void npc_fit_text(char *txt, const lv_font_t *font, int max_w);

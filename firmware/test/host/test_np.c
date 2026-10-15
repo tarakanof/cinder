@@ -1174,6 +1174,61 @@ static void test_restart(void)
     CHECK(np_ctl_info_opa(&c, s0 + 6, false) == 0, "no duration: no restart");
 }
 
+static void test_short_track(void)
+{
+    np_ctl_t c;
+    np_ctl_init(&c);
+    np_info_t a = {.state = NP_PLAYING, .duration_ms = 10000};
+    strcpy(a.title, "Jingle");
+    np_ctl_track(&c, &a, 0.0);
+    double t = 0;
+    for (int lap = 0; lap < 2; lap++)
+        for (long long p = 0; p <= 10000; p += 500) np_ctl_track_pos(&c, p, 10000, t += 0.5);
+    np_ctl_track_pos(&c, 0, 10000, t += 0.5);
+    np_ctl_track_pos(&c, 500, 10000, t += 0.5);
+    CHECK(np_ctl_info_opa(&c, t, false) == 0, "a 10 s track on repeat-one: the lap 1 s ago is no restart, clean 22 s after the block");
+    np_ctl_track_pos(&c, 7500, 8000, t += 0.5);
+    np_ctl_track_pos(&c, 200, 8000, t += 0.5);
+    CHECK(np_ctl_info_opa(&c, t, false) == 0, "nor an 8 s one");
+    np_ctl_track_pos(&c, 11500, 12000, t += 0.5);
+    np_ctl_track_pos(&c, 300, 12000, t += 0.5);
+    CHECK(np_ctl_info_opa(&c, t, false) == 255, "a 12 s track on repeat-one: each lap is a start");
+    double s0 = t + 20;
+    np_ctl_track_pos(&c, 7500, 12000, s0);
+    np_ctl_track_pos(&c, 4000, 12000, s0 + 0.1);
+    CHECK(np_ctl_info_opa(&c, s0 + 0.1, false) == 255, "on a 12 s track the windows meet: a seek from 7.5 s to 4 s counts too (accepted)");
+    np_ctl_track_pos(&c, 6000, 12000, s0 + 30);
+    np_ctl_track_pos(&c, 2000, 12000, s0 + 30.1);
+    CHECK(np_ctl_info_opa(&c, s0 + 30.1, false) == 0, "a seek from before the tail window is not");
+}
+
+static void test_held(void)
+{
+    np_ctl_t c;
+    np_ctl_init(&c);
+    CHECK(np_ctl_held(&c) == NP_NONE, "nothing held before a live block");
+    np_ctl_server(&c, NP_PLAYING, 40, 0);
+    np_ctl_push(&c, 1);
+    CHECK(np_ctl_play_shown(&c, 1.5) == NP_PAUSED, "a push shows paused at once");
+    np_ctl_server(&c, NP_NONE, -1, 1.5);
+    CHECK(np_ctl_held(&c) == NP_PAUSED, "the link drops before Ember confirms: held paused, as shown");
+    np_ctl_server(&c, NP_NONE, -1, 9);
+    CHECK(np_ctl_held(&c) == NP_PAUSED, "kept while offline");
+    np_ctl_server(&c, NP_PAUSED, 40, 10);
+    np_ctl_push(&c, 11);
+    np_ctl_server(&c, NP_NONE, -1, 11.2);
+    CHECK(np_ctl_held(&c) == NP_PLAYING, "and the reverse: a play push, then the drop: held playing");
+    np_ctl_server(&c, NP_PLAYING, 40, 20);
+    np_ctl_push(&c, 21);
+    np_ctl_server(&c, NP_NONE, -1, 21 + NP_HOLD_S + 0.1);
+    CHECK(np_ctl_held(&c) == NP_PLAYING, "a push never confirmed within NP_HOLD_S: held as Ember last said");
+    np_ctl_server(&c, NP_PAUSED, 40, 30);
+    CHECK(np_ctl_held(&c) == NP_PAUSED, "a live block sets it");
+    CHECK(np_fade_opa(NP_TOUCH_SHOW_S, NP_TOUCH_SHOW_S) == 255 && np_fade_opa(NP_TOUCH_SHOW_S + 1e-6, NP_TOUCH_SHOW_S) < 255 &&
+              np_fade_opa(0, 0) == 255,
+          "np_fade_opa: full at age == hold (a resume frame is full), the first step right after");
+}
+
 int main(void)
 {
     test_parse();
@@ -1188,6 +1243,8 @@ int main(void)
     test_touch();
     test_info();
     test_restart();
+    test_short_track();
+    test_held();
     test_feedback();
     test_cover_parse();
     test_cover_plan();

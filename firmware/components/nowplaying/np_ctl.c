@@ -21,12 +21,15 @@ void np_ctl_init(np_ctl_t *c)
 
 void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now)
 {
-    (void)now;
+    if (state != NP_NONE) c->held = state;
+    else if (c->server_state != NP_NONE) c->held = np_ctl_play_shown(c, now);
     c->server_state = state;
     c->server_vol = volume >= 0 && volume <= 100 ? volume : -1;
     if (c->play_set && state == c->play) c->play_set = false;
     if (state == NP_NONE) c->play_set = c->touch_on = false;
 }
+
+np_play_t np_ctl_held(const np_ctl_t *c) { return c->held; }
 
 void np_ctl_push(np_ctl_t *c, double now)
 {
