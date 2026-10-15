@@ -414,6 +414,7 @@ class Graph:
         self.group = {x for n in nesting.get('group', []) for x in self.addrs(n)}
         self.group_depth = nesting.get('depth', 0)
         self.tabled = set()
+        self.cut = set()
         for key, targets in cfg.get('pointers', {}).items():
             callers = self.names(key[3:]) if key.startswith('re:') else [key]
             dst = {x for t in targets for x in self.addrs(t)}
@@ -445,7 +446,7 @@ class Graph:
         onstack[a] = depth
         stack.append(a)
         best, low = (0, [], INF, ()), INF
-        for c in f['calls']:
+        for c in f['calls'] - self.cut:
             w = self.worst(c, memo, stack, onstack, nest)
             low = min(low, w[2])
             if w[0] > best[0]:
@@ -465,7 +466,7 @@ class Graph:
             if x in seen or x not in self.funcs:
                 continue
             seen.add(x)
-            todo.extend(self.funcs[x]['calls'])
+            todo.extend(self.funcs[x]['calls'] - self.cut)
         return seen
 
     def through(self, a, target, head, memo, stack, onstack):
@@ -482,7 +483,7 @@ class Graph:
         onstack[a] = depth
         stack.append(a)
         best, low = (None, [], INF, ()), INF
-        for c in self.funcs[a]['calls']:
+        for c in self.funcs[a]['calls'] - self.cut:
             w = self.through(c, target, head, memo, stack, onstack)
             low = min(low, w[2])
             if w[0] is not None and (best[0] is None or w[0] > best[0]):
@@ -506,6 +507,43 @@ class Graph:
         return cands[0]
 
 
+def reached(g, entry, names, cut):
+    g.cut = {x for n in cut for x in g.addrs(n)}
+    seen = g.reach(entry)
+    return [n for n in names if any(x in seen for x in g.addrs(n))]
+
+
+def walk_task(g, cfg, t):
+    spec = cfg['tasks'][t]
+    entry = g.root(spec['entry'], spec.get('file'))
+    leaves = spec.get('leaves', [])
+    unknown = [n for k in ('leaves', 'leaves_via', 'unreachable') for n in spec.get(k, []) if not g.addrs(n)]
+    if unknown:
+        raise SystemExit('task %s: stack_walk.json names not in the ELF: %s' % (t, ', '.join(unknown)))
+    bad = reached(g, entry, spec.get('unreachable', []), [])
+    if leaves:
+        bad += ['%s (not only via %s)' % (n, ', '.join(spec.get('leaves_via', [])))
+                for n in reached(g, entry, leaves, spec.get('leaves_via', []))]
+    if bad:
+        g.cut = set()
+        raise SystemExit('task %s reaches what its stack_walk.json entry rules out: %s' % (t, '; '.join(bad)))
+    g.cut = {x for n in leaves for x in g.addrs(n)}
+    path = g.worst(entry, {}, [], {})
+    best, recur, head = path[0], 0, None
+    for r in cfg.get('recursion', []):
+        for h in g.addrs(r['head']):
+            extra = (r['depth'] - 1) * sum(g.funcs[x]['frame'] or 0 for n in r['cycle'] for x in g.addrs(n))
+            w = g.through(entry, h, g.worst(h, {}, [], {}), {}, [], {})
+            if w[0] is not None and w[0] + extra > best + recur:
+                best, recur, head, path = w[0], extra, r, w
+    unresolved, tabled = g.indirect(entry)
+    g.cut = set()
+    total = best + recur + cfg['overhead']
+    stack = spec.get('stack')
+    margin = stack - total if stack else ''
+    return best, recur, total, stack, margin, unresolved, tabled, path, head
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     if not args:
@@ -514,7 +552,6 @@ def main():
     elfs = [args[0]] + ([rom_elf()] if rom_elf() else [])
     g = Graph(elfs)
     g.apply(cfg)
-    overhead = cfg['overhead']
     tasks = args[1:] or list(cfg['tasks'])
     print('estimates, not proven bounds: indirect calls not resolved statically count as 0 B')
     print('unresolved: no pointer-table entry; tabled: in a function with one, assumed covered by its listed targets')
@@ -535,20 +572,7 @@ def main():
     print('%-10s %6s %6s %8s %6s %6s %10s %6s' % ('task', 'path', 'recur', 'estimate', 'stack', 'margin', 'unresolved',
                                                  'tabled'))
     for t in tasks:
-        spec = cfg['tasks'][t]
-        entry = g.root(spec['entry'], spec.get('file'))
-        path = g.worst(entry, {}, [], {})
-        best, recur, head = path[0], 0, None
-        for r in cfg.get('recursion', []):
-            for h in g.addrs(r['head']):
-                extra = (r['depth'] - 1) * sum(g.funcs[x]['frame'] or 0 for n in r['cycle'] for x in g.addrs(n))
-                w = g.through(entry, h, g.worst(h, {}, [], {}), {}, [], {})
-                if w[0] is not None and w[0] + extra > best + recur:
-                    best, recur, head, path = w[0], extra, r, w
-        unresolved, tabled = g.indirect(entry)
-        total = best + recur + overhead
-        stack = spec.get('stack')
-        margin = stack - total if stack else ''
+        best, recur, total, stack, margin, unresolved, tabled, path, head = walk_task(g, cfg, t)
         print('%-10s %6d %6d %8d %6s %6s %10d %6d' % (t, best, recur, total, stack or '', margin, unresolved, tabled))
         if '--path' in sys.argv:
             acc = 0

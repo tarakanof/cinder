@@ -1,7 +1,12 @@
+import contextlib
+import io
+import json
 import os
 import random
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tools"))
 import stack_walk
@@ -67,6 +72,61 @@ class StackWalk(unittest.TestCase):
         size, path = g.worst(0x42000000, {}, [], {})[:2]
         self.assertEqual(size, 32 + 64 + 96)
         self.assertEqual([n for n, _ in path], ["entry_fn", "dispatch", "handler"])
+
+    def test_task_leaves_cut_only_while_set(self):
+        g = graph({"pointers": {"dispatch": ["handler"]}})
+        g.cut = {0x42000200}
+        size, path = g.worst(0x42000000, {}, [], {})[:2]
+        self.assertEqual((size, [n for n, _ in path]), (32 + 48, ["entry_fn", "leaf"]))
+        self.assertIsNone(g.through(0x42000000, 0x42000300, (96, []), {}, [], {})[0])
+        self.assertEqual(g.indirect(0x42000000), (2, 0))
+        g.cut = set()
+        self.assertEqual(g.worst(0x42000000, {}, [], {})[0], 32 + 64 + 96)
+
+    def run_main(self, tasks):
+        g = stack_walk.Graph([])
+        g.load(DISASM, {})
+        g.link()
+        cfg = {"overhead": 768, "pointers": {"dispatch": ["handler"]}, "tasks": tasks}
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "stack_walk.json"), "w") as fh:
+                json.dump(cfg, fh)
+            out = io.StringIO()
+            with mock.patch.object(stack_walk, "HERE", d), mock.patch.object(stack_walk, "Graph", lambda elfs: g), \
+                    mock.patch.object(stack_walk, "rom_elf", lambda: None), \
+                    mock.patch.object(sys, "argv", ["stack_walk.py", "x.elf"]), contextlib.redirect_stdout(out):
+                stack_walk.main()
+        return {line.split()[0]: int(line.split()[3]) for line in out.getvalue().splitlines() if line[:2] in ("a ", "b ")}
+
+    def test_main_applies_task_leaves_to_that_task_only(self):
+        rows = self.run_main({"a": {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]},
+                              "b": {"entry": "entry_fn"}})
+        self.assertEqual(rows, {"a": 32 + 64 + 768, "b": 32 + 64 + 96 + 768})
+
+    def test_main_fails_on_leaves_without_a_via(self):
+        with self.assertRaises(SystemExit) as e:
+            self.run_main({"a": {"entry": "entry_fn", "leaves": ["handler"]}})
+        self.assertIn("handler (not only via )", str(e.exception))
+
+    def test_main_fails_when_an_unreachable_function_is_reached(self):
+        with self.assertRaises(SystemExit) as e:
+            self.run_main({"a": {"entry": "entry_fn", "unreachable": ["handler"]}})
+        self.assertIn("handler", str(e.exception))
+
+    def test_main_fails_on_a_task_name_not_in_the_elf(self):
+        for key in ("leaves", "leaves_via", "unreachable"):
+            spec = {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]}
+            spec[key] = spec.get(key, []) + ["no_such_fn"]
+            with self.assertRaises(SystemExit) as e:
+                self.run_main({"a": spec})
+            self.assertIn("not in the ELF: no_such_fn", str(e.exception))
+
+    def test_main_fails_when_a_leaf_is_reached_outside_its_via(self):
+        rows = self.run_main({"a": {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]}})
+        self.assertEqual(rows, {"a": 32 + 64 + 768})
+        with self.assertRaises(SystemExit) as e:
+            self.run_main({"a": {"entry": "entry_fn", "leaves": ["leaf"], "leaves_via": ["dispatch"]}})
+        self.assertIn("leaf (not only via dispatch)", str(e.exception))
 
     def test_long_call_into_a_later_elf_resolves(self):
         g = stack_walk.Graph([])

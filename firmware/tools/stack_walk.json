@@ -677,7 +677,32 @@
   },
   "main": {
    "entry": "app_main",
-   "stack": 7232
+   "stack": 7232,
+   "leaves": [
+    "lv_draw_dispatch",
+    "lv_draw_dispatch_layer"
+   ],
+   "leaves_via": [
+    "lv_obj_send_event",
+    "event_send_core",
+    "lv_event_send",
+    "lv_event_send$part$0",
+    "lv_event_push_and_send",
+    "lv_display_send_event",
+    "lv_obj_event_base"
+   ],
+   "unreachable": [
+    "lv_canvas_finish_layer",
+    "lv_snapshot_take",
+    "lv_snapshot_take_to_draw_buf",
+    "lv_snapshot_take_to_draw_buf$part$0",
+    "lv_timer_handler",
+    "lv_timer_handler$part$0",
+    "lv_display_refr_timer",
+    "lv_obj_redraw",
+    "lv_draw_dispatch_wait_for_request",
+    "frame_cb"
+   ]
   },
   "esp_timer": {
    "entry": "timer_task",

@@ -872,7 +872,8 @@ static void test_recheck(lv_display_t *d, lv_obj_t *root)
     rig_start(d, root, &rg, true);
     np_art_set_t again;
     rig_set(&again, NULL, "a0-r1", true);
-    again.avatar = track(make_avatar());
+    void *av = track(make_avatar());
+    again.avatar = av;
     npc_adopt(&again);
     run(d, &rg.f, 0.2, 1 / 60.0);
     rgb(FX + NP_V15_CX, NP_V15_CY, &r, &g, &b);
@@ -884,7 +885,7 @@ static void test_recheck(lv_display_t *d, lv_obj_t *root)
     int ar, ag, ab;
     rgb(FX + NP_V15_CX + 46, NP_V15_CY, &ar, &ag, &ab);
     printf("np_view: art-less track after a given-up one: label centre %d,%d,%d, label ring %d,%d,%d\n", r, g, b, ar, ag, ab);
-    CHECK(r < 100 && freed(again.avatar) <= 1, "after the grace the old track's avatar is gone: %d", r);
+    CHECK(r < 100 && freed(av) == 1, "after the grace the old track's avatar is freed once: %d, freed %d", r, freed(av));
     CHECK(ag > 170, "and the vinyl takes the new block's accent (amber without one): %d,%d,%d", ar, ag, ab);
     rig_end(root);
 
