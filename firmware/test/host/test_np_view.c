@@ -1538,6 +1538,30 @@ static long title_glow(void)
     return n;
 }
 
+typedef struct {
+    int drops, frames, max_areas;
+    long px, last;
+    bool mono;
+} fade_t;
+
+static fade_t fade_watch(lv_display_t *d, double secs, bool offline)
+{
+    fade_t f = {.mono = true, .last = title_glow()};
+    for (double t = 0; t < secs; t += 1 / 60.0) {
+        s_now_us += 16667;
+        np_view_update(s_now_us / 1e6, offline);
+        refresh(d);
+        long g = title_glow();
+        f.mono &= g <= f.last;
+        f.drops += g < f.last;
+        f.last = g;
+        f.px += s_px;
+        f.frames += s_areas > 0;
+        if (s_areas > f.max_areas) f.max_areas = s_areas;
+    }
+    return f;
+}
+
 static void publish_now(const np_info_t *np)
 {
     publish(np);
@@ -1589,21 +1613,11 @@ static void test_text_fade(lv_display_t *d, lv_obj_t *scr)
     win_t up = window(d, 10);
     frames(d, 38);
     CHECK(title_ink() > 300 && time_ink() > 150, "still up 9.9 s after the track started");
-    long levels[6];
-    int fade_max = 0;
-    long fade_px = 0;
-    for (int i = 0; i < 6; i++) {
-        frames(d, 1);
-        levels[i] = title_glow();
-        fade_px += s_px;
-        if (s_areas > fade_max) fade_max = s_areas;
-    }
-    printf("np_view: text fade, title glow per frame: %ld %ld %ld %ld %ld %ld; at most %d areas a frame, %ld px in all\n", levels[0],
-           levels[1], levels[2], levels[3], levels[4], levels[5], fade_max, fade_px);
-    CHECK(levels[0] == levels[1] && levels[1] > levels[2] && levels[2] > levels[3] && levels[3] > levels[4] && levels[4] > 0 &&
-              levels[5] == 0 && fade_max <= 2,
-          "after 10 s a 0.3 s fade in 3 steps, not a cut: %ld -> %ld -> %ld -> %ld -> %ld", levels[1], levels[2], levels[3], levels[4],
-          levels[5]);
+    fade_t fd = fade_watch(d, 0.6, false);
+    printf("np_view: text fade at 60 fps: %d drops, %d frames drawn, at most %d areas a frame, %ld px in all\n", fd.drops, fd.frames,
+           fd.max_areas, fd.px);
+    CHECK(fd.mono && fd.drops == 4 && fd.last == 0 && fd.frames >= 4 && fd.frames <= 6 && fd.max_areas <= 2,
+          "after 10 s a 0.3 s fade in 3 steps, not a cut: %d drops, %d frames", fd.drops, fd.frames);
     int lum_clean = luma(FX + 233, 150), r, g, b;
     save("fade-clean");
     rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
@@ -1657,13 +1671,9 @@ static void test_text_fade(lv_display_t *d, lv_obj_t *scr)
     CHECK(title_ink() > 300 && time_ink() > 100, "paused: kept up 15 s on");
     np.state = NP_PLAYING;
     publish_now(&np);
-    frames(d, 1);
-    long g0 = title_glow();
-    frames(d, 2);
-    long g1 = title_glow();
-    frames(d, 2);
-    CHECK(g0 > g1 && g1 > 0 && title_glow() == 0, "resumed with no timer running: it fades from the resume: %ld -> %ld -> %ld", g0, g1,
-          title_glow());
+    CHECK(fade_watch(d, 0.01, false).last > 100000, "resumed: full on the first resumed frame");
+    fade_t rs = fade_watch(d, 0.6, false);
+    CHECK(rs.mono && rs.drops == 4 && rs.last == 0, "resumed with no timer running: the 3-step fade from the resume: %d drops, mono %d, last %ld", rs.drops, rs.mono, rs.last);
 
     np_info_t nx = np;
     strcpy(nx.title, "Paper Moons");
@@ -1707,6 +1717,156 @@ static void test_text_out_npc(lv_display_t *d, lv_obj_t *root)
           ink(350, 425, 100, 366, 180));
     CHECK(strcmp(npc_time_text(), "") != 0 && ink(90, 130, 160, 306, 150) > 50, "and the time: %d px", ink(90, 130, 160, 306, 150));
     rig_end(root);
+}
+
+static lv_obj_t *label_find(lv_obj_t *o, const char *txt)
+{
+    if (lv_obj_check_type(o, &lv_label_class) && strcmp(lv_label_get_text(o), txt) == 0) return o;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) {
+        lv_obj_t *f = label_find(lv_obj_get_child(o, (int32_t)i), txt);
+        if (f) return f;
+    }
+    return NULL;
+}
+
+static int text_opa(lv_obj_t *scr, const char *txt)
+{
+    lv_obj_t *l = label_find(scr, txt);
+    if (!l) return -1;
+    for (lv_obj_t *o = l; o; o = lv_obj_get_parent(o))
+        if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return 0;
+    return lv_obj_get_style_opa_recursive(l, 0);
+}
+
+static void frames_off(lv_display_t *d, int n)
+{
+    for (int i = 0; i < n; i++) {
+        s_now_us += 100000;
+        np_view_update(s_now_us / 1e6, true);
+        refresh(d);
+    }
+}
+
+static void cover_track(lv_display_t *d, np_info_t *np, const char *title, long long dur, long long pos, bool cover)
+{
+    *np = (np_info_t){.state = NP_PLAYING, .has_accent = true, .accent = 0xFF8A5C, .duration_ms = dur, .position_ms = pos,
+                      .album_art = true, .volume = 40};
+    strcpy(np->source, "music");
+    strcpy(np->title, title);
+    strcpy(np->artist, "Northern Static");
+    snprintf(np->track_id, sizeof np->track_id, "id-%s", title);
+    snprintf(np->art_version, sizeof np->art_version, "%x", (unsigned)strlen(title) * 7919u);
+    snprintf(np->cover_version, sizeof np->cover_version, "%s-r1", np->art_version);
+    publish_now(np);
+    frames(d, 2);
+    if (!cover) return;
+    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover(), .avatar = make_avatar()};
+    strcpy(s_pend.version, np->cover_version);
+    s_has_pend = true;
+    frames(d, 2);
+}
+
+static void test_text_fade_review(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np;
+    cover_track(d, &np, "Repeat One", 30000, 0, true);
+    frames(d, 110);
+    CHECK(title_ink() == 0, "repeat: clean after 10 s");
+    frames(d, 180);
+    np.position_ms = 1200;
+    publish_now(&np);
+    frames(d, 1);
+    CHECK(title_ink() > 200, "repeat-one: the same track back at 0:01 from its end shows the text: %d px", title_ink());
+    frames(d, 98);
+    CHECK(title_ink() > 200, "for 10 s");
+    frames(d, 8);
+    CHECK(title_ink() == 0, "then clean");
+    np.position_ms = 15000;
+    publish_now(&np);
+    frames(d, 3);
+    np.position_ms = 0;
+    publish_now(&np);
+    frames(d, 3);
+    CHECK(title_ink() == 0, "a seek back from the middle to 0:00 keeps it clean");
+
+    cover_track(d, &np, "Before The Drop", 228000, 60000, true);
+    frames(d, 110);
+    CHECK(title_ink() == 0, "offline: clean before the drop");
+    frames_off(d, 3);
+    np_info_t nx;
+    nx = np;
+    strcpy(nx.title, "Arrived Offline");
+    strcpy(nx.track_id, "id-off");
+    publish_now(&nx);
+    frames_off(d, 10);
+    CHECK(title_ink() == 0, "a new block while offline: no timer yet");
+    frames(d, 2);
+    CHECK(label_has(scr, "Arrived Offline") && title_ink() > 200, "back online without another block: the new track's text shows: %d px",
+          title_ink());
+    frames(d, 30);
+    CHECK(title_ink() > 200, "on the 10 s timer");
+
+    cover_track(d, &np, "Paused Then Offline", 228000, 60000, true);
+    frames(d, 110);
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 3);
+    CHECK(title_ink() > 300 && avatar_seen(), "paused: up");
+    frames_off(d, 150);
+    save("fade-paused-offline");
+    CHECK(title_ink() > 300 && avatar_seen(), "paused, then offline 15 s: the text and the avatar stay beside the badge: %d px",
+          title_ink());
+    np.state = NP_PLAYING;
+    nx = np;
+    frames(d, 2);
+    publish_now(&nx);
+    frames(d, 10);
+    CHECK(title_ink() == 0, "online and playing again: it fades");
+
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 20);
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    s_now_us += 500000;
+    np_view_update(s_now_us / 1e6, false);
+    refresh(d);
+    CHECK(title_ink() > 300, "a resumed frame 500 ms late: still full, the fade starts from it");
+    fade_t late = fade_watch(d, 0.6, false);
+    CHECK(late.mono && late.drops == 4 && late.last == 0, "then the 3 steps: %d drops", late.drops);
+
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown() && title_ink() > 300, "a tap: controls and text");
+    frames(d, 30);
+    np_view_skip(1, s_now_us / 1e6);
+    frames(d, 39);
+    CHECK(btn_ink(-1) > 40 && title_ink() > 300, "a swipe while they show (no new track follows): text and controls stay together");
+    frames(d, 5);
+    CHECK(none_shown() && title_ink() == 0, "and fade together");
+
+    np_info_t none = {.state = NP_NONE};
+    publish_now(&none);
+    frames(d, 3);
+    cover_track(d, &np, "Slow Cover", 228000, 60000, false);
+    frames(d, 110);
+    CHECK(title_ink() > 300, "no cover yet after 11 s: the text stays on the empty disc");
+    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover()};
+    strcpy(s_pend.version, np.cover_version);
+    s_has_pend = true;
+    int seen[256] = {0}, prev = 255, cut = 0, n = 0;
+    for (int i = 0; i < 90; i++) {
+        s_now_us += 16667;
+        np_view_update(s_now_us / 1e6, false);
+        refresh(d);
+        int o = text_opa(scr, "Slow Cover");
+        if (o >= 0 && o < 256) seen[o] = 1;
+        cut |= prev == 255 && o == 0;
+        prev = o;
+    }
+    for (int i = 1; i < 255; i++) n += seen[i];
+    CHECK(prev == 0 && !cut && n >= 3, "a cover adopted after 10 s fades the text in steps (%d levels), no cut", n);
+    np_view_show(false);
 }
 
 int main(int argc, char **argv)
@@ -1899,6 +2059,7 @@ int main(int argc, char **argv)
     test_paused_skip(d, scr);
     test_text_out_npc(d, root);
     test_text_fade(d, scr);
+    test_text_fade_review(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

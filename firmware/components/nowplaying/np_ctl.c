@@ -15,7 +15,8 @@ void np_ctl_init(np_ctl_t *c)
     c->last_t = -1e9;
     c->info_t = -1e9;
     c->track_t = -1e9;
-    c->pause_t = -1e9;
+    c->resume_t = -1e9;
+    c->track_pos = -1;
 }
 
 void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now)
@@ -43,13 +44,13 @@ void np_ctl_skip(np_ctl_t *c, int dir, double now)
     if (c->server_state == NP_NONE || !dir) return;
     if (dir > 0) c->next_due = true;
     else c->prev_due = true;
-    if (np_ctl_touch_opa(c, now) > 0) c->touch_t = now;
+    if (np_ctl_touch_opa(c, now) > 0) c->touch_t = c->info_t = now;
 }
 
-static int fade_opa(double age, double hold)
+int np_fade_opa(double age, double hold)
 {
     double k = (age - hold) / NP_TOUCH_FADE_S;
-    if (k < 0) return 255;
+    if (k <= 0) return 255;
     if (k >= 1) return 0;
     int step = (int)(k * NP_TOUCH_FADE_STEPS) + 1;
     return 255 * (NP_TOUCH_FADE_STEPS + 1 - step) / (NP_TOUCH_FADE_STEPS + 1);
@@ -58,7 +59,7 @@ static int fade_opa(double age, double hold)
 int np_ctl_touch_opa(const np_ctl_t *c, double now)
 {
     if (!c->touch_on || c->server_state == NP_NONE) return 0;
-    return fade_opa(now - c->touch_t, NP_TOUCH_SHOW_S);
+    return np_fade_opa(now - c->touch_t, NP_TOUCH_SHOW_S);
 }
 
 static uint32_t key_add(uint32_t h, const char *s)
@@ -71,6 +72,7 @@ void np_ctl_track(np_ctl_t *c, const np_info_t *np, double now)
 {
     if (np->state == NP_NONE) {
         c->track_set = false;
+        c->track_pos = -1;
         return;
     }
     uint32_t h = 2166136261u;
@@ -83,16 +85,29 @@ void np_ctl_track(np_ctl_t *c, const np_info_t *np, double now)
     c->track_set = true;
     c->track_key = h;
     c->track_t = now;
+    c->track_pos = -1;
+}
+
+void np_ctl_track_pos(np_ctl_t *c, long long pos_ms, long long dur_ms, double now)
+{
+    if (c->track_set && c->track_pos >= 0 && dur_ms > NP_RESTART_HEAD_MS + NP_RESTART_TAIL_MS &&
+        c->track_pos >= dur_ms - NP_RESTART_TAIL_MS && pos_ms < NP_RESTART_HEAD_MS)
+        c->track_t = now;
+    c->track_pos = pos_ms;
 }
 
 int np_ctl_info_opa(np_ctl_t *c, double now, bool paused)
 {
     if (paused) {
-        c->pause_t = now;
+        c->was_paused = true;
         return 255;
     }
-    int a = fade_opa(now - c->track_t, NP_INFO_TRACK_S), b = fade_opa(now - c->info_t, NP_TOUCH_SHOW_S);
-    int p = fade_opa(now - c->pause_t, 0);
+    if (c->was_paused) {
+        c->was_paused = false;
+        c->resume_t = now;
+    }
+    int a = np_fade_opa(now - c->track_t, NP_INFO_TRACK_S), b = np_fade_opa(now - c->info_t, NP_TOUCH_SHOW_S);
+    int p = np_fade_opa(now - c->resume_t, 0);
     a = a > b ? a : b;
     return a > p ? a : p;
 }

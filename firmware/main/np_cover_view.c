@@ -7,6 +7,7 @@
 
 #include "arc_text.h"
 #include "esp_heap_caps.h"
+#include "np_ctl.h"
 #include "touch_swipe.h"
 
 LV_FONT_DECLARE(font_digits_96);
@@ -88,6 +89,8 @@ typedef struct {
     bool prog_ok, shown_light;
     lv_obj_t *info;
     int info_opa;
+    bool info_cover;
+    double info_cover_t;
 } npc_mem_t;
 static npc_mem_t *M;
 
@@ -181,6 +184,7 @@ void npc_build(lv_obj_t *root)
     M->info = plain(root, 2 * NP_DISC_R, 2 * NP_DISC_R);
     lv_obj_align(M->info, LV_ALIGN_CENTER, 0, 0);
     M->info_opa = LV_OPA_COVER;
+    M->info_cover = false;
 
     s_scrim = plain(M->info, 2 * NP_DISC_R, 2 * NP_DISC_R);
     lv_obj_set_style_radius(s_scrim, LV_RADIUS_CIRCLE, 0);
@@ -542,6 +546,7 @@ static void idle_update(const npc_frame_t *f, bool relayout)
         show(s_vinyl, vinyl_ready());
         show(s_idle, true);
         info_fade(LV_OPA_COVER);
+        M->info_cover = false;
         lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
         lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
         s_dx = f->dx;
@@ -868,7 +873,11 @@ void npc_update(const npc_frame_t *f)
         show(s_scrim, scrim > 0);
     }
     badge_update(f, &look);
-    info_fade(s_has_cover && !v15 ? LV_OPA_COVER - f->text_out : LV_OPA_COVER);
+    bool cover = s_has_cover && !v15;
+    if (cover && !M->info_cover) M->info_cover_t = f->now;
+    M->info_cover = cover;
+    int arrive = cover ? np_fade_opa(f->now - M->info_cover_t, 0) : LV_OPA_COVER;
+    info_fade(LV_OPA_COVER - f->text_out > arrive ? LV_OPA_COVER - f->text_out : arrive);
 
     if ((int)f->dim != s_dim) {
         s_dim = f->dim;

@@ -69,6 +69,7 @@ typedef struct {
     lv_obj_t *btn[3];
     int btn_opa, btn_hi;
     bool btn_mid, btn_pause;
+    bool track_due, was_live;
 } view_mem_t;
 static view_mem_t *V;
 #define s_face_dsc (V->face_dsc)
@@ -303,6 +304,7 @@ void np_view_show(bool show)
         s_vol_shown = -2;
         V->badge[0] = 0;
         V->dropped[0] = 0;
+        V->track_due = V->was_live = false;
         s_error_t = -1e9;
         np_ctl_result_t r;
         np_client_control_result(&r);
@@ -611,7 +613,8 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     f.badge_text = badge;
     f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING, hi);
     if (np_face_live(st) || st == NPF_OFFLINE) {
-        f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED);
+        bool held = st == NPF_OFFLINE && V->snap.have && V->snap.info.state == NP_PAUSED;
+        f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED || held);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
         f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
@@ -652,8 +655,14 @@ void np_view_update(double now, bool offline)
         np_client_forget_dropped(V->dropped);
         V->dropped[0] = 0;
     }
-    if (fresh || !live) np_ctl_server(&V->ctl, live ? np->state : NP_NONE, live ? np->volume : -1, now);
-    if (fresh && !offline && V->snap.have) np_ctl_track(&V->ctl, np, now);
+    if (fresh || !live || !V->was_live) np_ctl_server(&V->ctl, live ? np->state : NP_NONE, live ? np->volume : -1, now);
+    V->was_live = live;
+    if (fresh && V->snap.have) V->track_due = true;
+    if (V->track_due && !offline) {
+        np_ctl_track(&V->ctl, np, now);
+        V->track_due = false;
+    }
+    if (live) np_ctl_track_pos(&V->ctl, np_anchor_at(&V->snap.anchor, now), V->snap.anchor.dur_ms, now);
     if (live) controls_tick(now);
     np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     if (s_kind == KIND_COVER) {
