@@ -403,6 +403,10 @@ class Graph:
 
     def apply(self, cfg):
         leaves = set(cfg.get('leaves', []))
+        unknown = sorted(n for n in leaves if not self.addrs(n))
+        unknown += [p for pair in cfg.get('infeasible', []) for p in pair if not self.names(p)]
+        if unknown:
+            raise SystemExit('stack_walk.json global leaves/infeasible not in the ELF: %s' % ', '.join(unknown))
         for f in self.funcs.values():
             f['calls'] = {c for c in f['calls'] if c in self.funcs and self.funcs[c]['name'] not in leaves}
         for a_pat, b_pat in cfg.get('infeasible', []):

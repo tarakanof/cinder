@@ -121,6 +121,15 @@ class StackWalk(unittest.TestCase):
                 self.run_main({"a": spec})
             self.assertIn("not in the ELF: no_such_fn", str(e.exception))
 
+    def test_apply_fails_on_a_global_name_not_in_the_elf(self):
+        graph({"leaves": ["leaf"], "infeasible": [["^entry_fn$", "^leaf$"], ["^dispatch$", "^hand"]]})
+        for cfg in ({"leaves": ["leaf", "no_such_fn"]}, {"infeasible": [["^no_such_fn$", "^leaf$"]]},
+                    {"infeasible": [["^entry_fn$", "^no_such_fn$"]]}):
+            with self.assertRaises(SystemExit) as e:
+                graph(cfg)
+            self.assertIn("not in the ELF: ", str(e.exception))
+            self.assertIn("no_such_fn", str(e.exception))
+
     def test_main_fails_when_a_leaf_is_reached_outside_its_via(self):
         rows = self.run_main({"a": {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]}})
         self.assertEqual(rows, {"a": 32 + 64 + 768})
