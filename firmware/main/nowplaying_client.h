@@ -57,6 +57,9 @@ void np_client_service(http_conn_t *conn, const char *base);
 void np_client_set_visible(bool on);
 /* LVGL task. */
 void np_client_forget_art(void);
+/* LVGL task. The view dropped version's set and shows version now: forget only if version is still the last set
+   handed over and none is pending. */
+void np_client_forget_dropped(const char *version);
 /* LVGL task. */
 bool np_client_get(np_snapshot_t *out, uint32_t *gen);
 /* LVGL task; the caller owns the set. */
