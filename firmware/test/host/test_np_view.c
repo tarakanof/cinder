@@ -16,6 +16,7 @@
 #define OFF_CY 164
 #define OFF_TOP (OFF_CY - TS_CTL_PX / 2 + 8)
 #define DRIFT 8
+#define PH565 ((0x1C >> 3) << 11 | (0x1C >> 2) << 5 | (0x1C >> 3))
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -1061,6 +1062,14 @@ static int btn_ink(int k)
     return n;
 }
 
+static int note_ink(void)
+{
+    int n = 0;
+    for (int y = TS_CTL_Y - 80; y < TS_CTL_Y - TS_CTL_PX / 2; y++)
+        for (int x = TS_CX - 30; x <= TS_CX + 30; x++) n += luma(x, y) > 50 && luma(x, y) < 200;
+    return n;
+}
+
 static bool all_shown(void) { return btn_ink(-1) > 40 && btn_ink(0) > 40 && btn_ink(1) > 40; }
 static int disc_top(int k) { return luma(TS_CX + k * TS_CTL_DX, TS_CTL_Y - TS_CTL_PX / 2 + 8); }
 static int disc_corner(int k) { return luma(TS_CX + k * TS_CTL_DX + TS_CTL_PX / 2 - 4, TS_CTL_Y - TS_CTL_PX / 2 + 4); }
@@ -1109,14 +1118,14 @@ static int ink_rows(int cx, int cy, int half)
     return y1 < 0 ? 0 : y1 - y0 + 1;
 }
 
-static void layout_check(const char *face, bool on_black)
+static void layout_check(const char *face)
 {
     for (int k = -1; k <= 1; k++) {
         int cx = TS_CX + k * TS_CTL_DX, x0 = W, x1 = -1, y0 = H, y1 = -1, off = 0;
         ts_zone_t want = k < 0 ? TS_ZONE_PREV : k > 0 ? TS_ZONE_NEXT : TS_ZONE_PLAY;
         for (int y = TS_CTL_Y - TS_CTL_DX / 2; y < TS_CTL_Y + TS_CTL_DX / 2; y++)
             for (int x = cx - TS_CTL_DX / 2; x < cx + TS_CTL_DX / 2; x++) {
-                if (s_fb[y * W + x] == s_before[y * W + x]) continue;
+                if (s_fb[y * W + x] == s_before[y * W + x] || s_fb[y * W + x] == PH565) continue;
                 if (x < x0) x0 = x;
                 if (x > x1) x1 = x;
                 if (y < y0) y0 = y;
@@ -1124,7 +1133,6 @@ static void layout_check(const char *face, bool on_black)
                 off += ts_tap_zone(x, y) != want;
             }
         CHECK(off == 0, "%s: every drawn pixel of control %d lies in its tap zone (%d off)", face, k, off);
-        if (on_black && k) continue;
         CHECK(abs(x1 - x0 + 1 - TS_CTL_PX) <= 2 && abs(y1 - y0 + 1 - TS_CTL_PX) <= 2, "%s: control %d drawn %dx%d", face, k,
               x1 - x0 + 1, y1 - y0 + 1);
         CHECK(abs(x0 + x1 + 1 - 2 * cx) <= 2 && abs(y0 + y1 + 1 - 2 * TS_CTL_Y) <= 2, "%s: control %d centred on %d,%d: %d-%d, %d-%d",
@@ -1188,7 +1196,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(s_areas <= 3 && s_px <= 3L * (TS_CTL_PX + 16) * (TS_CTL_PX + 16), "showing them redraws the three controls only: %d areas, %ld px",
           s_areas, s_px);
     CHECK(all_shown(), "the tap shows prev, play/pause and next");
-    layout_check("cover face", false);
+    layout_check("cover face");
     save("touch-controls");
 
     frames(d, 1);
@@ -1295,6 +1303,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(luma(FX + 233 - 198, 233) > 30, "rebuilt as the old face");
     CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40, "the controls survive the rebuild while shown");
     save("touch-controls-legacy");
+    CHECK(note_ink() == 0, "old face: the placeholder's note hides while the row shows: %d px", note_ink());
     CHECK(touch(d, TS_ZONE_NEXT) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_NEXT, "and still work: next");
     CHECK(touch(d, TS_ZONE_PREV) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_PREVIOUS, "old face: previous");
     CHECK(lit_only(-1) && btn_ink(0) > 40, "old face: previous pulses in place, play/pause stays");
@@ -1322,6 +1331,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && play_pauses() == lpp + 1, "old face: once the number goes, play/pause works again");
     frames(d, 50);
     CHECK(none_shown() && btn_ink(0) == 0, "old face: they fade");
+    CHECK(note_ink() > 100, "old face: the note is back once they faded: %d px", note_ink());
     memcpy(s_before, s_fb, sizeof s_fb);
     int lcorner = disc_corner(0);
     np_view_skip(1, s_now_us / 1e6);
@@ -1331,6 +1341,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     np_view_turn(3, s_now_us / 1e6);
     frames(d, 1);
     CHECK(btn_ink(0) > 40 && none_shown(), "old face: the volume number in the round badge");
+    CHECK(note_ink() == 0, "old face: the note hides under the badge too: %d px", note_ink());
     CHECK(ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4) >= 30, "old face: the number keeps Montserrat 48 when it fits: %d rows",
           ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4));
     save("touch-badge-legacy");
@@ -1359,7 +1370,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(lt_ink > 300 && lt_hit == 0, "old face: the title is outside every tap zone: %d of %d px", lt_hit, lt_ink);
     memcpy(s_before, s_fb, sizeof s_fb);
     CHECK(touch(d, TS_ZONE_PREV) == 0 && all_shown(), "old face: hidden, the first tap only shows them");
-    layout_check("old face", true);
+    layout_check("old face");
 
     publish(&none);
     frames(d, 3);
@@ -1946,6 +1957,60 @@ static void test_text_fade_review(lv_display_t *d, lv_obj_t *scr)
     np_view_show(false);
 }
 
+static void test_offline_push(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np;
+    cover_track(d, &np, "Pushed Then Offline", 228000, 60000, true);
+    frames(d, 110);
+    CHECK(title_ink() == 0, "clean before the push");
+    np_view_push(s_now_us / 1e6);
+    frames(d, 2);
+    CHECK(title_ink() > 300, "a push: paused at once, the text shows");
+    frames_off(d, 150);
+    save("offline-push-pause");
+    CHECK(title_ink() > 300 && avatar_seen(),
+          "a pause pushed, then the link drops before Ember confirms: offline 15 s, the text stays as the paused face showed: %d px",
+          title_ink());
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 3);
+    CHECK(title_ink() > 300, "back online, Ember says paused: up");
+    np_view_push(s_now_us / 1e6);
+    frames(d, 2);
+    frames_off(d, 150);
+    CHECK(title_ink() == 0, "a play pushed, then the drop: offline it fades as the playing face did: %d px", title_ink());
+    np_view_show(false);
+}
+
+static int title_top(void)
+{
+    for (int y = TS_CTL_Y + TS_CTL_PX / 2 + 1; y < 340; y++)
+        for (int x = FX + 140; x < FX + 326; x++)
+            if (luma(x, y) > 200) return y;
+    return -1;
+}
+
+static void test_burn_in_gap(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np;
+    cover_track(d, &np, "Long Listen", 900000, 60000, true);
+    frames(d, 3);
+    int top0 = title_top();
+    frames(d, 2450);
+    CHECK(title_ink() == 0, "dimmed and drifted for 4 min: clean");
+    touch(d, TS_ZONE_NONE);
+    int top = title_top();
+    save("burn-in-tap");
+    CHECK(all_shown() && top == top0 && top - (TS_CTL_Y + TS_CTL_PX / 2) >= 10,
+          "a tap after the drift: the controls come up with the drift reset, title ink from y %d (undrifted %d), %d px under the discs", top,
+          top0, top - (TS_CTL_Y + TS_CTL_PX / 2));
+    np_view_show(false);
+}
+
 int main(int argc, char **argv)
 {
     s_dir = argc > 1 ? argv[1] : NULL;
@@ -2138,6 +2203,8 @@ int main(int argc, char **argv)
     test_text_out_npc(d, root);
     test_text_fade(d, scr);
     test_text_fade_review(d, scr);
+    test_offline_push(d, scr);
+    test_burn_in_gap(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

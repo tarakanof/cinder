@@ -28,6 +28,8 @@
 #define COL_META 0x8A8A8A
 #define COL_IDLE 0x5A5A5A
 #define COL_PLACEHOLDER 0x1C1C1C
+#define COL_RIM 0x4A4A4A
+#define RIM_W 2
 
 #define TITLE_W 290
 #define SUB_W 260
@@ -242,6 +244,19 @@ static void btns_build(void)
     V->btn_pause = true;
 }
 
+static void rim(lv_obj_t *o)
+{
+    lv_obj_set_style_border_width(o, RIM_W, 0);
+    lv_obj_set_style_border_color(o, lv_color_hex(COL_RIM), 0);
+    lv_obj_set_style_border_opa(o, LV_OPA_COVER, 0);
+}
+
+static void note_show(bool on)
+{
+    lv_obj_t *n = s_album_ph ? lv_obj_get_child(s_album_ph, 0) : NULL;
+    if (n && lv_obj_has_flag(n, LV_OBJ_FLAG_HIDDEN) == on) lv_obj_set_flag(n, LV_OBJ_FLAG_HIDDEN, !on);
+}
+
 static bool btns_update(int opa, bool mid, bool pause, int hi)
 {
     if (!V->btn[0]) return false;
@@ -273,6 +288,10 @@ static void set_kind(int kind)
     if (kind == KIND_LEGACY) build();
     else npc_build(s_root);
     btns_build();
+    if (kind == KIND_LEGACY) {
+        rim(V->btn[0]);
+        rim(V->btn[2]);
+    }
     s_kind = kind;
     s_mode = MODE_UNSET;
     s_vol_shown = -2;
@@ -616,7 +635,9 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     f.badge_text = badge;
     f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING, hi);
     if (np_face_live(st) || st == NPF_OFFLINE) {
-        bool held = st == NPF_OFFLINE && V->snap.have && V->snap.info.state == NP_PAUSED;
+        np_play_t last = np_ctl_held(&V->ctl);
+        bool held = st == NPF_OFFLINE && V->snap.have && V->snap.info.state != NP_NONE &&
+                    (last != NP_NONE ? last : V->snap.info.state) == NP_PAUSED;
         f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED || held);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
         f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
@@ -674,7 +695,8 @@ void np_view_update(double now, bool offline)
     }
     if (live) {
         int hi = legacy_controls(now);
-        btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING, hi);
+        bool up = btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING, hi);
+        note_show(!up && !V->badge[0]);
     } else {
         btns_update(0, true, true, -1);
         if (s_vol_shown != -2 || V->badge[0]) {
