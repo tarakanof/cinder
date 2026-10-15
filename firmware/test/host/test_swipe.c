@@ -128,11 +128,11 @@ static void test_zones(void)
     CHECK(ts_tap_zone(TS_CX + TS_CTL_SPLIT, TS_CTL_Y) == TS_ZONE_PLAY &&
               ts_tap_zone(TS_CX + TS_CTL_SPLIT + 1, TS_CTL_Y) == TS_ZONE_NEXT,
           "right split");
-    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y - TS_CTL_BAND) == TS_ZONE_PLAY &&
-              ts_tap_zone(TS_CX, TS_CTL_Y + TS_CTL_BAND) == TS_ZONE_PLAY,
+    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y - TS_CTL_UP) == TS_ZONE_PLAY &&
+              ts_tap_zone(TS_CX, TS_CTL_Y + TS_CTL_DOWN) == TS_ZONE_PLAY,
           "band edges count");
-    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y - TS_CTL_BAND - 1) == TS_ZONE_NONE &&
-              ts_tap_zone(TS_CX - TS_CTL_DX, TS_CTL_Y + TS_CTL_BAND + 1) == TS_ZONE_NONE,
+    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y - TS_CTL_UP - 1) == TS_ZONE_NONE &&
+              ts_tap_zone(TS_CX - TS_CTL_DX, TS_CTL_Y + TS_CTL_DOWN + 1) == TS_ZONE_NONE,
           "above or below the band: no control");
     CHECK(ts_tap_zone(TS_CX, 380) == TS_ZONE_NONE, "on the title: no control");
     for (int k = -1; k <= 1; k++) {
@@ -161,6 +161,25 @@ static void test_zones(void)
     CHECK(ts_tap_counts(ts_tap_word(TS_ZONE_NEXT, 127), c) == 127 && c[TS_ZONE_NEXT] == 127, "127 in the top zone");
     CHECK(ts_tap_word(TS_ZONE_PLAY, 0) == 0 && ts_tap_word((ts_zone_t)7, 1) == 0 && ts_tap_counts(0, c) == 0, "empty");
     CHECK(TS_CX - TS_CTL_DX - TS_CTL_PX / 2 > 0 && TS_CX + TS_CTL_DX + TS_CTL_PX / 2 < 2 * TS_CX, "controls on screen");
+    CHECK(TS_CX == TS_W / 2 && TS_CTL_Y == TS_H / 2 && TS_CTL_Y == TS_CY, "the row sits on the face's centre, both axes");
+    CHECK(TS_CTL_DX == TS_CTL_PX + TS_CTL_GAP, "controls TS_CTL_GAP apart");
+    int far = TS_CTL_DX + TS_CTL_PX / 2;
+    CHECK(far * far < TS_R * TS_R && TS_CTL_Y - TS_CTL_UP > 0 && TS_CTL_Y + TS_CTL_DOWN < TS_H, "the whole row and its band inside the face");
+    int edge = TS_CX - TS_CTL_DX + TS_CTL_PX / 2;
+    CHECK(ts_tap_zone(edge + TS_CTL_GAP / 2 - 1, TS_CTL_Y) == TS_ZONE_PREV && ts_tap_zone(edge + TS_CTL_GAP / 2 + 1, TS_CTL_Y) == TS_ZONE_PLAY,
+          "previous and play/pause split halfway across the gap");
+    edge = TS_CX + TS_CTL_PX / 2;
+    CHECK(ts_tap_zone(edge + TS_CTL_GAP / 2 - 1, TS_CTL_Y) == TS_ZONE_PLAY && ts_tap_zone(edge + TS_CTL_GAP / 2 + 1, TS_CTL_Y) == TS_ZONE_NEXT,
+          "play/pause and next split halfway across the gap");
+    for (int k = -1; k <= 1; k++) {
+        int cx = TS_CX + k * TS_CTL_DX;
+        CHECK(ts_tap_zone(cx, TS_CTL_Y - TS_CTL_PX / 2 - TS_CTL_GAP) != TS_ZONE_NONE &&
+                  ts_tap_zone(cx, TS_CTL_Y - TS_CTL_PX / 2 - TS_CTL_GAP - 1) == TS_ZONE_NONE,
+              "control %d: the zone reaches one gap above the disc", k);
+        CHECK(ts_tap_zone(cx, TS_CTL_Y + TS_CTL_PX / 2) != TS_ZONE_NONE && ts_tap_zone(cx, TS_CTL_Y + TS_CTL_PX / 2 + 1) == TS_ZONE_NONE,
+              "control %d: the zone ends at the disc's bottom, short of the title", k);
+        CHECK((TS_CTL_UP + TS_CTL_DOWN + 1) * 382 / TS_H >= 90, "control %d: the zone is at least 9 mm tall on the 38.2 mm glass", k);
+    }
 }
 
 static void test_guards(void)

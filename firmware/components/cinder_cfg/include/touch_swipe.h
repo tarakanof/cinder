@@ -6,10 +6,11 @@
 extern "C" {
 #endif
 
-#define TS_CX 236
-#define TS_CY 233
-#define TS_R 233
+#define TS_W 472
 #define TS_H 466
+#define TS_CX (TS_W / 2)
+#define TS_CY (TS_H / 2)
+#define TS_R (TS_H / 2)
 #define TS_TAP_SLOP_PX 20
 #define TS_SWIPE_MIN_PX 60
 #define TS_SWIPE_MAX_S 0.8
@@ -20,11 +21,13 @@ extern "C" {
 #define TS_WIPE_S 0.18
 #define TS_WIPE_BAND_PX 32
 #define TS_DOTS_S 1.0
-#define TS_CTL_Y 164
-#define TS_CTL_DX 128
 #define TS_CTL_PX 88
-#define TS_CTL_BAND 80
-#define TS_CTL_SPLIT 64
+#define TS_CTL_GAP 40
+#define TS_CTL_Y TS_CY
+#define TS_CTL_DX (TS_CTL_PX + TS_CTL_GAP)
+#define TS_CTL_SPLIT (TS_CTL_DX / 2)
+#define TS_CTL_UP (TS_CTL_PX / 2 + TS_CTL_GAP)
+#define TS_CTL_DOWN (TS_CTL_PX / 2)
 #define TS_ZONES 4
 #define TS_TAP_BITS 8
 
@@ -46,7 +49,7 @@ ts_result_t ts_press(ts_touch_t *s, int x, int y, double t, bool swipe);
 void ts_move(ts_touch_t *s, int x, int y, double report_t, double now);
 ts_result_t ts_release(ts_touch_t *s, int x, int y, double report_t, double now);
 void ts_cancel(ts_touch_t *s);
-/* The music page's control under a tap at x, y: a band of rows around TS_CTL_Y split into three columns. */
+/* The music page's control under a tap at x, y: controls TS_CTL_PX wide, TS_CTL_GAP apart, centred on (TS_CX, TS_CTL_Y); the zones split halfway between them, reach TS_CTL_GAP above the discs and end at their bottom. */
 ts_zone_t ts_tap_zone(int x, int y);
 /* Tap counts per zone packed in one word (TS_TAP_BITS each, < 128 per zone), so a count and its zone move together: add ts_tap_word to a shared word, take it whole, split it with ts_tap_counts (returns the total). */
 unsigned ts_tap_word(ts_zone_t zone, int n);

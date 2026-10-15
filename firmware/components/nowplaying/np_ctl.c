@@ -31,6 +31,7 @@ void np_ctl_push(np_ctl_t *c, double now)
     c->play_set = true;
     c->play_t = now;
     c->play_due = true;
+    if (np_ctl_touch_opa(c, now) > 0) c->touch_t = now;
 }
 
 void np_ctl_skip(np_ctl_t *c, int dir, double now)
@@ -57,7 +58,10 @@ bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now)
     bool shown = np_ctl_touch_opa(c, now) > 0;
     c->touch_on = true;
     c->touch_t = now;
-    if (!shown) return false;
+    if (!shown) {
+        c->last_shown = true;
+        return false;
+    }
     switch (cmd) {
     case NP_CMD_PLAY:
     case NP_CMD_PAUSE: np_ctl_push(c, now); return true;
@@ -110,7 +114,17 @@ static int emit(np_ctl_t *c, np_cmd_t *out, int n, int max, np_cmd_kind_t k, int
     out[n].delta = delta;
     c->last = k;
     c->last_t = now;
+    c->last_shown = np_ctl_touch_opa(c, now) > 0;
     return n + 1;
+}
+
+np_fb_t np_ctl_feedback(const np_ctl_t *c, double now, np_cmd_kind_t *cmd)
+{
+    double age = now - c->last_t;
+    if (c->last == NP_CMD_NONE || c->last == NP_CMD_VOLUME || age >= NP_FLASH_S) return NP_FB_NONE;
+    if (c->last_shown && age >= NP_PULSE_S) return NP_FB_NONE;
+    *cmd = c->last;
+    return c->last_shown ? NP_FB_PULSE : NP_FB_BADGE;
 }
 
 int np_ctl_tick(np_ctl_t *c, double now, np_cmd_t *out, int max)
