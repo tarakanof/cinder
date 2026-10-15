@@ -83,12 +83,12 @@ void np_client_forget_dropped(const char *version)
 }
 int64_t esp_timer_get_time(void) { return s_now_us; }
 void np_client_set_visible(bool on) { (void)on; }
-static np_cmd_kind_t s_cmds[32];
+static np_cmd_kind_t s_cmds[64];
 static int s_ncmds;
 void np_client_control(const np_cmd_t *cmd, const char *source, const char *track_id)
 {
     (void)source, (void)track_id;
-    if (s_ncmds < 32) s_cmds[s_ncmds++] = cmd->kind;
+    if (s_ncmds < 64) s_cmds[s_ncmds++] = cmd->kind;
 }
 void np_client_control_result(np_ctl_result_t *out) { memset(out, 0, sizeof *out); }
 
@@ -1059,6 +1059,13 @@ static int btn_ink(int k)
 static bool all_shown(void) { return btn_ink(-1) > 40 && btn_ink(0) > 40 && btn_ink(1) > 40; }
 static bool none_shown(void) { return btn_ink(-1) == 0 && btn_ink(1) == 0; }
 
+static int play_pauses(void)
+{
+    int n = 0;
+    for (int i = 0; i < s_ncmds; i++) n += s_cmds[i] == NP_CMD_PLAY || s_cmds[i] == NP_CMD_PAUSE;
+    return n;
+}
+
 static int touch(lv_display_t *d, int zone)
 {
     int n = s_ncmds;
@@ -1078,7 +1085,7 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     publish(&none);
     frames(d, 3);
     s_ncmds = 0;
-    int before = btn_ink(-1) + btn_ink(0) + btn_ink(1);
+    int before = btn_ink(-1) + btn_ink(0) + btn_ink(1), before_sides = btn_ink(-1) + btn_ink(1);
     CHECK(touch(d, TS_ZONE_NEXT) == 0 && btn_ink(-1) + btn_ink(0) + btn_ink(1) == before,
           "nothing playing: a tap shows no controls and sends nothing");
 
@@ -1138,24 +1145,39 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(s_ncmds == n + 3 && (s_cmds[n + 2] == NP_CMD_PLAY || s_cmds[n + 2] == NP_CMD_PAUSE),
           "push: play/pause at once, no double-push wait");
 
-    publish(&none);
-    frames(d, 3);
-    CHECK(none_shown() || btn_ink(-1) + btn_ink(0) + btn_ink(1) == before, "nothing playing: controls hidden");
+    frames(d, 10);
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown(), "shown again");
+    np_view_turn(1, s_now_us / 1e6);
+    frames(d, 1);
+    int pp = play_pauses();
+    CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40, "turning: the side controls stay");
+    touch(d, TS_ZONE_PLAY);
+    CHECK(play_pauses() == pp, "a tap where the volume number hides play/pause runs nothing");
+    frames(d, 20);
+    CHECK(btn_ink(-1) > 40 && touch(d, TS_ZONE_PLAY) == 1 && play_pauses() == pp + 1,
+          "once the number goes, the middle control works again");
 
+    frames(d, 10);
+    CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40, "shown before the face switch");
     np_info_t old = {.state = NP_PLAYING, .duration_ms = 228000, .position_ms = 134000, .album_art = true};
     strcpy(old.title, "Glass Harbor");
     strcpy(old.art_version, "fb43cf74b67a");
     publish(&old);
-    frames(d, 3);
-    CHECK(luma(FX + 233 - 198, 233) > 30, "the old face");
-    CHECK(none_shown(), "old face: no controls before a tap");
-    CHECK(touch(d, TS_ZONE_PREV) == 0 && all_shown(), "old face: the first tap shows them");
+    frames(d, 1);
+    CHECK(luma(FX + 233 - 198, 233) > 30, "rebuilt as the old face");
+    CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40, "the controls survive the rebuild while shown");
     save("touch-controls-legacy");
+    CHECK(touch(d, TS_ZONE_NEXT) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_NEXT, "and still work: next");
     CHECK(touch(d, TS_ZONE_PREV) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_PREVIOUS, "old face: previous");
     frames(d, 1);
     CHECK(luma(FX + 233, 189 - 60) < 60, "old face: the badge flashes");
     frames(d, 50);
     CHECK(none_shown(), "old face: they fade");
+    CHECK(touch(d, TS_ZONE_PREV) == 0 && all_shown(), "old face: hidden, the first tap only shows them");
+
+    publish(&none);
+    frames(d, 3);
+    CHECK(btn_ink(-1) + btn_ink(1) == before_sides, "a state:none block hides controls that were showing");
     np_view_show(false);
 }
 

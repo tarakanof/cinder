@@ -501,8 +501,8 @@ void np_view_push(double now)
 void np_view_tap(int zone, double now)
 {
     if (!s_shown || !V) return;
-    np_cmd_kind_t cmd = zone == TS_ZONE_PREV   ? NP_CMD_PREVIOUS
-                        : zone == TS_ZONE_PLAY ? NP_CMD_PLAY
+    np_cmd_kind_t cmd = zone == TS_ZONE_PREV                  ? NP_CMD_PREVIOUS
+                        : zone == TS_ZONE_PLAY && V->btn_mid ? NP_CMD_PLAY
                         : zone == TS_ZONE_NEXT ? NP_CMD_NEXT
                                                : NP_CMD_NONE;
     np_ctl_tap(&V->ctl, cmd, now);
