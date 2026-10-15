@@ -677,7 +677,11 @@
   },
   "main": {
    "entry": "app_main",
-   "stack": 7232
+   "stack": 7232,
+   "leaves": [
+    "lv_draw_dispatch",
+    "lv_draw_dispatch_layer"
+   ]
   },
   "esp_timer": {
    "entry": "timer_task",

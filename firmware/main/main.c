@@ -1419,7 +1419,8 @@ void app_main(void)
     psram_task(stats_task, "stats", 4352, 1, tskNO_AFFINITY, NULL);
     psram_task(link_task, "link", 4096, 1, 1, NULL);
     provision_usb_start();
-    ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB)", s_setup ? "setup face" : "bot face",
-             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
-             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024));
+    ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB); main task stack headroom %u B",
+             s_setup ? "setup face" : "bot face", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024),
+             (unsigned)uxTaskGetStackHighWaterMark(NULL));
 }

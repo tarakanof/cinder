@@ -68,6 +68,16 @@ class StackWalk(unittest.TestCase):
         self.assertEqual(size, 32 + 64 + 96)
         self.assertEqual([n for n, _ in path], ["entry_fn", "dispatch", "handler"])
 
+    def test_task_leaves_cut_only_while_set(self):
+        g = graph({"pointers": {"dispatch": ["handler"]}})
+        g.cut = {0x42000200}
+        size, path = g.worst(0x42000000, {}, [], {})[:2]
+        self.assertEqual((size, [n for n, _ in path]), (32 + 48, ["entry_fn", "leaf"]))
+        self.assertIsNone(g.through(0x42000000, 0x42000300, (96, []), {}, [], {})[0])
+        self.assertEqual(g.indirect(0x42000000), (2, 0))
+        g.cut = set()
+        self.assertEqual(g.worst(0x42000000, {}, [], {})[0], 32 + 64 + 96)
+
     def test_long_call_into_a_later_elf_resolves(self):
         g = stack_walk.Graph([])
         g.load("""

@@ -414,6 +414,7 @@ class Graph:
         self.group = {x for n in nesting.get('group', []) for x in self.addrs(n)}
         self.group_depth = nesting.get('depth', 0)
         self.tabled = set()
+        self.cut = set()
         for key, targets in cfg.get('pointers', {}).items():
             callers = self.names(key[3:]) if key.startswith('re:') else [key]
             dst = {x for t in targets for x in self.addrs(t)}
@@ -445,7 +446,7 @@ class Graph:
         onstack[a] = depth
         stack.append(a)
         best, low = (0, [], INF, ()), INF
-        for c in f['calls']:
+        for c in f['calls'] - self.cut:
             w = self.worst(c, memo, stack, onstack, nest)
             low = min(low, w[2])
             if w[0] > best[0]:
@@ -465,7 +466,7 @@ class Graph:
             if x in seen or x not in self.funcs:
                 continue
             seen.add(x)
-            todo.extend(self.funcs[x]['calls'])
+            todo.extend(self.funcs[x]['calls'] - self.cut)
         return seen
 
     def through(self, a, target, head, memo, stack, onstack):
@@ -482,7 +483,7 @@ class Graph:
         onstack[a] = depth
         stack.append(a)
         best, low = (None, [], INF, ()), INF
-        for c in self.funcs[a]['calls']:
+        for c in self.funcs[a]['calls'] - self.cut:
             w = self.through(c, target, head, memo, stack, onstack)
             low = min(low, w[2])
             if w[0] is not None and (best[0] is None or w[0] > best[0]):
@@ -537,6 +538,7 @@ def main():
     for t in tasks:
         spec = cfg['tasks'][t]
         entry = g.root(spec['entry'], spec.get('file'))
+        g.cut = {x for n in spec.get('leaves', []) for x in g.addrs(n)}
         path = g.worst(entry, {}, [], {})
         best, recur, head = path[0], 0, None
         for r in cfg.get('recursion', []):
