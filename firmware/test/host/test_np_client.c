@@ -502,7 +502,7 @@ static void rig_run(mm_rig_t *r, bool view_on, bool gated, double s)
     for (double end = r->t + s; r->t < end;) rig_frame(r, view_on, gated);
 }
 
-static int rig_scene(bool gated, bool early_return)
+static int rig_stale_frame(bool gated)
 {
     mm_rig_t r;
     np_info_t real = block("rig-real"), demo = block("rig-demo");
@@ -512,15 +512,29 @@ static int rig_scene(bool gated, bool early_return)
     np_client_feed(&demo, true);
     rig_frame(&r, false, gated);
     rig_run(&r, true, gated, 10);
-    if (early_return) {
-        if (gated) np_client_drop_demo();
-        rig_run(&r, false, gated, 30);
-        np_client_feed(&real, false);
-    } else {
-        np_client_feed(&real, false);
-        rig_frame(&r, true, gated);
-    }
+    np_client_feed(&real, false);
+    rig_frame(&r, true, gated);
     rig_run(&r, false, gated, 30);
+    np_info_t none = {.state = NP_NONE, .volume = -1};
+    np_client_feed(&none, false);
+    return r.fired;
+}
+
+static int rig_early_return(bool fixed, bool *cleared)
+{
+    mm_rig_t r;
+    np_info_t real = block("rig-real"), demo = block("rig-demo");
+    np_client_feed(&real, false);
+    rig_init(&r);
+    rig_run(&r, false, fixed, 30);
+    np_client_feed(&demo, true);
+    rig_run(&r, true, fixed, 10);
+    if (fixed) np_client_drop_demo();
+    np_client_get(&r.sn, &r.gen);
+    *cleared = !r.sn.have && !r.sn.demo && !r.sn.info.title[0];
+    rig_run(&r, false, fixed, 30);
+    np_client_feed(&real, false);
+    rig_run(&r, false, fixed, 30);
     np_info_t none = {.state = NP_NONE, .volume = -1};
     np_client_feed(&none, false);
     return r.fired;
@@ -528,10 +542,13 @@ static int rig_scene(bool gated, bool early_return)
 
 static void test_demo_music_moment(void)
 {
-    CHECK(rig_scene(false, false) > 0, "control, the old glue: a frame with a stale view_on=false and the demo block fires");
-    CHECK(rig_scene(true, false) == 0, "a frame that read view_on=false before the demo snapshot does not fire");
-    CHECK(rig_scene(false, true) > 0, "control, the old early return: the stale demo block, then the real view, fires");
-    CHECK(rig_scene(true, true) == 0, "the early return drops the demo block: the real view after it is a baseline, no fire");
+    CHECK(rig_stale_frame(false) > 0, "control, no gate: a frame with a stale view_on=false and the demo block fires");
+    CHECK(rig_stale_frame(true) == 0, "the gate: a frame that read view_on=false before the demo snapshot does not fire");
+    bool cleared;
+    CHECK(rig_early_return(false, &cleared) > 0 && !cleared, "control, the old early return: the demo block stays and the real view fires");
+    int fired = rig_early_return(true, &cleared);
+    CHECK(cleared, "the early return drops the demo block: no block and no bit, nothing left for a face");
+    CHECK(fired == 0, "and the real view after it is a baseline, no fire (%d)", fired);
 
     mm_rig_t r;
     np_info_t real = block("rig-keep"), next = block("rig-next");

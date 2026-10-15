@@ -594,7 +594,7 @@ body "$ECL" apply_view | awk '/np_client_feed\(/ {n++} /demo_flags\(/ {if (n) {a
     WIRING="$WIRING apply_view-marks-a-demo-np-block"
 [ "$(body "$ECL" demo_sync | awk '/^    if \(P->vp\.legacy \|\| !P->vs\.have_view \|\| P->vs\.unsupported\) \{$/ {on = 1; next} on && /^    }$/ {exit} on' | tr -d ' \n')" = \
     'P->demo_gen=gen;np_client_drop_demo();demo_flags(false,false);return;' ] || WIRING="$WIRING demo_sync-early-return-drops-the-demo-np-block"
-printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /[^=!<>]= / && /(^|[^a-z_.])on = / {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
+printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /(^|[^a-z_.>])on *([-+*\/%&|^]|<<|>>)?=([^=]|$)/ {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
     /\(!on \|\| !bot_page\)/ && !u {u = NR} END {exit !(k && n == 1 && o == k + 1 && u > o)}' || WIRING="$WIRING music_tick-ignores-a-demo-np-block"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
     body "$ECL" apply_view | grep -qxF '    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
