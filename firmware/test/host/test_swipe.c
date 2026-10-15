@@ -173,11 +173,10 @@ static void test_zones(void)
           "play/pause and next split halfway across the gap");
     for (int k = -1; k <= 1; k++) {
         int cx = TS_CX + k * TS_CTL_DX;
-        CHECK(ts_tap_zone(cx, TS_CTL_Y - TS_CTL_PX / 2 - TS_CTL_GAP) != TS_ZONE_NONE &&
-                  ts_tap_zone(cx, TS_CTL_Y + TS_CTL_PX / 2 + TS_CTL_GAP) != TS_ZONE_NONE &&
-                  ts_tap_zone(cx, TS_CTL_Y - TS_CTL_PX / 2 - TS_CTL_GAP - 1) == TS_ZONE_NONE &&
-                  ts_tap_zone(cx, TS_CTL_Y + TS_CTL_PX / 2 + TS_CTL_GAP + 1) == TS_ZONE_NONE,
-              "control %d: the zone reaches one gap above and below", k);
+        CHECK(ts_tap_zone(cx, TS_CTL_Y - TS_CTL_PX / 2) != TS_ZONE_NONE && ts_tap_zone(cx, TS_CTL_Y + TS_CTL_PX / 2) != TS_ZONE_NONE &&
+                  ts_tap_zone(cx, TS_CTL_Y - TS_CTL_PX / 2 - 1) == TS_ZONE_NONE &&
+                  ts_tap_zone(cx, TS_CTL_Y + TS_CTL_PX / 2 + 1) == TS_ZONE_NONE,
+              "control %d: the zone ends at the disc's top and bottom", k);
     }
 }
 

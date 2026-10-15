@@ -15,6 +15,7 @@
 #define FX 3
 #define OFF_CY 164
 #define OFF_TOP (OFF_CY - TS_CTL_PX / 2 + 8)
+#define DRIFT 8
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -1067,6 +1068,25 @@ static bool lit(int k) { return disc_top(k) > 200; }
 static bool lit_only(int k) { return lit(k) && lit(-1) + lit(0) + lit(1) == 1; }
 static uint16_t s_before[W * H];
 
+static bool avatar_seen(void)
+{
+    int r, g, b;
+    rgb(FX + 233, 233 + 21 + 8, &r, &g, &b);
+    return r > 20 && g * 100 > r * 65;
+}
+
+static int ink_rows(int cx, int cy, int half)
+{
+    int y0 = H, y1 = -1;
+    for (int y = cy - half; y <= cy + half; y++)
+        for (int x = cx - half; x <= cx + half; x++)
+            if (luma(x, y) > 200) {
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+    return y1 < 0 ? 0 : y1 - y0 + 1;
+}
+
 static void layout_check(const char *face, bool on_black)
 {
     for (int k = -1; k <= 1; k++) {
@@ -1134,6 +1154,15 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     s_has_pend = true;
     frames(d, 20);
     CHECK(none_shown() && btn_ink(0) == 0, "cover face: no controls before a tap");
+    int title_ink = 0, title_hit = 0;
+    for (int y = 270; y < 340; y++)
+        for (int x = FX + 100; x < FX + 370; x++)
+            if (luma(x, y) > 200) {
+                title_ink++;
+                title_hit += ts_tap_zone(x, y) != TS_ZONE_NONE || ts_tap_zone(x, y - DRIFT) != TS_ZONE_NONE;
+            }
+    CHECK(title_ink > 300 && title_hit == 0, "the title is outside every tap zone, even drifted up %d px: %d of %d px hit", DRIFT,
+          title_hit, title_ink);
 
     frames(d, 1);
     memcpy(s_before, s_fb, sizeof s_fb);
@@ -1196,6 +1225,9 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(s_ncmds == n + 3 && (s_cmds[n + 2] == NP_CMD_PLAY || s_cmds[n + 2] == NP_CMD_PAUSE),
           "push: play/pause at once, no double-push wait");
     CHECK(btn_ink(0) > 40 && none_shown() && !lit(0), "hidden: the push shows in the round badge");
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown() && lit_only(0),
+          "a reveal tap while the badge is up: the normal play/pause comes up, pulsing, not the badge");
+    CHECK(touch(d, TS_ZONE_PLAY) == 1, "and the middle zone works at once");
 
     frames(d, 10);
     CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown(), "shown for the swipe and push paths");
@@ -1255,6 +1287,23 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     np_view_push(s_now_us / 1e6);
     frames(d, 1);
     CHECK(lit_only(0), "old face: a push while shown pulses play/pause");
+    frames(d, 4);
+    s_result = (np_ctl_result_t){.status = 503, .seq = s_result.seq + 1};
+    frames(d, 1);
+    int lpp = play_pauses();
+    CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40 && touch(d, TS_ZONE_PLAY) == 0 && play_pauses() == lpp,
+          "old face: an error with the controls up hides play/pause and the middle zone does nothing");
+    CHECK(touch(d, TS_ZONE_NEXT) == 1, "old face: the side controls still work under the error");
+    frames(d, 26);
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && play_pauses() == lpp + 1, "old face: once the error goes, play/pause works again");
+    np_view_turn(1, s_now_us / 1e6);
+    frames(d, 1);
+    lpp = play_pauses();
+    CHECK(btn_ink(-1) > 40 && touch(d, TS_ZONE_PLAY) == 0 && play_pauses() == lpp,
+          "old face: the volume number with the controls up: the middle zone does nothing");
+    CHECK(touch(d, TS_ZONE_PREV) == 1, "old face: the side controls still work while turning");
+    frames(d, 20);
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && play_pauses() == lpp + 1, "old face: once the number goes, play/pause works again");
     frames(d, 50);
     CHECK(none_shown() && btn_ink(0) == 0, "old face: they fade");
     memcpy(s_before, s_fb, sizeof s_fb);
@@ -1266,6 +1315,8 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     np_view_turn(3, s_now_us / 1e6);
     frames(d, 1);
     CHECK(btn_ink(0) > 40 && none_shown(), "old face: the volume number in the round badge");
+    CHECK(ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4) >= 30, "old face: the number keeps Montserrat 48 when it fits: %d rows",
+          ink_rows(TS_CX, TS_CTL_Y, TS_CTL_PX / 2 - 4));
     save("touch-badge-legacy");
     frames(d, 20);
     memcpy(s_before, s_fb, sizeof s_fb);
@@ -1486,6 +1537,7 @@ int main(int argc, char **argv)
     CHECK(s_areas == 0, "offline: frozen (%d areas)", s_areas);
     rgb(FX + 233, 233 + 21, &r, &g, &b);
     CHECK(abs(r - g) < 12 && abs(g - b) < 12, "offline: grey avatar: %d,%d,%d", r, g, b);
+    CHECK(r > 60, "offline: the avatar stays visible beside the offline badge: %d,%d,%d", r, g, b);
 
     f.state = NPF_PLAYING;
     f.pos_ms = 150000;
@@ -1493,6 +1545,32 @@ int main(int argc, char **argv)
     refresh(d);
     rgb(FX + 233, 233 + 21, &r, &g, &b);
     CHECK(r > 230 && b < 160, "playing: the avatar in colour: %d,%d,%d", r, g, b);
+    CHECK(avatar_seen(), "the avatar probe sees it");
+    f.controls = true;
+    npc_update(&f);
+    refresh(d);
+    CHECK(!avatar_seen(), "the avatar hides while the touch controls show");
+    f.controls = false;
+    npc_update(&f);
+    refresh(d);
+    CHECK(avatar_seen(), "and comes back once they faded");
+    f.badge = NPC_BADGE_ICON;
+    f.badge_text = LV_SYMBOL_NEXT;
+    npc_update(&f);
+    refresh(d);
+    CHECK(!avatar_seen(), "hidden under a command badge on the row");
+    f.badge = NPC_BADGE_NUMBER;
+    f.badge_text = "62";
+    f.ring = NP_RING_VOLUME;
+    npc_update(&f);
+    refresh(d);
+    CHECK(avatar_seen(), "the M7 volume look keeps the avatar");
+    f.badge = NPC_BADGE_NONE;
+    f.badge_text = "";
+    f.ring = NP_RING_PROGRESS;
+    npc_update(&f);
+    refresh(d);
+    CHECK(avatar_seen(), "back to playing: the avatar");
     CHECK(strcmp(npc_time_text(), "2:30 / 3:48") == 0, "playing at 2:30: %s", npc_time_text());
     f.state = NPF_OFFLINE;
     f.pos_ms = 152000;

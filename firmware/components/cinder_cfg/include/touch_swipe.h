@@ -26,7 +26,7 @@ extern "C" {
 #define TS_CTL_Y TS_CY
 #define TS_CTL_DX (TS_CTL_PX + TS_CTL_GAP)
 #define TS_CTL_SPLIT (TS_CTL_DX / 2)
-#define TS_CTL_BAND (TS_CTL_PX / 2 + TS_CTL_GAP)
+#define TS_CTL_BAND (TS_CTL_PX / 2)
 #define TS_ZONES 4
 #define TS_TAP_BITS 8
 
@@ -48,7 +48,7 @@ ts_result_t ts_press(ts_touch_t *s, int x, int y, double t, bool swipe);
 void ts_move(ts_touch_t *s, int x, int y, double report_t, double now);
 ts_result_t ts_release(ts_touch_t *s, int x, int y, double report_t, double now);
 void ts_cancel(ts_touch_t *s);
-/* The music page's control under a tap at x, y: controls TS_CTL_PX wide, TS_CTL_GAP apart, centred on (TS_CX, TS_CTL_Y); the zones split halfway between them and reach TS_CTL_GAP above and below. */
+/* The music page's control under a tap at x, y: controls TS_CTL_PX wide, TS_CTL_GAP apart, centred on (TS_CX, TS_CTL_Y); the zones split halfway between them and end at the discs' top and bottom. */
 ts_zone_t ts_tap_zone(int x, int y);
 /* Tap counts per zone packed in one word (TS_TAP_BITS each, < 128 per zone), so a count and its zone move together: add ts_tap_word to a shared word, take it whole, split it with ts_tap_counts (returns the total). */
 unsigned ts_tap_word(ts_zone_t zone, int n);

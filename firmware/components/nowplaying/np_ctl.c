@@ -58,7 +58,10 @@ bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now)
     bool shown = np_ctl_touch_opa(c, now) > 0;
     c->touch_on = true;
     c->touch_t = now;
-    if (!shown) return false;
+    if (!shown) {
+        c->last_shown = true;
+        return false;
+    }
     switch (cmd) {
     case NP_CMD_PLAY:
     case NP_CMD_PAUSE: np_ctl_push(c, now); return true;

@@ -431,6 +431,10 @@ static void test_feedback(void)
     np_ctl_push(&c, 4.0);
     tick(&c, 4.0, out);
     CHECK(fb(&c, 4.0, &k) == NP_FB_BADGE && k == NP_CMD_PAUSE, "push, hidden: the badge");
+    CHECK(!np_ctl_tap(&c, NP_CMD_PLAY, 4.1) && fb(&c, 4.1, &k) == NP_FB_PULSE && k == NP_CMD_PAUSE,
+          "a reveal tap while the badge is up turns it into its control's pulse");
+    CHECK(fb(&c, 4.0 + NP_PULSE_S + 0.001, &k) == NP_FB_NONE, "and the badge does not come back");
+    c.touch_on = false;
 
     np_ctl_tap(&c, NP_CMD_NONE, 5.0);
     CHECK(fb(&c, 5.0, &k) == NP_FB_NONE, "a reveal tap: no feedback");

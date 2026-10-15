@@ -53,7 +53,7 @@ void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now);
 void np_ctl_push(np_ctl_t *c, double now);
 /* dir > 0 next, < 0 previous. */
 void np_ctl_skip(np_ctl_t *c, int dir, double now);
-/* A tap on the touch controls: hidden, it only shows them; shown, cmd NP_CMD_PLAY (play/pause), NP_CMD_NEXT or NP_CMD_PREVIOUS runs, NP_CMD_NONE keeps them up. False when it ran nothing. */
+/* A tap on the touch controls: hidden, it only shows them (a command badge still up turns into its control's pulse); shown, cmd NP_CMD_PLAY (play/pause), NP_CMD_NEXT or NP_CMD_PREVIOUS runs, NP_CMD_NONE keeps them up. False when it ran nothing. */
 bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now);
 /* Touch controls' opacity 0-255: full for NP_TOUCH_SHOW_S after the last tap, then NP_TOUCH_FADE_STEPS steps down over NP_TOUCH_FADE_S. */
 int np_ctl_touch_opa(const np_ctl_t *c, double now);

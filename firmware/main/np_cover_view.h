@@ -41,6 +41,5 @@ void npc_update(const npc_frame_t *f);
 const char *npc_time_text(void);
 /* A TS_CTL_PX dark disc on the touch-control row, dx from its centre, hidden; child 0 is its centred label (Montserrat 30). The controls and both faces' badge use it. */
 lv_obj_t *npc_round(lv_obj_t *root, int dx);
-/* lit: the pressed look (light disc, dark symbol). */
 void npc_round_lit(lv_obj_t *o, bool lit);
 void npc_fit_text(char *txt, const lv_font_t *font, int max_w);

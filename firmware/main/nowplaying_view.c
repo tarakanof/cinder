@@ -41,6 +41,7 @@
 #define VOL_ARC_PX 430
 #define VOL_ARC_W 8
 #define ERROR_S 2.5
+#define NUM_FIT_PX (TS_CTL_PX - 16)
 
 static const np_ring_t RING = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = 198, .hw = 3};
 
@@ -576,6 +577,11 @@ static int legacy_controls(double now)
     int hi;
     npc_badge_t kind = badge_content(now, text, sizeof text, &hi);
     const lv_font_t *font = kind == NPC_BADGE_ERROR ? &lv_font_montserrat_18 : &lv_font_montserrat_30;
+    if (kind == NPC_BADGE_NUMBER) {
+        lv_point_t sz;
+        lv_text_get_size(&sz, text, &lv_font_montserrat_48, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= NUM_FIT_PX) font = &lv_font_montserrat_48;
+    }
     if (strcmp(text, V->badge) != 0) {
         strlcpy(V->badge, text, sizeof V->badge);
         lv_obj_set_style_text_font(s_badge_lbl, font, 0);
