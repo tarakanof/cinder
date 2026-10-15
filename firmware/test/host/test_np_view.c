@@ -73,6 +73,13 @@ void *host_heap_alloced(void *p)
 }
 
 void np_client_forget_art(void) { s_forgets++; }
+static int s_reoffers;
+static char s_reoffer_v[NP_COVERV_MAX + 1];
+void np_client_forget_dropped(const char *version)
+{
+    s_reoffers++;
+    strcpy(s_reoffer_v, version);
+}
 int64_t esp_timer_get_time(void) { return s_now_us; }
 void np_client_set_visible(bool on) { (void)on; }
 void np_client_control(const np_cmd_t *cmd, const char *source, const char *track_id) { (void)cmd, (void)source, (void)track_id; }
@@ -1018,20 +1025,22 @@ static void test_old_ember(lv_display_t *d, lv_obj_t *scr)
     s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover()};
     strcpy(s_pend.version, "fb43cf74b67a-r1");
     s_has_pend = true;
-    int frees = s_frees;
+    int frees = s_frees, reoffers = s_reoffers;
     frames(d, 5);
-    CHECK(s_frees == frees + 1 && s_forgets == forgets, "a cover set on the old face is dropped, no refetch loop");
+    CHECK(s_frees == frees + 1 && s_forgets == forgets && s_reoffers == reoffers, "a cover set on the old face is dropped, no refetch loop");
     np_view_show(false);
 }
 
-static void held_set(const char *version)
+static void pend(const char *version, bool no_cover, bool avatar, bool cover)
 {
-    s_pend = (np_art_set_t){.is_cover = true, .no_cover = true, .held = true};
+    s_pend = (np_art_set_t){.is_cover = true, .no_cover = no_cover};
+    if (avatar) s_pend.avatar = make_avatar();
+    if (cover) s_pend.cover = make_cover();
     strcpy(s_pend.version, version);
     s_has_pend = true;
 }
 
-static void test_held_drop(lv_display_t *d, lv_obj_t *scr)
+static void test_dropped_set(lv_display_t *d, lv_obj_t *scr)
 {
     np_view_create(scr);
     np_view_show(true);
@@ -1044,55 +1053,81 @@ static void test_held_drop(lv_display_t *d, lv_obj_t *scr)
     strcpy(x.cover_version, "other0-r1");
     publish(&v);
     frames(d, 3);
-    int f0 = s_forgets;
+    int f0 = s_forgets, r0 = s_reoffers;
     publish(&x);
     frames(d, 1);
-    held_set(v.cover_version);
+    pend(v.cover_version, true, false, false);
     frames(d, 3);
-    CHECK(!s_has_pend && s_forgets == f0, "a held no_cover set for V while X shows: dropped, no forget yet (%d)", s_forgets - f0);
+    CHECK(!s_has_pend && s_reoffers == r0, "V's held no_cover set while X shows: dropped, no forget yet (%d)", s_reoffers - r0);
     frames(d, 20);
-    CHECK(s_forgets == f0, "X stays: no forget for V's dropped set (%d)", s_forgets - f0);
+    CHECK(s_reoffers == r0, "X stays: no forget for V's dropped set (%d)", s_reoffers - r0);
     publish(&v);
     frames(d, 3);
-    CHECK(s_forgets == f0 + 1, "back to V: one forget so the client hands V's no_cover over again (%d)", s_forgets - f0);
-    held_set(v.cover_version);
+    CHECK(s_reoffers == r0 + 1 && strcmp(s_reoffer_v, v.cover_version) == 0,
+          "back to V: one conditional forget for V so the client hands it over again (%d, %s)", s_reoffers - r0, s_reoffer_v);
+    pend(v.cover_version, true, false, false);
     frames(d, 20);
-    CHECK(!s_has_pend && npc_has_cover() && s_forgets == f0 + 1, "the republished held set is shown, no further forget (%d)",
-          s_forgets - f0);
-
-    int f1 = s_forgets;
+    CHECK(!s_has_pend && npc_has_cover() && s_reoffers == r0 + 1, "the republished set is shown, no further forget (%d)",
+          s_reoffers - r0);
     for (int i = 0; i < 5; i++) {
-        held_set(v.cover_version);
+        pend(v.cover_version, true, false, false);
         frames(d, 4);
     }
-    CHECK(s_forgets == f1, "held sets for the version on screen: never a forget (%d)", s_forgets - f1);
+    CHECK(s_reoffers == r0 + 1, "sets for the version on screen: never a forget (%d)", s_reoffers - r0);
+
+    int r1 = s_reoffers;
     publish(&x);
     frames(d, 1);
-    s_pend = (np_art_set_t){.is_cover = true, .no_cover = true, .avatar = make_avatar()};
-    strcpy(s_pend.version, v.cover_version);
-    s_has_pend = true;
+    pend(v.cover_version, true, false, false);
     frames(d, 3);
     publish(&v);
-    frames(d, 10);
-    CHECK(s_forgets == f1, "a dropped no_cover set that is not held: no forget (%d)", s_forgets - f1);
-    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover()};
-    strcpy(s_pend.version, x.cover_version);
-    s_has_pend = true;
-    frames(d, 3);
-    publish(&x);
-    frames(d, 10);
-    CHECK(s_forgets == f1, "a dropped cover set: no forget (%d)", s_forgets - f1);
+    pend(v.cover_version, true, true, false);
+    frames(d, 20);
+    CHECK(!s_has_pend && s_reoffers == r1, "back to V with V's finished set already pending: adopted, no forget after it (%d)",
+          s_reoffers - r1);
 
     publish(&x);
     frames(d, 1);
-    held_set(v.cover_version);
+    pend(v.cover_version, false, true, true);
+    frames(d, 3);
+    CHECK(s_reoffers == r1, "V's cover set while X shows: dropped (%d)", s_reoffers - r1);
+    publish(&v);
+    frames(d, 10);
+    CHECK(s_reoffers == r1 + 1, "U -> V -> X -> V: back to V after its finished cover was dropped, one forget (%d)",
+          s_reoffers - r1);
+    publish(&x);
+    frames(d, 1);
+    pend(v.cover_version, true, true, false);
+    frames(d, 3);
+    publish(&v);
+    frames(d, 10);
+    CHECK(s_reoffers == r1 + 2, "and after its finished no_cover set with the avatar was dropped (%d)", s_reoffers - r1);
+
+    int r2 = s_reoffers;
+    s_pend = (np_art_set_t){0};
+    s_has_pend = true;
+    frames(d, 20);
+    np_info_t none = {.state = NP_NONE};
+    publish(&none);
+    frames(d, 3);
+    s_pend = (np_art_set_t){0};
+    s_has_pend = true;
+    frames(d, 3);
+    publish(&v);
+    frames(d, 20);
+    CHECK(s_reoffers == r2, "an empty set dropped, on screen or around idle: never a forget (%d)", s_reoffers - r2);
+    CHECK(s_forgets == f0 + 1, "only the idle's own forget (%d)", s_forgets - f0);
+
+    publish(&x);
+    frames(d, 1);
+    pend(v.cover_version, true, false, false);
     frames(d, 3);
     np_view_show(false);
     np_view_show(true);
     publish(&v);
-    int f2 = s_forgets;
+    int r3 = s_reoffers;
     frames(d, 10);
-    CHECK(s_forgets == f2, "a hide forgets once already: no second forget after it (%d)", s_forgets - f2);
+    CHECK(s_reoffers == r3, "a hide forgets already: no second forget after it (%d)", s_reoffers - r3);
     np_view_show(false);
 }
 
@@ -1254,7 +1289,7 @@ int main(int argc, char **argv)
     test_page(d, scr);
     test_boot(d, scr);
     test_old_ember(d, scr);
-    test_held_drop(d, scr);
+    test_dropped_set(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

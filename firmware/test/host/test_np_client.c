@@ -218,7 +218,7 @@ static void test_avatar_retry(void)
     int artist = s_artist_gets, cover = s_cover_gets, allocs = s_jpg_allocs;
     service_at(10);
     CHECK(s_artist_gets == artist + 1 && s_jpg_allocs == allocs + 1, "given up: the avatar fetch uses the JPEG buffer");
-    CHECK(take(&set) && set.no_cover && set.held && !set.avatar && !set.cover, "the avatar fails: no_cover at once, without it, held");
+    CHECK(take(&set) && set.no_cover && !set.avatar && !set.cover, "the avatar fails: no_cover at once, without it");
     np_art_set_free(&set);
     service_at(1000);
     CHECK(s_artist_gets == artist + 1 && !take(&set), "the avatar retry backs off");
@@ -242,8 +242,7 @@ static void test_avatar_retry(void)
     CHECK(s_artist_gets == artist + 2, "the backoff grows to 10 s");
     s_artist = ANS_GOOD;
     service_at(5000);
-    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && !set.held && set.avatar && !set.cover,
-          "the avatar comes: no_cover with it, not held");
+    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && set.avatar && !set.cover, "the avatar comes: no_cover with it");
     np_art_set_free(&set);
     service_at(120000);
     CHECK(s_cover_gets == cover && s_artist_gets == artist + 3 && !np_client_pending(), "then nothing more");
@@ -373,6 +372,57 @@ static void test_handover_table(void)
     s_bad_art[0] = 0;
 }
 
+static void test_forget_dropped(void)
+{
+    np_art_set_t set;
+    s_cover = s_artist = ANS_GOOD;
+    np_info_t v = block("fdv-r1"), x = block("fdx-r1");
+    np_client_feed(&v);
+    service_at(10);
+    CHECK(take(&set) && set.cover, "V's cover handed over");
+    np_art_set_free(&set);
+    int gets = s_cover_gets + s_artist_gets;
+    np_client_forget_dropped(v.cover_version);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets + 2 && take(&set) && set.cover, "V's finished set was dropped: fetched again");
+    np_art_set_free(&set);
+
+    np_client_forget_dropped(v.cover_version);
+    gets = s_cover_gets + s_artist_gets;
+    service_at(10);
+    np_client_forget_dropped(v.cover_version);
+    CHECK(take(&set) && set.cover, "a set published before the forget is kept");
+    np_art_set_free(&set);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets + 2 && !take(&set) && !np_client_pending(), "and the record with it: no third pass");
+
+    np_client_feed(&x);
+    service_at(10);
+    CHECK(take(&set) && set.cover, "X handed over");
+    np_art_set_free(&set);
+    gets = s_cover_gets + s_artist_gets;
+    np_client_forget_dropped(v.cover_version);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets && !take(&set) && !np_client_pending(), "the record moved on to X: V's forget is ignored");
+
+    np_info_t h = block("fdh-r1");
+    snprintf(h.art_version, sizeof h.art_version, "deadfd00");
+    give_up(&h);
+    strcpy(s_bad_art, h.art_version);
+    back_from_idle(&h);
+    service_at(10);
+    CHECK(take(&set) && set.no_cover && !set.avatar, "H held");
+    np_art_set_free(&set);
+    gets = s_cover_gets + s_artist_gets;
+    np_client_forget_dropped(h.cover_version);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets && take(&set) && set.no_cover && !set.avatar, "H's held set dropped: handed over again, no download");
+    np_art_set_free(&set);
+    service_at(10);
+    CHECK(!take(&set) && !np_client_pending(), "then the backoff holds");
+    s_bad_art[0] = 0;
+}
+
 static void test_no_buffer_when_nothing_to_fetch(void)
 {
     np_art_set_t set;
@@ -395,6 +445,7 @@ int main(void)
     test_avatar_retry();
     test_skip_back_while_held();
     test_handover_table();
+    test_forget_dropped();
     test_no_buffer_when_nothing_to_fetch();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);
