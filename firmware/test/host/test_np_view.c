@@ -13,6 +13,8 @@
 #define W 472
 #define H 466
 #define FX 3
+#define OFF_CY 164
+#define OFF_TOP (OFF_CY - TS_CTL_PX / 2 + 8)
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -90,7 +92,8 @@ void np_client_control(const np_cmd_t *cmd, const char *source, const char *trac
     (void)source, (void)track_id;
     if (s_ncmds < 64) s_cmds[s_ncmds++] = cmd->kind;
 }
-void np_client_control_result(np_ctl_result_t *out) { memset(out, 0, sizeof *out); }
+static np_ctl_result_t s_result;
+void np_client_control_result(np_ctl_result_t *out) { *out = s_result; }
 
 bool np_client_get(np_snapshot_t *out, uint32_t *gen)
 {
@@ -359,7 +362,8 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     refresh(d);
     band = luma(FX + 73, 300);
     CHECK(abs(band - strong) <= 6, "offline: no darker than the scrim: %d", band);
-    CHECK(luma(FX + 233, 106) < luma(FX + 233, 80) / 3 && ink(130, 200, 180, 286, 200) > 100, "the offline badge sits above the scrim");
+    CHECK(luma(FX + 233, OFF_TOP) < luma(FX + 233, 80) * 2 / 3 && ink(OFF_CY - 24, OFF_CY + 24, 193, 273, 200) > 100,
+          "the offline badge sits above the scrim: %d vs %d", luma(FX + 233, OFF_TOP), luma(FX + 233, 80));
 
     f.state = NPF_PLAYING;
     f.ring = NP_RING_VOLUME;
@@ -392,7 +396,7 @@ static void test_scrim(lv_display_t *d, lv_obj_t *root)
     f.state = NPF_OFFLINE;
     npc_update(&f);
     refresh(d);
-    CHECK(npc_has_cover() && luma(FX + 233, 106) < 20, "offline keeps M15 with the badge");
+    CHECK(npc_has_cover() && luma(FX + 233, OFF_TOP) < 20, "offline keeps M15 with the badge: %d", luma(FX + 233, OFF_TOP));
 
     f.state = NPF_PLAYING;
     f.pos_ms = 170000;
@@ -1057,6 +1061,35 @@ static int btn_ink(int k)
 }
 
 static bool all_shown(void) { return btn_ink(-1) > 40 && btn_ink(0) > 40 && btn_ink(1) > 40; }
+static int disc_top(int k) { return luma(TS_CX + k * TS_CTL_DX, TS_CTL_Y - TS_CTL_PX / 2 + 8); }
+static int disc_corner(int k) { return luma(TS_CX + k * TS_CTL_DX + TS_CTL_PX / 2 - 4, TS_CTL_Y - TS_CTL_PX / 2 + 4); }
+static bool lit(int k) { return disc_top(k) > 200; }
+static bool lit_only(int k) { return lit(k) && lit(-1) + lit(0) + lit(1) == 1; }
+static uint16_t s_before[W * H];
+
+static void layout_check(const char *face, bool on_black)
+{
+    for (int k = -1; k <= 1; k++) {
+        int cx = TS_CX + k * TS_CTL_DX, x0 = W, x1 = -1, y0 = H, y1 = -1, off = 0;
+        ts_zone_t want = k < 0 ? TS_ZONE_PREV : k > 0 ? TS_ZONE_NEXT : TS_ZONE_PLAY;
+        for (int y = TS_CTL_Y - TS_CTL_DX / 2; y < TS_CTL_Y + TS_CTL_DX / 2; y++)
+            for (int x = cx - TS_CTL_DX / 2; x < cx + TS_CTL_DX / 2; x++) {
+                if (s_fb[y * W + x] == s_before[y * W + x]) continue;
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+                off += ts_tap_zone(x, y) != want;
+            }
+        CHECK(off == 0, "%s: every drawn pixel of control %d lies in its tap zone (%d off)", face, k, off);
+        if (on_black && k) continue;
+        CHECK(abs(x1 - x0 + 1 - TS_CTL_PX) <= 2 && abs(y1 - y0 + 1 - TS_CTL_PX) <= 2, "%s: control %d drawn %dx%d", face, k,
+              x1 - x0 + 1, y1 - y0 + 1);
+        CHECK(abs(x0 + x1 + 1 - 2 * cx) <= 2 && abs(y0 + y1 + 1 - 2 * TS_CTL_Y) <= 2, "%s: control %d centred on %d,%d: %d-%d, %d-%d",
+              face, k, cx, TS_CTL_Y, x0, x1, y0, y1);
+    }
+    CHECK(TS_CX == FX + NP_COVER_PX / 2 && TS_CTL_Y == NP_COVER_PX / 2, "%s: the row sits on the face's centre line", face);
+}
 static bool none_shown(void) { return btn_ink(-1) == 0 && btn_ink(1) == 0; }
 
 static int play_pauses(void)
@@ -1103,22 +1136,33 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(none_shown() && btn_ink(0) == 0, "cover face: no controls before a tap");
 
     frames(d, 1);
+    memcpy(s_before, s_fb, sizeof s_fb);
+    int corner0 = disc_corner(0), top0 = disc_top(0);
     CHECK(touch(d, TS_ZONE_NEXT) == 0, "the first tap while hidden sends nothing, even on next (%d)", s_ncmds);
     printf("np_view: controls shown: %d areas, %ld px\n", s_areas, s_px);
     CHECK(s_areas <= 3 && s_px <= 3L * (TS_CTL_PX + 16) * (TS_CTL_PX + 16), "showing them redraws the three controls only: %d areas, %ld px",
           s_areas, s_px);
     CHECK(all_shown(), "the tap shows prev, play/pause and next");
+    layout_check("cover face", false);
     save("touch-controls");
 
     frames(d, 1);
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_PAUSE, "play/pause while playing: pause");
-    frames(d, 9);
+    CHECK(lit_only(0), "tap on play/pause: it pulses in place (a light disc)");
+    frames(d, 4);
+    CHECK(!lit(0) && all_shown(), "the pulse ends, all three stay");
+    frames(d, 5);
     CHECK(touch(d, TS_ZONE_PREV) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_PREVIOUS, "previous");
+    CHECK(lit_only(-1) && btn_ink(0) > 40 && btn_ink(1) > 40, "previous pulses its own control; play/pause stays, no badge");
+    save("touch-pulse");
     frames(d, 1);
-    CHECK(luma(FX + 233, 106) < 20 && btn_ink(0) > 40, "previous flashes the badge over the middle control");
-    frames(d, 9);
-    CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40 && luma(FX + 233, 106) > 20, "the badge goes, the controls stay");
+    CHECK(lit_only(-1) && btn_ink(0) > 40, "still pulsing 0.1 s on");
+    frames(d, 3);
+    CHECK(!lit(-1) && all_shown(), "the pulse ends and no badge follows: all three stay");
+    frames(d, 6);
+    CHECK(all_shown() && !lit(-1) && !lit(0) && !lit(1), "nothing replaces play/pause during the old flash window");
     CHECK(touch(d, TS_ZONE_NEXT) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_NEXT, "next");
+    CHECK(lit_only(1) && btn_ink(0) > 40, "next pulses its own control");
     CHECK(touch(d, TS_ZONE_NONE) == 0, "a tap off the controls sends nothing");
 
     int redraws = 0;
@@ -1132,18 +1176,54 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     CHECK(touch(d, TS_ZONE_PLAY) == 0 && all_shown(), "hidden again: a tap only shows them");
 
     frames(d, 50);
-    CHECK(none_shown(), "hidden");
+    CHECK(none_shown() && btn_ink(0) == 0, "hidden");
     int n = s_ncmds;
     np_view_skip(1, s_now_us / 1e6);
     frames(d, 1);
     CHECK(s_ncmds == n + 1 && s_cmds[n] == NP_CMD_NEXT && none_shown(), "swipe left while hidden: next, no controls");
+    CHECK(btn_ink(0) > 40 && disc_top(0) < top0 && abs(disc_corner(0) - corner0) <= 3,
+          "hidden: next shows in a round badge on play/pause's spot (disc %d < %d, corner %d vs %d)", disc_top(0), top0,
+          disc_corner(0), corner0);
+    save("touch-badge");
+    frames(d, 8);
+    CHECK(btn_ink(0) == 0 && abs(disc_top(0) - top0) <= 3, "the badge goes after the flash");
     np_view_skip(-1, s_now_us / 1e6);
     frames(d, 1);
-    CHECK(s_ncmds == n + 2 && s_cmds[n + 1] == NP_CMD_PREVIOUS, "swipe right: previous");
+    CHECK(s_ncmds == n + 2 && s_cmds[n + 1] == NP_CMD_PREVIOUS && btn_ink(0) > 40 && none_shown(), "swipe right: previous, in the badge");
+    frames(d, 8);
     np_view_push(s_now_us / 1e6);
     frames(d, 1);
     CHECK(s_ncmds == n + 3 && (s_cmds[n + 2] == NP_CMD_PLAY || s_cmds[n + 2] == NP_CMD_PAUSE),
           "push: play/pause at once, no double-push wait");
+    CHECK(btn_ink(0) > 40 && none_shown() && !lit(0), "hidden: the push shows in the round badge");
+
+    frames(d, 10);
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown(), "shown for the swipe and push paths");
+    n = s_ncmds;
+    np_view_skip(1, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(s_ncmds == n + 1 && s_cmds[n] == NP_CMD_NEXT && lit_only(1) && btn_ink(0) > 40, "swipe left while shown: next pulses");
+    frames(d, 4);
+    np_view_skip(-1, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(s_ncmds == n + 2 && lit_only(-1) && btn_ink(0) > 40, "swipe right while shown: previous pulses");
+    frames(d, 4);
+    np_view_push(s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(s_ncmds == n + 3 && lit_only(0), "push while shown: play/pause pulses, no badge");
+    frames(d, 39);
+    CHECK(all_shown(), "a push while shown restarts the fade too");
+
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown(), "a tap off the controls keeps them up");
+    s_result = (np_ctl_result_t){.status = 503, .seq = s_result.seq + 1};
+    frames(d, 1);
+    CHECK(btn_ink(-1) > 40 && btn_ink(1) > 40 && btn_ink(0) > 20 && disc_top(0) < top0 && abs(disc_corner(0) - corner0) <= 3,
+          "an error shows in the round badge over play/pause: ink %d, disc %d vs %d, corner %d vs %d", btn_ink(0), disc_top(0), top0, disc_corner(0), corner0);
+    int pp0 = s_ncmds;
+    CHECK(touch(d, TS_ZONE_PLAY) == 0 && s_ncmds == pp0, "the middle zone does nothing while the error badge hides play/pause");
+    CHECK(touch(d, TS_ZONE_NEXT) == 1, "the side controls still work");
+    frames(d, 26);
+    CHECK(touch(d, TS_ZONE_PLAY) == 1, "once the error goes, play/pause works again");
 
     frames(d, 10);
     CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown(), "shown again");
@@ -1169,11 +1249,28 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     save("touch-controls-legacy");
     CHECK(touch(d, TS_ZONE_NEXT) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_NEXT, "and still work: next");
     CHECK(touch(d, TS_ZONE_PREV) == 1 && s_cmds[s_ncmds - 1] == NP_CMD_PREVIOUS, "old face: previous");
+    CHECK(lit_only(-1) && btn_ink(0) > 40, "old face: previous pulses in place, play/pause stays");
+    frames(d, 4);
+    CHECK(!lit(-1) && all_shown(), "old face: no badge after the pulse");
+    np_view_push(s_now_us / 1e6);
     frames(d, 1);
-    CHECK(luma(FX + 233, 189 - 60) < 60, "old face: the badge flashes");
+    CHECK(lit_only(0), "old face: a push while shown pulses play/pause");
     frames(d, 50);
-    CHECK(none_shown(), "old face: they fade");
+    CHECK(none_shown() && btn_ink(0) == 0, "old face: they fade");
+    memcpy(s_before, s_fb, sizeof s_fb);
+    int lcorner = disc_corner(0);
+    np_view_skip(1, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(btn_ink(0) > 40 && none_shown() && abs(disc_corner(0) - lcorner) <= 3, "old face: hidden, next shows in the round badge");
+    frames(d, 8);
+    np_view_turn(3, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(btn_ink(0) > 40 && none_shown(), "old face: the volume number in the round badge");
+    save("touch-badge-legacy");
+    frames(d, 20);
+    memcpy(s_before, s_fb, sizeof s_fb);
     CHECK(touch(d, TS_ZONE_PREV) == 0 && all_shown(), "old face: hidden, the first tap only shows them");
+    layout_check("old face", true);
 
     publish(&none);
     frames(d, 3);
@@ -1381,8 +1478,8 @@ int main(int argc, char **argv)
     save("m10-offline");
     rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
     CHECK(abs(r - 0x5A) < 8, "offline ring: %d,%d,%d", r, g, b);
-    rgb(FX + 233, 106, &r, &g, &b);
-    CHECK(r < 20 && g < 20, "badge box: %d,%d,%d", r, g, b);
+    rgb(FX + 233, OFF_TOP, &r, &g, &b);
+    CHECK(r < 40 && g < 40, "badge disc: %d,%d,%d", r, g, b);
     f.pos_ms = 150000;
     npc_update(&f);
     refresh(d);

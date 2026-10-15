@@ -7,6 +7,7 @@
 
 #include "arc_text.h"
 #include "esp_heap_caps.h"
+#include "touch_swipe.h"
 
 LV_FONT_DECLARE(font_digits_96);
 
@@ -26,9 +27,7 @@ LV_FONT_DECLARE(font_digits_96);
 #define IDLE_DY 111
 #define NUM_DY (-69)
 #define VOL_ICON_DY (-134)
-#define BADGE_DY (-69)
-#define BADGE_PX 132
-#define BADGE_RADIUS 26
+#define OFFLINE_DY NUM_DY
 #define PAUSE_DY (-65)
 #define PAUSE_PX 104
 #define PAUSE_BAR_W 13
@@ -216,20 +215,8 @@ void npc_build(lv_obj_t *root)
     lv_label_set_text_static(s_vol_icon, LV_SYMBOL_VOLUME_MAX);
     s_num = label(root, &font_digits_96, 0, NUM_DY, COL_TEXT);
 
-    s_badge = plain(root, BADGE_PX, BADGE_PX);
-    lv_obj_set_style_radius(s_badge, BADGE_RADIUS, 0);
-    lv_obj_set_style_bg_color(s_badge, lv_color_hex(0x0A0A0A), 0);
-    lv_obj_set_style_bg_opa(s_badge, 219, 0);
-    lv_obj_set_style_border_color(s_badge, lv_color_hex(0x3A3A3A), 0);
-    lv_obj_set_style_border_width(s_badge, 2, 0);
-    lv_obj_align(s_badge, LV_ALIGN_CENTER, 0, BADGE_DY);
-    s_badge_lbl = lv_label_create(s_badge);
-    lv_obj_set_style_text_color(s_badge_lbl, lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_text_align(s_badge_lbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_badge_lbl, BADGE_PX - 16);
-    lv_label_set_text_static(s_badge_lbl, "");
-    lv_obj_center(s_badge_lbl);
-    lv_obj_add_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
+    s_badge = npc_round(root, 0);
+    s_badge_lbl = lv_obj_get_child(s_badge, 0);
 
     s_state = -1;
     s_sec = -1;
@@ -565,15 +552,19 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
         show(s_vol_icon, number);
     }
     const char *b = "";
-    const lv_font_t *font = &lv_font_montserrat_24;
+    int dy = 0;
+    const lv_font_t *font = &lv_font_montserrat_18;
     if (f->badge == NPC_BADGE_ICON && f->badge_text) {
         b = f->badge_text;
-        font = &lv_font_montserrat_48;
+        font = &lv_font_montserrat_30;
     } else if (f->badge == NPC_BADGE_ERROR && f->badge_text) {
         b = f->badge_text;
     } else if (look->offline_badge) {
         b = "Ember\noffline";
+        dy = OFFLINE_DY;
     }
+    int y = TS_CTL_Y + dy - TS_CTL_PX / 2;
+    if (lv_obj_get_style_y(s_badge, 0) != y) lv_obj_set_y(s_badge, y);
     if (strcmp(b, M->badge) != 0) {
         strlcpy(M->badge, b, sizeof M->badge);
         lv_obj_set_style_text_font(s_badge_lbl, font, 0);
@@ -581,6 +572,7 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
         show(s_badge, M->badge[0] != 0);
     }
     show(s_pause, look->pause_icon && !M->badge[0] && !number && !f->controls);
+    show(s_avatar, s_avatar_buf != NULL && (!M->badge[0] || dy) && !f->controls);
 }
 
 static void arc_line(lv_obj_t *canvas, const lv_font_t *font, const char *text, float r, uint32_t rgb, int dx, int dy)
@@ -797,7 +789,6 @@ void npc_update(const npc_frame_t *f)
         show(s_img, true);
         layout_set(v15);
     }
-    show(s_avatar, s_avatar_buf != NULL);
     if (s_avatar_buf && (int)look.avatar_grey != s_avatar_grey) avatar_src(look.avatar_grey);
 
     if (v15) {
@@ -881,3 +872,28 @@ void npc_update(const npc_frame_t *f)
 bool npc_vinyl(void) { return s_no_cover; }
 
 const char *npc_time_text(void) { return M ? M->time : ""; }
+
+lv_obj_t *npc_round(lv_obj_t *root, int dx)
+{
+    lv_obj_t *o = plain(root, TS_CTL_PX, TS_CTL_PX);
+    lv_obj_set_pos(o, TS_CX + dx - TS_CTL_PX / 2, TS_CTL_Y - TS_CTL_PX / 2);
+    lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(o, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(o, NPC_ROUND_OPA, 0);
+    lv_obj_t *l = lv_label_create(o);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_30, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(COL_TEXT), 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_remove_flag(l, LV_OBJ_FLAG_CLICKABLE);
+    lv_label_set_text_static(l, "");
+    lv_obj_center(l);
+    lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+    return o;
+}
+
+void npc_round_lit(lv_obj_t *o, bool lit)
+{
+    lv_obj_set_style_bg_color(o, lit ? lv_color_hex(COL_TEXT) : lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(o, lit ? LV_OPA_COVER : NPC_ROUND_OPA, 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(o, 0), lit ? lv_color_black() : lv_color_hex(COL_TEXT), 0);
+}

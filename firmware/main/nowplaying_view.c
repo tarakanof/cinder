@@ -40,10 +40,7 @@
 #define DWELL_S 0.4
 #define VOL_ARC_PX 430
 #define VOL_ARC_W 8
-#define BADGE_PX 132
-#define FLASH_S 0.8
 #define ERROR_S 2.5
-#define BTN_BG_OPA 150
 
 static const np_ring_t RING = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = 198, .hw = 3};
 
@@ -70,7 +67,7 @@ typedef struct {
     char badge[24];
     char dropped[NP_COVERV_MAX + 1];
     lv_obj_t *btn[3];
-    int btn_opa;
+    int btn_opa, btn_hi;
     bool btn_mid, btn_pause;
 } view_mem_t;
 static view_mem_t *V;
@@ -195,16 +192,8 @@ static void build(void)
     lv_obj_set_style_arc_color(s_vol_arc, lv_color_hex(COL_ARC), LV_PART_INDICATOR);
     lv_obj_add_flag(s_vol_arc, LV_OBJ_FLAG_HIDDEN);
 
-    s_badge = circle_create(BADGE_PX, 0x000000);
-    lv_obj_set_style_bg_opa(s_badge, LV_OPA_70, 0);
-    lv_obj_align(s_badge, LV_ALIGN_CENTER, 0, ALBUM_DY);
-    s_badge_lbl = lv_label_create(s_badge);
-    lv_obj_set_style_text_color(s_badge_lbl, lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_text_align(s_badge_lbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_badge_lbl, BADGE_PX - 16);
-    lv_label_set_text_static(s_badge_lbl, "");
-    lv_obj_center(s_badge_lbl);
-    lv_obj_add_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
+    s_badge = npc_round(s_root, 0);
+    s_badge_lbl = lv_obj_get_child(s_badge, 0);
 }
 
 static void free_pictures(void)
@@ -236,20 +225,8 @@ static void drop_kind(void)
 
 static lv_obj_t *btn_create(int dx, const char *sym)
 {
-    const lv_font_t *font = &lv_font_montserrat_30;
-    lv_obj_t *b = lv_label_create(s_root);
-    lv_obj_set_size(b, TS_CTL_PX, TS_CTL_PX);
-    lv_obj_set_pos(b, TS_CX + dx - TS_CTL_PX / 2, TS_CTL_Y - TS_CTL_PX / 2);
-    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(b, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(b, BTN_BG_OPA, 0);
-    lv_obj_set_style_text_font(b, font, 0);
-    lv_obj_set_style_text_color(b, lv_color_hex(COL_TEXT), 0);
-    lv_obj_set_style_text_align(b, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_pad_top(b, (TS_CTL_PX - lv_font_get_line_height(font)) / 2, 0);
-    lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    lv_label_set_text_static(b, sym);
-    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *b = npc_round(s_root, dx);
+    lv_label_set_text_static(lv_obj_get_child(b, 0), sym);
     return b;
 }
 
@@ -259,13 +236,19 @@ static void btns_build(void)
     V->btn[1] = btn_create(0, LV_SYMBOL_PAUSE);
     V->btn[2] = btn_create(TS_CTL_DX, LV_SYMBOL_NEXT);
     V->btn_opa = 0;
+    V->btn_hi = -1;
     V->btn_mid = true;
     V->btn_pause = true;
 }
 
-static bool btns_update(int opa, bool mid, bool pause)
+static bool btns_update(int opa, bool mid, bool pause, int hi)
 {
     if (!V->btn[0]) return false;
+    if (hi != V->btn_hi) {
+        if (V->btn_hi >= 0) npc_round_lit(V->btn[V->btn_hi], false);
+        if (hi >= 0) npc_round_lit(V->btn[hi], true);
+        V->btn_hi = hi;
+    }
     if (opa != V->btn_opa) {
         for (int i = 0; i < 3; i++) lv_obj_set_style_opa(V->btn[i], (lv_opa_t)opa, 0);
         lv_obj_set_flag(V->btn[0], LV_OBJ_FLAG_HIDDEN, opa == 0);
@@ -273,7 +256,7 @@ static bool btns_update(int opa, bool mid, bool pause)
     }
     if (pause != V->btn_pause) {
         V->btn_pause = pause;
-        lv_label_set_text_static(V->btn[1], pause ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+        lv_label_set_text_static(lv_obj_get_child(V->btn[1], 0), pause ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
     }
     if (opa != V->btn_opa || mid != V->btn_mid) lv_obj_set_flag(V->btn[1], LV_OBJ_FLAG_HIDDEN, opa == 0 || !mid);
     V->btn_opa = opa;
@@ -546,20 +529,24 @@ static void controls_tick(double now)
     }
 }
 
-static npc_badge_t badge_content(double now, char *text, size_t cap)
+static npc_badge_t badge_content(double now, char *text, size_t cap, int *hi)
 {
     np_ctl_t *c = &V->ctl;
     text[0] = 0;
+    *hi = -1;
     if (np_ctl_volume_active(c, now)) {
         int vol = np_ctl_volume_shown(c, now);
         if (vol >= 0) snprintf(text, cap, "%d", vol);
         else snprintf(text, cap, "%+d", c->vol_gesture);
         return NPC_BADGE_NUMBER;
     }
-    if (now - c->last_t < FLASH_S && c->last != NP_CMD_VOLUME) {
-        switch (c->last) {
+    np_cmd_kind_t cmd = NP_CMD_NONE;
+    np_fb_t fb = np_ctl_feedback(c, now, &cmd);
+    if (fb == NP_FB_PULSE) *hi = cmd == NP_CMD_PREVIOUS ? 0 : cmd == NP_CMD_NEXT ? 2 : 1;
+    if (fb == NP_FB_BADGE) {
+        switch (cmd) {
         case NP_CMD_PLAY:
-        case NP_CMD_PAUSE: strlcpy(text, c->last == NP_CMD_PLAY ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE, cap); break;
+        case NP_CMD_PAUSE: strlcpy(text, cmd == NP_CMD_PLAY ? LV_SYMBOL_PLAY : LV_SYMBOL_PAUSE, cap); break;
         case NP_CMD_NEXT: strlcpy(text, LV_SYMBOL_NEXT, cap); break;
         case NP_CMD_PREVIOUS: strlcpy(text, LV_SYMBOL_PREV, cap); break;
         default: break;
@@ -573,7 +560,7 @@ static npc_badge_t badge_content(double now, char *text, size_t cap)
     return NPC_BADGE_NONE;
 }
 
-static void legacy_controls(double now)
+static int legacy_controls(double now)
 {
     np_ctl_t *c = &V->ctl;
     bool turning = np_ctl_volume_active(c, now);
@@ -586,14 +573,16 @@ static void legacy_controls(double now)
     }
 
     char text[24];
-    npc_badge_t kind = badge_content(now, text, sizeof text);
-    const lv_font_t *font = kind == NPC_BADGE_ERROR ? &lv_font_montserrat_18 : &lv_font_montserrat_48;
+    int hi;
+    npc_badge_t kind = badge_content(now, text, sizeof text, &hi);
+    const lv_font_t *font = kind == NPC_BADGE_ERROR ? &lv_font_montserrat_18 : &lv_font_montserrat_30;
     if (strcmp(text, V->badge) != 0) {
         strlcpy(V->badge, text, sizeof V->badge);
         lv_obj_set_style_text_font(s_badge_lbl, font, 0);
         lv_label_set_text_static(s_badge_lbl, V->badge);
         show(s_badge, V->badge[0] != 0);
     }
+    return hi;
 }
 
 static long long shown_pos(bool paused, double now)
@@ -616,9 +605,10 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
         .vol = np_ctl_volume_shown(&V->ctl, now),
     };
     char badge[24] = "";
-    if (live) f.badge = badge_content(now, badge, sizeof badge);
+    int hi = -1;
+    if (live) f.badge = badge_content(now, badge, sizeof badge, &hi);
     f.badge_text = badge;
-    f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING);
+    f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING, hi);
     if (np_face_live(st) || st == NPF_OFFLINE) {
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
         f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
@@ -668,10 +658,10 @@ void np_view_update(double now, bool offline)
         return;
     }
     if (live) {
-        legacy_controls(now);
-        btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING);
+        int hi = legacy_controls(now);
+        btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING, hi);
     } else {
-        btns_update(0, true, true);
+        btns_update(0, true, true, -1);
         if (s_vol_shown != -2 || V->badge[0]) {
             show(s_vol_arc, false);
             show(s_badge, false);

@@ -405,6 +405,70 @@ static const char *COVER_BLOCK =
     "\"position_at\":1782043198000,\"art_version\":\"fb43cf74b67a\",\"album_art\":true,\"volume\":40,"
     "\"accent\":\"#6C22E6\",\"cover_version\":\"fb43cf74b67a-r1\"}";
 
+static np_fb_t fb(const np_ctl_t *c, double now, np_cmd_kind_t *cmd)
+{
+    *cmd = NP_CMD_NONE;
+    return np_ctl_feedback(c, now, cmd);
+}
+
+static void test_feedback(void)
+{
+    np_ctl_t c;
+    np_cmd_t out[4];
+    np_cmd_kind_t k;
+    np_ctl_init(&c);
+    CHECK(fb(&c, 1.0, &k) == NP_FB_NONE && k == NP_CMD_NONE, "nothing sent: no feedback");
+    np_ctl_server(&c, NP_PLAYING, 40, 1.0);
+
+    np_ctl_skip(&c, 1, 2.0);
+    tick(&c, 2.0, out);
+    CHECK(fb(&c, 2.0, &k) == NP_FB_BADGE && k == NP_CMD_NEXT, "swipe left, hidden: the badge");
+    CHECK(fb(&c, 2.0 + NP_FLASH_S - 0.01, &k) == NP_FB_BADGE, "for the whole flash");
+    CHECK(fb(&c, 2.0 + NP_FLASH_S + 0.001, &k) == NP_FB_NONE, "then nothing");
+    np_ctl_skip(&c, -1, 3.0);
+    tick(&c, 3.0, out);
+    CHECK(fb(&c, 3.0, &k) == NP_FB_BADGE && k == NP_CMD_PREVIOUS, "swipe right, hidden: the badge");
+    np_ctl_push(&c, 4.0);
+    tick(&c, 4.0, out);
+    CHECK(fb(&c, 4.0, &k) == NP_FB_BADGE && k == NP_CMD_PAUSE, "push, hidden: the badge");
+
+    np_ctl_tap(&c, NP_CMD_NONE, 5.0);
+    CHECK(fb(&c, 5.0, &k) == NP_FB_NONE, "a reveal tap: no feedback");
+    np_ctl_tap(&c, NP_CMD_NEXT, 5.5);
+    tick(&c, 5.5, out);
+    CHECK(fb(&c, 5.5, &k) == NP_FB_PULSE && k == NP_CMD_NEXT, "tap next, shown: next pulses");
+    CHECK(fb(&c, 5.5 + NP_PULSE_S - 0.01, &k) == NP_FB_PULSE, "for the pulse");
+    CHECK(fb(&c, 5.5 + NP_PULSE_S + 0.001, &k) == NP_FB_NONE, "then nothing, never the badge");
+    CHECK(fb(&c, 5.5 + NP_FLASH_S - 0.01, &k) == NP_FB_NONE, "not even in the flash window");
+    np_ctl_tap(&c, NP_CMD_PREVIOUS, 6.0);
+    tick(&c, 6.0, out);
+    CHECK(fb(&c, 6.0, &k) == NP_FB_PULSE && k == NP_CMD_PREVIOUS, "tap previous, shown: previous pulses");
+    np_ctl_tap(&c, NP_CMD_PLAY, 6.5);
+    tick(&c, 6.5, out);
+    CHECK(fb(&c, 6.5, &k) == NP_FB_PULSE && k == NP_CMD_PLAY, "tap play/pause, shown: it pulses");
+    np_ctl_skip(&c, 1, 7.0);
+    tick(&c, 7.0, out);
+    CHECK(fb(&c, 7.0, &k) == NP_FB_PULSE && k == NP_CMD_NEXT, "swipe left, shown: next pulses");
+    double shown_until = 7.0 + NP_TOUCH_SHOW_S;
+    np_ctl_push(&c, shown_until - 0.1);
+    tick(&c, shown_until - 0.1, out);
+    CHECK(fb(&c, shown_until - 0.1, &k) == NP_FB_PULSE && k == NP_CMD_PAUSE, "push, shown: play/pause pulses");
+    CHECK(np_ctl_touch_opa(&c, shown_until + NP_FLASH_S) == 255, "a push while shown restarts the timer");
+
+    double fading = shown_until - 0.1 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S / 2;
+    CHECK(np_ctl_touch_opa(&c, fading) > 0 && np_ctl_touch_opa(&c, fading) < 255, "fading");
+    np_ctl_skip(&c, -1, fading);
+    tick(&c, fading, out);
+    CHECK(fb(&c, fading, &k) == NP_FB_PULSE && k == NP_CMD_PREVIOUS && np_ctl_touch_opa(&c, fading + NP_FLASH_S) == 255,
+          "a swipe while fading pulses and brings them back");
+
+    np_ctl_turn(&c, 2, 20.0);
+    tick(&c, 20.0, out);
+    CHECK(fb(&c, 20.0, &k) == NP_FB_NONE && np_ctl_volume_active(&c, 20.0), "volume: no command feedback (the number shows)");
+    np_ctl_server(&c, NP_NONE, -1, 21.0);
+    CHECK(tick(&c, 21.0, out) == 0 && fb(&c, 21.5, &k) == NP_FB_NONE, "nothing playing: nothing");
+}
+
 static void test_touch(void)
 {
     np_ctl_t c;
@@ -996,6 +1060,7 @@ int main(void)
     test_masks();
     test_ctl();
     test_touch();
+    test_feedback();
     test_cover_parse();
     test_cover_plan();
     test_edge();

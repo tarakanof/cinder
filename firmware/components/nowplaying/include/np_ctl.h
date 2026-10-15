@@ -16,6 +16,8 @@ extern "C" {
 #define NP_TOUCH_SHOW_S 4.0
 #define NP_TOUCH_FADE_S 0.3
 #define NP_TOUCH_FADE_STEPS 3
+#define NP_FLASH_S 0.8
+#define NP_PULSE_S 0.3
 
 typedef enum { NP_CMD_NONE, NP_CMD_PLAY, NP_CMD_PAUSE, NP_CMD_NEXT, NP_CMD_PREVIOUS, NP_CMD_VOLUME } np_cmd_kind_t;
 
@@ -23,6 +25,8 @@ typedef struct {
     np_cmd_kind_t kind;
     int delta;
 } np_cmd_t;
+
+typedef enum { NP_FB_NONE, NP_FB_PULSE, NP_FB_BADGE } np_fb_t;
 
 typedef struct {
     bool play_due, next_due, prev_due;
@@ -41,6 +45,7 @@ typedef struct {
     bool vol_ever;
     np_cmd_kind_t last;
     double last_t;
+    bool last_shown;
 } np_ctl_t;
 
 void np_ctl_init(np_ctl_t *c);
@@ -54,6 +59,8 @@ bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now);
 int np_ctl_touch_opa(const np_ctl_t *c, double now);
 void np_ctl_turn(np_ctl_t *c, int detents, double now);
 int np_ctl_tick(np_ctl_t *c, double now, np_cmd_t *out, int max);
+/* Where the last play, pause, next or previous shows: sent while the touch controls showed, a pulse on its control for NP_PULSE_S; else the badge for NP_FLASH_S. *cmd gets the command unless NP_FB_NONE. */
+np_fb_t np_ctl_feedback(const np_ctl_t *c, double now, np_cmd_kind_t *cmd);
 void np_ctl_failed(np_ctl_t *c);
 np_play_t np_ctl_play_shown(const np_ctl_t *c, double now);
 int np_ctl_volume_shown(const np_ctl_t *c, double now);
