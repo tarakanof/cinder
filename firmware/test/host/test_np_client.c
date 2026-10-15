@@ -110,7 +110,7 @@ static void test_give_up(void)
 {
     np_art_set_t set;
     np_info_t a = block("bad0-r1");
-    np_client_feed(&a);
+    np_client_feed(&a, false);
     np_client_set_visible(true);
     s_cover = ANS_OVER;
     service_at(0);
@@ -129,10 +129,10 @@ static void test_give_up(void)
     CHECK(s_cover_gets == 3 && !take(&set), "given up and shown: nothing more");
 
     np_info_t none = {.state = NP_NONE, .volume = -1};
-    np_client_feed(&none);
+    np_client_feed(&none, false);
     service_at(1000);
     if (take(&set)) np_art_set_free(&set);
-    np_client_feed(&a);
+    np_client_feed(&a, false);
     np_client_forget_art();
     int artist = s_artist_gets;
     service_at(10);
@@ -144,7 +144,7 @@ static void test_give_up(void)
 
     s_cover = ANS_GOOD;
     np_info_t b = block("good-r1");
-    np_client_feed(&b);
+    np_client_feed(&b, false);
     service_at(10);
     CHECK(take(&set) && set.cover && !set.no_cover, "a new cover_version fetches again");
     np_art_set_free(&set);
@@ -154,7 +154,7 @@ static void test_success_resets(void)
 {
     np_art_set_t set;
     np_info_t c = block("flaky-r1");
-    np_client_feed(&c);
+    np_client_feed(&c, false);
     s_cover = ANS_OVER;
     service_at(10);
     service_at(5000);
@@ -173,7 +173,7 @@ static void test_success_resets(void)
     np_art_set_free(&set);
 
     np_info_t d = block("busy-r1");
-    np_client_feed(&d);
+    np_client_feed(&d, false);
     s_cover = ANS_500;
     for (int i = 0; i < 8; i++) {
         service_at(60000);
@@ -188,7 +188,7 @@ static void test_success_resets(void)
 static void give_up(const np_info_t *np)
 {
     np_art_set_t set;
-    np_client_feed(np);
+    np_client_feed(np, false);
     s_cover = ANS_OVER;
     service_at(60000);
     service_at(5000);
@@ -201,10 +201,10 @@ static void back_from_idle(const np_info_t *np)
 {
     np_art_set_t set;
     np_info_t none = {.state = NP_NONE, .volume = -1};
-    np_client_feed(&none);
+    np_client_feed(&none, false);
     service_at(1000);
     if (take(&set)) np_art_set_free(&set);
-    np_client_feed(np);
+    np_client_feed(np, false);
     np_client_forget_art();
 }
 
@@ -280,20 +280,20 @@ static void test_skip_back_while_held(void)
     s_artist = ANS_GOOD;
     s_cover = ANS_GOOD;
     np_info_t w = block("good3-r1");
-    np_client_feed(&w);
+    np_client_feed(&w, false);
     service_at(10);
     CHECK(take(&set) && set.cover, "skip to W: its cover");
     np_art_set_free(&set);
     int gets = s_cover_gets + s_artist_gets;
-    np_client_feed(&v);
+    np_client_feed(&v, false);
     service_at(10);
     CHECK(s_cover_gets + s_artist_gets == gets && take(&set) && set.no_cover && !set.cover, "back to V in its backoff: no_cover at once");
     np_art_set_free(&set);
-    np_client_feed(&w);
+    np_client_feed(&w, false);
     service_at(10);
     CHECK(take(&set) && set.cover && !set.no_cover, "and to W again: its cover, not V's grey disc");
     np_art_set_free(&set);
-    np_client_feed(&v);
+    np_client_feed(&v, false);
     service_at(10);
     CHECK(take(&set) && set.no_cover, "and V again: no_cover");
     np_art_set_free(&set);
@@ -332,7 +332,7 @@ static void test_handover_table(void)
         CHECK(take(&set) && set.no_cover && !set.avatar, "row %zu: V given up, its avatar failing", r);
         np_art_set_free(&set);
         s_cover = ANS_GOOD;
-        np_client_feed(&w);
+        np_client_feed(&w, false);
         service_at(10);
         CHECK(take(&set) && set.cover, "row %zu: W on screen", r);
         np_art_set_free(&set);
@@ -342,16 +342,16 @@ static void test_handover_table(void)
             int gets = s_cover_gets + s_artist_gets;
             if (st == 'V' || st == 'W') {
                 cur = st == 'V' ? &v : &w;
-                np_client_feed(cur);
+                np_client_feed(cur, false);
                 service_at(10);
             } else if (st == 'I') {
                 back_from_idle(cur);
                 service_at(10);
             } else if (st == 'i') {
-                np_client_feed(&none);
+                np_client_feed(&none, false);
                 service_at(1000);
                 if (take(&set)) np_art_set_free(&set);
-                np_client_feed(cur);
+                np_client_feed(cur, false);
                 service_at(10);
             } else if (st == 'H') {
                 np_client_set_visible(false);
@@ -377,7 +377,7 @@ static void test_forget_dropped(void)
     np_art_set_t set;
     s_cover = s_artist = ANS_GOOD;
     np_info_t v = block("fdv-r1"), x = block("fdx-r1");
-    np_client_feed(&v);
+    np_client_feed(&v, false);
     service_at(10);
     CHECK(take(&set) && set.cover, "V's cover handed over");
     np_art_set_free(&set);
@@ -396,7 +396,7 @@ static void test_forget_dropped(void)
     service_at(10);
     CHECK(s_cover_gets + s_artist_gets == gets + 2 && !take(&set) && !np_client_pending(), "and the record with it: no third pass");
 
-    np_client_feed(&x);
+    np_client_feed(&x, false);
     service_at(10);
     CHECK(take(&set) && set.cover, "X handed over");
     np_art_set_free(&set);
@@ -437,6 +437,34 @@ static void test_no_buffer_when_nothing_to_fetch(void)
     np_art_set_free(&set);
 }
 
+static void test_demo_block(void)
+{
+    np_snapshot_t sn;
+    uint32_t gen = 0;
+    np_info_t real = block("real-r1"), demo = block("demo-r1");
+    np_client_feed(&real, false);
+    CHECK(np_client_get(&sn, &gen) && sn.have && !sn.demo, "a real block has no demo bit");
+    np_client_feed(&demo, true);
+    CHECK(np_client_get(&sn, &gen) && sn.have && sn.demo && strcmp(sn.info.title, "demo-r1") == 0,
+          "a demo block and its demo bit come in one snapshot");
+    np_client_feed(&demo, false);
+    CHECK(np_client_get(&sn, &gen) && sn.have && !sn.demo, "the same block from the real view: a new gen without the bit");
+    np_client_feed(&demo, true);
+    CHECK(np_client_get(&sn, &gen) && sn.demo, "the bit back on: a new gen");
+    np_client_drop_demo();
+    CHECK(np_client_get(&sn, &gen) && !sn.have && !sn.demo && !sn.info.title[0], "dropping a demo block clears it");
+    np_client_drop_demo();
+    CHECK(!np_client_get(&sn, &gen), "dropping twice: no new gen");
+    np_client_feed(&real, false);
+    CHECK(np_client_get(&sn, &gen), "real block again");
+    np_client_drop_demo();
+    CHECK(!np_client_get(&sn, &gen), "dropping leaves a real block alone");
+    np_client_feed(NULL, true);
+    CHECK(np_client_get(&sn, &gen) && !sn.have && sn.demo, "a demo view without np: no block, the bit set");
+    np_client_drop_demo();
+    CHECK(np_client_get(&sn, &gen) && !sn.have && !sn.demo, "and dropping it clears the bit");
+}
+
 int main(void)
 {
     np_client_init();
@@ -447,6 +475,7 @@ int main(void)
     test_handover_table();
     test_forget_dropped();
     test_no_buffer_when_nothing_to_fetch();
+    test_demo_block();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);
         return 1;

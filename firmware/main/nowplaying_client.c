@@ -82,14 +82,14 @@ void np_art_set_free(np_art_set_t *s)
     memset(s, 0, sizeof *s);
 }
 
-void np_client_feed(const np_info_t *np)
+void np_client_feed(const np_info_t *np, bool demo)
 {
     if (!S) return;
     double now = pomo_client_now(), offset = 0;
     bool have_off = pomo_client_srv_offset(&offset);
     xSemaphoreTake(s_lock, portMAX_DELAY);
     np_snapshot_t *sn = &S->snap;
-    bool changed = sn->have != (np != NULL), log = false;
+    bool changed = sn->have != (np != NULL) || sn->demo != demo, log = false;
     if (np) {
         bool same = S->last_have && np_same_track(&S->last, np);
         bool playing = np->state == NP_PLAYING;
@@ -105,12 +105,22 @@ void np_client_feed(const np_info_t *np)
         memset(&sn->anchor, 0, sizeof sn->anchor);
     }
     sn->have = np != NULL;
+    sn->demo = demo;
     S->last_have = np != NULL;
     if (changed) S->gen++;
     xSemaphoreGive(s_lock);
     if (log)
         ESP_LOGI(TAG, "%s, %lld s, art %s, cover %s", np->state == NP_PLAYING ? "playing" : np->state == NP_PAUSED ? "paused" : "nothing playing",
                  np->duration_ms / 1000, np->art_version[0] ? np->art_version : "none", np->cover_version[0] ? np->cover_version : "none");
+}
+
+void np_client_drop_demo(void)
+{
+    if (!S) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool demo = S->snap.demo;
+    xSemaphoreGive(s_lock);
+    if (demo) np_client_feed(NULL, false);
 }
 
 bool np_client_get(np_snapshot_t *out, uint32_t *gen)
