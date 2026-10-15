@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "np.h"
 
@@ -16,6 +17,9 @@ extern "C" {
 #define NP_TOUCH_SHOW_S 4.0
 #define NP_TOUCH_FADE_S 0.3
 #define NP_TOUCH_FADE_STEPS 3
+#define NP_INFO_TRACK_S 10.0
+#define NP_RESTART_HEAD_MS 5000
+#define NP_RESTART_TAIL_MS 5000
 #define NP_FLASH_S 0.8
 #define NP_PULSE_S 0.3
 
@@ -46,6 +50,10 @@ typedef struct {
     np_cmd_kind_t last;
     double last_t;
     bool last_shown;
+    double info_t, track_t, resume_t;
+    uint32_t track_key;
+    bool track_set, was_paused;
+    long long track_pos;
 } np_ctl_t;
 
 void np_ctl_init(np_ctl_t *c);
@@ -57,6 +65,14 @@ void np_ctl_skip(np_ctl_t *c, int dir, double now);
 bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now);
 /* Touch controls' opacity 0-255: full for NP_TOUCH_SHOW_S after the last tap, then NP_TOUCH_FADE_STEPS steps down over NP_TOUCH_FADE_S. */
 int np_ctl_touch_opa(const np_ctl_t *c, double now);
+/* 255 until age reaches hold, then NP_TOUCH_FADE_STEPS steps down to 0 over NP_TOUCH_FADE_S. */
+int np_fade_opa(double age, double hold);
+/* A block for another track (title, artist, album, source or track_id) restarts the info timer; the first one after init or a state:none block too. */
+void np_ctl_track(np_ctl_t *c, const np_info_t *np, double now);
+/* Every live frame, the shown position: a jump from the last NP_RESTART_TAIL_MS of the track to its first NP_RESTART_HEAD_MS (repeat-one, a replay) restarts the info timer. */
+void np_ctl_track_pos(np_ctl_t *c, long long pos_ms, long long dur_ms, double now);
+/* The cover face's title, artist, time and scrim, 0-255: full while paused, for NP_INFO_TRACK_S after a track starts and NP_TOUCH_SHOW_S after the last tap or push, then the touch controls' stepped fade (after a pause, from the first resumed frame). Once a frame: it notes the pause. */
+int np_ctl_info_opa(np_ctl_t *c, double now, bool paused);
 void np_ctl_turn(np_ctl_t *c, int detents, double now);
 int np_ctl_tick(np_ctl_t *c, double now, np_cmd_t *out, int max);
 /* Where the last play, pause, next or previous shows: sent while the touch controls showed, a pulse on its control for NP_PULSE_S; else the badge for NP_FLASH_S. *cmd gets the command unless NP_FB_NONE. */

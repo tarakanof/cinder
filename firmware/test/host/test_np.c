@@ -1052,6 +1052,128 @@ static void test_v15(void)
     free(b);
 }
 
+static void test_info(void)
+{
+    np_ctl_t c;
+    np_ctl_init(&c);
+    np_info_t a = {.state = NP_PLAYING};
+    strcpy(a.title, "Glass Harbor");
+    strcpy(a.artist, "Northern Static");
+    strcpy(a.track_id, "t-a");
+    CHECK(np_ctl_info_opa(&c, 1.0, false) == 0, "before any track: hidden");
+    np_ctl_server(&c, NP_PLAYING, 40, 2.0);
+    np_ctl_track(&c, &a, 2.0);
+    CHECK(np_ctl_info_opa(&c, 2.0, false) == 255 && np_ctl_info_opa(&c, 2.0 + NP_INFO_TRACK_S - 0.01, false) == 255,
+          "a track start: up for %.0f s", NP_INFO_TRACK_S);
+    int prev = 255, steps = 0;
+    for (double t = 2.0 + NP_INFO_TRACK_S; t < 2.0 + NP_INFO_TRACK_S + NP_TOUCH_FADE_S; t += 0.01) {
+        int o = np_ctl_info_opa(&c, t, false);
+        CHECK(o <= prev && o > 0, "fades down at %.2f: %d", t, o);
+        steps += o != prev;
+        prev = o;
+    }
+    double gone = 2.0 + NP_INFO_TRACK_S + NP_TOUCH_FADE_S;
+    CHECK(steps == NP_TOUCH_FADE_STEPS && np_ctl_info_opa(&c, gone, false) == 0, "then the controls' %d-step fade over %.1f s",
+          steps, NP_TOUCH_FADE_S);
+    np_info_t same = a;
+    same.state = NP_PAUSED;
+    same.position_ms = 99000;
+    strcpy(same.cover_version, "c1-r1");
+    np_ctl_track(&c, &same, gone);
+    CHECK(np_ctl_info_opa(&c, gone, false) == 0, "the same track again (paused, a new position or cover): no restart");
+    np_ctl_turn(&c, 3, gone + 1);
+    CHECK(np_ctl_info_opa(&c, gone + 1, false) == 0, "a turn (volume) does not show them");
+    np_ctl_skip(&c, 1, gone + 2);
+    CHECK(np_ctl_info_opa(&c, gone + 2, false) == 0, "a swipe alone does not either; the next track does");
+    np_ctl_tap(&c, NP_CMD_NONE, 20.0);
+    CHECK(np_ctl_info_opa(&c, 20.0, false) == 255 && np_ctl_info_opa(&c, 20.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255 &&
+              np_ctl_info_opa(&c, 20.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01, false) == 0,
+          "a tap: up for the controls' %.0f s", NP_TOUCH_SHOW_S);
+    CHECK(np_ctl_info_opa(&c, 20.0 + NP_TOUCH_SHOW_S + 0.1, false) == np_ctl_touch_opa(&c, 20.0 + NP_TOUCH_SHOW_S + 0.1),
+          "on the same steps as the controls");
+    np_ctl_tap(&c, NP_CMD_NONE, 23.0);
+    CHECK(np_ctl_info_opa(&c, 23.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255, "4 s after the last tap");
+    np_ctl_push(&c, 40.0);
+    CHECK(np_ctl_touch_opa(&c, 40.0) == 0 && np_ctl_info_opa(&c, 40.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255 &&
+              np_ctl_info_opa(&c, 40.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01, false) == 0,
+          "a push shows them for 4 s, not the controls");
+    np_info_t b = a;
+    strcpy(b.title, "Paper Moons");
+    np_ctl_track(&c, &b, 60.0);
+    CHECK(np_ctl_info_opa(&c, 60.0 + NP_INFO_TRACK_S - 0.01, false) == 255, "a new title: a new track");
+    np_info_t b2 = b;
+    strcpy(b2.track_id, "t-b");
+    np_ctl_track(&c, &b2, 80.0);
+    CHECK(np_ctl_info_opa(&c, 80.0, false) == 255, "a new track_id: a new track");
+    np_ctl_server(&c, NP_NONE, -1, 100.0);
+    np_ctl_push(&c, 100.0);
+    np_ctl_tap(&c, NP_CMD_NONE, 100.0);
+    CHECK(np_ctl_info_opa(&c, 100.0 + NP_TOUCH_FADE_S + 0.01, false) == 0, "nothing playing: a tap or push shows nothing");
+    np_ctl_track(&c, &b2, 250.0);
+    CHECK(np_ctl_info_opa(&c, 250.0, false) == 0, "the same track later: still clean");
+    np_info_t none = {.state = NP_NONE};
+    np_ctl_track(&c, &none, 260.0);
+    np_ctl_track(&c, &b2, 270.0);
+    CHECK(np_ctl_info_opa(&c, 270.0, false) == 255, "the same track after nothing playing: a new start");
+    np_ctl_server(&c, NP_PLAYING, 40, 300.0);
+    CHECK(np_ctl_info_opa(&c, 300.0, true) == 255 && np_ctl_info_opa(&c, 1300.0, true) == 255, "paused: up, however long");
+    int r[5];
+    for (int i = 0; i < 5; i++) r[i] = np_ctl_info_opa(&c, 1300.0 + 1 / 60.0 + (i ? i * 0.1 - 0.05 : 0), false);
+    CHECK(r[0] == 255 && r[1] < 255 && r[1] > r[2] && r[2] > r[3] && r[3] > 0 && r[4] == 0,
+          "resumed at 60 fps: full on the first resumed frame, then 3 steps: %d %d %d %d %d", r[0], r[1], r[2], r[3], r[4]);
+    np_ctl_info_opa(&c, 1310.0, true);
+    int d0 = np_ctl_info_opa(&c, 1310.5, false), d1 = np_ctl_info_opa(&c, 1310.65, false), d2 = np_ctl_info_opa(&c, 1310.81, false);
+    CHECK(d0 == 255 && d1 > 0 && d1 < 255 && d2 == 0, "a resumed frame 500 ms late still fades from it: %d %d %d", d0, d1, d2);
+    np_ctl_push(&c, 1400.0);
+    np_ctl_info_opa(&c, 1400.0, true);
+    CHECK(np_ctl_info_opa(&c, 1403.0, false) == 255 && np_ctl_info_opa(&c, 1404.31, false) == 0,
+          "resumed by a push: 4 s after the push");
+    np_ctl_init(&c);
+    np_ctl_track(&c, &b2, 2000.0);
+    CHECK(np_ctl_info_opa(&c, 2000.0, false) == 255, "after init (a page show) the first block starts the timer");
+
+    np_ctl_server(&c, NP_PLAYING, 40, 2000.0);
+    np_ctl_tap(&c, NP_CMD_NONE, 2100.0);
+    np_ctl_skip(&c, 1, 2103.0);
+    CHECK(np_ctl_touch_opa(&c, 2103.0 + NP_TOUCH_SHOW_S + 0.1) == np_ctl_info_opa(&c, 2103.0 + NP_TOUCH_SHOW_S + 0.1, false) &&
+              np_ctl_info_opa(&c, 2103.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255,
+          "a swipe while the controls show keeps the text with them");
+}
+
+static void test_restart(void)
+{
+    np_ctl_t c;
+    np_ctl_init(&c);
+    np_info_t a = {.state = NP_PLAYING, .duration_ms = 200000};
+    strcpy(a.title, "Glass Harbor");
+    np_ctl_track(&c, &a, 0.0);
+    double t = 0;
+    for (long long p = 0; p <= 200000; p += 1000) np_ctl_track_pos(&c, p, 200000, t += 1);
+    CHECK(np_ctl_info_opa(&c, t, false) == 0, "played to the end: clean");
+    np_ctl_track(&c, &a, t);
+    np_ctl_track_pos(&c, 1200, 200000, t);
+    CHECK(np_ctl_info_opa(&c, t, false) == 255 && np_ctl_info_opa(&c, t + NP_INFO_TRACK_S - 0.01, false) == 255,
+          "repeat-one: the same track back at 0:01 from the end is a start");
+    for (long long p = 1200; p <= 197000; p += 1000) np_ctl_track_pos(&c, p, 200000, t += 1);
+    np_ctl_info_opa(&c, t, true);
+    np_ctl_track_pos(&c, 197000, 200000, t += 30);
+    np_ctl_track_pos(&c, 0, 200000, t += 2);
+    CHECK(np_ctl_info_opa(&c, t + 1, false) == 255, "a replay from the last seconds (paused there, then from 0:00) is a start");
+    double s0 = t + 40;
+    np_ctl_track_pos(&c, 120000, 200000, s0);
+    np_ctl_track_pos(&c, 0, 200000, s0 + 0.1);
+    CHECK(np_ctl_info_opa(&c, s0 + 0.1, false) == 0, "a seek back from the middle to 0:00 is not");
+    np_ctl_track_pos(&c, 150000, 200000, s0 + 1);
+    np_ctl_track_pos(&c, 30000, 200000, s0 + 2);
+    CHECK(np_ctl_info_opa(&c, s0 + 2, false) == 0, "nor a seek back elsewhere");
+    np_ctl_track_pos(&c, 197000, 200000, s0 + 3);
+    np_ctl_track_pos(&c, 60000, 200000, s0 + 4);
+    CHECK(np_ctl_info_opa(&c, s0 + 4, false) == 0, "nor a seek back from the end to the middle");
+    np_ctl_track_pos(&c, 3000, 0, s0 + 5);
+    np_ctl_track_pos(&c, 0, 0, s0 + 6);
+    CHECK(np_ctl_info_opa(&c, s0 + 6, false) == 0, "no duration: no restart");
+}
+
 int main(void)
 {
     test_parse();
@@ -1064,6 +1186,8 @@ int main(void)
     test_masks();
     test_ctl();
     test_touch();
+    test_info();
+    test_restart();
     test_feedback();
     test_cover_parse();
     test_cover_plan();

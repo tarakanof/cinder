@@ -25,6 +25,7 @@ typedef struct {
     bool dim;
     bool controls;
     int dx, dy;
+    int text_out;
 } npc_frame_t;
 
 /* Once, at np_view_create. */
