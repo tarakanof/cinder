@@ -12,6 +12,7 @@
 #include "np_cover.h"
 #include "np_cover_view.h"
 #include "nowplaying_client.h"
+#include "touch_swipe.h"
 
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
 #define SCREEN_H 466
@@ -42,6 +43,7 @@
 #define BADGE_PX 132
 #define FLASH_S 0.8
 #define ERROR_S 2.5
+#define BTN_BG_OPA 150
 
 static const np_ring_t RING = {.cx = FACE / 2.0f, .cy = FACE / 2.0f, .r = 198, .hw = 3};
 
@@ -67,6 +69,9 @@ typedef struct {
     np_ctl_t ctl;
     char badge[24];
     char dropped[NP_COVERV_MAX + 1];
+    lv_obj_t *btn[3];
+    int btn_opa;
+    bool btn_mid, btn_pause;
 } view_mem_t;
 static view_mem_t *V;
 #define s_face_dsc (V->face_dsc)
@@ -225,7 +230,55 @@ static void drop_kind(void)
     s_title = s_sub = s_meta = s_idle = NULL;
     s_vol_arc = s_badge = s_badge_lbl = NULL;
     V->title[0] = V->sub[0] = V->meta[0] = V->idle[0] = V->badge[0] = 0;
+    V->btn[0] = V->btn[1] = V->btn[2] = NULL;
     s_kind = KIND_NONE;
+}
+
+static lv_obj_t *btn_create(int dx, const char *sym)
+{
+    const lv_font_t *font = &lv_font_montserrat_30;
+    lv_obj_t *b = lv_label_create(s_root);
+    lv_obj_set_size(b, TS_CTL_PX, TS_CTL_PX);
+    lv_obj_set_pos(b, TS_CX + dx - TS_CTL_PX / 2, TS_CTL_Y - TS_CTL_PX / 2);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(b, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(b, BTN_BG_OPA, 0);
+    lv_obj_set_style_text_font(b, font, 0);
+    lv_obj_set_style_text_color(b, lv_color_hex(COL_TEXT), 0);
+    lv_obj_set_style_text_align(b, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_top(b, (TS_CTL_PX - lv_font_get_line_height(font)) / 2, 0);
+    lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_label_set_text_static(b, sym);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    return b;
+}
+
+static void btns_build(void)
+{
+    V->btn[0] = btn_create(-TS_CTL_DX, LV_SYMBOL_PREV);
+    V->btn[1] = btn_create(0, LV_SYMBOL_PAUSE);
+    V->btn[2] = btn_create(TS_CTL_DX, LV_SYMBOL_NEXT);
+    V->btn_opa = 0;
+    V->btn_mid = true;
+    V->btn_pause = true;
+}
+
+static bool btns_update(int opa, bool mid, bool pause)
+{
+    if (!V->btn[0]) return false;
+    if (opa != V->btn_opa) {
+        for (int i = 0; i < 3; i++) lv_obj_set_style_opa(V->btn[i], (lv_opa_t)opa, 0);
+        lv_obj_set_flag(V->btn[0], LV_OBJ_FLAG_HIDDEN, opa == 0);
+        lv_obj_set_flag(V->btn[2], LV_OBJ_FLAG_HIDDEN, opa == 0);
+    }
+    if (pause != V->btn_pause) {
+        V->btn_pause = pause;
+        lv_label_set_text_static(V->btn[1], pause ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+    }
+    if (opa != V->btn_opa || mid != V->btn_mid) lv_obj_set_flag(V->btn[1], LV_OBJ_FLAG_HIDDEN, opa == 0 || !mid);
+    V->btn_opa = opa;
+    V->btn_mid = mid;
+    return opa > 0;
 }
 
 static void set_kind(int kind)
@@ -235,6 +288,7 @@ static void set_kind(int kind)
     drop_kind();
     if (kind == KIND_LEGACY) build();
     else npc_build(s_root);
+    btns_build();
     s_kind = kind;
     s_mode = MODE_UNSET;
     s_vol_shown = -2;
@@ -444,9 +498,19 @@ void np_view_push(double now)
     if (s_shown && V) np_ctl_push(&V->ctl, now);
 }
 
-void np_view_long_push(double now)
+void np_view_tap(int zone, double now)
 {
-    if (s_shown && V) np_ctl_long_push(&V->ctl, now);
+    if (!s_shown || !V) return;
+    np_cmd_kind_t cmd = zone == TS_ZONE_PREV                  ? NP_CMD_PREVIOUS
+                        : zone == TS_ZONE_PLAY && V->btn_mid ? NP_CMD_PLAY
+                        : zone == TS_ZONE_NEXT ? NP_CMD_NEXT
+                                               : NP_CMD_NONE;
+    np_ctl_tap(&V->ctl, cmd, now);
+}
+
+void np_view_skip(int steps, double now)
+{
+    if (s_shown && V) np_ctl_skip(&V->ctl, steps, now);
 }
 
 static const char *error_text(int status)
@@ -554,6 +618,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     char badge[24] = "";
     if (live) f.badge = badge_content(now, badge, sizeof badge);
     f.badge_text = badge;
+    f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING);
     if (np_face_live(st) || st == NPF_OFFLINE) {
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
         f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
@@ -604,11 +669,15 @@ void np_view_update(double now, bool offline)
     }
     if (live) {
         legacy_controls(now);
-    } else if (s_vol_shown != -2 || V->badge[0]) {
-        show(s_vol_arc, false);
-        show(s_badge, false);
-        s_vol_shown = -2;
-        V->badge[0] = 0;
+        btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING);
+    } else {
+        btns_update(0, true, true);
+        if (s_vol_shown != -2 || V->badge[0]) {
+            show(s_vol_arc, false);
+            show(s_badge, false);
+            s_vol_shown = -2;
+            V->badge[0] = 0;
+        }
     }
     int mode = !live ? MODE_IDLE : shown == NP_PLAYING ? MODE_PLAYING : MODE_PAUSED;
 

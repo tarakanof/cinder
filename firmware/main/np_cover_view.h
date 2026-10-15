@@ -21,6 +21,7 @@ typedef struct {
     npc_badge_t badge;
     const char *badge_text;
     bool dim;
+    bool controls;
     int dx, dy;
 } npc_frame_t;
 

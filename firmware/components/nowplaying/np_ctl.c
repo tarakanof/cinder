@@ -21,24 +21,50 @@ void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now)
     c->server_state = state;
     c->server_vol = volume >= 0 && volume <= 100 ? volume : -1;
     if (c->play_set && state == c->play) c->play_set = false;
-    if (state == NP_NONE) c->play_set = false;
+    if (state == NP_NONE) c->play_set = c->touch_on = false;
 }
 
 void np_ctl_push(np_ctl_t *c, double now)
 {
-    if (c->push_waiting && now - c->push_t <= NP_DOUBLE_S) {
-        c->push_waiting = false;
-        c->next_due = true;
-        return;
-    }
-    c->push_waiting = true;
-    c->push_t = now;
+    if (c->server_state == NP_NONE) return;
+    c->play = np_ctl_play_shown(c, now) == NP_PLAYING ? NP_PAUSED : NP_PLAYING;
+    c->play_set = true;
+    c->play_t = now;
+    c->play_due = true;
 }
 
-void np_ctl_long_push(np_ctl_t *c, double now)
+void np_ctl_skip(np_ctl_t *c, int dir, double now)
 {
-    (void)now;
-    c->prev_due = true;
+    if (c->server_state == NP_NONE || !dir) return;
+    if (dir > 0) c->next_due = true;
+    else c->prev_due = true;
+    if (np_ctl_touch_opa(c, now) > 0) c->touch_t = now;
+}
+
+int np_ctl_touch_opa(const np_ctl_t *c, double now)
+{
+    if (!c->touch_on || c->server_state == NP_NONE) return 0;
+    double k = (now - c->touch_t - NP_TOUCH_SHOW_S) / NP_TOUCH_FADE_S;
+    if (k < 0) return 255;
+    if (k >= 1) return 0;
+    int step = (int)(k * NP_TOUCH_FADE_STEPS) + 1;
+    return 255 * (NP_TOUCH_FADE_STEPS + 1 - step) / (NP_TOUCH_FADE_STEPS + 1);
+}
+
+bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now)
+{
+    if (c->server_state == NP_NONE) return false;
+    bool shown = np_ctl_touch_opa(c, now) > 0;
+    c->touch_on = true;
+    c->touch_t = now;
+    if (!shown) return false;
+    switch (cmd) {
+    case NP_CMD_PLAY:
+    case NP_CMD_PAUSE: np_ctl_push(c, now); return true;
+    case NP_CMD_NEXT: np_ctl_skip(c, 1, now); return true;
+    case NP_CMD_PREVIOUS: np_ctl_skip(c, -1, now); return true;
+    default: return false;
+    }
 }
 
 static bool vol_recent(const np_ctl_t *c, double now) { return c->vol_ever && now - c->vol_t < NP_HOLD_S; }
@@ -90,17 +116,13 @@ static int emit(np_ctl_t *c, np_cmd_t *out, int n, int max, np_cmd_kind_t k, int
 int np_ctl_tick(np_ctl_t *c, double now, np_cmd_t *out, int max)
 {
     if (c->server_state == NP_NONE) {
-        c->push_waiting = c->next_due = c->prev_due = false;
+        c->play_due = c->next_due = c->prev_due = false;
         c->vol_unsent = 0;
         return 0;
     }
     int n = 0;
-    if (c->push_waiting && now - c->push_t > NP_DOUBLE_S && n < max) {
-        c->push_waiting = false;
-        np_play_t shown = np_ctl_play_shown(c, now);
-        c->play = shown == NP_PLAYING ? NP_PAUSED : NP_PLAYING;
-        c->play_set = true;
-        c->play_t = now;
+    if (c->play_due && n < max) {
+        c->play_due = false;
         n = emit(c, out, n, max, c->play == NP_PAUSED ? NP_CMD_PAUSE : NP_CMD_PLAY, 0, now);
     }
     if (c->next_due && n < max) {

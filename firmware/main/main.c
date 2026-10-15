@@ -65,10 +65,11 @@ static const char *TAG = "cinder";
 
 static atomic_int s_detents;
 static atomic_int s_pushes;
-static atomic_int s_touches;
+static atomic_uint s_touches;
 static atomic_int s_long_pushes;
 static atomic_int s_page_steps;
 static atomic_int s_swipes;
+static atomic_int s_hswipes;
 static atomic_int s_np_wakes;
 static atomic_bool s_hold_seen;
 static atomic_bool s_button_down;
@@ -96,7 +97,7 @@ static EXT_RAM_BSS_ATTR ts_touch_t s_touch;
 #define DOTS_X 442
 static lv_obj_t *s_wipe, *s_dots;
 static int s_wipe_dir, s_wipe_edge = -TS_WIPE_BAND_PX;
-static double s_wipe_t0, s_dots_until;
+static EXT_RAM_BSS_ATTR double s_wipe_t0, s_dots_until;
 
 static bot_t s_bot;
 static bot_pose_t s_last_pose;
@@ -202,10 +203,17 @@ void app_input_inject(int kind, int n)
     case 0: atomic_fetch_add(&s_detents, n); break;
     case 1: atomic_fetch_add(&s_pushes, n); break;
     case 2: atomic_fetch_add(&s_long_pushes, n); break;
-    case 3: atomic_fetch_add(&s_touches, n); break;
+    case 3: atomic_fetch_add(&s_touches, ts_tap_word(TS_ZONE_NONE, n)); break;
     case 4: atomic_fetch_add(&s_page_steps, n); break;
     case 5: atomic_fetch_add(&s_swipes, n); break;
     case 6: atomic_fetch_add(&s_swipes, -n); break;
+    case 7: atomic_fetch_add(&s_hswipes, n); break;
+    case 8: atomic_fetch_add(&s_hswipes, -n); break;
+    case 9:
+    case 10:
+    case 11:
+        atomic_fetch_add(&s_touches, ts_tap_word((ts_zone_t)(TS_ZONE_PREV + kind - 9), n));
+        break;
     default: break;
     }
 }
@@ -401,7 +409,8 @@ static void touch_cb(lv_event_t *e)
     if (code == LV_EVENT_PRESSED) {
         ota_client_note_input();
         atomic_fetch_add(&s_np_wakes, 1);
-        r = ts_press(&s_touch, p.x, p.y, report, s_ks_lv->swipe_pages);
+        bool classify = s_ks_lv->swipe_pages || (pages_current(&s_nav)->flags & PAGE_TOUCH_RAW);
+        r = ts_press(&s_touch, p.x, p.y, report, classify);
     } else if (code == LV_EVENT_PRESSING) {
         ts_move(&s_touch, p.x, p.y, report, now);
     } else if (code == LV_EVENT_RELEASED) {
@@ -409,8 +418,13 @@ static void touch_cb(lv_event_t *e)
     } else {
         ts_cancel(&s_touch);
     }
-    if (r == TS_TAP) atomic_fetch_add(&s_touches, 1);
-    else if (r != TS_NONE) atomic_fetch_add(&s_swipes, r == TS_NEXT ? 1 : -1);
+    if (r == TS_TAP) {
+        atomic_fetch_add(&s_touches, ts_tap_word(ts_tap_zone(s_touch.x0, s_touch.y0), 1));
+    } else if (r == TS_LEFT || r == TS_RIGHT) {
+        atomic_fetch_add(&s_hswipes, r == TS_LEFT ? 1 : -1);
+    } else if (r != TS_NONE) {
+        atomic_fetch_add(&s_swipes, r == TS_NEXT ? 1 : -1);
+    }
 }
 
 static void wipe_rect(lv_layer_t *layer, const lv_draw_rect_dsc_t *d, int a, int b)
@@ -544,6 +558,7 @@ static void drop_inputs(void)
 {
     atomic_store(&s_page_steps, 0);
     atomic_store(&s_swipes, 0);
+    atomic_store(&s_hswipes, 0);
     atomic_store(&s_np_wakes, 0);
     atomic_store(&s_detents, 0);
     atomic_store(&s_pushes, 0);
@@ -634,10 +649,12 @@ void page_pomo_frame(const page_frame_t *f)
 
 void page_np_input(const page_input_t *in, double t)
 {
-    if (in->detents || in->pushes || in->longs || in->touches || in->wakes) np_view_input(t);
+    if (in->detents || in->pushes || in->longs || in->touches || in->wakes || in->hswipes) np_view_input(t);
     if (in->detents) np_view_turn(in->detents, t);
     for (int n = in->pushes; n > 0; n--) np_view_push(t);
-    for (int n = in->longs; n > 0; n--) np_view_long_push(t);
+    for (int z = 0; z < PAGE_TAP_ZONES; z++)
+        for (int n = in->taps[z]; n > 0; n--) np_view_tap(z, t);
+    if (in->hswipes) np_view_skip(in->hswipes, t);
 }
 
 void page_np_frame(const page_frame_t *f) { np_view_update(f->t, f->offline); }
@@ -982,9 +999,10 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     page_input_t in;
     in.detents = atomic_exchange(&s_detents, 0);
     in.pushes = atomic_exchange(&s_pushes, 0);
-    in.touches = atomic_exchange(&s_touches, 0);
+    in.touches = ts_tap_counts(atomic_exchange(&s_touches, 0), in.taps);
     in.longs = atomic_exchange(&s_long_pushes, 0);
     in.wakes = atomic_exchange(&s_np_wakes, 0);
+    in.hswipes = atomic_exchange(&s_hswipes, 0);
 
     bool offline = ember_client_offline();
     wx_obs_t wx;
@@ -995,7 +1013,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     ember_client_demo_status(&ds);
     bool calm = demo_calm(ds.playing, ds.view_on, ds.quiet, ember_client_quiet(), s_ks_lv->quiet_calm);
     bot_set_calm(&s_bot, calm, t);
-    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes)) in = (page_input_t){0};
+    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
     bot_mood_t em;
     bot_wait_scene(&s_bot, s_scene_on ? s_scene_n : 0, t);
@@ -1060,7 +1078,7 @@ static int page_index(const char *id)
 static bool inputs_pending(void)
 {
     return atomic_load(&s_detents) || atomic_load(&s_pushes) || atomic_load(&s_touches) || atomic_load(&s_long_pushes) ||
-           atomic_load(&s_page_steps) || atomic_load(&s_swipes) || atomic_load(&s_np_wakes);
+           atomic_load(&s_page_steps) || atomic_load(&s_swipes) || atomic_load(&s_hswipes) || atomic_load(&s_np_wakes);
 }
 
 static bool scene_gate(double t, bool input)

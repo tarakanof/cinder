@@ -580,7 +580,7 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
         lv_label_set_text_static(s_badge_lbl, M->badge);
         show(s_badge, M->badge[0] != 0);
     }
-    show(s_pause, look->pause_icon && !M->badge[0] && !number);
+    show(s_pause, look->pause_icon && !M->badge[0] && !number && !f->controls);
 }
 
 static void arc_line(lv_obj_t *canvas, const lv_font_t *font, const char *text, float r, uint32_t rgb, int dx, int dy)

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "touch_swipe.h"
 
@@ -51,7 +52,7 @@ static void test_swipe(void)
           "short drag: neither tap nor swipe");
     CHECK(gesture(200, 300, 260, 200, 0.15, true, NULL) == TS_NEXT, "30 degrees off vertical");
     CHECK(gesture(180, 300, 280, 200, 0.15, true, NULL) == TS_NONE, "45 degrees: ignored");
-    CHECK(gesture(130, 233, 330, 233, 0.15, true, NULL) == TS_NONE, "horizontal: ignored");
+    CHECK(gesture(130, 233, 330, 233, 0.15, true, NULL) == TS_RIGHT, "horizontal: not a page swipe");
     CHECK(gesture(236, 300, 236, 180, TS_SWIPE_MAX_S + 0.05, true, NULL) == TS_NONE, "slow drag: ignored");
     CHECK(gesture(20, 20, 20, 200, 0.15, true, NULL) == TS_NONE, "start outside the circle: ignored");
     CHECK(gesture(236, 300, 236, 150, 0.15, false, &n) == TS_TAP && n == 1, "swipe off: press is a tap, no swipe");
@@ -74,6 +75,92 @@ static void test_swipe(void)
             both += n > 1;
         }
     CHECK(both == 0, "never a tap and a swipe for one touch: %d", both);
+}
+
+static void test_horizontal(void)
+{
+    int n;
+    CHECK(gesture(330, 233, 130, 233, 0.15, true, &n) == TS_LEFT && n == 1, "swipe left");
+    CHECK(gesture(130, 233, 330, 233, 0.15, true, &n) == TS_RIGHT && n == 1, "swipe right");
+    CHECK(gesture(300, 250, 300 - TS_SWIPE_MIN_PX, 250, 0.1, true, NULL) == TS_LEFT, "minimum distance");
+    CHECK(gesture(300, 250, 300 - TS_SWIPE_MIN_PX + 1, 250, 0.1, true, &n) == TS_NONE && n == 0,
+          "short horizontal drag: neither tap nor swipe");
+    CHECK(gesture(330, 200, 230, 260, 0.15, true, NULL) == TS_LEFT, "31 degrees off horizontal");
+    CHECK(gesture(330, 200, 230, 300, 0.15, true, NULL) == TS_NONE, "45 degrees: neither direction");
+    CHECK(gesture(330, 300, 270, 200, 0.15, true, NULL) == TS_NEXT, "steep: still a page swipe");
+    CHECK(gesture(330, 233, 130, 233, TS_SWIPE_MAX_S + 0.05, true, NULL) == TS_NONE, "slow horizontal drag: ignored");
+    CHECK(gesture(5, 20, 200, 20, 0.15, true, NULL) == TS_NONE, "start outside the circle: ignored");
+    CHECK(gesture(330, 233, 130, 233, 0.15, false, &n) == TS_TAP && n == 1, "classifying off: the press is a tap");
+
+    ts_touch_t s;
+    ts_press(&s, 330, 233, 0, true);
+    ts_move(&s, 280, 233, 0.05, 0.05);
+    ts_move(&s, 230, 233, 0.1, 0.1);
+    ts_move(&s, 290, 233, 0.15, 0.15);
+    CHECK(ts_release(&s, 326, 233, 0.2, 0.2) == TS_NONE, "left and back: neither");
+    ts_press(&s, 330, 233, 0, true);
+    ts_move(&s, 270, 233, 0.05, 0.05);
+    ts_cancel(&s);
+    CHECK(ts_release(&s, 130, 233, 0.1, 0.1) == TS_NONE, "press lost: nothing");
+
+    int both = 0, lr = 0, ud = 0;
+    for (int dx = -200; dx <= 200; dx += 5)
+        for (int dy = -200; dy <= 200; dy += 5) {
+            ts_result_t r = gesture(236, 233, 236 + dx, 233 + dy, 0.2, true, &n);
+            both += n > 1;
+            lr += r == TS_LEFT || r == TS_RIGHT;
+            ud += r == TS_NEXT || r == TS_PREV;
+            if (r == TS_LEFT || r == TS_RIGHT) CHECK(2 * abs(dx) >= 3 * abs(dy) && (r == TS_LEFT) == (dx < 0), "%d,%d", dx, dy);
+            if (r == TS_NEXT || r == TS_PREV) CHECK(2 * abs(dy) >= 3 * abs(dx) && (r == TS_NEXT) == (dy < 0), "%d,%d", dx, dy);
+        }
+    CHECK(both == 0 && lr == ud && lr > 0, "one result per touch, the two axes alike: %d both, %d horizontal, %d vertical",
+          both, lr, ud);
+}
+
+static void test_zones(void)
+{
+    CHECK(ts_tap_zone(TS_CX - TS_CTL_DX, TS_CTL_Y) == TS_ZONE_PREV, "on previous");
+    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y) == TS_ZONE_PLAY, "on play/pause");
+    CHECK(ts_tap_zone(TS_CX + TS_CTL_DX, TS_CTL_Y) == TS_ZONE_NEXT, "on next");
+    CHECK(ts_tap_zone(TS_CX - TS_CTL_SPLIT, TS_CTL_Y) == TS_ZONE_PLAY &&
+              ts_tap_zone(TS_CX - TS_CTL_SPLIT - 1, TS_CTL_Y) == TS_ZONE_PREV,
+          "left split");
+    CHECK(ts_tap_zone(TS_CX + TS_CTL_SPLIT, TS_CTL_Y) == TS_ZONE_PLAY &&
+              ts_tap_zone(TS_CX + TS_CTL_SPLIT + 1, TS_CTL_Y) == TS_ZONE_NEXT,
+          "right split");
+    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y - TS_CTL_BAND) == TS_ZONE_PLAY &&
+              ts_tap_zone(TS_CX, TS_CTL_Y + TS_CTL_BAND) == TS_ZONE_PLAY,
+          "band edges count");
+    CHECK(ts_tap_zone(TS_CX, TS_CTL_Y - TS_CTL_BAND - 1) == TS_ZONE_NONE &&
+              ts_tap_zone(TS_CX - TS_CTL_DX, TS_CTL_Y + TS_CTL_BAND + 1) == TS_ZONE_NONE,
+          "above or below the band: no control");
+    CHECK(ts_tap_zone(TS_CX, 380) == TS_ZONE_NONE, "on the title: no control");
+    for (int k = -1; k <= 1; k++) {
+        int cx = TS_CX + k * TS_CTL_DX;
+        ts_zone_t want = k < 0 ? TS_ZONE_PREV : k > 0 ? TS_ZONE_NEXT : TS_ZONE_PLAY;
+        for (int dy = -TS_CTL_PX / 2; dy <= TS_CTL_PX / 2; dy += 4)
+            for (int dx = -TS_CTL_PX / 2; dx <= TS_CTL_PX / 2; dx += 4)
+                if (dx * dx + dy * dy <= TS_CTL_PX * TS_CTL_PX / 4)
+                    CHECK(ts_tap_zone(cx + dx, TS_CTL_Y + dy) == want, "control %d covers %+d,%+d", k, dx, dy);
+    }
+    int c[TS_ZONES];
+    unsigned w = 0;
+    w += ts_tap_word(TS_ZONE_NONE, 1);
+    w += ts_tap_word(TS_ZONE_NEXT, 3);
+    w += ts_tap_word(TS_ZONE_PREV, 1);
+    w += ts_tap_word(TS_ZONE_NONE, 2);
+    CHECK(ts_tap_counts(w, c) == 7 && c[TS_ZONE_NONE] == 3 && c[TS_ZONE_PREV] == 1 && c[TS_ZONE_PLAY] == 0 &&
+              c[TS_ZONE_NEXT] == 3,
+          "queued taps keep their own zones: %d %d %d %d", c[0], c[1], c[2], c[3]);
+    unsigned a = ts_tap_word(TS_ZONE_NONE, 1), b = ts_tap_word(TS_ZONE_PLAY, 1);
+    int ab[TS_ZONES], ba[TS_ZONES];
+    ts_tap_counts(a + b, ab);
+    ts_tap_counts(b + a, ba);
+    CHECK(ab[TS_ZONE_NONE] == 1 && ab[TS_ZONE_PLAY] == 1 && memcmp(ab, ba, sizeof ab) == 0,
+          "an inject between a tap and its take never retargets it");
+    CHECK(ts_tap_counts(ts_tap_word(TS_ZONE_NEXT, 127), c) == 127 && c[TS_ZONE_NEXT] == 127, "127 in the top zone");
+    CHECK(ts_tap_word(TS_ZONE_PLAY, 0) == 0 && ts_tap_word((ts_zone_t)7, 1) == 0 && ts_tap_counts(0, c) == 0, "empty");
+    CHECK(TS_CX - TS_CTL_DX - TS_CTL_PX / 2 > 0 && TS_CX + TS_CTL_DX + TS_CTL_PX / 2 < 2 * TS_CX, "controls on screen");
 }
 
 static void test_guards(void)
@@ -188,6 +275,8 @@ int main(void)
 {
     test_tap();
     test_swipe();
+    test_horizontal();
+    test_zones();
     test_guards();
     test_page_step();
     test_wipe();

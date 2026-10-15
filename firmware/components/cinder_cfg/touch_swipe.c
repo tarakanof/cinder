@@ -48,11 +48,36 @@ ts_result_t ts_release(ts_touch_t *s, int x, int y, double report_t, double now)
     if (s->max_d2 <= TS_TAP_SLOP_PX * TS_TAP_SLOP_PX) return TS_TAP;
     int dx = s->x - s->x0, dy = s->y - s->y0;
     if (!s->in_circle || t - s->t0 > TS_SWIPE_MAX_S) return TS_NONE;
-    if (abs(dy) < TS_SWIPE_MIN_PX || 2 * abs(dy) < 3 * abs(dx)) return TS_NONE;
-    return dy < 0 ? TS_NEXT : TS_PREV;
+    if (abs(dy) >= TS_SWIPE_MIN_PX && 2 * abs(dy) >= 3 * abs(dx)) return dy < 0 ? TS_NEXT : TS_PREV;
+    if (abs(dx) >= TS_SWIPE_MIN_PX && 2 * abs(dx) >= 3 * abs(dy)) return dx < 0 ? TS_LEFT : TS_RIGHT;
+    return TS_NONE;
 }
 
 void ts_cancel(ts_touch_t *s) { s->down = false; }
+
+unsigned ts_tap_word(ts_zone_t zone, int n)
+{
+    if (zone < TS_ZONE_NONE || zone > TS_ZONE_NEXT || n <= 0) return 0;
+    if (n > 127) n = 127;
+    return (unsigned)n << (TS_TAP_BITS * zone);
+}
+
+int ts_tap_counts(unsigned word, int counts[TS_ZONES])
+{
+    int total = 0;
+    for (int z = 0; z < TS_ZONES; z++) {
+        counts[z] = (int)((word >> (TS_TAP_BITS * z)) & ((1u << TS_TAP_BITS) - 1));
+        total += counts[z];
+    }
+    return total;
+}
+
+ts_zone_t ts_tap_zone(int x, int y)
+{
+    if (abs(y - TS_CTL_Y) > TS_CTL_BAND) return TS_ZONE_NONE;
+    int dx = x - TS_CX;
+    return dx < -TS_CTL_SPLIT ? TS_ZONE_PREV : dx > TS_CTL_SPLIT ? TS_ZONE_NEXT : TS_ZONE_PLAY;
+}
 
 int ts_page_step(int pos, int n, int steps)
 {

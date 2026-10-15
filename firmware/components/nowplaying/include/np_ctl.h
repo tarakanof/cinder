@@ -9,11 +9,13 @@
 extern "C" {
 #endif
 
-#define NP_DOUBLE_S 0.35
 #define NP_VOL_STEP 2
 #define NP_VOL_SEND_S 0.25
 #define NP_HOLD_S 3.0
 #define NP_VOL_SHOW_S 1.5
+#define NP_TOUCH_SHOW_S 4.0
+#define NP_TOUCH_FADE_S 0.3
+#define NP_TOUCH_FADE_STEPS 3
 
 typedef enum { NP_CMD_NONE, NP_CMD_PLAY, NP_CMD_PAUSE, NP_CMD_NEXT, NP_CMD_PREVIOUS, NP_CMD_VOLUME } np_cmd_kind_t;
 
@@ -23,9 +25,9 @@ typedef struct {
 } np_cmd_t;
 
 typedef struct {
-    bool push_waiting;
-    double push_t;
-    bool next_due, prev_due;
+    bool play_due, next_due, prev_due;
+    bool touch_on;
+    double touch_t;
     np_play_t server_state;
     int server_vol;
     bool play_set;
@@ -44,7 +46,12 @@ typedef struct {
 void np_ctl_init(np_ctl_t *c);
 void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now);
 void np_ctl_push(np_ctl_t *c, double now);
-void np_ctl_long_push(np_ctl_t *c, double now);
+/* dir > 0 next, < 0 previous. */
+void np_ctl_skip(np_ctl_t *c, int dir, double now);
+/* A tap on the touch controls: hidden, it only shows them; shown, cmd NP_CMD_PLAY (play/pause), NP_CMD_NEXT or NP_CMD_PREVIOUS runs, NP_CMD_NONE keeps them up. False when it ran nothing. */
+bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now);
+/* Touch controls' opacity 0-255: full for NP_TOUCH_SHOW_S after the last tap, then NP_TOUCH_FADE_STEPS steps down over NP_TOUCH_FADE_S. */
+int np_ctl_touch_opa(const np_ctl_t *c, double now);
 void np_ctl_turn(np_ctl_t *c, int detents, double now);
 int np_ctl_tick(np_ctl_t *c, double now, np_cmd_t *out, int max);
 void np_ctl_failed(np_ctl_t *c);
