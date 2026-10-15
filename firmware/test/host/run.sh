@@ -590,9 +590,10 @@ nword() { grep -ow -- "$1" | wc -l | tr -d ' '; }
 for F in s_demo_view_on s_demo_quiet; do
     [ "$(nword "$F" < "$ECL")" -eq 3 ] && [ "$(body "$ECL" demo_flags | nword "$F")" -eq 1 ] &&
         [ "$(body "$ECL" ember_client_demo_status | nword "$F")" -eq 1 ] ||
-        WIRING="$WIRING $F-only-in-its-declaration-demo_flags-and-ember_client_demo_status"
+        { WIRING="$WIRING $F-only-in-its-declaration-demo_flags-and-ember_client_demo_status"; grep -nw -- "$F" "$ECL" >&2; }
 done
-[ "$(grep -o 'demo_flags(' "$ECL" | wc -l | tr -d ' ')" -eq 4 ] || WIRING="$WIRING demo_flags-defined-once-and-called-only-in-apply_view-and-demo_sync"
+[ "$(nword demo_flags < "$ECL")" -eq 4 ] ||
+    { WIRING="$WIRING demo_flags-defined-once-and-called-only-in-apply_view-and-demo_sync"; grep -nw demo_flags "$ECL" >&2; }
 [ "$(body "$ECL" demo_flags | sed -n '3,6p' | tr -d ' \n')" = 'taskENTER_CRITICAL(&s_demo_mux);s_demo_view_on=view_on;s_demo_quiet=quiet;taskEXIT_CRITICAL(&s_demo_mux);' ] &&
     body "$ECL" ember_client_demo_status | awk '/taskENTER_CRITICAL\(&s_demo_mux\);/ {l = 1} /taskEXIT_CRITICAL\(&s_demo_mux\);/ {l = 0} /s_demo_view_on|s_demo_quiet/ {r++; if (!l) bad = 1} END {exit !(r == 2 && !bad)}' ||
     WIRING="$WIRING demo-view-and-quiet-flags-written-and-read-together-under-s_demo_mux"

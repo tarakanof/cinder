@@ -93,7 +93,7 @@ class StackWalk(unittest.TestCase):
                 json.dump(cfg, fh)
             out = io.StringIO()
             with mock.patch.object(stack_walk, "HERE", d), mock.patch.object(stack_walk, "Graph", lambda elfs: g), \
-                    mock.patch.object(stack_walk, "rom_elf", lambda: None), \
+                    mock.patch.object(stack_walk, "rom_elf", lambda: "rom.elf"), \
                     mock.patch.object(sys, "argv", ["stack_walk.py", "x.elf"]), contextlib.redirect_stdout(out):
                 stack_walk.main()
         return {line.split()[0]: int(line.split()[3]) for line in out.getvalue().splitlines() if line[:2] in ("a ", "b ")}
@@ -129,6 +129,39 @@ class StackWalk(unittest.TestCase):
                 graph(cfg)
             self.assertIn("not in the ELF: ", str(e.exception))
             self.assertIn("no_such_fn", str(e.exception))
+
+    def test_global_names_resolve_across_every_loaded_elf(self):
+        g = stack_walk.Graph([])
+        g.load(DISASM, {})
+        g.load("""
+40001000 <rom_only>:
+40001000:\tentry\ta1, 80
+""", {})
+        g.link()
+        g.apply({"leaves": ["rom_only"], "infeasible": [["^entry_fn$", "^rom_only$"], ["^rom_only$", "^leaf$"]]})
+
+    def test_main_fails_without_the_rom_elf_and_says_so(self):
+        with mock.patch.object(stack_walk, "rom_elf", lambda: None), \
+                mock.patch.dict(os.environ, {"IDF_TOOLS_PATH": "/no/such/idf", "ESP_ROM_ELF_DIR": "/no/such/rom/"}), \
+                mock.patch.object(sys, "argv", ["stack_walk.py", "x.elf"]):
+            with self.assertRaises(SystemExit) as e:
+                stack_walk.main()
+        self.assertIn("ROM ELF not found", str(e.exception))
+        for where in ("/no/such/rom/esp32s3_rev0_rom.elf", "/no/such/idf/esp-rom-elfs", "/no/such/idf/tools/esp-rom-elfs"):
+            self.assertIn(where, str(e.exception))
+
+    def test_rom_elf_is_found_through_the_idf_environment(self):
+        for layout, env in ((("tools", "esp-rom-elfs", "20241011"), lambda d, rd: {"IDF_TOOLS_PATH": d}),
+                            (("esp-rom-elfs", "20241011"), lambda d, rd: {"IDF_TOOLS_PATH": d}),
+                            (("rom",), lambda d, rd: {"ESP_ROM_ELF_DIR": rd + "/"})):
+            with tempfile.TemporaryDirectory() as d:
+                rom = os.path.join(d, *layout, "esp32s3_rev0_rom.elf")
+                os.makedirs(os.path.dirname(rom))
+                open(rom, "w").close()
+                clean = {k: v for k, v in os.environ.items() if k not in ("IDF_TOOLS_PATH", "ESP_ROM_ELF_DIR")}
+                clean.update(env(d, os.path.dirname(rom)), HOME=d)
+                with mock.patch.dict(os.environ, clean, clear=True):
+                    self.assertEqual(stack_walk.rom_elf(), rom, layout)
 
     def test_main_fails_when_a_leaf_is_reached_outside_its_via(self):
         rows = self.run_main({"a": {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]}})

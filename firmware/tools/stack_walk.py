@@ -41,9 +41,21 @@ def run(*args):
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
 
+def rom_globs():
+    env = os.environ.get
+    dirs = [env('ESP_ROM_ELF_DIR')] if env('ESP_ROM_ELF_DIR') else []
+    if env('IDF_TOOLS_PATH'):
+        dirs += [os.path.join(env('IDF_TOOLS_PATH'), sub, 'esp-rom-elfs', '*') for sub in ('', 'tools')]
+    dirs.append(os.path.expanduser('~/.espressif/tools/esp-rom-elfs/*'))
+    return [os.path.join(os.path.normpath(d), 'esp32s3_rev0_rom.elf') for d in dirs]
+
+
 def rom_elf():
-    hits = sorted(glob.glob(os.path.expanduser('~/.espressif/tools/esp-rom-elfs/*/esp32s3_rev0_rom.elf')))
-    return hits[-1] if hits else None
+    for pattern in rom_globs():
+        hits = sorted(glob.glob(pattern))
+        if hits:
+            return hits[-1]
+    return None
 
 
 def words(elf, addr, n):
@@ -553,8 +565,11 @@ def main():
     if not args:
         raise SystemExit('usage: stack_walk.py build/cinder.elf [task ...] [--path]')
     cfg = json.load(open(os.path.join(HERE, 'stack_walk.json')))
-    elfs = [args[0]] + ([rom_elf()] if rom_elf() else [])
-    g = Graph(elfs)
+    rom = rom_elf()
+    if not rom:
+        raise SystemExit('ROM ELF not found (looked in %s); the walk needs it for calls into ROM'
+                         % ', '.join(rom_globs()))
+    g = Graph([args[0], rom])
     g.apply(cfg)
     tasks = args[1:] or list(cfg['tasks'])
     print('estimates, not proven bounds: indirect calls not resolved statically count as 0 B')
