@@ -611,6 +611,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     f.badge_text = badge;
     f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING, hi);
     if (np_face_live(st) || st == NPF_OFFLINE) {
+        f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
         f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
@@ -652,6 +653,7 @@ void np_view_update(double now, bool offline)
         V->dropped[0] = 0;
     }
     if (fresh || !live) np_ctl_server(&V->ctl, live ? np->state : NP_NONE, live ? np->volume : -1, now);
+    if (fresh && !offline && V->snap.have) np_ctl_track(&V->ctl, np, now);
     if (live) controls_tick(now);
     np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     if (s_kind == KIND_COVER) {

@@ -1528,6 +1528,187 @@ static void test_paused_skip(lv_display_t *d, lv_obj_t *scr)
     }
 }
 
+static int title_ink(void) { return ink(285, 316, 140, 326, 200); }
+
+static long title_glow(void)
+{
+    long n = 0;
+    for (int y = 285; y < 316; y++)
+        for (int x = FX + 140; x < FX + 326; x++) n += luma(x, y) > 135 ? luma(x, y) - 135 : 0;
+    return n;
+}
+
+static void publish_now(const np_info_t *np)
+{
+    publish(np);
+    s_snap.anchor.t = s_now_us / 1e6;
+}
+static int time_ink(void) { return ink(356, 381, 160, 306, 200); }
+static int band(void) { return luma(FX + 73, 300); }
+
+typedef struct {
+    int areas;
+    long px;
+} win_t;
+
+static win_t window(lv_display_t *d, int n)
+{
+    win_t w = {0};
+    for (int i = 0; i < n; i++) {
+        frames(d, 1);
+        w.areas += s_areas;
+        w.px += s_px;
+    }
+    return w;
+}
+
+static void test_text_fade(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np = {.state = NP_PLAYING, .has_accent = true, .accent = 0xFF8A5C, .duration_ms = 228000, .position_ms = 134000,
+                    .album_art = true, .volume = 40};
+    strcpy(np.source, "music");
+    strcpy(np.title, "Glass Harbor");
+    strcpy(np.artist, "Northern Static");
+    strcpy(np.track_id, "t-a");
+    strcpy(np.art_version, "fa0001");
+    strcpy(np.cover_version, "fa0001-r1");
+    publish_now(&np);
+    frames(d, 2);
+    s_pend = (np_art_set_t){.is_cover = true, .cover = make_cover(), .avatar = make_avatar()};
+    strcpy(s_pend.version, np.cover_version);
+    s_has_pend = true;
+    frames(d, 20);
+    save("fade-text-up");
+    int up_band = band();
+    printf("np_view: text up: title %d px, time %d px, band %d\n", title_ink(), time_ink(), up_band);
+    CHECK(title_ink() > 300 && time_ink() > 150 && avatar_seen(), "a track start: title, time and avatar up: %d, %d px",
+          title_ink(), time_ink());
+    frames(d, 28);
+    win_t up = window(d, 10);
+    frames(d, 38);
+    CHECK(title_ink() > 300 && time_ink() > 150, "still up 9.9 s after the track started");
+    long levels[6];
+    int fade_max = 0;
+    long fade_px = 0;
+    for (int i = 0; i < 6; i++) {
+        frames(d, 1);
+        levels[i] = title_glow();
+        fade_px += s_px;
+        if (s_areas > fade_max) fade_max = s_areas;
+    }
+    printf("np_view: text fade, title glow per frame: %ld %ld %ld %ld %ld %ld; at most %d areas a frame, %ld px in all\n", levels[0],
+           levels[1], levels[2], levels[3], levels[4], levels[5], fade_max, fade_px);
+    CHECK(levels[0] == levels[1] && levels[1] > levels[2] && levels[2] > levels[3] && levels[3] > levels[4] && levels[4] > 0 &&
+              levels[5] == 0 && fade_max <= 2,
+          "after 10 s a 0.3 s fade in 3 steps, not a cut: %ld -> %ld -> %ld -> %ld -> %ld", levels[1], levels[2], levels[3], levels[4],
+          levels[5]);
+    int lum_clean = luma(FX + 233, 150), r, g, b;
+    save("fade-clean");
+    rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
+    printf("np_view: clean cover: title %d px, time %d px, band %d (was %d), ring %d,%d,%d\n", title_ink(), time_ink(), band(), up_band,
+           r, g, b);
+    CHECK(title_ink() == 0 && time_ink() == 0 && !avatar_seen(), "clean: no title, time or avatar");
+    CHECK(band() > up_band + 20, "clean: the scrim is gone too: band %d vs %d", band(), up_band);
+    CHECK(r > 240 && g > 120 && g < 150, "the progress ring stays: %d,%d,%d", r, g, b);
+    win_t clean = window(d, 10);
+    printf("np_view: a playing second: text up %d areas, %ld px; clean %d areas, %ld px\n", up.areas, up.px, clean.areas, clean.px);
+    CHECK(clean.areas <= up.areas && clean.px < up.px, "clean costs less a second than text up: %ld vs %ld px", clean.px, up.px);
+    CHECK(btn_ink(-1) == 0 && btn_ink(1) == 0, "no controls either");
+
+    np_view_input(s_now_us / 1e6);
+    np_view_turn(2, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(title_ink() == 0 && time_ink() == 0, "a turn: the volume shows, the text does not");
+    rgb(FX + 233 + 30, 233 - NP_EDGE_R, &r, &g, &b);
+    CHECK(r > 240 && g > 230, "the ring shows the volume: %d,%d,%d", r, g, b);
+    frames(d, 30);
+    CHECK(title_ink() == 0, "still clean after the volume");
+    rgb(FX + 233, 233 + NP_EDGE_R, &r, &g, &b);
+    CHECK(r > 240 && g > 120 && g < 150, "back to the progress ring: %d,%d,%d", r, g, b);
+
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown(), "a tap shows the controls");
+    CHECK(title_ink() > 300 && time_ink() > 150 && band() < up_band + 4, "and the text and scrim, at once: %d px", title_ink());
+    save("fade-tap");
+    frames(d, 25);
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && title_ink() > 300, "a second tap 2.5 s on");
+    frames(d, 39);
+    CHECK(title_ink() > 300 && all_shown(), "up 3.9 s after the last tap, with the controls");
+    frames(d, 5);
+    CHECK(title_ink() == 0 && none_shown(), "gone with the controls after 4 s and the fade");
+
+    frames(d, 10);
+    np_view_input(s_now_us / 1e6);
+    np_view_push(s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(title_ink() > 300 && none_shown(), "a push shows the text, not the controls");
+    frames(d, 38);
+    CHECK(title_ink() > 300, "up 3.9 s after the push (the optimistic pause ended at 3 s)");
+    frames(d, 5);
+    CHECK(title_ink() == 0, "gone 4 s after the push");
+
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 1);
+    CHECK(title_ink() > 300, "paused: the text comes up");
+    frames(d, 150);
+    save("fade-paused");
+    CHECK(title_ink() > 300 && time_ink() > 100, "paused: kept up 15 s on");
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    frames(d, 1);
+    long g0 = title_glow();
+    frames(d, 2);
+    long g1 = title_glow();
+    frames(d, 2);
+    CHECK(g0 > g1 && g1 > 0 && title_glow() == 0, "resumed with no timer running: it fades from the resume: %ld -> %ld -> %ld", g0, g1,
+          title_glow());
+
+    np_info_t nx = np;
+    strcpy(nx.title, "Paper Moons");
+    strcpy(nx.track_id, "t-b");
+    nx.position_ms = 0;
+    publish_now(&nx);
+    frames(d, 1);
+    CHECK(title_ink() > 200 && label_has(scr, "Paper Moons"), "a new track: the new title shows at once");
+    frames(d, 98);
+    CHECK(title_ink() > 200, "for 10 s");
+    frames(d, 6);
+    CHECK(title_ink() == 0, "then fades");
+
+    nx.position_ms = 20000;
+    publish_now(&nx);
+    frames(d, 2);
+    CHECK(title_ink() == 0, "a new block for the same track (a seek) keeps it clean");
+    CHECK(abs(luma(FX + 233, 150) - lum_clean) <= 2, "the cover itself is untouched by the fade");
+
+    np_info_t old = {.state = NP_PLAYING, .duration_ms = 228000, .position_ms = 134000, .album_art = true};
+    strcpy(old.title, "Glass Harbor");
+    strcpy(old.art_version, "fa0002");
+    publish_now(&old);
+    frames(d, 150);
+    int lt_ink;
+    title_hits(300, 360, &lt_ink);
+    save("fade-legacy");
+    CHECK(lt_ink > 300, "the old face keeps its title 15 s on: %d px", lt_ink);
+    np_view_show(false);
+}
+
+static void test_text_out_npc(lv_display_t *d, lv_obj_t *root)
+{
+    rig_t rg;
+    rig_start(d, root, &rg, true);
+    run(d, &rg.f, 5, 0.25);
+    rg.f.text_out = 255;
+    npc_update(&rg.f);
+    refresh(d);
+    CHECK(npc_vinyl() && ink(350, 425, 100, 366, 180) > 300, "M15 (no cover): text_out leaves the curved text: %d px",
+          ink(350, 425, 100, 366, 180));
+    CHECK(strcmp(npc_time_text(), "") != 0 && ink(90, 130, 160, 306, 150) > 50, "and the time: %d px", ink(90, 130, 160, 306, 150));
+    rig_end(root);
+}
+
 int main(int argc, char **argv)
 {
     s_dir = argc > 1 ? argv[1] : NULL;
@@ -1716,6 +1897,8 @@ int main(int argc, char **argv)
     test_dropped_set(d, scr);
     test_touch(d, scr);
     test_paused_skip(d, scr);
+    test_text_out_npc(d, root);
+    test_text_fade(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

@@ -86,6 +86,8 @@ typedef struct {
     double hold_t0;
     float hold_frac, prog_frac;
     bool prog_ok, shown_light;
+    lv_obj_t *info;
+    int info_opa;
 } npc_mem_t;
 static npc_mem_t *M;
 
@@ -176,7 +178,11 @@ void npc_build(lv_obj_t *root)
     lv_obj_align(s_shade, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(s_shade, LV_OBJ_FLAG_HIDDEN);
 
-    s_scrim = plain(root, 2 * NP_DISC_R, 2 * NP_DISC_R);
+    M->info = plain(root, 2 * NP_DISC_R, 2 * NP_DISC_R);
+    lv_obj_align(M->info, LV_ALIGN_CENTER, 0, 0);
+    M->info_opa = LV_OPA_COVER;
+
+    s_scrim = plain(M->info, 2 * NP_DISC_R, 2 * NP_DISC_R);
     lv_obj_set_style_radius(s_scrim, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(s_scrim, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(s_scrim, lv_color_black(), 0);
@@ -188,13 +194,13 @@ void npc_build(lv_obj_t *root)
     lv_obj_align(s_scrim, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(s_scrim, LV_OBJ_FLAG_HIDDEN);
 
-    s_avatar = lv_image_create(root);
+    s_avatar = lv_image_create(M->info);
     lv_obj_align(s_avatar, LV_ALIGN_CENTER, 0, AVATAR_DY);
     lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
 
-    s_title = label(root, &lv_font_montserrat_30, TITLE_W, TITLE_DY, COL_TEXT);
-    s_artist = label(root, &lv_font_montserrat_24, ARTIST_W, ARTIST_DY, COL_SUB);
-    s_time = label(root, &lv_font_montserrat_24, TIME_W, TIME_DY, 0xD6D6D6);
+    s_title = label(M->info, &lv_font_montserrat_30, TITLE_W, TITLE_DY, COL_TEXT);
+    s_artist = label(M->info, &lv_font_montserrat_24, ARTIST_W, ARTIST_DY, COL_SUB);
+    s_time = label(M->info, &lv_font_montserrat_24, TIME_W, TIME_DY, 0xD6D6D6);
     s_idle = label(root, &lv_font_montserrat_30, IDLE_W, IDLE_DY, COL_SUB);
 
     s_pause = plain(root, PAUSE_PX, PAUSE_PX);
@@ -268,6 +274,7 @@ void npc_destroy(void)
     s_avatar_buf = s_grey_buf = NULL;
     s_img = s_vinyl = s_shade = s_scrim = s_avatar = s_title = s_artist = s_time = s_idle = NULL;
     s_pause = s_vol_icon = s_num = s_badge = s_badge_lbl = NULL;
+    if (M) M->info = NULL;
     s_state = -1;
 }
 
@@ -483,6 +490,14 @@ static void place_text(int dx, int dy)
     lv_obj_align(s_time, LV_ALIGN_CENTER, dx, TIME_DY + dy);
 }
 
+static void info_fade(int opa)
+{
+    if (opa == M->info_opa) return;
+    M->info_opa = opa;
+    lv_obj_set_style_opa(M->info, (lv_opa_t)opa, 0);
+    show(M->info, opa > 0);
+}
+
 static void hide_overlays(void)
 {
     show(s_pause, false);
@@ -526,6 +541,7 @@ static void idle_update(const npc_frame_t *f, bool relayout)
         M->nopic_t0 = -1;
         show(s_vinyl, vinyl_ready());
         show(s_idle, true);
+        info_fade(LV_OPA_COVER);
         lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
         lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
         s_dx = f->dx;
@@ -852,6 +868,7 @@ void npc_update(const npc_frame_t *f)
         show(s_scrim, scrim > 0);
     }
     badge_update(f, &look);
+    info_fade(s_has_cover && !v15 ? LV_OPA_COVER - f->text_out : LV_OPA_COVER);
 
     if ((int)f->dim != s_dim) {
         s_dim = f->dim;

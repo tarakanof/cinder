@@ -1052,6 +1052,82 @@ static void test_v15(void)
     free(b);
 }
 
+static void test_info(void)
+{
+    np_ctl_t c;
+    np_ctl_init(&c);
+    np_info_t a = {.state = NP_PLAYING};
+    strcpy(a.title, "Glass Harbor");
+    strcpy(a.artist, "Northern Static");
+    strcpy(a.track_id, "t-a");
+    CHECK(np_ctl_info_opa(&c, 1.0, false) == 0, "before any track: hidden");
+    np_ctl_server(&c, NP_PLAYING, 40, 2.0);
+    np_ctl_track(&c, &a, 2.0);
+    CHECK(np_ctl_info_opa(&c, 2.0, false) == 255 && np_ctl_info_opa(&c, 2.0 + NP_INFO_TRACK_S - 0.01, false) == 255,
+          "a track start: up for %.0f s", NP_INFO_TRACK_S);
+    int prev = 255, steps = 0;
+    for (double t = 2.0 + NP_INFO_TRACK_S; t < 2.0 + NP_INFO_TRACK_S + NP_TOUCH_FADE_S; t += 0.01) {
+        int o = np_ctl_info_opa(&c, t, false);
+        CHECK(o <= prev && o > 0, "fades down at %.2f: %d", t, o);
+        steps += o != prev;
+        prev = o;
+    }
+    double gone = 2.0 + NP_INFO_TRACK_S + NP_TOUCH_FADE_S;
+    CHECK(steps == NP_TOUCH_FADE_STEPS && np_ctl_info_opa(&c, gone, false) == 0, "then the controls' %d-step fade over %.1f s",
+          steps, NP_TOUCH_FADE_S);
+    np_info_t same = a;
+    same.state = NP_PAUSED;
+    same.position_ms = 99000;
+    strcpy(same.cover_version, "c1-r1");
+    np_ctl_track(&c, &same, gone);
+    CHECK(np_ctl_info_opa(&c, gone, false) == 0, "the same track again (paused, a new position or cover): no restart");
+    np_ctl_turn(&c, 3, gone + 1);
+    CHECK(np_ctl_info_opa(&c, gone + 1, false) == 0, "a turn (volume) does not show them");
+    np_ctl_skip(&c, 1, gone + 2);
+    CHECK(np_ctl_info_opa(&c, gone + 2, false) == 0, "a swipe alone does not either; the next track does");
+    np_ctl_tap(&c, NP_CMD_NONE, 20.0);
+    CHECK(np_ctl_info_opa(&c, 20.0, false) == 255 && np_ctl_info_opa(&c, 20.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255 &&
+              np_ctl_info_opa(&c, 20.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01, false) == 0,
+          "a tap: up for the controls' %.0f s", NP_TOUCH_SHOW_S);
+    CHECK(np_ctl_info_opa(&c, 20.0 + NP_TOUCH_SHOW_S + 0.1, false) == np_ctl_touch_opa(&c, 20.0 + NP_TOUCH_SHOW_S + 0.1),
+          "on the same steps as the controls");
+    np_ctl_tap(&c, NP_CMD_NONE, 23.0);
+    CHECK(np_ctl_info_opa(&c, 23.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255, "4 s after the last tap");
+    np_ctl_push(&c, 40.0);
+    CHECK(np_ctl_touch_opa(&c, 40.0) == 0 && np_ctl_info_opa(&c, 40.0 + NP_TOUCH_SHOW_S - 0.01, false) == 255 &&
+              np_ctl_info_opa(&c, 40.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01, false) == 0,
+          "a push shows them for 4 s, not the controls");
+    np_info_t b = a;
+    strcpy(b.title, "Paper Moons");
+    np_ctl_track(&c, &b, 60.0);
+    CHECK(np_ctl_info_opa(&c, 60.0 + NP_INFO_TRACK_S - 0.01, false) == 255, "a new title: a new track");
+    np_info_t b2 = b;
+    strcpy(b2.track_id, "t-b");
+    np_ctl_track(&c, &b2, 80.0);
+    CHECK(np_ctl_info_opa(&c, 80.0, false) == 255, "a new track_id: a new track");
+    np_ctl_server(&c, NP_NONE, -1, 100.0);
+    np_ctl_push(&c, 100.0);
+    np_ctl_tap(&c, NP_CMD_NONE, 100.0);
+    CHECK(np_ctl_info_opa(&c, 100.0 + NP_TOUCH_FADE_S + 0.01, false) == 0, "nothing playing: a tap or push shows nothing");
+    np_ctl_track(&c, &b2, 250.0);
+    CHECK(np_ctl_info_opa(&c, 250.0, false) == 0, "the same track later: still clean");
+    np_info_t none = {.state = NP_NONE};
+    np_ctl_track(&c, &none, 260.0);
+    np_ctl_track(&c, &b2, 270.0);
+    CHECK(np_ctl_info_opa(&c, 270.0, false) == 255, "the same track after nothing playing: a new start");
+    np_ctl_server(&c, NP_PLAYING, 40, 300.0);
+    CHECK(np_ctl_info_opa(&c, 300.0, true) == 255 && np_ctl_info_opa(&c, 1300.0, true) == 255, "paused: up, however long");
+    int r1 = np_ctl_info_opa(&c, 1300.1, false), r2 = np_ctl_info_opa(&c, 1300.25, false), r3 = np_ctl_info_opa(&c, 1300.31, false);
+    CHECK(r1 < 255 && r1 > r2 && r2 > 0 && r3 == 0, "resumed with no timer running: the fade starts at the resume: %d %d %d", r1, r2, r3);
+    np_ctl_push(&c, 1400.0);
+    np_ctl_info_opa(&c, 1400.0, true);
+    CHECK(np_ctl_info_opa(&c, 1403.0, false) == 255 && np_ctl_info_opa(&c, 1404.31, false) == 0,
+          "resumed by a push: 4 s after the push");
+    np_ctl_init(&c);
+    np_ctl_track(&c, &b2, 2000.0);
+    CHECK(np_ctl_info_opa(&c, 2000.0, false) == 255, "after init (a page show) the first block starts the timer");
+}
+
 int main(void)
 {
     test_parse();
@@ -1064,6 +1140,7 @@ int main(void)
     test_masks();
     test_ctl();
     test_touch();
+    test_info();
     test_feedback();
     test_cover_parse();
     test_cover_plan();

@@ -25,6 +25,7 @@ typedef struct {
     bool dim;
     bool controls;
     int dx, dy;
+    int text_out; /* 0-255: how far the scrim, avatar, title, artist and time have faded out; a cover only */
 } npc_frame_t;
 
 /* Once, at np_view_create. */
