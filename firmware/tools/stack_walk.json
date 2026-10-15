@@ -1,7 +1,6 @@
 {
  "overhead": 768,
  "leaves": [
-  "__assert",
   "__assert_func",
   "__sbprintf",
   "_esp_error_check_failed",

@@ -586,15 +586,22 @@ body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_clien
     WIRING="$WIRING demo-ready-before-the-art-fetch"
 body "$ECL" apply_view | awk '/np_client_feed\(/ {n++} /demo_flags\(/ {if (n) {a++; if ($0 == "    demo_flags(want, want && e->quiet);") ga++} else {b++; if ($0 == "    if (want) demo_flags(true, e->quiet);") gb++}}
     END {exit !(n == 1 && b == 1 && gb == 1 && a == 1 && ga == 1)}' || WIRING="$WIRING apply_view-sets-the-demo-flags-before-the-now-playing-feed-and-clears-them-after"
-[ "$(grep -c 's_demo_view_on = ' "$ECL")" -eq 1 ] && [ "$(grep -c 's_demo_quiet = ' "$ECL")" -eq 1 ] &&
-    [ "$(body "$ECL" demo_flags | sed -n '3,6p' | tr -d ' \n')" = 'taskENTER_CRITICAL(&s_demo_mux);s_demo_view_on=view_on;s_demo_quiet=quiet;taskEXIT_CRITICAL(&s_demo_mux);' ] &&
+nword() { grep -ow -- "$1" | wc -l | tr -d ' '; }
+for F in s_demo_view_on s_demo_quiet; do
+    [ "$(nword "$F" < "$ECL")" -eq 3 ] && [ "$(body "$ECL" demo_flags | nword "$F")" -eq 1 ] &&
+        [ "$(body "$ECL" ember_client_demo_status | nword "$F")" -eq 1 ] ||
+        { WIRING="$WIRING $F-only-in-its-declaration-demo_flags-and-ember_client_demo_status"; grep -nw -- "$F" "$ECL" >&2; }
+done
+[ "$(nword demo_flags < "$ECL")" -eq 4 ] ||
+    { WIRING="$WIRING demo_flags-defined-once-and-called-only-in-apply_view-and-demo_sync"; grep -nw demo_flags "$ECL" >&2; }
+[ "$(body "$ECL" demo_flags | sed -n '3,6p' | tr -d ' \n')" = 'taskENTER_CRITICAL(&s_demo_mux);s_demo_view_on=view_on;s_demo_quiet=quiet;taskEXIT_CRITICAL(&s_demo_mux);' ] &&
     body "$ECL" ember_client_demo_status | awk '/taskENTER_CRITICAL\(&s_demo_mux\);/ {l = 1} /taskEXIT_CRITICAL\(&s_demo_mux\);/ {l = 0} /s_demo_view_on|s_demo_quiet/ {r++; if (!l) bad = 1} END {exit !(r == 2 && !bad)}' ||
     WIRING="$WIRING demo-view-and-quiet-flags-written-and-read-together-under-s_demo_mux"
 [ "$(grep -c 'np_client_feed(' "$ECL")" -eq 1 ] && body "$ECL" apply_view | grep -qxF '    np_client_feed(e->has_np ? &e->np : NULL, want);' ||
     WIRING="$WIRING apply_view-marks-a-demo-np-block"
 [ "$(body "$ECL" demo_sync | awk '/^    if \(P->vp\.legacy \|\| !P->vs\.have_view \|\| P->vs\.unsupported\) \{$/ {on = 1; next} on && /^    }$/ {exit} on' | tr -d ' \n')" = \
-    'P->demo_gen=gen;np_client_drop_demo();demo_flags(false,false);return;' ] || WIRING="$WIRING demo_sync-early-return-drops-the-demo-np-block"
-printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /(^|[^a-z_.>])on *([-+*\/%&|^]|<<|>>)?=([^=]|$)/ {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
+    'P->demo_gen=gen;np_client_drop_demo();demo_flags(false,false);return;' ] || WIRING="$WIRING demo_sync-early-return-drops-the-demo-np-block-and-clears-the-demo-flags"
+printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /(^|[^a-z_.>])on[ \t]*([-+*\/%&|^]|<<|>>)?=([^=]|$)/ {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
     /\(!on \|\| !bot_page\)/ && !u {u = NR} END {exit !(k && n == 1 && o == k + 1 && u > o)}' || WIRING="$WIRING music_tick-ignores-a-demo-np-block"
 [ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
     body "$ECL" apply_view | grep -qxF '    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
@@ -636,7 +643,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, demo view and quiet flags set together and cleared after the now-playing feed, the demo np block marked, dropped on an early demo_sync and ignored by music_tick, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy from scene_start, half chase through gc_half_chase_step, OTA ends a playing or offered demo"
+echo "demo scene wiring: ready before the art fetch, demo view and quiet flags set together and cleared after the now-playing feed, the demo np block marked, dropped on an early demo_sync and ignored by music_tick, flags used nowhere else, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy from scene_start, half chase through gc_half_chase_step, OTA ends a playing or offered demo"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
 body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||
