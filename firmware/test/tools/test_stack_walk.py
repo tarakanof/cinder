@@ -113,6 +113,14 @@ class StackWalk(unittest.TestCase):
             self.run_main({"a": {"entry": "entry_fn", "unreachable": ["handler"]}})
         self.assertIn("handler", str(e.exception))
 
+    def test_main_fails_on_a_task_name_not_in_the_elf(self):
+        for key in ("leaves", "leaves_via", "unreachable"):
+            spec = {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]}
+            spec[key] = spec.get(key, []) + ["no_such_fn"]
+            with self.assertRaises(SystemExit) as e:
+                self.run_main({"a": spec})
+            self.assertIn("not in the ELF: no_such_fn", str(e.exception))
+
     def test_main_fails_when_a_leaf_is_reached_outside_its_via(self):
         rows = self.run_main({"a": {"entry": "entry_fn", "leaves": ["handler"], "leaves_via": ["dispatch"]}})
         self.assertEqual(rows, {"a": 32 + 64 + 768})

@@ -517,6 +517,9 @@ def walk_task(g, cfg, t):
     spec = cfg['tasks'][t]
     entry = g.root(spec['entry'], spec.get('file'))
     leaves = spec.get('leaves', [])
+    unknown = [n for k in ('leaves', 'leaves_via', 'unreachable') for n in spec.get(k, []) if not g.addrs(n)]
+    if unknown:
+        raise SystemExit('task %s: stack_walk.json names not in the ELF: %s' % (t, ', '.join(unknown)))
     bad = reached(g, entry, spec.get('unreachable', []), [])
     if leaves:
         bad += ['%s (not only via %s)' % (n, ', '.join(spec.get('leaves_via', [])))
