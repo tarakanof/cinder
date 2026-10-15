@@ -305,12 +305,16 @@ static void test_skip_back_while_held(void)
 static void test_handover_table(void)
 {
     static const struct {
-        const char *steps, *want;
+        const char *steps, *want, *gets;
     } T[] = {
-        {"VW", "gc"},     {"VWV", "gcg"},   {"VWVW", "gcgc"}, {"VI", "gg"},     {"VIW", "ggc"},  {"VWIV", "gccg"},
-        {"VH", "gg"},     {"VHW", "ggc"},   {"HV", "cg"},     {"I", "c"},       {"IV", "cg"},    {"VT", "gn"},
-        {"VTW", "gnc"},   {"VWT", "gcn"},   {"VWTV", "gcng"}, {"VITW", "ggnc"}, {"WV", "ng"},
+        {"VW", "gc", "02"},       {"VWV", "gcg", "020"},     {"VWVW", "gcgc", "0202"}, {"VI", "gg", "00"},
+        {"VIW", "ggc", "002"},    {"VWIV", "gccg", "0220"},  {"VH", "gg", "00"},       {"VHW", "ggc", "002"},
+        {"HV", "cg", "20"},       {"I", "c", "2"},           {"IV", "cg", "20"},       {"VT", "gn", "01"},
+        {"VTW", "gnc", "012"},    {"VWT", "gcn", "020"},     {"VWTV", "gcng", "0201"}, {"VITW", "ggnc", "0012"},
+        {"WV", "ng", "00"},       {"Vi", "gg", "00"},        {"ViW", "ggc", "002"},    {"VWiV", "gccg", "0220"},
+        {"i", "c", "2"},          {"iV", "cg", "20"},        {"ViTW", "ggnc", "0012"},
     };
+    np_info_t none = {.state = NP_NONE, .volume = -1};
     np_art_set_t set;
     for (size_t r = 0; r < sizeof T / sizeof T[0]; r++) {
         char name[NP_COVERV_MAX + 1];
@@ -335,12 +339,19 @@ static void test_handover_table(void)
         const np_info_t *cur = &w;
         for (int k = 0; T[r].steps[k]; k++) {
             char st = T[r].steps[k];
+            int gets = s_cover_gets + s_artist_gets;
             if (st == 'V' || st == 'W') {
                 cur = st == 'V' ? &v : &w;
                 np_client_feed(cur);
                 service_at(10);
             } else if (st == 'I') {
                 back_from_idle(cur);
+                service_at(10);
+            } else if (st == 'i') {
+                np_client_feed(&none);
+                service_at(1000);
+                if (take(&set)) np_art_set_free(&set);
+                np_client_feed(cur);
                 service_at(10);
             } else if (st == 'H') {
                 np_client_set_visible(false);
@@ -353,8 +364,62 @@ static void test_handover_table(void)
             char saw = !got ? 'n' : set.cover && !set.no_cover ? 'c' : set.no_cover && !set.cover ? 'g' : '?';
             if (got) np_art_set_free(&set);
             CHECK(saw == T[r].want[k], "row %zu (%s) step %d '%c': want %c, saw %c", r, T[r].steps, k, st, T[r].want[k], saw);
+            gets = s_cover_gets + s_artist_gets - gets;
+            CHECK(gets == T[r].gets[k] - '0', "row %zu (%s) step %d '%c': want %c downloads, saw %d", r, T[r].steps, k, st,
+                  T[r].gets[k], gets);
         }
     }
+    s_bad_art[0] = 0;
+}
+
+static void test_forget_dropped(void)
+{
+    np_art_set_t set;
+    s_cover = s_artist = ANS_GOOD;
+    np_info_t v = block("fdv-r1"), x = block("fdx-r1");
+    np_client_feed(&v);
+    service_at(10);
+    CHECK(take(&set) && set.cover, "V's cover handed over");
+    np_art_set_free(&set);
+    int gets = s_cover_gets + s_artist_gets;
+    np_client_forget_dropped(v.cover_version);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets + 2 && take(&set) && set.cover, "V's finished set was dropped: fetched again");
+    np_art_set_free(&set);
+
+    np_client_forget_dropped(v.cover_version);
+    gets = s_cover_gets + s_artist_gets;
+    service_at(10);
+    np_client_forget_dropped(v.cover_version);
+    CHECK(take(&set) && set.cover, "a set published before the forget is kept");
+    np_art_set_free(&set);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets + 2 && !take(&set) && !np_client_pending(), "and the record with it: no third pass");
+
+    np_client_feed(&x);
+    service_at(10);
+    CHECK(take(&set) && set.cover, "X handed over");
+    np_art_set_free(&set);
+    gets = s_cover_gets + s_artist_gets;
+    np_client_forget_dropped(v.cover_version);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets && !take(&set) && !np_client_pending(), "the record moved on to X: V's forget is ignored");
+
+    np_info_t h = block("fdh-r1");
+    snprintf(h.art_version, sizeof h.art_version, "deadfd00");
+    give_up(&h);
+    strcpy(s_bad_art, h.art_version);
+    back_from_idle(&h);
+    service_at(10);
+    CHECK(take(&set) && set.no_cover && !set.avatar, "H held");
+    np_art_set_free(&set);
+    gets = s_cover_gets + s_artist_gets;
+    np_client_forget_dropped(h.cover_version);
+    service_at(10);
+    CHECK(s_cover_gets + s_artist_gets == gets && take(&set) && set.no_cover && !set.avatar, "H's held set dropped: handed over again, no download");
+    np_art_set_free(&set);
+    service_at(10);
+    CHECK(!take(&set) && !np_client_pending(), "then the backoff holds");
     s_bad_art[0] = 0;
 }
 
@@ -380,6 +445,7 @@ int main(void)
     test_avatar_retry();
     test_skip_back_while_held();
     test_handover_table();
+    test_forget_dropped();
     test_no_buffer_when_nothing_to_fetch();
     if (failures) {
         printf("np_client: %d failure(s)\n", failures);

@@ -137,6 +137,14 @@ void np_client_forget_art(void)
     xSemaphoreGive(s_lock);
 }
 
+void np_client_forget_dropped(const char *version)
+{
+    if (!S) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (!S->has_pending && S->handed_valid && strcmp(S->handed, version) == 0) S->handed_valid = false;
+    xSemaphoreGive(s_lock);
+}
+
 void np_client_set_visible(bool on)
 {
     if (!S || atomic_load(&s_visible) == on) return;
