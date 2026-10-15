@@ -218,7 +218,7 @@ static void test_avatar_retry(void)
     int artist = s_artist_gets, cover = s_cover_gets, allocs = s_jpg_allocs;
     service_at(10);
     CHECK(s_artist_gets == artist + 1 && s_jpg_allocs == allocs + 1, "given up: the avatar fetch uses the JPEG buffer");
-    CHECK(take(&set) && set.no_cover && !set.avatar && !set.cover, "the avatar fails: no_cover at once, without it");
+    CHECK(take(&set) && set.no_cover && set.held && !set.avatar && !set.cover, "the avatar fails: no_cover at once, without it, held");
     np_art_set_free(&set);
     service_at(1000);
     CHECK(s_artist_gets == artist + 1 && !take(&set), "the avatar retry backs off");
@@ -242,7 +242,8 @@ static void test_avatar_retry(void)
     CHECK(s_artist_gets == artist + 2, "the backoff grows to 10 s");
     s_artist = ANS_GOOD;
     service_at(5000);
-    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && set.avatar && !set.cover, "the avatar comes: no_cover with it");
+    CHECK(s_artist_gets == artist + 3 && take(&set) && set.no_cover && !set.held && set.avatar && !set.cover,
+          "the avatar comes: no_cover with it, not held");
     np_art_set_free(&set);
     service_at(120000);
     CHECK(s_cover_gets == cover && s_artist_gets == artist + 3 && !np_client_pending(), "then nothing more");
@@ -305,12 +306,16 @@ static void test_skip_back_while_held(void)
 static void test_handover_table(void)
 {
     static const struct {
-        const char *steps, *want;
+        const char *steps, *want, *gets;
     } T[] = {
-        {"VW", "gc"},     {"VWV", "gcg"},   {"VWVW", "gcgc"}, {"VI", "gg"},     {"VIW", "ggc"},  {"VWIV", "gccg"},
-        {"VH", "gg"},     {"VHW", "ggc"},   {"HV", "cg"},     {"I", "c"},       {"IV", "cg"},    {"VT", "gn"},
-        {"VTW", "gnc"},   {"VWT", "gcn"},   {"VWTV", "gcng"}, {"VITW", "ggnc"}, {"WV", "ng"},
+        {"VW", "gc", "02"},       {"VWV", "gcg", "020"},     {"VWVW", "gcgc", "0202"}, {"VI", "gg", "00"},
+        {"VIW", "ggc", "002"},    {"VWIV", "gccg", "0220"},  {"VH", "gg", "00"},       {"VHW", "ggc", "002"},
+        {"HV", "cg", "20"},       {"I", "c", "2"},           {"IV", "cg", "20"},       {"VT", "gn", "01"},
+        {"VTW", "gnc", "012"},    {"VWT", "gcn", "020"},     {"VWTV", "gcng", "0201"}, {"VITW", "ggnc", "0012"},
+        {"WV", "ng", "00"},       {"Vi", "gg", "00"},        {"ViW", "ggc", "002"},    {"VWiV", "gccg", "0220"},
+        {"i", "c", "2"},          {"iV", "cg", "20"},        {"ViTW", "ggnc", "0012"},
     };
+    np_info_t none = {.state = NP_NONE, .volume = -1};
     np_art_set_t set;
     for (size_t r = 0; r < sizeof T / sizeof T[0]; r++) {
         char name[NP_COVERV_MAX + 1];
@@ -335,12 +340,19 @@ static void test_handover_table(void)
         const np_info_t *cur = &w;
         for (int k = 0; T[r].steps[k]; k++) {
             char st = T[r].steps[k];
+            int gets = s_cover_gets + s_artist_gets;
             if (st == 'V' || st == 'W') {
                 cur = st == 'V' ? &v : &w;
                 np_client_feed(cur);
                 service_at(10);
             } else if (st == 'I') {
                 back_from_idle(cur);
+                service_at(10);
+            } else if (st == 'i') {
+                np_client_feed(&none);
+                service_at(1000);
+                if (take(&set)) np_art_set_free(&set);
+                np_client_feed(cur);
                 service_at(10);
             } else if (st == 'H') {
                 np_client_set_visible(false);
@@ -353,6 +365,9 @@ static void test_handover_table(void)
             char saw = !got ? 'n' : set.cover && !set.no_cover ? 'c' : set.no_cover && !set.cover ? 'g' : '?';
             if (got) np_art_set_free(&set);
             CHECK(saw == T[r].want[k], "row %zu (%s) step %d '%c': want %c, saw %c", r, T[r].steps, k, st, T[r].want[k], saw);
+            gets = s_cover_gets + s_artist_gets - gets;
+            CHECK(gets == T[r].gets[k] - '0', "row %zu (%s) step %d '%c': want %c downloads, saw %d", r, T[r].steps, k, st,
+                  T[r].gets[k], gets);
         }
     }
     s_bad_art[0] = 0;
