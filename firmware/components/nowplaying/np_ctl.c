@@ -21,12 +21,17 @@ void np_ctl_init(np_ctl_t *c)
 
 void np_ctl_server(np_ctl_t *c, np_play_t state, int volume, double now)
 {
+    bool was_paused = c->server_state != NP_NONE && np_ctl_play_shown(c, now) == NP_PAUSED;
     if (state != NP_NONE) c->held = state;
     else if (c->server_state != NP_NONE) c->held = np_ctl_play_shown(c, now);
     c->server_state = state;
     c->server_vol = volume >= 0 && volume <= 100 ? volume : -1;
     if (c->play_set && state == c->play) c->play_set = false;
     if (state == NP_NONE) c->play_set = c->touch_on = false;
+    if (was_paused && state != NP_NONE && np_ctl_play_shown(c, now) != NP_PAUSED && !c->touch_dim) {
+        c->touch_on = true;
+        c->touch_t = now;
+    }
 }
 
 np_play_t np_ctl_held(const np_ctl_t *c) { return c->held; }
@@ -34,20 +39,29 @@ np_play_t np_ctl_held(const np_ctl_t *c) { return c->held; }
 void np_ctl_push(np_ctl_t *c, double now)
 {
     if (c->server_state == NP_NONE) return;
+    bool shown = np_ctl_touch_opa(c, now) > 0;
+    c->touch_dim = false;
     c->play = np_ctl_play_shown(c, now) == NP_PLAYING ? NP_PAUSED : NP_PLAYING;
     c->play_set = true;
     c->play_t = now;
     c->play_due = true;
     c->info_t = now;
-    if (np_ctl_touch_opa(c, now) > 0) c->touch_t = now;
+    if (shown) {
+        c->touch_on = true;
+        c->touch_t = now;
+    }
 }
 
 void np_ctl_skip(np_ctl_t *c, int dir, double now)
 {
     if (c->server_state == NP_NONE || !dir) return;
+    c->touch_dim = false;
     if (dir > 0) c->next_due = true;
     else c->prev_due = true;
-    if (np_ctl_touch_opa(c, now) > 0) c->touch_t = c->info_t = now;
+    if (np_ctl_touch_opa(c, now) > 0) {
+        c->touch_on = true;
+        c->touch_t = c->info_t = now;
+    }
 }
 
 int np_fade_opa(double age, double hold)
@@ -61,9 +75,13 @@ int np_fade_opa(double age, double hold)
 
 int np_ctl_touch_opa(const np_ctl_t *c, double now)
 {
-    if (!c->touch_on || c->server_state == NP_NONE) return 0;
+    if (c->server_state == NP_NONE) return 0;
+    if (!c->touch_dim && np_ctl_play_shown(c, now) == NP_PAUSED) return 255;
+    if (!c->touch_on) return 0;
     return np_fade_opa(now - c->touch_t, NP_TOUCH_SHOW_S);
 }
+
+void np_ctl_dim(np_ctl_t *c, bool dim) { c->touch_dim = dim; }
 
 static uint32_t key_add(uint32_t h, const char *s)
 {
@@ -120,6 +138,7 @@ bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now)
     if (c->server_state == NP_NONE) return false;
     bool shown = np_ctl_touch_opa(c, now) > 0;
     c->touch_on = true;
+    c->touch_dim = false;
     c->touch_t = now;
     c->info_t = now;
     if (!shown) {
@@ -140,6 +159,7 @@ static bool vol_recent(const np_ctl_t *c, double now) { return c->vol_ever && no
 void np_ctl_turn(np_ctl_t *c, int detents, double now)
 {
     if (!detents) return;
+    c->touch_dim = false;
     int pts = detents * NP_VOL_STEP;
     if (now - c->vol_t > NP_VOL_SHOW_S) c->vol_gesture = 0;
     int base = vol_recent(c, now) && c->vol >= 0 ? c->vol : c->server_vol;

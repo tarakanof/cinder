@@ -1247,11 +1247,15 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     frames(d, 8);
     np_view_push(s_now_us / 1e6);
     frames(d, 1);
-    CHECK(s_ncmds == n + 3 && (s_cmds[n + 2] == NP_CMD_PLAY || s_cmds[n + 2] == NP_CMD_PAUSE),
-          "push: play/pause at once, no double-push wait");
-    CHECK(btn_ink(0) > 40 && none_shown() && !lit(0), "hidden: the push shows in the round badge");
-    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown() && lit_only(0),
-          "a reveal tap while the badge is up: the normal play/pause comes up, pulsing, not the badge");
+    CHECK(s_ncmds == n + 3 && s_cmds[n + 2] == NP_CMD_PAUSE, "push: play/pause at once, no double-push wait");
+    CHECK(all_shown() && lit_only(0), "hidden: a push that pauses brings the controls up, play/pause pulses");
+    frames(d, 40);
+    CHECK(none_shown() && btn_ink(0) == 0, "the unconfirmed pause ends: hidden again");
+    np_view_skip(1, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(btn_ink(0) > 40 && none_shown() && !lit(0), "hidden: the swipe shows in the round badge");
+    CHECK(touch(d, TS_ZONE_NONE) == 0 && all_shown() && lit_only(1),
+          "a reveal tap while the badge is up: the controls come up, its control pulsing, not the badge");
     CHECK(touch(d, TS_ZONE_PLAY) == 1, "and the middle zone works at once");
 
     frames(d, 10);
@@ -1745,7 +1749,7 @@ static void test_text_fade(lv_display_t *d, lv_obj_t *scr)
     np_view_input(s_now_us / 1e6);
     np_view_push(s_now_us / 1e6);
     frames(d, 1);
-    CHECK(title_ink() > 300 && none_shown(), "a push shows the text, not the controls");
+    CHECK(title_ink() > 300 && all_shown(), "a push shows the text; it paused, so the controls too");
     frames(d, 38);
     CHECK(title_ink() > 300, "up 3.9 s after the push (the optimistic pause ended at 3 s)");
     frames(d, 5);
@@ -1902,7 +1906,7 @@ static void test_text_fade_review(lv_display_t *d, lv_obj_t *scr)
     np.state = NP_PAUSED;
     publish_now(&np);
     frames(d, 3);
-    CHECK(title_ink() > 300 && avatar_seen(), "paused: up");
+    CHECK(title_ink() > 300 && all_shown() && !avatar_seen(), "paused: up, with the controls, so the avatar makes room");
     frames_off(d, 150);
     save("fade-paused-offline");
     CHECK(title_ink() > 300 && avatar_seen(), "paused, then offline 15 s: the text and the avatar stay beside the badge: %d px",
@@ -2009,6 +2013,85 @@ static int title_y(lv_obj_t *scr)
     if (!l) return -1000;
     lv_obj_update_layout(l);
     return lv_obj_get_y(l);
+}
+
+static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np;
+    cover_track(d, &np, "Paused Tap", 228000, 60000, true);
+    frames(d, 3);
+    CHECK(none_shown() && btn_ink(0) == 0, "cover face, playing: hidden");
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 2);
+    CHECK(all_shown(), "cover face, paused: the controls come up without a tap");
+    frames(d, 100);
+    CHECK(all_shown(), "cover face: and stay 10 s on, no fade");
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "cover face, paused: one tap on play/pause plays");
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    frames(d, 38);
+    CHECK(all_shown(), "cover face, playing again: up 3.8 s after the tap");
+    frames(d, 6);
+    CHECK(none_shown() && btn_ink(0) == 0, "cover face: then the normal fade");
+    CHECK(touch(d, TS_ZONE_PLAY) == 0 && s_ncmds == 1 && all_shown(), "cover face, playing: the first tap still only shows them");
+    frames(d, 50);
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 2);
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    frames(d, 38);
+    CHECK(all_shown(), "cover face, played elsewhere: the fade starts at the resume");
+    frames(d, 6);
+    CHECK(none_shown(), "cover face: and ends 4 s on");
+
+    np_info_t old = {.state = NP_PAUSED, .duration_ms = 228000, .position_ms = 134000, .album_art = true};
+    strcpy(old.title, "Glass Harbor");
+    strcpy(old.art_version, "fb43cf74b67a");
+    publish(&old);
+    frames(d, 2);
+    CHECK(luma(FX + 233 - 198, 233) > 30 && all_shown(), "old face, paused: the controls come up without a tap");
+    frames(d, 100);
+    CHECK(all_shown(), "old face: and stay");
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face, paused: one tap on play/pause plays");
+    old.state = NP_PLAYING;
+    publish(&old);
+    frames(d, 38);
+    CHECK(all_shown(), "old face, playing again: up 3.8 s after the tap");
+    frames(d, 6);
+    CHECK(none_shown() && btn_ink(0) == 0, "old face: then the normal fade");
+    CHECK(touch(d, TS_ZONE_PLAY) == 0 && s_ncmds == 1 && all_shown(), "old face, playing: the first tap still only shows them");
+    np_view_show(false);
+
+    np_view_create(scr);
+    np_view_show(true);
+    cover_track(d, &np, "Vinyl Pause", 900000, 60000, false);
+    s_pend = (np_art_set_t){.is_cover = true, .no_cover = true};
+    strcpy(s_pend.version, np.cover_version);
+    s_has_pend = true;
+    frames(d, 10);
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 2);
+    CHECK(npc_vinyl() && all_shown(), "vinyl, paused: the controls are up");
+    frames(d, 1810);
+    CHECK(none_shown() && btn_ink(0) == 0, "vinyl paused 3 min without input: the face dims and the controls go");
+    s_ncmds = 0;
+    np_view_input(s_now_us / 1e6);
+    frames(d, 2);
+    CHECK(none_shown() && btn_ink(0) == 0, "the press wakes the face; the controls wait for the tap");
+    np_view_tap(TS_ZONE_PLAY, s_now_us / 1e6);
+    frames(d, 1);
+    CHECK(s_ncmds == 0 && all_shown(), "the waking tap only shows them");
+    frames(d, 100);
+    CHECK(all_shown(), "then the pause holds them again");
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "and the next tap plays");
+    np_view_show(false);
 }
 
 static void test_burn_in_gap(lv_display_t *d, lv_obj_t *scr)
@@ -2229,6 +2312,7 @@ int main(int argc, char **argv)
     test_text_fade_review(d, scr);
     test_offline_push(d, scr);
     test_burn_in_gap(d, scr);
+    test_paused_controls(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

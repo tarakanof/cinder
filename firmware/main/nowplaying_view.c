@@ -633,14 +633,16 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     int hi = -1;
     if (live) f.badge = badge_content(now, badge, sizeof badge, &hi);
     f.badge_text = badge;
+    bool face = np_face_live(st) || st == NPF_OFFLINE, dimmable = st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl());
+    if (face) f.dim = dim_step(dimmable, now);
+    if (f.dim || !dimmable) np_ctl_dim(&V->ctl, f.dim);
     f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING, hi);
-    if (np_face_live(st) || st == NPF_OFFLINE) {
+    if (face) {
         np_play_t last = np_ctl_held(&V->ctl);
         bool held = st == NPF_OFFLINE && V->snap.have && V->snap.info.state != NP_NONE &&
                     (last != NP_NONE ? last : V->snap.info.state) == NP_PAUSED;
         f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED || held);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
-        f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
     } else {
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {
