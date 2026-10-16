@@ -641,28 +641,42 @@ void wx_paint_marker(wx_img_t *im)
     }
 }
 
-void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift)
+void wx_cloud_one(const wx_clouds_t *all, int i, wx_clouds_t *one)
 {
-    *still = *all;
-    *drift = *all;
-    drift->n = 0;
-    if (all->n <= 0) return;
-    still->n = all->n - 1;
-    drift->n = 1;
-    drift->cl[0] = all->cl[all->n - 1];
+    *one = *all;
+    one->n = 0;
+    if (i < 0 || i >= all->n) return;
+    one->n = 1;
+    one->cl[0] = all->cl[i];
 }
 
 static int box_px(wx_box_t b) { return (b.x1 - b.x0) * (b.y1 - b.y0); }
 
-int wx_clouds_max_px(bool drift)
+static int scene_bytes(wx_box_t b) { return (box_px(b) * 3 + WX_SCENE_ALIGN - 1) / WX_SCENE_ALIGN * WX_SCENE_ALIGN; }
+
+static void clouds_none(wx_bake_out_t *out)
+{
+    out->nclouds = 0;
+    memset(out->cloud, 0, sizeof out->cloud);
+    memset(out->cloud_at, 0, sizeof out->cloud_at);
+    memset(out->cloud_back, 0, sizeof out->cloud_back);
+}
+
+int wx_scene_px(void)
 {
     int m = 0;
     for (int band = 1; band <= 4; band++) {
-        wx_clouds_t all, s, d;
+        wx_clouds_t all, one;
         wx_clouds_for(band, false, &all);
-        wx_clouds_split(&all, &s, &d);
-        int px = box_px(wx_clouds_box(drift ? &d : &s));
-        if (px > m) m = px;
+        int sum = 0;
+        for (int i = 0; i < all.n; i++) {
+            wx_cloud_one(&all, i, &one);
+            sum += scene_bytes(wx_clouds_box(&one));
+        }
+        sum = (sum + 2) / 3;
+        int whole = box_px(wx_clouds_box(&all));
+        if (sum > m) m = sum;
+        if (whole > m) m = whole;
     }
     return m;
 }
@@ -694,10 +708,10 @@ static void bake_rain(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     wx_paint_umbrella(&bg);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
-    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    clouds_none(out);
     wx_rain_layout_t l;
     wx_rain_layout(&l);
-    uint8_t *m = b->still;
+    uint8_t *m = b->scene;
     for (int s = 0; s < WX_SHEETS; s++) {
         wx_paint_sheet(m + l.tile[s], s, r);
         wx_paint_ramp(m + l.top[s], s, false, l.ramp_h[s]);
@@ -724,7 +738,7 @@ static void bake_cast(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     wx_paint_clear(&bg);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
-    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    clouds_none(out);
     wx_cast_layout_t l;
     wx_cast_layout(c->variant, &l);
     for (int s = 0; s < l.sides; s++) {
@@ -732,14 +746,14 @@ static void bake_cast(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
         wx_cast_clouds(c->variant, s, &cl);
         wx_box_t cb = l.cloud[s];
         int w = cb.x1 - cb.x0, h = cb.y1 - cb.y0;
-        uint8_t *m = b->still + l.cloud_at[s];
+        uint8_t *m = b->scene + l.cloud_at[s];
         wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = cb.x0, .y0 = cb.y0,
                        .yield = b->yield};
         wx_paint_clouds(&im, &cl);
         const wx_cast_sheet_t *sh = wx_cast_sheet(c->variant, s);
-        wx_paint_cast_sheet(b->still + l.strip[s], sh, c->snow);
-        wx_paint_cast_ramp(b->still + l.top[s], sh, false, l.ramp_h[s]);
-        wx_paint_cast_ramp(b->still + l.bottom[s], sh, true, l.ramp_h[s]);
+        wx_paint_cast_sheet(b->scene + l.strip[s], sh, c->snow);
+        wx_paint_cast_ramp(b->scene + l.top[s], sh, false, l.ramp_h[s]);
+        wx_paint_cast_ramp(b->scene + l.bottom[s], sh, true, l.ramp_h[s]);
     }
 }
 
@@ -754,16 +768,16 @@ static void bake_wind(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     wx_paint_pole(&bg, w->level);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
-    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    clouds_none(out);
     wx_wind_layout_t l;
     wx_wind_layout(w->level, &l);
     for (int p = 0; p < WX_WIND_POSES; p++) {
         wx_pt_t q[WX_WIND_QUADS][4];
         for (int k = 0; k < WX_WIND_QUADS; k++) wx_wind_quad(w->level, p, k, q[k]);
-        paint_sock(b->still + l.fill[p], b->still + l.dark[p], l.sock, q, b->yield);
+        paint_sock(b->scene + l.fill[p], b->scene + l.dark[p], l.sock, q, b->yield);
     }
-    for (int r = 0; r < l.nrows; r++) wx_paint_streak(b->still + l.streak[r], w->level, r, l.streak_w[r]);
-    for (int k = 0; l.nleaves && k < WX_LEAF_ROTS; k++) wx_paint_leaf(b->still + l.leaf[k], k);
+    for (int r = 0; r < l.nrows; r++) wx_paint_streak(b->scene + l.streak[r], w->level, r, l.streak_w[r]);
+    for (int k = 0; l.nleaves && k < WX_LEAF_ROTS; k++) wx_paint_leaf(b->scene + l.leaf[k], k);
 }
 
 void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t *out)
@@ -803,11 +817,18 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
         wx_paint_thermo(&bg);
         wx_paint_face_dots(&bg, t->face, WXF_N);
         wx_ring_blit(b->ring, b->bg);
-        wx_clouds_t all, still, drift;
+        wx_clouds_t all, one;
         wx_clouds_for(t->cloud_band, t->night, &all);
-        wx_clouds_split(&all, &still, &drift);
-        out->still = layer(b->still, &still, b->yield);
-        out->drift = layer(b->drift, &drift, b->yield);
+        clouds_none(out);
+        for (int i = 0, at = 0; i < all.n && out->nclouds < WX_CLOUDS_MAX; i++) {
+            wx_cloud_one(&all, i, &one);
+            wx_box_t bx = layer(b->scene + at, &one, b->yield);
+            if (bx.x1 <= bx.x0) continue;
+            out->cloud[out->nclouds] = bx;
+            out->cloud_back[out->nclouds] = one.cl[0].back;
+            out->cloud_at[out->nclouds++] = at;
+            at += scene_bytes(bx);
+        }
     }
     if (kind & WX_BAKE_HERO) {
         out->hero = (wx_box_t){0, 0, 0, 0};
@@ -1587,12 +1608,12 @@ static void bake_days(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_b
     wx_paint_clear(&bg);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
-    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    clouds_none(out);
     wx_days_layout_t l;
     wx_days_layout(d, &l);
     int w = l.sprite.x1 - l.sprite.x0, h = l.sprite.y1 - l.sprite.y0;
     for (int i = 0; i < l.n; i++) {
-        uint8_t *m = b->still + l.at[i];
+        uint8_t *m = b->scene + l.at[i];
         wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sprite.x0,
                        .y0 = l.y[i] - WX_DAYS_ROW_UP, .yield = b->yield};
         wx_paint_day_row(&im, d, i, &l);
@@ -1706,12 +1727,12 @@ static void bake_sun(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     wx_paint_sun_scene(&bg, s);
     wx_paint_face_dots(&bg, t->face, WXF_N);
     wx_ring_blit(b->ring, b->bg);
-    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    clouds_none(out);
     wx_sun_layout_t l;
     wx_sun_layout(&l);
-    paint_sun_rays(b->still + l.rays_at, l.rays, b->yield);
+    paint_sun_rays(b->scene + l.rays_at, l.rays, b->yield);
     int w = l.sun.x1 - l.sun.x0, h = l.sun.y1 - l.sun.y0;
-    uint8_t *m = b->still + l.sun_at;
+    uint8_t *m = b->scene + l.sun_at;
     wx_img_t im = {.px = (uint16_t *)m, .a = m + (size_t)w * h * 2, .w = w, .h = h, .x0 = l.sun.x0, .y0 = l.sun.y0,
                    .yield = b->yield};
     wx_paint_sun(&im);
@@ -2035,9 +2056,9 @@ static void bake_air(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_ba
     wx_ring_blit(b->ring, b->bg);
     wx_paint_air_scene(&bg, a->wilted);
     wx_paint_face_dots(&bg, t->face, WXF_N);
-    out->still = out->drift = (wx_box_t){0, 0, 0, 0};
+    clouds_none(out);
     for (int r = 0; a->wilted && r < WX_PETAL_ROTS; r++) {
-        uint8_t *m = b->still + r * WX_PETAL_BOX * WX_PETAL_BOX * 3;
+        uint8_t *m = b->scene + r * WX_PETAL_BOX * WX_PETAL_BOX * 3;
         wx_img_t im = {.px = (uint16_t *)m, .a = m + WX_PETAL_BOX * WX_PETAL_BOX * 2, .w = WX_PETAL_BOX, .h = WX_PETAL_BOX,
                        .yield = b->yield};
         wx_paint_petal(&im, r);

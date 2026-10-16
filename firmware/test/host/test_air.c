@@ -585,18 +585,18 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_clouds_max_px(false) * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3), *drift = calloc(1, (size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = m, .drift = drift};
+    size_t scene = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, scene), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_obs_t o = air(42);
     wx_temp_t t;
     wx_temp_face(&o, NULL, WXF_AIR, &t);
-    wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .still = {1, 1, 2, 2}, .drift = {1, 1, 2, 2}};
+    wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .nclouds = 1};
     memset(bg, 0x55, sizeof bg);
     clock_t t0 = clock();
     wx_bake(&t, WX_BAKE_FULL, &b, &out);
     printf("air: host bake healthy %.2f ms\n", (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
-    CHECK(out.hero.x1 == 0 && out.still.x1 == 0 && out.drift.x1 == 0, "no hero or cloud sprites");
+    CHECK(out.hero.x1 == 0 && out.nclouds == 0, "no hero or cloud sprites");
     CHECK(lut[0] == wx_rgb565(0x4FD6CC) && lut[WX_RING_LUT - 1] == wx_rgb565(0xD03060) && lut[(WX_RING_LUT - 1) / 2] == wx_rgb565(0xF0E641),
           "the gauge from Good to Very poor, Moderate at the top");
     size_t zero = 0;
@@ -655,7 +655,7 @@ static void test_paint(void)
     CHECK(a5[10 * WX_PETAL_BOX + 16] > 200 && a5[16 * WX_PETAL_BOX + 10] == 0, "at rest it lies along the ground (86 degrees)");
     CHECK(a0[10 * WX_PETAL_BOX + 17] == 0 && a0[15 * WX_PETAL_BOX + 6] > 100 && a5[15 * WX_PETAL_BOX + 6] < 100,
           "at the top it is turned 50 degrees back");
-    CHECK((size_t)(6 * WX_PETAL_BOX * WX_PETAL_BOX * 3) <= still, "the petals fit the still buffer");
+    CHECK((size_t)(6 * WX_PETAL_BOX * WX_PETAL_BOX * 3) <= scene, "the petals fit the scene buffer");
 
     o.has_aqi = false;
     wx_temp_face(&o, NULL, WXF_AIR, &t);
@@ -665,7 +665,6 @@ static void test_paint(void)
 #undef PX
     free(m);
     free(hero);
-    free(drift);
 }
 
 int main(void)

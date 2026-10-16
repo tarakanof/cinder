@@ -25,7 +25,7 @@ Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.
 2. **No LVGL image transforms in motion.** Image scale was ~160 ms/frame on the bot outline. Rotation or zoom of a picture at runtime (vinyl label spin, cover "Ken Burns" zoom) is out; use a few pre-rendered frames or drop the effect.
 3. **No tear sync** (TE not routed). Large moving areas tear; small, even steps hide it. Prefer one-off transitions to looping full-face motion.
 4. **Bake once, blit often.** Gradients, soft fades, glows, scrims and text over images go into RGB565 / RGB565A8 images (PSRAM) when the data changes, like the bot outline and the curved host label.
-5. **Ambient motion ≤ 15 fps** and only on the hero's bounding box; arrival up to 30 fps.
+5. **Ambient motion ≤ 15 fps** and only on the hero's bounding box; arrival up to 30 fps. Deviation: the Temperature face's clouds each drift in their own box, one box per frame ([`features.md`](features.md) "Every cloud drifts").
 
 ## Weather faces
 

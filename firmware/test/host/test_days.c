@@ -469,7 +469,7 @@ static void test_cols(void)
 
 static void test_layout(void)
 {
-    size_t still = (size_t)wx_clouds_max_px(false) * 3;
+    size_t scene = (size_t)wx_scene_px() * 3;
     wx_obs_t o = an1();
     wx_days_t d;
     wx_days_layout_t l;
@@ -494,7 +494,7 @@ static void test_layout(void)
             }
             wx_days_from(&w, &d);
             wx_days_layout(&d, &l);
-            CHECK((size_t)l.total <= still, "%d..%d: the sprites (%d B) fit the still buffer (%zu B)", lo, lo + span, l.total, still);
+            CHECK((size_t)l.total <= scene, "%d..%d: the sprites (%d B) fit the scene buffer (%zu B)", lo, lo + span, l.total, scene);
             CHECK(l.area.x0 >= 0 && l.area.x1 <= WX_FACE, "%d..%d: the box inside the face", lo, lo + span);
         }
     o.day_n = 0;
@@ -643,18 +643,18 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_clouds_max_px(false) * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3), *drift = calloc(1, (size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = m, .drift = drift};
+    size_t scene = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, scene), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_obs_t o = an1();
     wx_temp_t t;
     wx_temp_face(&o, NULL, WXF_DAYS, &t);
-    wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .still = {1, 1, 2, 2}, .drift = {1, 1, 2, 2}};
+    wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .nclouds = 1};
     memset(bg, 0x55, sizeof bg);
     clock_t t0 = clock();
     wx_bake(&t, WX_BAKE_FULL, &b, &out);
     printf("days: host bake %.2f ms\n", (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
-    CHECK(out.hero.x1 == 0 && out.still.x1 == 0 && out.drift.x1 == 0, "no hero or cloud sprites");
+    CHECK(out.hero.x1 == 0 && out.nclouds == 0, "no hero or cloud sprites");
     CHECK(bg[11 * WX_FACE + 233] == wx_rgb565(0x262626) && bg[(int)(233 + 222) * WX_FACE + 233] == wx_rgb565(0x262626),
           "the grey ring at r 222");
     CHECK(bg[(233 - 222 - 4) * WX_FACE + 233] == 0 && bg[(233 - 222 + 4) * WX_FACE + 233] == 0 && bg[(233 - 222 + 2) * WX_FACE + 233] != 0 &&
@@ -766,12 +766,11 @@ static void test_paint(void)
 
     o.day_n = 0;
     wx_temp_face(&o, NULL, WXF_DAYS, &t);
-    memset(m, 0x77, still);
+    memset(m, 0x77, scene);
     wx_bake(&t, WX_BAKE_FULL, &b, &out);
     CHECK(bg[11 * WX_FACE + 233] == wx_rgb565(0x262626) && m[0] == 0x77, "no rows: the ring and dots, no sprite written");
     free(m);
     free(hero);
-    free(drift);
 }
 
 int main(void)

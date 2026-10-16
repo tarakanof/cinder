@@ -45,11 +45,13 @@ typedef struct {
     wx_circle_t c[4];
 } wx_cloud_t;
 
+#define WX_CLOUDS_MAX 4
+
 typedef struct {
     int n;
     wx_tone_t tone;
     float fade_from;
-    wx_cloud_t cl[4];
+    wx_cloud_t cl[WX_CLOUDS_MAX];
 } wx_clouds_t;
 
 typedef struct {
@@ -126,6 +128,32 @@ typedef struct {
 /* Burn-in: after WX_SHIFT_S s on screen the face steps to the next corner of a WX_SHIFT_PX square; true on a step. A non-finite or negative dt counts as 0. */
 bool wx_shift_tick(wx_shift_t *s, double dt);
 void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy);
+
+#define WX_DRIFT_X 6
+#define WX_DRIFT_Y 1
+#define WX_DRIFT_MIN_S 7.0f
+#define WX_DRIFT_MAX_S 13.0f
+#define WX_DRIFT_RAMP_S 2.0
+#define WX_DRIFT_FPS 15
+#define WX_DRIFT_BACK 0.6f
+
+typedef struct {
+    int n, turn;
+    long frame;
+    uint32_t starts;
+    double t;   /* s since the start, only wx_drift_tick advances it */
+    float period[WX_CLOUDS_MAX], phase_x[WX_CLOUDS_MAX], phase_y[WX_CLOUDS_MAX], depth[WX_CLOUDS_MAX];
+    int dx[WX_CLOUDS_MAX], dy[WX_CLOUDS_MAX];
+} wx_drift_t;
+
+/* n clouds at rest on a new set of paths (back[i]: a back cloud, swings less; NULL: all front); seeded from entropy and the start count. */
+void wx_drift_start(wx_drift_t *d, int n, const bool *back, uint32_t entropy);
+/* Cloud i's path t s after the start: depth * ±WX_DRIFT_X across, depth * ±WX_DRIFT_Y bob, 0 at t 0. */
+void wx_drift_path(const wx_drift_t *d, int i, double t, int *dx, int *dy);
+/* Advances the drift clock; a non-finite or negative dt counts as 0. */
+void wx_drift_tick(wx_drift_t *d, double dt);
+/* On a new WX_DRIFT_FPS frame of the clock, the next cloud off its path steps 1 px per axis toward it; returns it, else -1. */
+int wx_drift_step(wx_drift_t *d);
 
 #ifdef __cplusplus
 }

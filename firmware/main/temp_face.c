@@ -8,6 +8,7 @@
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,6 +27,8 @@ LV_FONT_DECLARE(font_face_36);
 
 static const char *TAG = "tempface";
 
+_Static_assert(WX_SCENE_ALIGN % LV_DRAW_BUF_ALIGN == 0, "cloud sprites start on LVGL's draw buffer alignment");
+
 #define FACE_X 3
 #define VALUE_Y 200
 #define SUB_Y WX_SUB_Y
@@ -35,7 +38,6 @@ static const char *TAG = "tempface";
 #define ARRIVE_FPS 30.0
 #define FADE_FPS 15.0
 #define SUB_FADE_S 0.48
-#define DRIFT_PERIOD_S 8.0
 #define GREY_RGB 0x5A5A5A
 #define UNIT_GAP 6
 #define SNOW_RGB 0xD0DCE8
@@ -46,7 +48,7 @@ static const char *TAG = "tempface";
 
 #define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)
 
-static lv_obj_t *s_root, *s_bg, *s_hero, *s_still, *s_drift, *s_thermo, *s_marker, *s_value, *s_unit, *s_lo, *s_hi, *s_sub;
+static lv_obj_t *s_root, *s_bg, *s_hero, *s_thermo, *s_marker, *s_value, *s_unit, *s_lo, *s_hi, *s_sub;
 static lv_obj_t *s_sheet[WX_SHEETS], *s_strip[WX_SHEETS][2], *s_top[WX_SHEETS], *s_bottom[WX_SHEETS], *s_cover[WX_SHEETS];
 static lv_obj_t *s_drip[WX_DRIPS], *s_splash[WX_SPLASHES], *s_bolt;
 static lv_obj_t *s_cbox[WX_CAST_SIDES], *s_cloud[WX_CAST_SIDES], *s_csheet[WX_CAST_SIDES], *s_cstrip[WX_CAST_SIDES][2];
@@ -78,6 +80,8 @@ static EXT_RAM_BSS_ATTR wx_img_t s_thermo_img;
 static EXT_RAM_BSS_ATTR wx_job_io_t s_io;
 static EXT_RAM_BSS_ATTR wx_bake_out_t s_out;
 static EXT_RAM_BSS_ATTR wx_shift_t s_shift;
+static EXT_RAM_BSS_ATTR lv_obj_t *s_cl[WX_CLOUDS_MAX];
+static EXT_RAM_BSS_ATTR wx_drift_t s_cd;
 static wx_job_t s_job;
 static TaskHandle_t s_task;
 static EXT_RAM_BSS_ATTR double s_t;
@@ -88,7 +92,7 @@ static EXT_RAM_BSS_ATTR int s_face;
 typedef struct {
     char value[20], sub[40], label[8], label_sub[40];
     uint32_t value_rgb, sub_rgb;
-    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, drift, rain_opa, value_w;
+    int marker_x, marker_y, merc_q, sprite_opa, sub_opa, face_opa, rain_opa, value_w;
     uint32_t merc_rgb, unit_rgb;
     wx_rain_frame_t rain;
     int cast_dx[WX_CAST_SIDES], cast_opa[WX_CAST_SIDES], cast_off[WX_CAST_SIDES], cast_gate, drop_q, drop_opa, label_opa;
@@ -284,8 +288,7 @@ void temp_face_create(lv_obj_t *parent)
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     s_bg = canvas(s_root, LV_COLOR_FORMAT_RGB565);
     s_hero = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
-    s_still = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
-    s_drift = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
+    for (int i = 0; i < WX_CLOUDS_MAX; i++) s_cl[i] = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     rain_create();
     cast_create();
     wind_create();
@@ -295,8 +298,7 @@ void temp_face_create(lv_obj_t *parent)
     s_thermo = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);
     lv_obj_set_pos(s_thermo, WX_THERMO_X, WX_THERMO_Y);
     lv_obj_add_flag(s_hero, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_still, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_drift, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < WX_CLOUDS_MAX; i++) lv_obj_add_flag(s_cl[i], LV_OBJ_FLAG_HIDDEN);
 
     int deg = lv_font_get_glyph_width(&font_digits_96, 0x00B0, 0) + VALUE_SPACE;
     s_value = label(s_root, &font_digits_96, LV_ALIGN_TOP_MID, deg / 2, VALUE_Y);
@@ -320,8 +322,7 @@ static void detach(void)
     show_obj(s_root, false);
     lv_canvas_set_buffer(s_bg, s_none, 2, 2, LV_COLOR_FORMAT_RGB565);
     lv_canvas_set_buffer(s_hero, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
-    lv_canvas_set_buffer(s_still, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
-    lv_canvas_set_buffer(s_drift, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
+    for (int i = 0; i < WX_CLOUDS_MAX; i++) lv_canvas_set_buffer(s_cl[i], s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     for (int s = 0; s < WX_SHEETS; s++) {
         lv_canvas_set_buffer(s_strip[s][0], s_none, 2, 2, LV_COLOR_FORMAT_A8);
         lv_canvas_set_buffer(s_strip[s][1], s_none, 2, 2, LV_COLOR_FORMAT_A8);
@@ -361,8 +362,7 @@ static void release(void)
     DROP(s_hero_buf[0]);
     DROP(s_hero_buf[1]);
     s_buf.hero = NULL;
-    DROP(s_buf.still);
-    DROP(s_buf.drift);
+    DROP(s_buf.scene);
     DROP(s_thermo_buf);
     DROP(s_marker_buf);
     DROP(s_drop_buf);
@@ -376,12 +376,11 @@ static bool acquire(void)
     s_buf.ring = psram(sizeof *s_buf.ring);
     s_hero_buf[0] = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
     s_hero_buf[1] = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
-    s_buf.still = psram((size_t)wx_clouds_max_px(false) * 3);
-    s_buf.drift = psram((size_t)wx_clouds_max_px(true) * 3);
+    s_buf.scene = psram((size_t)wx_scene_px() * 3);
     s_thermo_buf = psram(WX_THERMO_W * WX_THERMO_H * 3);
     s_marker_buf = psram(WX_MARKER * WX_MARKER * 3);
     s_drop_buf = psram(WX_DROP_BOX * WX_DROP_BOX * 3);
-    if (!s_buf.bg || !s_buf.lut || !s_buf.ring || !s_hero_buf[0] || !s_hero_buf[1] || !s_buf.still || !s_buf.drift || !s_thermo_buf || !s_marker_buf ||
+    if (!s_buf.bg || !s_buf.lut || !s_buf.ring || !s_hero_buf[0] || !s_hero_buf[1] || !s_buf.scene || !s_thermo_buf || !s_marker_buf ||
         !s_drop_buf) {
         ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black, retrying in 5 s",
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
@@ -451,7 +450,7 @@ static void sprite(lv_obj_t *c, uint8_t *buf, wx_box_t b)
 
 static void rain_attach(const wx_rain_t *r)
 {
-    uint8_t *m = s_buf.still;
+    uint8_t *m = s_buf.scene;
     uint32_t col = r->kind == WX_PRECIP_SNOW ? SNOW_RGB : wx_rain_rgb(r->intensity);
     for (int s = 0; s < WX_SHEETS; s++) {
         wx_box_t b = wx_sheet(s)->box, c = s_lay.cover_box[s];
@@ -482,7 +481,7 @@ static void rain_attach(const wx_rain_t *r)
 
 static void cast_attach(const wx_cast_t *c)
 {
-    uint8_t *m = s_buf.still;
+    uint8_t *m = s_buf.scene;
     wx_cast_layout(c->variant, &s_clay);
     uint32_t col = c->snow ? SNOW_RGB : WX_CAST_RGB;
     for (int s = 0; s < WX_CAST_SIDES; s++) {
@@ -516,7 +515,7 @@ static void cast_attach(const wx_cast_t *c)
 
 static void wind_attach(const wx_wind_t *w)
 {
-    uint8_t *m = s_buf.still;
+    uint8_t *m = s_buf.scene;
     wx_wind_layout(w->level, &s_wlay);
     wx_box_t a = s_wlay.area, b = s_wlay.sock;
     int sw = b.x1 - b.x0, sh = b.y1 - b.y0;
@@ -548,7 +547,7 @@ static void wind_attach(const wx_wind_t *w)
 
 static void days_attach(const wx_days_t *d)
 {
-    uint8_t *m = s_buf.still;
+    uint8_t *m = s_buf.scene;
     wx_days_layout(d, &s_dlay);
     const wx_days_cols_t *c = &s_dlay.c;
     wx_box_t a = s_dlay.area, sp = s_dlay.sprite;
@@ -583,7 +582,7 @@ static void days_attach(const wx_days_t *d)
 
 static void sun_attach(void)
 {
-    uint8_t *m = s_buf.still;
+    uint8_t *m = s_buf.scene;
     wx_sun_layout(&s_slay);
     wx_box_t r = s_slay.rays, b = s_slay.sun;
     lv_canvas_set_buffer(s_srays, m + s_slay.rays_at, r.x1 - r.x0, r.y1 - r.y0, LV_COLOR_FORMAT_A8);
@@ -659,8 +658,11 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
 {
     if (kind & WX_BAKE_SCENE) {
         lv_canvas_set_buffer(s_bg, s_buf.bg, WX_FACE, WX_FACE, LV_COLOR_FORMAT_RGB565);
-        sprite(s_still, s_buf.still, o->still);
-        sprite(s_drift, s_buf.drift, o->drift);
+        for (int i = 0; i < WX_CLOUDS_MAX; i++) {
+            bool on = i < o->nclouds;
+            sprite(s_cl[i], on ? s_buf.scene + o->cloud_at[i] : s_none, on ? o->cloud[i] : (wx_box_t){0, 0, 0, 0});
+        }
+        wx_drift_start(&s_cd, o->nclouds, o->cloud_back, esp_random());
         face_kind(t);
         if (t->rain.on) rain_attach(&t->rain);
         if (t->cast.on) cast_attach(&t->cast);
@@ -697,7 +699,6 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
     }
     s_out = *o;
     s_tick = -1;
-    s_shown.drift = 0x7FFFFFFF;
     ESP_LOGI(TAG, "baked parts %d (1 ring, 2 hero, 7 scene) face %d %d..%d hero %d clouds %d in %d ms", kind, t->face,
              t->lo, t->hi, (int)t->hero, t->cloud_band, s_io.ms);
 }
@@ -867,8 +868,8 @@ static void set_wind(const wx_wind_t *w, uint32_t rgb, int fo, int opa)
     if (f.pose != s_shown.wind_pose) {
         wx_box_t b = s_wlay.sock;
         s_shown.wind_pose = f.pose;
-        lv_canvas_set_buffer(s_wsock, s_buf.still + s_wlay.fill[f.pose], b.x1 - b.x0, b.y1 - b.y0, LV_COLOR_FORMAT_A8);
-        lv_canvas_set_buffer(s_wdark, s_buf.still + s_wlay.dark[f.pose], b.x1 - b.x0, b.y1 - b.y0, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_wsock, s_buf.scene + s_wlay.fill[f.pose], b.x1 - b.x0, b.y1 - b.y0, LV_COLOR_FORMAT_A8);
+        lv_canvas_set_buffer(s_wdark, s_buf.scene + s_wlay.dark[f.pose], b.x1 - b.x0, b.y1 - b.y0, LV_COLOR_FORMAT_A8);
         dirty = true;
     }
     if (rgb != s_shown.sock_rgb) {
@@ -914,7 +915,7 @@ static void set_wind(const wx_wind_t *w, uint32_t rgb, int fo, int opa)
         }
         if (f.leaf_rot[i] != s_shown.leaf_rot[i]) {
             s_shown.leaf_rot[i] = f.leaf_rot[i];
-            lv_canvas_set_buffer(s_wleaf[i], s_buf.still + s_wlay.leaf[f.leaf_rot[i]], WX_LEAF_BOX, WX_LEAF_BOX, LV_COLOR_FORMAT_A8);
+            lv_canvas_set_buffer(s_wleaf[i], s_buf.scene + s_wlay.leaf[f.leaf_rot[i]], WX_LEAF_BOX, WX_LEAF_BOX, LV_COLOR_FORMAT_A8);
             dirty = true;
         }
         if (f.leaf_x[i] != s_shown.leaf_x[i] || f.leaf_y[i] != s_shown.leaf_y[i]) {
@@ -1000,7 +1001,7 @@ static void set_air(const wx_air_t *aq, int fo)
     } else {
         if (p.rot != s_shown.petal_rot) {
             s_shown.petal_rot = p.rot;
-            lv_canvas_set_buffer(s_apetal, s_buf.still + p.rot * WX_PETAL_BOX * WX_PETAL_BOX * 3, WX_PETAL_BOX, WX_PETAL_BOX,
+            lv_canvas_set_buffer(s_apetal, s_buf.scene + p.rot * WX_PETAL_BOX * WX_PETAL_BOX * 3, WX_PETAL_BOX, WX_PETAL_BOX,
                                  LV_COLOR_FORMAT_RGB565A8);
             dirty = true;
         }
@@ -1047,18 +1048,16 @@ static void set_face_opa(int opa)
     }
 }
 
-static void set_sprites(int opa, int drift)
+static void set_sprites(int opa, bool drift)
 {
     if (opa != s_shown.sprite_opa) {
         s_shown.sprite_opa = opa;
         lv_obj_set_style_image_opa(s_hero, (lv_opa_t)opa, 0);
-        lv_obj_set_style_image_opa(s_still, (lv_opa_t)opa, 0);
-        lv_obj_set_style_image_opa(s_drift, (lv_opa_t)opa, 0);
+        for (int i = 0; i < WX_CLOUDS_MAX; i++) lv_obj_set_style_image_opa(s_cl[i], (lv_opa_t)opa, 0);
     }
-    if (drift != s_shown.drift) {
-        s_shown.drift = drift;
-        lv_obj_set_x(s_drift, s_out.drift.x0 + drift);
-    }
+    int i = drift ? wx_drift_step(&s_cd) : -1;
+    if (i < 0) return;
+    lv_obj_set_pos(s_cl[i], s_out.cloud[i].x0 + s_cd.dx[i], s_out.cloud[i].y0 + s_cd.dy[i]);
 }
 
 static void set_rain(const wx_rain_t *r, int opa, bool shown)
@@ -1082,7 +1081,7 @@ static void set_rain(const wx_rain_t *r, int opa, bool shown)
     }
     for (int i = 0; i < WX_DRIPS; i++) {
         if (op.drip_buf[i])
-            lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[op.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
+            lv_canvas_set_buffer(s_drip[i], s_buf.scene + s_lay.drip[op.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
         if (op.drip_y[i]) lv_obj_set_y(s_drip[i], op.drip_top[i]);
         if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)op.drip_alpha[i], 0);
         show_obj(s_drip[i], op.drip_on[i]);
@@ -1095,13 +1094,6 @@ static void set_rain(const wx_rain_t *r, int opa, bool shown)
     if (op.opa) lv_obj_set_style_image_opa(s_bolt, (lv_opa_t)op.layer_opa, 0);
     show_obj(s_bolt, op.bolt_on);
     s_shown.rain = f;
-}
-
-static int drift_px(double t)
-{
-    double p = fmod(t, DRIFT_PERIOD_S) / DRIFT_PERIOD_S;
-    double tri = 1 - 4 * fabs(p - 0.5);
-    return 2 * (int)lround(tri * 2);
 }
 
 static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
@@ -1195,7 +1187,7 @@ static void paint(const wx_temp_t *t, const wx_obs_t *obs, bool offline, int fo)
     }
     bool temp = !s_rain && !s_cast && !s_wind && !s_days && !s_sun && !s_air;
     if (temp) set_marker(t->frac * (float)a, t->have);
-    set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S ? drift_px(s_t - WX_ARRIVE_S) : 0);
+    set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S);
     double sf = (s_t - WX_ARRIVE_S) / SUB_FADE_S;
     int sub_opa = (sf <= 0 ? 0 : sf >= 1 ? 255 : 85 * (1 + (int)(sf * 3))) * fo / 255;
     char age[24];
@@ -1274,6 +1266,7 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     if (!(a & WX_DO_PAINT)) return;
     if (wx_shift_tick(&s_shift, dt)) shift_root();
     s_t += dt;
+    if (s_t >= WX_ARRIVE_S) wx_drift_tick(&s_cd, dt);
     int tick = (int)floor(s_t * ARRIVE_FPS);
     if (s_t < WX_ARRIVE_S + SUB_FADE_S && tick == s_tick && s_job.opa == s_shown.face_opa) return;
     s_tick = tick;
