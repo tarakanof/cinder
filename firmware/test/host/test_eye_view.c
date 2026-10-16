@@ -7,6 +7,7 @@
 #include "bot_raster.h"
 #include "bot_shape.h"
 #include "bot_view.h"
+#include "join_view.h"
 #include "lvgl.h"
 #include "offline_glyph.h"
 #include "moment_view.h"
@@ -448,6 +449,91 @@ static bool hit_screen(int x, int y)
     return lv_indev_search_obj(lv_screen_active(), &pt) == lv_screen_active();
 }
 
+static float far_corner(const lv_area_t *a)
+{
+    float c[4][2] = {{a->x1, a->y1}, {a->x2 + 1, a->y1}, {a->x1, a->y2 + 1}, {a->x2 + 1, a->y2 + 1}}, worst = 0;
+    for (int k = 0; k < 4; k++) {
+        float r = hypotf(c[k][0] - 236, c[k][1] - 233);
+        worst = r > worst ? r : worst;
+    }
+    return worst;
+}
+
+static bool join_line_ok(lv_obj_t *o, const lv_font_t *font)
+{
+    return lv_obj_get_style_text_font(o, LV_PART_MAIN) == font && lv_label_get_long_mode(o) == LV_LABEL_LONG_DOT &&
+           lv_obj_get_style_text_align(o, LV_PART_MAIN) == LV_TEXT_ALIGN_CENTER && lv_obj_get_width(o) == JOIN_VIEW_W &&
+           lv_obj_get_height(o) == lv_font_get_line_height(font);
+}
+
+static void test_join_label(lv_display_t *d)
+{
+    join_view_create();
+    lv_obj_t *top = lv_layer_top(), *line = lv_obj_get_child(top, 0), *ssid = lv_obj_get_child(top, 1);
+    static const char *const SSIDS[] = {"Telekom-ABC123-5G", "Vodafone-ABCD1234", "NETGEAR-5G-Extender", "FRITZ!Box 7590 XY", "My Home Network 5GHz",
+                                        "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"};
+    static const int OFF[][2] = {{0, 0}, {-4, -4}, {4, -4}, {-4, 4}, {4, 4}};
+    for (size_t n = 0; n < sizeof SSIDS / sizeof SSIDS[0]; n++) {
+        bool dots = n == sizeof SSIDS / sizeof SSIDS[0] - 1;
+        join_view_show(JOIN_CANT_JOIN, SSIDS[n]);
+        float worst = 0;
+        lv_area_t a0 = {0}, b0 = {0};
+        int moved = 0;
+        for (size_t k = 0; k < sizeof OFF / sizeof OFF[0]; k++) {
+            join_view_shift(OFF[k][0], OFF[k][1]);
+            lv_refr_now(d);
+            lv_area_t a, b;
+            lv_obj_get_coords(line, &a);
+            lv_obj_get_coords(ssid, &b);
+            float r = far_corner(&a) > far_corner(&b) ? far_corner(&a) : far_corner(&b);
+            worst = r > worst ? r : worst;
+            int dx = OFF[k][0], dy = OFF[k][1];
+            if (k) {
+                moved += a.x1 == a0.x1 + dx && a.y1 == a0.y1 + dy && b.x1 == b0.x1 + dx && b.y1 == b0.y1 + dy;
+                continue;
+            }
+            a0 = a;
+            b0 = b;
+            const char *t = lv_label_get_text(ssid);
+            size_t len = strlen(t);
+            printf("join label '%s': %d,%d..%d,%d over %d,%d..%d,%d shows '%s'\n", SSIDS[n], (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2,
+                   (int)b.x1, (int)b.y1, (int)b.x2, (int)b.y2, t);
+            CHECK(join_line_ok(line, &lv_font_montserrat_24) && join_line_ok(ssid, &lv_font_montserrat_18),
+                  "join label '%s': both lines one line high, %d px wide, centred, with dots, in 24 and 18", SSIDS[n], JOIN_VIEW_W);
+            CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && !lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) &&
+                      strcmp(lv_label_get_text(line), "Can't join") == 0,
+                  "join label '%s': the status over the SSID", SSIDS[n]);
+            CHECK(b.y2 == H - 1 + JOIN_VIEW_Y && a.y2 == b.y1 - 1, "join label '%s': SSID at the bottom (%d), status right above it (%d)",
+                  SSIDS[n], (int)b.y2, (int)a.y2);
+            if (dots)
+                CHECK(len > 3 && strcmp(t + len - 3, "...") == 0, "join label: a 32-character SSID ends in dots: %s", t);
+            else
+                CHECK(strcmp(t, SSIDS[n]) == 0, "join label: '%s' shows in full: %s", SSIDS[n], t);
+        }
+        printf("join label '%s': worst corner %.1f px from the centre over the orbit\n", SSIDS[n], worst);
+        CHECK(moved == (int)(sizeof OFF / sizeof OFF[0]) - 1, "join label '%s': both lines follow the orbit (%d of %d offsets)", SSIDS[n],
+              moved, (int)(sizeof OFF / sizeof OFF[0]) - 1);
+        CHECK(worst <= 233, "join label '%s': both boxes inside the round panel at every orbit corner (%.1f px)", SSIDS[n], worst);
+    }
+    join_view_shift(0, 0);
+    join_view_show(JOIN_NOT_PAIRED, "");
+    lv_refr_now(d);
+    lv_area_t a;
+    lv_obj_get_coords(line, &a);
+    CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) && a.y2 == H - 1 + JOIN_VIEW_Y &&
+              strcmp(lv_label_get_text(line), "Not paired") == 0,
+          "join label: 'Not paired' alone on the bottom line (%d)", (int)a.y2);
+    join_view_show(JOIN_CANT_JOIN, "");
+    lv_refr_now(d);
+    lv_obj_get_coords(line, &a);
+    CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) && a.y2 == H - 1 + JOIN_VIEW_Y &&
+              strcmp(lv_label_get_text(line), "Can't join") == 0,
+          "join label: 'Can't join' with no SSID alone on the bottom line, no blank SSID line (%d)", (int)a.y2);
+    join_view_show(JOIN_NONE, "");
+    lv_refr_now(d);
+    CHECK(lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN), "join label: none hides both");
+}
+
 static void test_orbit(lv_display_t *d)
 {
     ember_host_info_t h = {.color = HOST_RGB, .tool = EMBER_TOOL_CLAUDE};
@@ -549,9 +635,9 @@ static void test_orbit(lv_display_t *d)
         if (tau < 0) usleep(2000);
     }
     CHECK(tau >= 0, "orbit: the moment baked and plays");
-    int frames = 0, lit_max = 0;
+    int frames = 0, lit_max = 0, icon_min = before;
     ghost = 0;
-    for (int k = 0; tau >= 0 && k <= WXM_FRAMES; k++) {
+    for (int k = 0; k <= WXM_FRAMES; k++) {
         double t = tm + (k + 0.5) / WXM_FPS;
         orbit_frame(d, &p, t);
         moment_view_frame(t);
@@ -560,15 +646,18 @@ static void test_orbit(lv_display_t *d)
         for (int y = WXM_BOX_Y - 4; y < WXM_BOX_Y + WXM_BOX_H + 4; y++)
             for (int x = WXM_BOX_X; x < WXM_BOX_X + WXM_BOX_W + 8 && x < W; x++) lit += s_fb[y * W + x] != 0;
         lit_max = lit > lit_max ? lit : lit_max;
+        int icon = icon_px();
+        icon_min = icon < icon_min ? icon : icon_min;
         int g = redraw_diff(d, &x0, &y0);
         if (g && !ghost) printf("orbit +4,-4: moment frame %d: %d px differ, first at %d,%d\n", k, g, x0, y0);
         ghost += g;
         frames++;
     }
     printf("orbit +4,-4: quiet moment %d frames, up to %d px in the sprite box, %d px differ from full redraws\n", frames, lit_max, ghost);
-    CHECK(frames > WXM_FRAMES / 2 && lit_max > 500 && !ghost && !moment_view_busy() && icon_px() == before,
+    CHECK(lit_max > 500 && !ghost && !moment_view_busy() && icon_px() == before,
           "orbit +4,-4: the moment sprite, text and icon join redraw where they are (%d frames, %d px, %d ghost, icon %d of %d)", frames,
           lit_max, ghost, icon_px(), before);
+    CHECK(!icon_min, "orbit +4,-4: the icon steps aside during the moment (at least %d of %d px left)", icon_min, before);
 
     bot_view_set_hint(false);
     page_shift(0, 0);
@@ -640,6 +729,7 @@ int main(int argc, char **argv)
     test_label(d);
     test_hint(d, argc > 1 ? argv[1] : NULL);
     test_orbit(d);
+    test_join_label(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;
 }

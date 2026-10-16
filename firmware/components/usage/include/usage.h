@@ -122,6 +122,8 @@ typedef struct {
 
 /* now: server Unix seconds (0 unknown). has_offset/utc_offset: weather.utc_offset for clock labels, else relative. */
 void usage_face(const usage_acct_t *a, double now, bool has_offset, int utc_offset, usage_face_t *out);
+/* The week line, or its short form when there is one and text_w (pixels, called with ctx) finds the line wider than label_w. */
+const char *usage_week_text(const usage_face_t *f, int label_w, int (*text_w)(const char *s, const void *ctx), const void *ctx);
 /* "48 min", "1h 48m", "2d 4h"; "<1 min" under a minute. */
 void usage_dur(long long s, char *out, size_t cap);
 

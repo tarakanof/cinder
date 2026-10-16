@@ -406,10 +406,20 @@ body "$TFC" set_sprites | grep -qxF '    int i = drift ? wx_drift_step(&s_cd) : 
     body "$TFC" paint | grep -qxF '    set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S);' ||
     WIRING="$WIRING drift-moves-only-the-stepped-cloud-and-only-on-the-temperature-face-after-the-arrival"
 body "$TFC" temp_face_update | awk '/^    s_t \+= dt;$/ {t = NR} /^    if \(s_t >= WX_ARRIVE_S\) wx_drift_tick\(&s_cd, dt\);$/ {if (t == NR - 1) k = 1} END {exit !k}' &&
-    [ "$(grep -c 'wx_drift_tick(' "$TFC")" -eq 1 ] && [ "$(grep -c '&s_cd' "$TFC")" -eq 3 ] &&
-    [ "$(grep -cE '(^|[^A-Za-z_0-9])s_cd([^A-Za-z_0-9]|$)' "$TFC")" -eq 5 ] &&
+    [ "$(grep -c 'wx_drift_tick(' "$TFC")" -eq 1 ] &&
     ! grep -qE '(^|[^A-Za-z_0-9])s_cd(\.[a-z_]+(\[[^]]*\])?)? *(([-+*/%&|^]|<<|>>)?=[^=]|\+\+|--)|(\+\+|--) *s_cd([^A-Za-z_0-9]|$)' "$TFC" && ! body "$TFC" set_sprites | grep -q 's_t' ||
     WIRING="$WIRING the-drift-runs-on-its-own-clock-so-a-show-that-rewinds-s_t-never-freezes-it"
+CDREF=$(grep -c '&s_cd' "$TFC" || true)
+if [ "$CDREF" -ne 3 ]; then
+    WIRING="$WIRING &s_cd-only-in-the-start-the-tick-and-the-step(found-$CDREF-want-3)"
+    { echo "run.sh: &s_cd in $TFC (want 3: the start, the tick, the step):"; grep -nF '&s_cd' "$TFC" || true; } >&2
+fi
+CDWORD='(^|[^A-Za-z_0-9])s_cd([^A-Za-z_0-9]|$)'
+CDLINES=$(grep -cE "$CDWORD" "$TFC" || true)
+if [ "$CDLINES" -ne 5 ]; then
+    WIRING="$WIRING s_cd-named-on-exactly-5-lines-the-declaration-start-step-set_pos-and-tick(found-$CDLINES)"
+    { echo "run.sh: lines naming s_cd in $TFC (want 5):"; grep -nE "$CDWORD" "$TFC" || true; } >&2
+fi
 grep -qxF '_Static_assert(WX_SCENE_ALIGN % LV_DRAW_BUF_ALIGN == 0, "cloud sprites start on LVGL'"'"'s draw buffer alignment");' "$TFC" ||
     WIRING="$WIRING cloud-sprite-offsets-asserted-on-LVGL-draw-buffer-alignment"
 grep -qxF 'static EXT_RAM_BSS_ATTR wx_drift_t s_cd;' "$TFC" && grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_cl[WX_CLOUDS_MAX];' "$TFC" ||
@@ -505,6 +515,9 @@ body "$MAINC" page_bot_frame | awk '/^    if \(s_usage_on\) return;$/ {r = NR} /
 body "$MAINC" bot_shift_root | grep -qxF '    wx_shift_xy(&s_bot_shift, &WX_SHIFT_ORBIT, &dx, &dy);' &&
     body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_x(s_bot_page, dx, 0);' &&
     body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_y(s_bot_page, dy, 0);' || ORB="$ORB the-orbit-translates-the-bot-page"
+body "$MAINC" bot_shift_root | grep -qxF '    join_view_shift(dx, dy);' && [ "$(grep -c 'join_view_shift(' "$MAINC")" -eq 1 ] &&
+    body "$MAINC" join_frame | grep -qxF '    join_view_show(show, ssid);' && body "$MAINC" app_main | grep -qxF '    join_view_create();' &&
+    ! grep -qE 'lv_[a-z_]+\(s_join' "$MAINC" || ORB="$ORB the-join-view-orbits-with-the-bot-page-and-main-draws-it-only-through-join_view"
 [ "$(grep -c 'bot_shift_root()' "$MAINC")" -eq 1 ] || ORB="$ORB bot_shift_root-only-on-a-step"
 fbody "$MAINC" page_tick | grep -qxF '    page_frame_t f = {.t = t, .dt = dt, .offline = offline};' || ORB="$ORB page_tick-passes-the-frame-dt"
 grep -qxF 'static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;' "$MAINC" || ORB="$ORB s_bot_shift-in-PSRAM"
@@ -822,11 +835,11 @@ if [ -d "$LV" ]; then
     mkdir -p "$OUT_DIR/lv"
     find "$LV/src" -name '*.c' -print0 | LVDEF="$LVDEF" LV="$LV" LVO="$OUT_DIR/lv" xargs -0 -P 8 -n 1 \
         sh -c 'cc -std=c11 -O1 -w $LVDEF -I"$LV" -c "$1" -o "$LVO/$(printf "%s" "$1" | tr / _).o"' sh
-    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" -I"$D/idf_stubs" "$D/../../main/bot_view.c" "$D/../../main/moment_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" -I"$LS/include" -I"$D/idf_stubs" "$D/../../main/bot_view.c" "$D/../../main/moment_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
         "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
-        "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
+        "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$LS/join_label.c" "$D/../../main/join_view.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
     cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$J" \
         "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
         "$G/touch_swipe.c" "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"

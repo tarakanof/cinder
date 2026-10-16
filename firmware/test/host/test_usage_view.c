@@ -196,13 +196,24 @@ static int label_role(lv_obj_t *o)
     return -1;
 }
 
+static const char *role_name(int role)
+{
+    static const char *const NAMES[] = {"name", "value", "%", "reset", "week"};
+    return role >= 0 && role < (int)(sizeof NAMES / sizeof NAMES[0]) ? NAMES[role] : "unknown";
+}
+
+static int label_text_w(const char *s, const void *ctx)
+{
+    const lv_obj_t *o = ctx;
+    lv_point_t p;
+    lv_text_get_size(&p, s, lv_obj_get_style_text_font(o, LV_PART_MAIN), lv_obj_get_style_text_letter_space(o, LV_PART_MAIN), 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return p.x;
+}
+
 static const char *week_src(lv_obj_t *o, const usage_face_t *f)
 {
-    if (!f->week_short[0]) return f->week_line;
-    lv_point_t p;
-    lv_text_get_size(&p, f->week_line, lv_obj_get_style_text_font(o, LV_PART_MAIN), lv_obj_get_style_text_letter_space(o, LV_PART_MAIN), 0,
-                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    return p.x > lv_obj_get_content_width(o) ? f->week_short : f->week_line;
+    return usage_week_text(f, lv_obj_get_content_width(o), label_text_w, o);
 }
 
 static void check_labels(lv_obj_t *scr, const char *state, const usage_acct_t *acc, bool name_dots)
@@ -227,7 +238,8 @@ static void check_labels(lv_obj_t *scr, const char *state, const usage_acct_t *a
         size_t len = strlen(t[i]);
         bool name_dotted = role == 0 && name_dots && len > 3 && len <= strlen(acc->name) && strcmp(t[i] + len - 3, "...") == 0 &&
                            strncmp(t[i], acc->name, len - 3) == 0;
-        CHECK(src && (strcmp(t[i], src) == 0 || name_dotted), "%s: label %d shows '%s', set from '%s'", state, role, t[i], src ? src : "");
+        CHECK(src && (strcmp(t[i], src) == 0 || name_dotted), "%s: the %s label shows '%s', set from '%s'", state, role_name(role), t[i],
+              src ? src : "");
         CHECK(sz.x <= lv_area_get_width(&a[i]),
               "%s: '%s' fits its label: %d px in %d", state, t[i], (int)sz.x, (int)lv_area_get_width(&a[i]));
         float corners[4][2] = {{a[i].x1, a[i].y1}, {a[i].x2, a[i].y1}, {a[i].x1, a[i].y2}, {a[i].x2, a[i].y2}};

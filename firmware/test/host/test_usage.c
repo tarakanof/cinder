@@ -208,6 +208,33 @@ static void test_stale(void)
     CHECK(f.mark_rgb == 0xFFFFFF && f.tick, "fresh Codex: white mark");
 }
 
+static int s_measured;
+
+static int ten_px_a_byte(const char *s, const void *ctx)
+{
+    s_measured++;
+    return (int)strlen(s) * *(const int *)ctx;
+}
+
+static void test_week_text(void)
+{
+    usage_acct_t a = acct("a", USAGE_TOOL_CLAUDE, 41, 41);
+    usage_face_t f = face_at(&a, T0 + 3600, true);
+    int px = 10;
+    s_measured = 0;
+    CHECK(usage_week_text(&f, 1, ten_px_a_byte, &px) == f.week_line && !s_measured, "no models: the week line, not measured");
+    a.n_models = 2;
+    a.models[0] = (usage_model_t){"Opus", 100};
+    a.models[1] = (usage_model_t){"Sonnet", 100};
+    f = face_at(&a, T0 + 3600, true);
+    int len = (int)strlen(f.week_line);
+    CHECK(usage_week_text(&f, len * px, ten_px_a_byte, &px) == f.week_line && s_measured == 1, "models that fit: the full line");
+    CHECK(usage_week_text(&f, len * px - 1, ten_px_a_byte, &px) == f.week_short && s_measured == 2,
+          "models 1 px too wide: the short line (%s)", f.week_short);
+    f.week_short[0] = 0;
+    CHECK(usage_week_text(&f, 0, ten_px_a_byte, &px) == f.week_line && s_measured == 2, "no short form: the line, even too wide");
+}
+
 static void test_week_line(void)
 {
     usage_acct_t a = acct("a", USAGE_TOOL_CLAUDE, 41, 41);
@@ -436,6 +463,7 @@ int main(void)
     test_reset_and_forecast();
     test_stale();
     test_week_line();
+    test_week_text();
     test_parse_edges();
     test_rings_and_dots();
     test_band_redraw();

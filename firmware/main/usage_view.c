@@ -245,13 +245,18 @@ static void apply_rings(const usage_face_t *f)
     V.ring_drawn = true;
 }
 
+static int label_text_w(const char *s, const void *ctx)
+{
+    const lv_obj_t *o = ctx;
+    lv_point_t p;
+    lv_text_get_size(&p, s, lv_obj_get_style_text_font(o, LV_PART_MAIN), lv_obj_get_style_text_letter_space(o, LV_PART_MAIN), 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    return p.x;
+}
+
 static const char *week_text(const usage_face_t *f)
 {
-    if (!f->week_short[0]) return f->week_line;
-    lv_point_t p;
-    lv_text_get_size(&p, f->week_line, lv_obj_get_style_text_font(V.week, LV_PART_MAIN), lv_obj_get_style_text_letter_space(V.week, LV_PART_MAIN),
-                     0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    return p.x > lv_obj_get_content_width(V.week) ? f->week_short : f->week_line;
+    return usage_week_text(f, lv_obj_get_content_width(V.week), label_text_w, V.week);
 }
 
 static double server_now(void) { return V.clk.have_srv ? pomo_client_now() + V.clk.srv_offset : 0; }

@@ -33,7 +33,7 @@
 #include "ember_client.h"
 #include "ember_host.h"
 #include "http_conn.h"
-#include "join_label.h"
+#include "join_view.h"
 #include "pomo_client.h"
 #include "pomo_view.h"
 #include "nowplaying_client.h"
@@ -86,7 +86,6 @@ static rg_state_t s_reset_shown = RG_IDLE;
 static int s_reset_progress_shown = -1;
 
 static bool s_setup;
-static lv_obj_t *s_join_label;
 static join_label_t s_join_shown;
 static pages_nav_t s_nav = {.n = 1};
 static uint32_t s_settings_gen;
@@ -744,24 +743,9 @@ static void join_frame(void)
     join_label_t show = join_label_pick(&in);
     if (show == s_join_shown) return;
     s_join_shown = show;
-    char ssid[CFG_SSID_MAX + 1] = "", text[CFG_SSID_MAX + 16];
+    char ssid[CFG_SSID_MAX + 1] = "";
     if (show == JOIN_CANT_JOIN) config_store_ssid(ssid, sizeof ssid);
-    join_label_text(show, ssid, text, sizeof text);
-    lv_label_set_text(s_join_label, text);
-    if (show) lv_obj_remove_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
-}
-
-static void join_label_create(void)
-{
-    s_join_label = lv_label_create(lv_layer_top());
-    lv_obj_set_style_text_font(s_join_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(s_join_label, lv_color_hex(0xF5A623), 0);
-    lv_obj_set_style_text_align(s_join_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_join_label, 300);
-    lv_label_set_long_mode(s_join_label, LV_LABEL_LONG_DOT);
-    lv_obj_align(s_join_label, LV_ALIGN_BOTTOM_MID, 0, -40);
-    lv_obj_add_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
+    join_view_show(show, ssid);
 }
 
 static bool reset_frame(double t)
@@ -838,6 +822,7 @@ static void bot_shift_root(void)
     wx_shift_xy(&s_bot_shift, &WX_SHIFT_ORBIT, &dx, &dy);
     lv_obj_set_style_translate_x(s_bot_page, dx, 0);
     lv_obj_set_style_translate_y(s_bot_page, dy, 0);
+    join_view_shift(dx, dy);
 }
 
 void page_bot_frame(const page_frame_t *f)
@@ -1462,7 +1447,7 @@ void app_main(void)
         page_fx_create();
     }
     reset_overlay_create();
-    join_label_create();
+    join_view_create();
     gc_init(&s_chase, esp_random());
     wxm_init(&s_wxm);
     mm_init(&s_mm);
