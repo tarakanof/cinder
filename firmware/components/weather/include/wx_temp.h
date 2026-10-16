@@ -127,6 +127,31 @@ typedef struct {
 bool wx_shift_tick(wx_shift_t *s, double dt);
 void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy);
 
+#define WX_DRIFT_MAX 4
+#define WX_DRIFT_X 6
+#define WX_DRIFT_Y 1
+#define WX_DRIFT_MIN_S 7.0f
+#define WX_DRIFT_MAX_S 13.0f
+#define WX_DRIFT_RAMP_S 2.0
+#define WX_DRIFT_FPS 15
+
+typedef struct {
+    int n, turn;
+    long frame;
+    uint32_t starts;
+    float period[WX_DRIFT_MAX], phase_x[WX_DRIFT_MAX], phase_y[WX_DRIFT_MAX]; /* s; phases in turns, 0..1 */
+    int dx[WX_DRIFT_MAX], dy[WX_DRIFT_MAX];
+} wx_drift_t;
+
+/* n clouds at rest on new paths: periods and phases from entropy and the start count, so two starts never repeat a path
+   even with the same entropy. */
+void wx_drift_start(wx_drift_t *d, int n, uint32_t entropy);
+/* Cloud i's path t s after the start: within ±WX_DRIFT_X and ±WX_DRIFT_Y, 0 at t 0, the full swing from WX_DRIFT_RAMP_S. */
+void wx_drift_path(const wx_drift_t *d, int i, double t, int *dx, int *dy);
+/* On a new WX_DRIFT_FPS frame t s after the start, the next cloud in turn that is off its path steps 1 px per axis toward
+   it; returns that cloud, else -1 (the same frame again, t negative or not finite, every cloud on its path). */
+int wx_drift_step(wx_drift_t *d, double t);
+
 #ifdef __cplusplus
 }
 #endif

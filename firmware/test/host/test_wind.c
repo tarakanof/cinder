@@ -405,7 +405,7 @@ static bool inside(wx_box_t a, wx_box_t b) { return a.x0 >= b.x0 && a.y0 >= b.y0
 
 static void test_layout(void)
 {
-    int still = wx_clouds_max_px(false) * 3;
+    int still = wx_scene_px() * 3;
     for (int lv = 0; lv < WX_WIND_LEVELS; lv++) {
         wx_wind_layout_t l;
         wx_wind_layout(lv, &l);
@@ -473,21 +473,21 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_clouds_max_px(false) * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3), *drift = calloc(1, (size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = m, .drift = drift};
+    size_t still = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     for (int lv = 0; lv < WX_WIND_LEVELS; lv++) {
         static const int KMH[WX_WIND_LEVELS] = {4, 18, 45};
         wx_obs_t o = windy(KMH[lv], 225);
         wx_temp_t t;
         wx_temp_face(&o, NULL, WXF_WIND, &t);
         CHECK(t.wind.level == lv, "level %d from %d km/h", lv, KMH[lv]);
-        wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .still = {1, 1, 2, 2}, .drift = {1, 1, 2, 2}};
+        wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .nclouds = 1};
         memset(m, 0, still);
         clock_t t0 = clock();
         wx_bake(&t, WX_BAKE_FULL, &b, &out);
         printf("wind: level %d host bake %.2f ms\n", lv, (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);
-        CHECK(out.hero.x1 == 0 && out.still.x1 == 0 && out.drift.x1 == 0, "no hero or cloud sprites");
+        CHECK(out.hero.x1 == 0 && out.nclouds == 0, "no hero or cloud sprites");
         const wx_wind_geo_t *g = wx_wind_geo(lv);
         float px = g->mount.x - WX_WIND_ARM;
         CHECK(bg[(int)(g->mount.y + 20) * WX_FACE + (int)px] == wx_rgb565(WX_WIND_POLE_RGB), "level %d: the pole", lv);
@@ -607,7 +607,6 @@ static void test_paint(void)
     CHECK(ink > 60 * 255 && ink < 90 * 255, "leaf area about 16 x 7.5 x 2/3 px (%d)", ink / 255);
     free(m);
     free(hero);
-    free(drift);
 }
 
 int main(void)

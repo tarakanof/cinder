@@ -215,8 +215,8 @@ static void test_dots(void)
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
     static uint8_t hero[WX_HERO_BOX * WX_HERO_BOX * 3];
     static wx_ring_t ring;
-    uint8_t *still = malloc((size_t)wx_clouds_max_px(false) * 3), *drift = malloc((size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = still, .drift = drift};
+    uint8_t *still = malloc((size_t)wx_scene_px() * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = still};
     wx_obs_t dry = obs("clear", "0"), rain = wet();
     struct {
         const wx_obs_t *o;
@@ -242,7 +242,6 @@ static void test_dots(void)
         }
     }
     free(still);
-    free(drift);
 }
 
 static int s_yields;
@@ -289,15 +288,14 @@ static wx_obs_t days(void)
     return o;
 }
 
-static void bake(const wx_temp_t *t, int k, uint16_t *bg, uint8_t *hero, uint8_t *still, size_t sn, uint8_t *drift, size_t dn,
+static void bake(const wx_temp_t *t, int k, uint16_t *bg, uint8_t *hero, uint8_t *still, size_t sn,
                  uint16_t *lut, wx_ring_t *ring, wx_bake_out_t *o)
 {
     memset(bg, 0x5A, (size_t)WX_FACE * WX_FACE * 2);
     memset(hero, 0x5A, (size_t)WX_HERO_BOX * WX_HERO_BOX * 3);
     memset(still, 0x5A, sn);
-    memset(drift, 0x5A, dn);
     memset(ring, 0, sizeof *ring);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = ring, .hero = hero, .still = still, .drift = drift, .yield = k ? count_yield : NULL};
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = ring, .hero = hero, .scene = still, .yield = k ? count_yield : NULL};
     s_yields = 0;
     s_gap = 0;
     s_since = cpu_ms();
@@ -310,8 +308,8 @@ static void test_bake_yield(void)
     static uint16_t bg[2][WX_FACE * WX_FACE], lut[2][WX_RING_LUT];
     static uint8_t hero[2][WX_HERO_BOX * WX_HERO_BOX * 3];
     static wx_ring_t ring[2];
-    size_t sn = (size_t)wx_clouds_max_px(false) * 3, dn = (size_t)wx_clouds_max_px(true) * 3;
-    uint8_t *still[2] = {calloc(1, sn), calloc(1, sn)}, *drift[2] = {calloc(1, dn), calloc(1, dn)};
+    size_t sn = (size_t)wx_scene_px() * 3;
+    uint8_t *still[2] = {calloc(1, sn), calloc(1, sn)};
     wx_obs_t dry = obs("clear", "0"), rain = wet(), poor = obs("clear", "0"), night = moon(0), dim = moon(80), next = days();
     rain.has_now_rain = true;
     poor.has_aqi = true;
@@ -338,7 +336,7 @@ static void test_bake_yield(void)
         for (int run = 0; run < 10; run++) {
             int k = run & 1;
             double t0 = cpu_ms();
-            bake(&t, k, bg[k], hero[k], still[k], sn, drift[k], dn, lut[k], &ring[k], &o[k]);
+            bake(&t, k, bg[k], hero[k], still[k], sn, lut[k], &ring[k], &o[k]);
             if (!k) {
                 last = cpu_ms() - t0;
                 continue;
@@ -347,7 +345,7 @@ static void test_bake_yield(void)
             if (last > 0 && s_gap / last < share) share = s_gap / last, gap = s_gap, plain = last;
         }
         CHECK(!memcmp(bg[0], bg[1], sizeof bg[0]) && !memcmp(hero[0], hero[1], sizeof hero[0]) && !memcmp(still[0], still[1], sn) &&
-                  !memcmp(drift[0], drift[1], dn) && !memcmp(&o[0], &o[1], sizeof o[0]),
+                  !memcmp(&o[0], &o[1], sizeof o[0]),
               "%s: a bake with the yield hook paints what one without it does", C[c].what);
         if (share > worst) worst = share;
         printf("bake yield %s: %d calls, %.2f ms CPU without the hook, longest stretch without a call %.3f ms (%.0f %%, best of 5 pairs)\n",
@@ -358,8 +356,6 @@ static void test_bake_yield(void)
     printf("bake yield: longest stretch %.0f %% of its bake\n", 100 * worst);
     free(still[0]);
     free(still[1]);
-    free(drift[0]);
-    free(drift[1]);
 }
 
 int main(void)

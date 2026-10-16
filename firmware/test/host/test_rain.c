@@ -491,7 +491,7 @@ static void test_boxes(void)
         wx_box_t c = l.cover_box[s];
         CHECK(inside(wx_sheet(s)->box, c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0) && (c.x1 - c.x0) % 2 == 0, "cover %d in its box, even", s);
     }
-    int still = wx_clouds_max_px(false) * 3;
+    int still = wx_scene_px() * 3;
     CHECK(l.total <= still, "rain layers %d B fit the still-cloud buffer %d B", l.total, still);
     printf("rain: layers %d B in the %d B still-cloud buffer\n", l.total, still);
 }
@@ -829,9 +829,9 @@ static void test_bake_and_areas(void)
     static uint16_t bg[WX_FACE * WX_FACE], fb[WX_FACE * WX_FACE], prev[WX_FACE * WX_FACE], ref[WX_FACE * WX_FACE];
     static uint16_t lut[WX_RING_LUT];
     static wx_ring_t ring;
-    size_t still = (size_t)wx_clouds_max_px(false) * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3), *drift = calloc(1, (size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = m, .drift = drift};
+    size_t still = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_rain_layout_t l;
     wx_rain_layout(&l);
     const char *dir = getenv("CINDER_RAIN_PPM");
@@ -845,12 +845,12 @@ static void test_bake_and_areas(void)
     for (size_t c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
         wx_temp_t t = {0};
         t.rain = (wx_rain_t){.on = true, .kind = CASES[c].kind, .intensity = CASES[c].in, .has_pop = CASES[c].pop, .pop = 90};
-        wx_bake_out_t o = {.hero = {1, 1, 2, 2}, .still = {1, 1, 2, 2}, .drift = {1, 1, 2, 2}};
+        wx_bake_out_t o = {.hero = {1, 1, 2, 2}, .nclouds = 1};
         clock_t c0 = clock();
         wx_bake(&t, WX_BAKE_FULL, &b, &o);
         double ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
         printf("rain: full bake %s %.2f ms on the host\n", CASES[c].name, ms);
-        CHECK(o.hero.x1 == 0 && o.still.x1 == 0 && o.drift.x1 == 0, "%s: no hero or cloud sprites", CASES[c].name);
+        CHECK(o.hero.x1 == 0 && o.nclouds == 0, "%s: no hero or cloud sprites", CASES[c].name);
         float ex, ey;
         wx_gauge_xy(1, &ex, &ey);
         uint16_t end = bg[(int)ey * WX_FACE + (int)ex - 4];
@@ -958,7 +958,6 @@ static void test_bake_and_areas(void)
     free(mk);
     free(m);
     free(hero);
-    free(drift);
 }
 
 static void test_ramps(void)

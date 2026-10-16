@@ -76,10 +76,11 @@ void wx_paint_marker(wx_img_t *im);
 /* n face dots (wx_face_dot_xy), dot face white, the others grey. */
 void wx_paint_face_dots(wx_img_t *im, int face, int n);
 
-/* drift: the last (front) cloud, the one that moves; still: the others. still under drift = the whole layer. */
-void wx_clouds_split(const wx_clouds_t *all, wx_clouds_t *still, wx_clouds_t *drift);
-/* Largest box over the cloud bands, in pixels: the drift sprite or the still layer. */
-int wx_clouds_max_px(bool drift);
+/* Cloud i of all on its own, with all's tone and rim fade: one sprite. */
+void wx_cloud_one(const wx_clouds_t *all, int i, wx_clouds_t *one);
+/* The scene buffer in RGB565A8 pixels: the largest band's cloud sprites back to back or its whole cloud layer's box, the
+   room the other faces' layers are laid out in. */
+int wx_scene_px(void);
 
 #define WX_DRIP_W 8
 #define WX_DRIP_H 14
@@ -92,7 +93,7 @@ int wx_clouds_max_px(bool drift);
 #define WX_BOLT_Y 54
 #define WX_RAMP 0.16f
 
-/* Rain layers, carved out of the still-cloud buffer (a rain scene and a cloud scene never show together). Byte offsets;
+/* Rain layers, carved out of the scene buffer (a rain scene and a cloud scene never show together). Byte offsets;
    tiles, ramps, drips, splash and bolt are A8, covers RGB565A8. */
 typedef struct {
     int tile[WX_SHEETS], top[WX_SHEETS], bottom[WX_SHEETS], cover[WX_SHEETS];
@@ -119,7 +120,7 @@ void wx_paint_bolt(uint8_t *a8);
 /* The forecast variant's clouds on one side (wx_cast_sheet's side); none outside the variant. */
 void wx_cast_clouds(int variant, int side, wx_clouds_t *out);
 
-/* Forecast layers, carved out of the still-cloud buffer like the rain layers. Byte offsets; clouds RGB565A8 at cloud,
+/* Forecast layers, carved out of the scene buffer like the rain layers. Byte offsets; clouds RGB565A8 at cloud,
    strips (2 h rows) and ramps A8. box: the cloud over its breathe range and its sheet, one redraw area. */
 typedef struct {
     int sides;
@@ -145,7 +146,7 @@ void wx_paint_ring_wind(wx_ring_t *r, bool grey, uint16_t lut[WX_RING_LUT]);
 /* The windsock's pole, arm and base for a level, into the background. */
 void wx_paint_pole(wx_img_t *im, int level);
 
-/* Wind layers, carved out of the still-cloud buffer like the rain layers. Byte offsets, all A8: per pose the sock's
+/* Wind layers, carved out of the scene buffer like the rain layers. Byte offsets, all A8: per pose the sock's
    light stripes (fill) and its darker stripes over it (dark), both of the sock box; one sprite per streak row
    (streak_w x WX_STREAK_H); WX_LEAF_ROTS leaf sprites (WX_LEAF_BOX squared) when the level has leaves. area: the one
    redraw box over the sock, every streak's and leaf's travel. */
@@ -194,12 +195,15 @@ typedef struct {
     uint16_t *bg;  /* WX_FACE x WX_FACE RGB565 */
     uint16_t *lut; /* WX_RING_LUT */
     wx_ring_t *ring;
-    uint8_t *hero, *still, *drift; /* RGB565A8: WX_HERO_BOX squared, wx_clouds_max_px(false), wx_clouds_max_px(true) */
+    uint8_t *hero, *scene; /* RGB565A8: WX_HERO_BOX squared; wx_scene_px() (the cloud sprites or another face's layers) */
     void (*yield)(void); /* NULL: none; wx_bake calls it before every painted row, it decides when to sleep */
 } wx_bake_buf_t;
 
 typedef struct {
-    wx_box_t hero, still, drift; /* face boxes; empty when not shown */
+    wx_box_t hero; /* face box; empty when not shown */
+    int nclouds;   /* cloud sprites, back to front, each at cloud_at bytes into scene with its face box */
+    wx_box_t cloud[WX_DRIFT_MAX];
+    int cloud_at[WX_DRIFT_MAX];
 } wx_bake_out_t;
 
 /* The WX_BAKE_* parts of t: RING the ring, HERO the hero and out->hero, SCENE all of it (background with the

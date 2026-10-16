@@ -204,7 +204,7 @@ for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'i
 done
 [ "$(grep -c 'xTaskNotifyGive(' "$TFC")" -eq 1 ] || WIRING="$WIRING notify-only-in-act"
 body "$TFC" detach | grep -qF 'show_obj(s_root, false);' || WIRING="$WIRING detach-hides-the-face"
-for CV in s_bg s_hero s_still s_drift 's_strip[s][0]' 's_strip[s][1]' 's_top[s]' 's_bottom[s]' 's_cover[s]' 's_drip[i]' \
+for CV in s_bg s_hero 's_cl[i]' 's_strip[s][0]' 's_strip[s][1]' 's_top[s]' 's_bottom[s]' 's_cover[s]' 's_drip[i]' \
     's_splash[n]' s_bolt; do
     body "$TFC" detach | grep -qF "lv_canvas_set_buffer($CV, s_none, " || WIRING="$WIRING detach-$CV"
 done
@@ -219,7 +219,7 @@ for CV in 's_cloud[s]' 's_cstrip[s][0]' 's_cstrip[s][1]' 's_ctop[s]' 's_cbottom[
 done
 CAST_CV='lv_canvas_set_buffer\(s_(cloud|cstrip|ctop|cbottom)'
 [ "$(grep -cE "$CAST_CV" "$TFC")" -eq $(( $(body "$TFC" detach | grep -cE "$CAST_CV") + $(body "$TFC" cast_attach | grep -cE "$CAST_CV") )) ] &&
-    body "$TFC" cast_attach | grep -qF 'uint8_t *m = s_buf.still;' || WIRING="$WIRING forecast-layers-attach-only-in-cast_attach-from-the-still-buffer"
+    body "$TFC" cast_attach | grep -qF 'uint8_t *m = s_buf.scene;' || WIRING="$WIRING forecast-layers-attach-only-in-cast_attach-from-the-scene-buffer"
 body "$TFC" paint | grep -qF 'const wx_cast_t *c = wx_cast_same_scene(&t->cast, &s_io.key.cast) ? &t->cast : &s_io.key.cast;' ||
     WIRING="$WIRING paint-keeps-the-baked-forecast-while-fading-out"
 body "$TFC" paint | grep -qF 'const char *unit = wx_cast_value(c, wx_count_step(wx_cast_count_n(c), ta), txt, sizeof txt, &rgb);' &&
@@ -235,8 +235,8 @@ for CV in s_wsock s_wdark 's_wstreak[r]' 's_wleaf[i]'; do
 done
 WIND_CV='lv_canvas_set_buffer\(s_w(sock|dark|streak|leaf)'
 [ "$(grep -cE "$WIND_CV" "$TFC")" -eq $(( $(body "$TFC" detach | grep -cE "$WIND_CV") + $(body "$TFC" wind_attach | grep -cE "$WIND_CV") +
-    $(body "$TFC" set_wind | grep -cE "$WIND_CV") )) ] && body "$TFC" wind_attach | grep -qF 'uint8_t *m = s_buf.still;' &&
-    [ "$(body "$TFC" set_wind | grep -cF 's_buf.still + s_wlay.')" -eq 3 ] || WIRING="$WIRING wind-layers-attach-only-from-the-still-buffer"
+    $(body "$TFC" set_wind | grep -cE "$WIND_CV") )) ] && body "$TFC" wind_attach | grep -qF 'uint8_t *m = s_buf.scene;' &&
+    [ "$(body "$TFC" set_wind | grep -cF 's_buf.scene + s_wlay.')" -eq 3 ] || WIRING="$WIRING wind-layers-attach-only-from-the-scene-buffer"
 body "$TFC" paint | grep -qF 'const wx_wind_t *w = wx_wind_same_scene(&t->wind, &s_io.key.wind) ? &t->wind : &s_io.key.wind;' ||
     WIRING="$WIRING paint-keeps-the-baked-wind-while-fading-out"
 body "$TFC" set_wind | grep -qF 'wx_wind_frame(w->level, w->have && fo == 255 ? (int)floor(s_t * WX_WIND_FPS) : -1, &f);' ||
@@ -245,8 +245,8 @@ body "$TFC" set_wind | grep -qF 'if (dirty) lv_obj_invalidate(s_wbox);' && [ "$(
     WIRING="$WIRING wind-redraws-one-box"
 body "$TFC" apply | grep -qF 'if (t->days.on) days_attach(&t->days);' || WIRING="$WIRING days-attach-on-a-scene-apply"
 body "$TFC" detach | grep -qF 'lv_canvas_set_buffer(s_dicon[i], s_none, ' || WIRING="$WIRING detach-s_dicon[i]"
-[ "$(grep -c 'lv_canvas_set_buffer(s_dicon' "$TFC")" -eq 2 ] && body "$TFC" days_attach | grep -qF 'uint8_t *m = s_buf.still;' &&
-    body "$TFC" days_attach | grep -qF 'lv_canvas_set_buffer(s_dicon[i], m + s_dlay.at[i], ' || WIRING="$WIRING days-sprites-attach-only-from-the-still-buffer"
+[ "$(grep -c 'lv_canvas_set_buffer(s_dicon' "$TFC")" -eq 2 ] && body "$TFC" days_attach | grep -qF 'uint8_t *m = s_buf.scene;' &&
+    body "$TFC" days_attach | grep -qF 'lv_canvas_set_buffer(s_dicon[i], m + s_dlay.at[i], ' || WIRING="$WIRING days-sprites-attach-only-from-the-scene-buffer"
 body "$TFC" paint | grep -qF 'const wx_days_t *d = &s_io.key.days;' || WIRING="$WIRING paint-shows-the-baked-days"
 body "$TFC" face_kind | grep -qxF '    bool rows = s_days && t->days.have;' && body "$TFC" face_kind | grep -qxF '    show_obj(s_value, !rows);' &&
     [ "$(grep -c 'show_obj(s_value, ' "$TFC")" -eq 1 ] || WIRING="$WIRING days-hide-the-value-under-the-rows"
@@ -267,7 +267,7 @@ for CV in s_srays s_ssun; do
 done
 SUN_CV='lv_canvas_set_buffer\(s_s(rays|sun), '
 [ "$(grep -cE "$SUN_CV" "$TFC")" -eq 4 ] && [ "$(body "$TFC" sun_attach | grep -cE "$SUN_CV")" -eq 2 ] &&
-    body "$TFC" sun_attach | grep -qxF '    uint8_t *m = s_buf.still;' || WIRING="$WIRING sun-sprites-attach-only-from-the-still-buffer"
+    body "$TFC" sun_attach | grep -qxF '    uint8_t *m = s_buf.scene;' || WIRING="$WIRING sun-sprites-attach-only-from-the-scene-buffer"
 body "$TFC" sun_create | grep -qxF '    s_ssun = canvas(s_sbox, LV_COLOR_FORMAT_RGB565A8);' &&
     body "$TFC" sun_create | awk '/s_srays = a8\(s_root, WX_SUN_GOLD_RGB\);/ {r = NR} /s_sbox = box_obj\(s_root\);/ {b = NR} END {exit !(r && b && r < b)}' ||
     WIRING="$WIRING sun-clipped-by-its-box-over-the-rays"
@@ -307,8 +307,8 @@ body "$TFC" apply | grep -qxF '        fixed_label(s_lo, s_lo_txt, t->sun.have, 
 body "$TFC" apply | grep -qxF '        if (t->air.on) air_attach(&t->air);' || WIRING="$WIRING air-attaches-on-a-scene-apply"
 body "$TFC" detach | grep -qF 'lv_canvas_set_buffer(s_apetal, s_none, ' || WIRING="$WIRING detach-s_apetal"
 [ "$(grep -c 'lv_canvas_set_buffer(s_apetal, ' "$TFC")" -eq 2 ] &&
-    body "$TFC" set_air | grep -qF 'lv_canvas_set_buffer(s_apetal, s_buf.still + p.rot * WX_PETAL_BOX * WX_PETAL_BOX * 3, ' ||
-    WIRING="$WIRING air-petal-frames-from-the-still-buffer"
+    body "$TFC" set_air | grep -qF 'lv_canvas_set_buffer(s_apetal, s_buf.scene + p.rot * WX_PETAL_BOX * WX_PETAL_BOX * 3, ' ||
+    WIRING="$WIRING air-petal-frames-from-the-scene-buffer"
 body "$TFC" air_create | grep -qxF '    s_apetal = canvas(s_abox, LV_COLOR_FORMAT_RGB565A8);' || WIRING="$WIRING air-petal-in-its-box"
 body "$TFC" face_kind | grep -qxF '    if (!s_air) show_obj(s_abox, false);' && body "$TFC" air_attach | grep -qxF '    show_obj(s_abox, a->wilted);' ||
     WIRING="$WIRING air-petal-only-on-the-wilted-flower"
@@ -323,8 +323,8 @@ body "$TFC" paint | grep -qxF '            set_value(txt, wx_air_rgb(v));' && bo
     WIRING="$WIRING air-value-marker-and-petal"
 body "$TFC" paint | grep -qxF '        const char *word = aq->have ? wx_air_word(aq->band) : "";' && body "$TFC" paint | grep -qF 's_air ? wx_air_band_rgb(aq->band) : ' ||
     WIRING="$WIRING air-band-word-in-its-colour"
-body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.still;' && body "$TFC" set_rain | grep -qF 's_buf.still + s_lay.drip[' ||
-    WIRING="$WIRING rain-layers-live-in-the-still-buffer"
+body "$TFC" rain_attach | grep -qF 'uint8_t *m = s_buf.scene;' && body "$TFC" set_rain | grep -qF 's_buf.scene + s_lay.drip[' ||
+    WIRING="$WIRING rain-layers-live-in-the-scene-buffer"
 body "$TFC" paint | grep -qF 'set_rain(r, sprite_opa, fo == 255 && !r->dry);' || WIRING="$WIRING paint-drives-the-rain-frames-not-when-dry"
 body "$TFC" paint | grep -qF 'const wx_rain_t *r = wx_rain_same_scene(&t->rain, &s_io.key.rain) ? &t->rain : &s_io.key.rain;' ||
     WIRING="$WIRING paint-keeps-the-baked-rain-while-fading-out"
@@ -351,7 +351,7 @@ lv_obj_set_style_image_opa(s_strip[s][1], (lv_opa_t)op.layer_opa, 0);
 }
 for (int i = 0; i < WX_DRIPS; i++) {
 if (op.drip_buf[i])
-lv_canvas_set_buffer(s_drip[i], s_buf.still + s_lay.drip[op.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
+lv_canvas_set_buffer(s_drip[i], s_buf.scene + s_lay.drip[op.drip_pose[i]], WX_DRIP_W, WX_DRIP_H, LV_COLOR_FORMAT_A8);
 if (op.drip_y[i]) lv_obj_set_y(s_drip[i], op.drip_top[i]);
 if (op.drip_opa[i]) lv_obj_set_style_image_opa(s_drip[i], (lv_opa_t)op.drip_alpha[i], 0);
 show_obj(s_drip[i], op.drip_on[i]);
@@ -386,6 +386,21 @@ grep -qF 'lv_canvas_set_buffer(s_bg, s_buf.bg, ' "$TFC" && [ "$(grep -c 'lv_canv
 body "$TFC" apply | awk '/s_front \^= 1;/ {f = NR} /sprite\(s_hero, s_hero_buf\[s_front\], / {if (f) h = NR} /s_buf\.hero = s_hero_buf\[!s_front\];/ {if (h) b = 1} END {exit !b}' &&
     [ "$(grep -c 'sprite(s_hero, ' "$TFC")" -eq 1 ] && [ "$(grep -c 's_buf.hero = ' "$TFC")" -eq 3 ] ||
     WIRING="$WIRING hero-shows-the-front-and-bakes-the-back"
+body "$TFC" apply | awk '/if \(kind & WX_BAKE_SCENE\) \{/ {s = NR} /\} else if \(kind & WX_BAKE_RING\) \{/ {e = NR}
+    /sprite\(s_cl\[i\], on \? s_buf\.scene \+ o->cloud_at\[i\] : s_none, on \? o->cloud\[i\] : \(wx_box_t\)\{0, 0, 0, 0\}\);/ {c = NR}
+    /wx_drift_start\(&s_cd, o->nclouds, esp_random\(\)\);/ {d = NR} /s_drift_at = s_t > WX_ARRIVE_S \? s_t : WX_ARRIVE_S;/ {a = NR}
+    /^    \}/ && s && !a {out = 1} END {exit !(s && c > s && d > c && a > d && e > a && !out)}' &&
+    [ "$(grep -c 'wx_drift_start(' "$TFC")" -eq 1 ] && [ "$(grep -c 's_drift_at = ' "$TFC")" -eq 1 ] &&
+    [ "$(grep -c 'sprite(s_cl\[' "$TFC")" -eq 1 ] && [ "$(grep -c 'lv_canvas_set_buffer(s_cl\[' "$TFC")" -eq 1 ] ||
+    WIRING="$WIRING a-scene-apply-shows-one-sprite-per-cloud-and-starts-new-drift-paths-after-the-arrival"
+body "$TFC" set_sprites | grep -qxF '    int i = drift ? wx_drift_step(&s_cd, s_t - s_drift_at) : -1;' &&
+    body "$TFC" set_sprites | grep -qxF '    lv_obj_set_pos(s_cl[i], s_out.cloud[i].x0 + s_cd.dx[i], s_out.cloud[i].y0 + s_cd.dy[i]);' &&
+    [ "$(grep -cE 'lv_obj_set_(pos|x|y)\(s_cl\[' "$TFC")" -eq 1 ] && [ "$(grep -c 'wx_drift_step(' "$TFC")" -eq 1 ] &&
+    body "$TFC" paint | grep -qxF '    set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S);' ||
+    WIRING="$WIRING drift-moves-only-the-stepped-cloud-and-only-on-the-temperature-face-after-the-arrival"
+grep -qxF 'static EXT_RAM_BSS_ATTR wx_drift_t s_cd;' "$TFC" && grep -qxF 'static EXT_RAM_BSS_ATTR double s_drift_at;' "$TFC" &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_cl[WX_DRIFT_MAX];' "$TFC" ||
+    WIRING="$WIRING drift-state-in-PSRAM"
 [ "$(grep -c 'heap_caps_free(' "$TFC")" -eq 1 ] && grep -qF '#define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)' "$TFC" ||
     WIRING="$WIRING free-only-through-DROP"
 [ "$(body "$TFC" acquire | grep -c 'psram(')" -eq "$(body "$TFC" release | grep -c 'DROP(')" ] || WIRING="$WIRING release-drops-every-buffer"
@@ -396,7 +411,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL temp face wiring:$WIRING" >&2
     exit 1
 fi
-echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, wxbake yielding a tick every ${WYUS} us (hook in ${YROWS} row loops and ${YIMGS} bake images), detach on re-bake, OTA hold, rain, forecast, wind, days, sun and air layers, face turns"
+echo "temp face wiring: burn-in shift on the root, bake and job state through wx_job, wxbake yielding a tick every ${WYUS} us (hook in ${YROWS} row loops and ${YIMGS} bake images), detach on re-bake, OTA hold, one drifting sprite per cloud, rain, forecast, wind, days, sun and air layers, face turns"
 WJC="$W/wx_job.c"
 body "$WJC" park | awk '/atomic_compare_exchange_strong\(&j->state, &queued, WX_JOB_IDLE\)/ {cas = NR} /atomic_load\(/ {if (!cas) early = 1; if ($0 ~ /atomic_load\(&j->state\) == WX_JOB_RUNNING/) run = 1} /atomic_store\(/ {st = 1} END {exit !(cas && run && !early && !st)}' ||
     WIRING="$WIRING park-cancels-by-CAS-then-loads-RUNNING"

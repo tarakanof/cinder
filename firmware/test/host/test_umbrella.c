@@ -268,9 +268,9 @@ static void test_bake(void)
     static uint16_t bg[WX_FACE * WX_FACE], rbg[WX_FACE * WX_FACE], lut[WX_RING_LUT], rlut[WX_RING_LUT];
     static uint8_t hero[WX_HERO_BOX * WX_HERO_BOX * 3];
     static wx_ring_t ring, rring;
-    size_t sn = (size_t)wx_clouds_max_px(false) * 3;
-    uint8_t *m = malloc(sn), *rm = malloc(sn), *drift = malloc((size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = m, .drift = drift};
+    size_t sn = (size_t)wx_scene_px() * 3;
+    uint8_t *m = malloc(sn), *rm = malloc(sn);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_rain_layout_t l;
     wx_rain_layout(&l);
     static const struct {
@@ -315,7 +315,6 @@ static void test_bake(void)
     if (on) CHECK(got_ms * 2 < ref_ms, "CINDER_BENCH: the rain bake is well under half the brute-force reference");
     free(m);
     free(rm);
-    free(drift);
 }
 
 int main(void)

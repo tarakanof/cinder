@@ -631,7 +631,7 @@ static bool inside(wx_box_t a, wx_box_t b) { return a.x0 >= b.x0 && a.y0 >= b.y0
 
 static void test_layout(void)
 {
-    int still = wx_clouds_max_px(false) * 3;
+    int still = wx_scene_px() * 3;
     for (int v = 0; v <= 3; v++) {
         wx_cast_layout_t l;
         wx_cast_layout(v, &l);
@@ -698,15 +698,15 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_clouds_max_px(false) * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3), *drift = calloc(1, (size_t)wx_clouds_max_px(true) * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .still = m, .drift = drift};
+    size_t still = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_obs_t o = dry_with(LOCAL(17, 0), LOCAL(19, 0), 1, 0);
     wx_temp_t t;
     wx_temp_face(&o, NULL, WXF_CAST, &t);
-    wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .still = {1, 1, 2, 2}, .drift = {1, 1, 2, 2}};
+    wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .nclouds = 1};
     wx_bake(&t, WX_BAKE_FULL, &b, &out);
-    CHECK(out.hero.x1 == 0 && out.still.x1 == 0 && out.drift.x1 == 0, "no hero or cloud-band sprites");
+    CHECK(out.hero.x1 == 0 && out.nclouds == 0, "no hero or cloud-band sprites");
     CHECK(ring_px(bg, 165) == wx_rgb565(0x4F81B7) && ring_px(bg, 195) == wx_rgb565(0x4F81B7), "AD4: 17-19 h lit light");
     CHECK(ring_px(bg, 152.5f) == wx_rgb565(0x4F81B7), "the lit arc starts with the 17 h cell (151.5)");
     CHECK(ring_px(bg, 105) == wx_rgb565(0x262626) && ring_px(bg, 225) == wx_rgb565(0x262626), "other hours grey");
@@ -794,7 +794,6 @@ static void test_paint(void)
     CHECK(al[0] == 0 && al[WX_DROP_BOX * WX_DROP_BOX - 1] == 0, "corners clear");
     free(m);
     free(hero);
-    free(drift);
 }
 
 int main(void)
