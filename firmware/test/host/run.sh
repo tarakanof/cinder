@@ -406,10 +406,20 @@ body "$TFC" set_sprites | grep -qxF '    int i = drift ? wx_drift_step(&s_cd) : 
     body "$TFC" paint | grep -qxF '    set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S);' ||
     WIRING="$WIRING drift-moves-only-the-stepped-cloud-and-only-on-the-temperature-face-after-the-arrival"
 body "$TFC" temp_face_update | awk '/^    s_t \+= dt;$/ {t = NR} /^    if \(s_t >= WX_ARRIVE_S\) wx_drift_tick\(&s_cd, dt\);$/ {if (t == NR - 1) k = 1} END {exit !k}' &&
-    [ "$(grep -c 'wx_drift_tick(' "$TFC")" -eq 1 ] && [ "$(grep -c '&s_cd' "$TFC")" -eq 3 ] &&
-    [ "$(grep -cE '(^|[^A-Za-z_0-9])s_cd([^A-Za-z_0-9]|$)' "$TFC")" -eq 5 ] &&
+    [ "$(grep -c 'wx_drift_tick(' "$TFC")" -eq 1 ] &&
     ! grep -qE '(^|[^A-Za-z_0-9])s_cd(\.[a-z_]+(\[[^]]*\])?)? *(([-+*/%&|^]|<<|>>)?=[^=]|\+\+|--)|(\+\+|--) *s_cd([^A-Za-z_0-9]|$)' "$TFC" && ! body "$TFC" set_sprites | grep -q 's_t' ||
     WIRING="$WIRING the-drift-runs-on-its-own-clock-so-a-show-that-rewinds-s_t-never-freezes-it"
+CDREF=$(grep -c '&s_cd' "$TFC" || true)
+if [ "$CDREF" -ne 3 ]; then
+    WIRING="$WIRING &s_cd-only-in-the-start-the-tick-and-the-step(found-$CDREF-want-3)"
+    { echo "run.sh: &s_cd in $TFC (want 3: the start, the tick, the step):"; grep -nF '&s_cd' "$TFC" || true; } >&2
+fi
+CDWORD='(^|[^A-Za-z_0-9])s_cd([^A-Za-z_0-9]|$)'
+CDLINES=$(grep -cE "$CDWORD" "$TFC" || true)
+if [ "$CDLINES" -ne 5 ]; then
+    WIRING="$WIRING s_cd-named-on-exactly-5-lines-the-declaration-start-step-set_pos-and-tick(found-$CDLINES)"
+    { echo "run.sh: lines naming s_cd in $TFC (want 5):"; grep -nE "$CDWORD" "$TFC" || true; } >&2
+fi
 grep -qxF '_Static_assert(WX_SCENE_ALIGN % LV_DRAW_BUF_ALIGN == 0, "cloud sprites start on LVGL'"'"'s draw buffer alignment");' "$TFC" ||
     WIRING="$WIRING cloud-sprite-offsets-asserted-on-LVGL-draw-buffer-alignment"
 grep -qxF 'static EXT_RAM_BSS_ATTR wx_drift_t s_cd;' "$TFC" && grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_cl[WX_CLOUDS_MAX];' "$TFC" ||

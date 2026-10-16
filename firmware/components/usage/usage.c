@@ -300,3 +300,9 @@ void usage_face(const usage_acct_t *a, double now, bool has_offset, int utc_offs
     reset_line(a, now, has_offset, utc_offset, f);
     week_line(a, now, has_offset, utc_offset, f);
 }
+
+const char *usage_week_text(const usage_face_t *f, int label_w, int (*text_w)(const char *s, const void *ctx), const void *ctx)
+{
+    if (!f->week_short[0]) return f->week_line;
+    return text_w(f->week_line, ctx) > label_w ? f->week_short : f->week_line;
+}

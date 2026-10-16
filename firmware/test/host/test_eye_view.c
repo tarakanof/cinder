@@ -549,9 +549,9 @@ static void test_orbit(lv_display_t *d)
         if (tau < 0) usleep(2000);
     }
     CHECK(tau >= 0, "orbit: the moment baked and plays");
-    int frames = 0, lit_max = 0;
+    int frames = 0, lit_max = 0, icon_min = before;
     ghost = 0;
-    for (int k = 0; tau >= 0 && k <= WXM_FRAMES; k++) {
+    for (int k = 0; k <= WXM_FRAMES; k++) {
         double t = tm + (k + 0.5) / WXM_FPS;
         orbit_frame(d, &p, t);
         moment_view_frame(t);
@@ -560,15 +560,17 @@ static void test_orbit(lv_display_t *d)
         for (int y = WXM_BOX_Y - 4; y < WXM_BOX_Y + WXM_BOX_H + 4; y++)
             for (int x = WXM_BOX_X; x < WXM_BOX_X + WXM_BOX_W + 8 && x < W; x++) lit += s_fb[y * W + x] != 0;
         lit_max = lit > lit_max ? lit : lit_max;
+        icon_min = icon_px() < icon_min ? icon_px() : icon_min;
         int g = redraw_diff(d, &x0, &y0);
         if (g && !ghost) printf("orbit +4,-4: moment frame %d: %d px differ, first at %d,%d\n", k, g, x0, y0);
         ghost += g;
         frames++;
     }
     printf("orbit +4,-4: quiet moment %d frames, up to %d px in the sprite box, %d px differ from full redraws\n", frames, lit_max, ghost);
-    CHECK(frames > WXM_FRAMES / 2 && lit_max > 500 && !ghost && !moment_view_busy() && icon_px() == before,
+    CHECK(lit_max > 500 && !ghost && !moment_view_busy() && icon_px() == before,
           "orbit +4,-4: the moment sprite, text and icon join redraw where they are (%d frames, %d px, %d ghost, icon %d of %d)", frames,
           lit_max, ghost, icon_px(), before);
+    CHECK(!icon_min, "orbit +4,-4: the icon steps aside during the moment (at least %d of %d px left)", icon_min, before);
 
     bot_view_set_hint(false);
     page_shift(0, 0);
