@@ -10,7 +10,6 @@
 #include "lvgl.h"
 #include "pomo_client.h"
 #include "src/display/lv_display_private.h"
-#include "src/widgets/label/lv_label_private.h"
 #include "usage_client.h"
 #include "usage_view.h"
 
@@ -24,6 +23,7 @@ static int failures;
 static uint16_t s_fb[W * H];
 static int s_areas;
 static long s_px;
+static lv_area_t s_inv[LV_INV_BUF_SIZE];
 static const char *s_dir;
 
 static usage_block_t s_blk;
@@ -69,7 +69,7 @@ static void render_cb(lv_event_t *e)
     lv_display_t *d = lv_event_get_target(e);
     for (uint32_t i = 0; i < d->inv_p; i++) {
         if (d->inv_area_joined[i]) continue;
-        s_areas++;
+        s_inv[s_areas++] = d->inv_areas[i];
         s_px += (long)lv_area_get_width(&d->inv_areas[i]) * lv_area_get_height(&d->inv_areas[i]);
     }
 }
@@ -79,6 +79,13 @@ static void refresh(lv_display_t *d)
     s_areas = 0;
     s_px = 0;
     lv_refr_now(d);
+}
+
+static bool redrawn(const lv_area_t *a)
+{
+    for (int i = 0; i < s_areas; i++)
+        if (s_inv[i].x1 <= a->x2 && a->x1 <= s_inv[i].x2 && s_inv[i].y1 <= a->y2 && a->y1 <= s_inv[i].y2) return true;
+    return false;
 }
 
 static uint32_t rgb_at(int x, int y)
@@ -192,7 +199,9 @@ static void check_labels(lv_obj_t *scr, const char *state, const char *dotted)
         lv_text_get_size(&sz, t[i], lv_obj_get_style_text_font(o[i], LV_PART_MAIN), lv_obj_get_style_text_letter_space(o[i], LV_PART_MAIN), 0,
                          LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         bool may_dot = dotted && strncmp(t[i], dotted, strlen(dotted)) == 0;
-        CHECK((may_dot || ((lv_label_t *)o[i])->dot_begin == UINT32_MAX) && sz.x <= lv_area_get_width(&a[i]),
+        size_t len = strlen(t[i]);
+        bool dots = len >= 3 && strcmp(t[i] + len - 3, "...") == 0;
+        CHECK((may_dot || !dots) && sz.x <= lv_area_get_width(&a[i]),
               "%s: '%s' fits its label: %d px in %d", state, t[i], (int)sz.x, (int)lv_area_get_width(&a[i]));
         float corners[4][2] = {{a[i].x1, a[i].y1}, {a[i].x2, a[i].y1}, {a[i].x1, a[i].y2}, {a[i].x2, a[i].y2}};
         for (int k = 0; h < 60 && k < 4; k++)
@@ -298,7 +307,7 @@ int main(int argc, char **argv)
     publish(&b);
     frame(d, t + 5.2);
     save("usage-models-100");
-    CHECK(label_with(scr, "O 100% \xE2\x80\xA2 S 100%") != NULL, "100/100: the models by initial, since the names would truncate");
+    CHECK(label_with(scr, "Op 100% \xE2\x80\xA2 So 100%") != NULL, "100/100: the models by two letters, since the names would truncate");
     check_labels(scr, "models at 100/100", NULL);
 
     b.a[0].n_models = 0;
@@ -331,8 +340,35 @@ int main(int argc, char **argv)
     frame(d, t + 10);
     printf("usage view: dots-only step: %d areas, %ld px\n", s_areas, s_px);
     CHECK(s_areas >= 1 && s_px < 5000, "same rings, another dot: only the dots redraw: %d areas, %ld px", s_areas, s_px);
+    int bx, by, bw, bh;
+    usage_dots_box(&bx, &by, &bw, &bh);
+    CHECK(s_areas == 1 && s_inv[0].x1 == bx && s_inv[0].y1 == by && s_inv[0].x2 == bx + bw - 1 && s_inv[0].y2 == by + bh - 1,
+          "the redrawn area is the dots box on screen: %d areas, %d,%d-%d,%d for %d,%d %dx%d", s_areas, (int)s_inv[0].x1, (int)s_inv[0].y1,
+          (int)s_inv[0].x2, (int)s_inv[0].y2, bx, by, bw, bh);
+    float d1x, d1y;
+    usage_dot_xy(1, 2, &d1x, &d1y);
+    CHECK(near_rgb(rgb_at((int)d1x, (int)d1y), USAGE_DOT_ON, 12), "the second dot lit on screen: %06x", (unsigned)rgb_at((int)d1x, (int)d1y));
     usage_view_close();
     frame(d, t + 10);
+
+    usage_block_t mod = {.n = 1};
+    mod.a[0] = acct("claude:mod", USAGE_TOOL_CLAUDE, "Models", 41, 0.5, 20);
+    mod.a[0].n_models = 2;
+    mod.a[0].models[0] = (usage_model_t){"Opus", 38};
+    mod.a[0].models[1] = (usage_model_t){"Sonnet", 12};
+    publish(&mod);
+    usage_view_input(&(usage_in_t){.taps = 1}, t + 11);
+    frame(d, t + 11);
+    CHECK(label_with(scr, "Opus 38% \xE2\x80\xA2 Sonnet 12%") != NULL, "opened on a models account: the full models line in the first frame");
+    usage_view_close();
+    frame(d, t + 11);
+    usage_view_input(&(usage_in_t){.taps = 1}, t + 12);
+    frame(d, t + 12);
+    CHECK(label_with(scr, "Models") && label_with(scr, "41") && label_with(scr, "resets in ") &&
+              label_with(scr, "Opus 38% \xE2\x80\xA2 Sonnet 12%"),
+          "the same account reopened with the same strings: name, value, reset and models lines shown");
+    usage_view_close();
+    frame(d, t + 12);
 
     usage_block_t one = {.n = 1};
     one.a[0] = acct("claude:9", USAGE_TOOL_CLAUDE, "Max", 55, 0.6, 30);
@@ -380,6 +416,17 @@ int main(int argc, char **argv)
         CHECK(fc, "the relative forecast line");
     }
     check_labels(scr, "long name, relative forecast", "Wwww");
+    {
+        lv_area_t na[8];
+        const char *nt[8];
+        int nn = labels(scr, na, nt, 8, NULL), ni = -1;
+        for (int i = 0; i < nn; i++)
+            if (strncmp(nt[i], "Wwww", 4) == 0) ni = i;
+        CHECK(ni >= 0 && strcmp(nt[ni] + strlen(nt[ni]) - 3, "...") == 0, "the 24-char name is dotted");
+        s_now += 1;
+        frame(d, 300.5);
+        CHECK(ni >= 0 && !redrawn(&na[ni]), "a second later the dotted name is not set and redrawn again: %d areas, %ld px", s_areas, s_px);
+    }
     lng.a[0].five.pct = 100;
     publish(&lng);
     frame(d, 301);

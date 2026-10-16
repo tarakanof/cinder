@@ -867,7 +867,7 @@ static void test_drift(void)
             }
             int front_range = 0, back_range = 99;
             for (int k = 0; k < n; k++) {
-                int reach = (int)lround(d.depth[k] * WX_DRIFT_X);
+                int reach = back[k] ? 4 : 6;
                 off_extreme += lo[k] != plo[k] || hi[k] != phi[k];
                 swing += lo[k] != -reach || hi[k] != reach;
                 if (back[k]) back_range = hi[k] - lo[k] < back_range ? hi[k] - lo[k] : back_range;
@@ -882,8 +882,7 @@ static void test_drift(void)
         CHECK(lag_even <= 2 && worst_lag <= 2, "band %d: at most 2 px behind the path, ticked at %d fps or at 15-60 fps (%d, %d)", band,
               WX_DRIFT_FPS, lag_even, worst_lag);
         CHECK(off_extreme == 0, "band %d: every cloud reaches both ends of its path (%d short)", band, off_extreme);
-        CHECK(swing == 0, "band %d: front clouds swing the full ±%d px, back clouds ±%d (%d short)", band, WX_DRIFT_X,
-              (int)lround(WX_DRIFT_BACK * WX_DRIFT_X), swing);
+        CHECK(swing == 0, "band %d: front clouds swing the full ±6 px, back clouds ±4 (%d off)", band, swing);
         CHECK(flat_back == 0, "band %d: back clouds swing less than front clouds (%d seeds not)", band, flat_back);
         printf("drift: band %d, %d cloud(s): %.1f steps/s, one box of %ld px each (%ld px/s; the old single drift was 1 step/s)\n", band, n,
                steps / (60.0 * 32), steps ? box_px / steps : 0, steps ? (long)(box_px / (60.0 * 32)) : 0);

@@ -249,7 +249,7 @@ static void models_line(const usage_acct_t *a, bool initials, char *out, size_t 
     out[0] = 0;
     for (int i = 0; i < a->n_models && n < cap; i++) {
         const char *name = a->models[i].name + strspn(a->models[i].name, " ");
-        int k = initials ? snprintf(out + n, cap - n, "%s%c %d%%", i ? " \xE2\x80\xA2 " : "", name[0], a->models[i].pct)
+        int k = initials ? snprintf(out + n, cap - n, "%s%.2s %d%%", i ? " \xE2\x80\xA2 " : "", name, a->models[i].pct)
                          : snprintf(out + n, cap - n, "%s%s %d%%", i ? " \xE2\x80\xA2 " : "", name, a->models[i].pct);
         if (k < 0) return;
         n += (size_t)k;

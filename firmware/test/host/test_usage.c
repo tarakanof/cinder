@@ -42,7 +42,7 @@ static void test_open_on_highest(void)
           "a tap opens the highest 5-hour %%: %d", nav.idx);
     usage_nav_close(&nav);
     CHECK(in(&nav, &b, (usage_in_t){.taps = 1, .pushes = 1}, 2) == USAGE_ACT_OPEN && nav.open,
-          "a push in the opening tap's frame neither closes it nor reaches the bot");
+          "a push in the opening tap's frame: it stays open and is taken");
     usage_nav_close(&nav);
     b.a[2].five.pct = 93;
     in(&nav, &b, (usage_in_t){.taps = 1}, 2);
@@ -220,16 +220,16 @@ static void test_week_line(void)
     a.models[1] = (usage_model_t){"Sonnet", 12};
     f = face_at(&a, T0 + 3600, true);
     CHECK(strcmp(f.week_line, "Opus 38% \xE2\x80\xA2 Sonnet 12%") == 0, "models replace the week: %s", f.week_line);
-    CHECK(strcmp(f.week_short, "O 38% \xE2\x80\xA2 S 12%") == 0, "and their initials: %s", f.week_short);
+    CHECK(strcmp(f.week_short, "Op 38% \xE2\x80\xA2 So 12%") == 0, "and their initials: %s", f.week_short);
     a.models[0] = (usage_model_t){"  Opus", 100};
     a.models[1].pct = 100;
     f = face_at(&a, T0 + 3600, true);
-    CHECK(strcmp(f.week_line, "Opus 100% \xE2\x80\xA2 Sonnet 100%") == 0 && strcmp(f.week_short, "O 100% \xE2\x80\xA2 S 100%") == 0,
+    CHECK(strcmp(f.week_line, "Opus 100% \xE2\x80\xA2 Sonnet 100%") == 0 && strcmp(f.week_short, "Op 100% \xE2\x80\xA2 So 100%") == 0,
           "leading spaces dropped: %s / %s", f.week_line, f.week_short);
     a.models[0] = (usage_model_t){"Opus", 38};
     a.n_models = 1;
     f = face_at(&a, T0 + 3600, true);
-    CHECK(strcmp(f.week_line, "Opus 38%") == 0 && strcmp(f.week_short, "O 38%") == 0, "one model: %s", f.week_line);
+    CHECK(strcmp(f.week_line, "Opus 38%") == 0 && strcmp(f.week_short, "Op 38%") == 0, "one model: %s", f.week_line);
     a.n_models = 0;
     f = face_at(&a, T0 + 3600, true);
     CHECK(!f.week_short[0], "no models: no short line");
@@ -379,9 +379,15 @@ static void test_band_redraw(void)
         int out = 0;
         for (int j = 0; j < H; j++)
             for (int i = 0; i < W; i++)
-                out += dots[j * W + i] != 0 && dots[j * W + i] != 0x1234 && (i < bx || i >= bx + bw || j < by || j >= by + bh);
-        CHECK(out == 0, "%d dots stay inside the dots box: %d px outside", n, out);
+                out += dots[j * W + i] != 0x1234 && (i < bx || i >= bx + bw || j < by || j >= by + bh);
+        CHECK(out == 0, "%d dots: drawn and cleared inside the dots box: %d px outside", n, out);
     }
+    memset(dots, 0, W * H * 2);
+    usage_dots_render(dots, W, H, USAGE_MAX, 0);
+    usage_dots_render(dots, W, H, 1, 0);
+    int left = 0;
+    for (int i = 0; i < W * H; i++) left += dots[i] != 0;
+    CHECK(left == 0, "%d dots down to one: all cleared (%d px left)", USAGE_MAX, left);
     free(dots);
     usage_rings_render(buf, W, H, &f, 1, 0);
     uint16_t *ref = malloc(W * H * 2);
