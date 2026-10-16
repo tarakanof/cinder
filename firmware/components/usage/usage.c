@@ -6,7 +6,6 @@
 #include "cJSON.h"
 #include "np.h"
 #include "wx_clock.h"
-#include "wx_clock.h"
 
 static const cJSON *item(const cJSON *o, const char *k) { return cJSON_IsObject(o) ? cJSON_GetObjectItemCaseSensitive(o, k) : NULL; }
 
