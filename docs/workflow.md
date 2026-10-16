@@ -33,7 +33,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 - **New caps feature tokens.** `NOT_YET_SENT` matches object keys only; `caps.features` is
   an array. A token in Ember's feature registry that the firmware sends before
   `checkin_req_caps.json` lists it goes in `FEATURES_AHEAD[]` in `test_fixtures.c`
-  (`wx_faces` since 0.9.51, `wx_moments` since 0.9.65, `demo` since 0.9.66, `np_cover` since 0.9.84): the test drops it from the firmware's list before comparing,
+  (`wx_faces` since 0.9.51, `wx_moments` since 0.9.65, `demo` since 0.9.66, `np_cover` since 0.9.84, `usage` since #208): the test drops it from the firmware's list before comparing,
   fails when a caps body does not carry it exactly once or no caps fixture is checked, and
   fails once the fixture has it (then remove
   the entry in the sync commit).

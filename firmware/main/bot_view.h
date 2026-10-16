@@ -18,6 +18,9 @@ double bot_view_radius_px(void);
 void bot_view_set_host(const ember_host_info_t *host);
 /* LVGL task only. */
 void bot_view_set_options(bool source_label, bool working_ring);
+/* LVGL task only: the usage limit hint, a short red arc on the round outline's rim; it hides while the outline is not
+   the round base (squash variants, the error triangle). */
+void bot_view_set_hint(bool on);
 /* LVGL task only: the link glyph under the face. */
 void bot_view_set_offline(bool on);
 /* t in seconds; LVGL task only. Returns true when it invalidated a step. */

@@ -50,6 +50,8 @@
 #include "touch_swipe.h"
 #include "weather_client.h"
 #include "temp_face.h"
+#include "usage_client.h"
+#include "usage_view.h"
 #include "moment_view.h"
 #include "music_moment.h"
 #include "music_view.h"
@@ -102,6 +104,7 @@ static EXT_RAM_BSS_ATTR double s_wipe_t0, s_dots_until;
 static bot_t s_bot;
 static bot_pose_t s_last_pose;
 static bool s_drawn;
+static EXT_RAM_BSS_ATTR bool s_usage_on;
 static double s_ring_deg;
 static int s_demo_index;
 static double s_demo_until;
@@ -523,6 +526,11 @@ static void page_fx_frame(double t)
 void page_bot_show(bool on)
 {
     if (!s_bot_page) return;
+    if (!on) {
+        usage_view_close();
+        s_usage_on = false;
+    }
+    if (on && s_usage_on) return;
     if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;
     if (on) lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
@@ -793,12 +801,19 @@ static void render_freeze(lv_display_t *disp)
 
 void page_bot_input(const page_input_t *in, double t)
 {
+    usage_in_t u = {.taps = in->touches, .pushes = in->pushes, .longs = in->longs, .detents = in->detents,
+                    .hswipes = in->hswipes, .wakes = in->wakes};
+    bool was = usage_view_open();
+    if (usage_view_input(&u, t)) {
+        if (!was) for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);
+        return;
+    }
     if (in->detents) {
         s_ring_deg += in->detents * DEGREES_PER_DETENT;
         double a = s_ring_deg * M_PI / 180;
         bot_look(&s_bot, sin(a) * 0.85, cos(a) * 0.85, t);
     }
-    for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);
+    for (int n = in->pushes + in->touches; n > 0; n--) bot_push(&s_bot, t);
     for (int n = in->longs; n > 0; n--) {
         s_demo_index = (s_demo_index + 1) % (int)(sizeof DEMO_MOODS / sizeof DEMO_MOODS[0]);
         bot_set_mood_user(&s_bot, DEMO_MOODS[s_demo_index], t);
@@ -806,9 +821,24 @@ void page_bot_input(const page_input_t *in, double t)
     }
 }
 
+static void bot_under_usage(bool under)
+{
+    if (under == s_usage_on) return;
+    s_usage_on = under;
+    if (under) {
+        lv_obj_add_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN);
+    s_drawn = false;
+    s_bot_shown = true;
+}
+
 void page_bot_frame(const page_frame_t *f)
 {
     double t = f->t;
+    bot_under_usage(usage_view_frame(t));
+    if (s_usage_on) return;
     const bot_pose_t *p = &f->pose;
     const gc_out_t *chase = &f->chase;
     ember_host_info_t host;
@@ -831,6 +861,7 @@ void page_bot_frame(const page_frame_t *f)
         s_frames++;
         s_frame_kind |= 1;
     }
+    bot_view_set_hint(usage_view_hint());
     if (bot_view_tick(t, pose && !chase->chasing)) s_frame_kind |= 2;
     bot_view_label_fx(chase->label_opa, chase->shift_x, chase->shift_y);
     music_view_frame(t);
@@ -1004,8 +1035,10 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     in.longs = atomic_exchange(&s_long_pushes, 0);
     in.wakes = atomic_exchange(&s_np_wakes, 0);
     in.hswipes = atomic_exchange(&s_hswipes, 0);
+    usage_view_poll();
 
     bool offline = ember_client_offline();
+    usage_view_set_offline(offline);
     wx_obs_t wx;
     bool have_wx = weather_client_get(&wx);
     temp_face_update(have_wx ? &wx : NULL, offline, dt);
@@ -1016,19 +1049,20 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_set_calm(&s_bot, calm, t);
     if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
+    bool bot_page = pg->frame == page_bot_frame && !usage_view_open();
     bot_mood_t em;
     bot_wait_scene(&s_bot, s_scene_on ? s_scene_n : 0, t);
     if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);
     else if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
     else if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
-    if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, pg->frame == page_bot_frame);
-    else if (!ds.view_on && s_scene_resume_at == 0) moment_tick(t, have_wx ? &wx : NULL, calm, pg->frame == page_bot_frame);
+    if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, bot_page);
+    else if (!ds.view_on && s_scene_resume_at == 0) moment_tick(t, have_wx ? &wx : NULL, calm, bot_page);
     bot_read_moment(&s_bot, moment_view_busy(), t);
-    music_tick(t, calm, offline, pg->frame == page_bot_frame, !s_scene_on && !ds.view_on && s_scene_resume_at == 0);
+    music_tick(t, calm, offline, bot_page, !s_scene_on && !ds.view_on && s_scene_resume_at == 0);
 
     float gdeg;
-    bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
+    bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
     int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);
     s_scene_chase_req = -1;
     if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
@@ -1060,7 +1094,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
         bot_track_end(&s_bot, t);
     }
 
-    bot_rim_ready(&s_bot, bot_view_rim_feed(s_bot.mood, s_bot.asleep, pg->frame == page_bot_frame));
+    bot_rim_ready(&s_bot, bot_view_rim_feed(s_bot.mood, s_bot.asleep, bot_page));
     f.pose = bot_pose(&s_bot, t);
     bot_view_rim_pose(&f.pose, t);
     f.pose.eye_dy -= music_view_eye_px(t) / bot_view_radius_px();
@@ -1373,6 +1407,7 @@ void app_main(void)
             pomo_client_init();
             weather_client_init();
             np_client_init();
+            usage_client_init();
         }
     }
     ember_client_start();
@@ -1410,6 +1445,7 @@ void app_main(void)
         pomo_view_create(scr);
         temp_face_create(scr);
         np_view_create(scr);
+        usage_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSED, NULL);

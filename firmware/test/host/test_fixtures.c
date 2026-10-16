@@ -31,7 +31,8 @@ static const char *const COVERED[] = {
     "config_custom.json",      "pomodoro_action.json",        "view_quiet.json",
     "checkin_req_caps.json",   "checkin_reply_caps.json",     "view_caps_limited.json",
     "view_faces.json",         "view_faces_met.json",         "view_faces_polar_dry.json",
-    "view_np_cover.json",      "view_np_cover_light.json",
+    "view_np_cover.json",      "view_np_cover_light.json",    "view_usage.json",
+    "view_usage_uncapped.json", "controls_action.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -1075,6 +1076,45 @@ static void test_pomodoro_action(void)
     CHECK(pomo_mode(&s) == POMO_MODE_PAUSED && pomo_action_for(&s, POMO_INPUT_PUSH) == POMO_ACT_RESUME, "push resumes");
 }
 
+static void test_view_usage(void)
+{
+    knob_view_t v;
+    if (!view("view_usage.json", &v)) return;
+    const usage_block_t *u = &v.usage;
+    CHECK(u->n == 3, "three accounts, the hidden one left out: %d", u->n);
+    if (u->n != 3) return;
+    const usage_acct_t *a = &u->a[0], *b = &u->a[1], *c = &u->a[2];
+    CHECK(strcmp(a->id, "claude:aaaaaaaaaaaaaaa1") == 0 && a->tool == USAGE_TOOL_CLAUDE && strcmp(a->name, "Max 1") == 0, "Max 1");
+    CHECK(a->five.have && a->five.pct == 64 && a->five.resets_at == 1782049680 && a->five.starts_at == 1782031680,
+          "Max 1 five hours");
+    CHECK(a->week.have && a->week.pct == 41 && a->week.resets_at == 1782302400 && a->week.starts_at == 0, "Max 1 week");
+    CHECK(a->n_models == 2 && strcmp(a->models[0].name, "Opus") == 0 && a->models[0].pct == 38 &&
+              strcmp(a->models[1].name, "Sonnet") == 0 && a->models[1].pct == 12,
+          "Max 1 models");
+    CHECK(!a->stale && a->updated_at == 0, "Max 1 fresh");
+    CHECK(strcmp(b->name, "Max 2") == 0 && b->five.have && b->five.pct == 0 && !b->five.resets_at && !b->five.starts_at,
+          "Max 2 past its reset: pct 0, no times");
+    CHECK(b->stale && b->updated_at == 1782041400 && b->n_models == 0 && b->week.pct == 77, "Max 2 stale");
+    CHECK(strcmp(c->id, "codex:ddddddddddddddd4") == 0 && c->tool == USAGE_TOOL_CODEX && strcmp(c->name, "Plus") == 0 &&
+              c->five.pct == 12 && c->five.starts_at == 1782039600 && c->week.pct == 5 && !c->stale,
+          "Plus");
+    CHECK(usage_highest(u) == 0 && !usage_hint(u, 0), "opens on Max 1, no hint");
+    knob_view_t un;
+    if (!view("view_usage_uncapped.json", &un)) return;
+    CHECK(un.usage.n == 0 && !usage_hint(&un.usage, 0) && usage_highest(&un.usage) == -1, "no block: no accounts");
+}
+
+static void test_controls_action(void)
+{
+    char *j = load("controls_action.json");
+    cJSON *r = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    const char *st = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(r, "status"));
+    CHECK(cJSON_IsObject(r) && st && strcmp(st, "queued") == 0,
+          "controls action reply: no page sends it yet; the shape is pinned until one does");
+    cJSON_Delete(r);
+}
+
 static const cJSON *at(const cJSON *o, const char *k) { return cJSON_GetObjectItemCaseSensitive(o, k); }
 static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k)) ? at(o, k)->valuedouble : 0; }
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
@@ -1083,7 +1123,7 @@ static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
-static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover"};
+static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage"};
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
@@ -1314,6 +1354,8 @@ int main(int argc, char **argv)
     test_config_default();
     test_config_custom();
     test_pomodoro_action();
+    test_view_usage();
+    test_controls_action();
     test_checkin_req_minimal();
     test_checkin_req_full();
     test_checkin_req_caps();

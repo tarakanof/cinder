@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "weather_face.h"
+#include "wx_clock.h"
 #include "wx_rain.h"
 
 #ifdef __cplusplus
@@ -50,8 +51,6 @@ typedef struct {
 
 /* Weekday of a day starting at local midnight t (Unix s); without the offset, t's UTC noon-rounded date. */
 int wx_weekday(long long t, bool has_offset, int utc_offset);
-/* "Sun" .. "Sat"; any integer wraps. */
-const char *wx_weekday_name(int wday);
 wx_icon_t wx_days_icon(int face);
 bool wx_days_wet(int icon);
 /* The rows: Ember's days that have not ended by the knob's clock (all of them when it is unknown). */
