@@ -37,6 +37,7 @@ void join_view_show(join_label_t l, const char *ssid)
     join_label_text(l, ssid, text, sizeof text);
     char *nl = strchr(text, '\n');
     if (nl) *nl = 0;
+    if (nl && !nl[1]) nl = NULL;
     lv_label_set_text(s_line, text);
     lv_label_set_text(s_ssid, nl ? nl + 1 : "");
     lv_obj_align(s_line, LV_ALIGN_BOTTOM_MID, 0, JOIN_VIEW_Y - (nl ? lv_font_get_line_height(&lv_font_montserrat_18) : 0));
