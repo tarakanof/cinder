@@ -1249,8 +1249,10 @@ static void test_touch(lv_display_t *d, lv_obj_t *scr)
     frames(d, 1);
     CHECK(s_ncmds == n + 3 && s_cmds[n + 2] == NP_CMD_PAUSE, "push: play/pause at once, no double-push wait");
     CHECK(all_shown() && lit_only(0), "hidden: a push that pauses brings the controls up, play/pause pulses");
-    frames(d, 40);
-    CHECK(none_shown() && btn_ink(0) == 0, "the unconfirmed pause ends: hidden again");
+    frames(d, 38);
+    CHECK(all_shown(), "the unconfirmed pause ends at 3 s: no cut, the controls keep the push's timer");
+    frames(d, 6);
+    CHECK(none_shown() && btn_ink(0) == 0, "then the normal fade: hidden again");
     np_view_skip(1, s_now_us / 1e6);
     frames(d, 1);
     CHECK(btn_ink(0) > 40 && none_shown() && !lit(0), "hidden: the swipe shows in the round badge");
@@ -2015,6 +2017,22 @@ static int title_y(lv_obj_t *scr)
     return lv_obj_get_y(l);
 }
 
+static int ctl_opa_in(lv_obj_t *o);
+static bool rest_opa(lv_obj_t *scr) { return abs(ctl_opa_in(scr) - NP_TOUCH_REST_OPA) <= 2; }
+
+static int ctl_opa_in(lv_obj_t *o)
+{
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return 0;
+    if (lv_obj_check_type(o, &lv_label_class) && strcmp(lv_label_get_text(o), LV_SYMBOL_NEXT) == 0)
+        return lv_obj_get_style_opa_recursive(o, 0);
+    int best = 0;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) {
+        int v = ctl_opa_in(lv_obj_get_child(o, (int32_t)i));
+        if (v > best) best = v;
+    }
+    return best;
+}
+
 static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
 {
     np_view_create(scr);
@@ -2048,6 +2066,21 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     CHECK(all_shown(), "cover face, played elsewhere: the fade starts at the resume");
     frames(d, 6);
     CHECK(none_shown(), "cover face: and ends 4 s on");
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 1700);
+    CHECK(ctl_opa_in(scr) == 255, "cover face, paused 170 s: full");
+    frames(d, 110);
+    CHECK(rest_opa(scr), "cover face, paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
+          ctl_opa_in(scr));
+    frames(d, 3000);
+    CHECK(rest_opa(scr), "cover face: still resting 8 min on, not hidden");
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY && ctl_opa_in(scr) == 255 && all_shown(),
+          "cover face, resting: one tap on play/pause plays and brings them back to full");
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    frames(d, 50);
 
     np_info_t old = {.state = NP_PAUSED, .duration_ms = 228000, .position_ms = 134000, .album_art = true};
     strcpy(old.title, "Glass Harbor");
@@ -2066,6 +2099,20 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     frames(d, 6);
     CHECK(none_shown() && btn_ink(0) == 0, "old face: then the normal fade");
     CHECK(touch(d, TS_ZONE_PLAY) == 0 && s_ncmds == 1 && all_shown(), "old face, playing: the first tap still only shows them");
+    frames(d, 50);
+    old.state = NP_PAUSED;
+    publish(&old);
+    frames(d, 2);
+    CHECK(all_shown() && note_ink() == 0, "old face, paused: the row hides the placeholder's note");
+    frames(d, 1810);
+    CHECK(rest_opa(scr), "old face, paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
+          ctl_opa_in(scr));
+    CHECK(note_ink() > 100, "old face, resting: the placeholder's note is back: %d px", note_ink());
+    frames(d, 3000);
+    CHECK(rest_opa(scr), "old face: still resting 8 min on");
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY && ctl_opa_in(scr) == 255 && all_shown(),
+          "old face, resting: one tap on play/pause plays and brings them back to full");
     np_view_show(false);
 
     np_view_create(scr);
@@ -2080,17 +2127,29 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     frames(d, 2);
     CHECK(npc_vinyl() && all_shown(), "vinyl, paused: the controls are up");
     frames(d, 1810);
-    CHECK(none_shown() && btn_ink(0) == 0, "vinyl paused 3 min without input: the face dims and the controls go");
+    CHECK(rest_opa(scr), "vinyl paused 3 min without input: the face dims, the controls rest at %d (%d)",
+          NP_TOUCH_REST_OPA, ctl_opa_in(scr));
     s_ncmds = 0;
     np_view_input(s_now_us / 1e6);
-    frames(d, 2);
-    CHECK(none_shown() && btn_ink(0) == 0, "the press wakes the face; the controls wait for the tap");
     np_view_tap(TS_ZONE_PLAY, s_now_us / 1e6);
     frames(d, 1);
-    CHECK(s_ncmds == 0 && all_shown(), "the waking tap only shows them");
-    frames(d, 100);
-    CHECK(all_shown(), "then the pause holds them again");
-    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "and the next tap plays");
+    CHECK(s_ncmds == 1 && s_cmds[0] == NP_CMD_PLAY && ctl_opa_in(scr) == 255, "vinyl, resting: one tap plays");
+    np.state = NP_PLAYING;
+    publish_now(&np);
+    frames(d, 50);
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 1810);
+    CHECK(npc_vinyl() && rest_opa(scr), "vinyl dimmed and resting again");
+    old = (np_info_t){.state = NP_PAUSED, .duration_ms = 228000, .position_ms = 134000, .album_art = true};
+    strcpy(old.title, "Glass Harbor");
+    strcpy(old.art_version, "fb43cf74b67a");
+    publish(&old);
+    frames(d, 2);
+    CHECK(luma(FX + 233 - 198, 233) > 30 && rest_opa(scr), "rebuilt as the paused old face: still held (%d)",
+          ctl_opa_in(scr));
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face after the switch: one tap plays");
     np_view_show(false);
 }
 

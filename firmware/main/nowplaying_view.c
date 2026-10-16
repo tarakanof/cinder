@@ -633,16 +633,14 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     int hi = -1;
     if (live) f.badge = badge_content(now, badge, sizeof badge, &hi);
     f.badge_text = badge;
-    bool face = np_face_live(st) || st == NPF_OFFLINE, dimmable = st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl());
-    if (face) f.dim = dim_step(dimmable, now);
-    if (f.dim || !dimmable) np_ctl_dim(&V->ctl, f.dim);
     f.controls = btns_update(live ? np_ctl_touch_opa(&V->ctl, now) : 0, f.badge == NPC_BADGE_NONE, shown == NP_PLAYING, hi);
-    if (face) {
+    if (np_face_live(st) || st == NPF_OFFLINE) {
         np_play_t last = np_ctl_held(&V->ctl);
         bool held = st == NPF_OFFLINE && V->snap.have && V->snap.info.state != NP_NONE &&
                     (last != NP_NONE ? last : V->snap.info.state) == NP_PAUSED;
         f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED || held);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
+        f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
     } else {
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {
@@ -690,6 +688,7 @@ void np_view_update(double now, bool offline)
     }
     if (live) np_ctl_track_pos(&V->ctl, np_anchor_at(&V->snap.anchor, now), V->snap.anchor.dur_ms, now);
     if (live) controls_tick(now);
+    np_ctl_rest(&V->ctl, now - s_last_input >= BURN_IN_S);
     np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     if (s_kind == KIND_COVER) {
         cover_update(now, offline, live, fresh, shown);
@@ -697,8 +696,9 @@ void np_view_update(double now, bool offline)
     }
     if (live) {
         int hi = legacy_controls(now);
-        bool up = btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING, hi);
-        note_show(!up && !V->badge[0]);
+        int opa = np_ctl_touch_opa(&V->ctl, now);
+        btns_update(opa, !V->badge[0], shown == NP_PLAYING, hi);
+        note_show((opa == 0 || opa == NP_TOUCH_REST_OPA) && !V->badge[0]);
     } else {
         btns_update(0, true, true, -1);
         if (s_vol_shown != -2 || V->badge[0]) {

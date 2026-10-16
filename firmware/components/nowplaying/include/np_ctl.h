@@ -17,6 +17,7 @@ extern "C" {
 #define NP_TOUCH_SHOW_S 4.0
 #define NP_TOUCH_FADE_S 0.3
 #define NP_TOUCH_FADE_STEPS 3
+#define NP_TOUCH_REST_OPA 64
 #define NP_INFO_TRACK_S 10.0
 #define NP_RESTART_HEAD_MS 5000
 #define NP_RESTART_TAIL_MS 5000
@@ -34,7 +35,7 @@ typedef enum { NP_FB_NONE, NP_FB_PULSE, NP_FB_BADGE } np_fb_t;
 
 typedef struct {
     bool play_due, next_due, prev_due;
-    bool touch_on, touch_dim;
+    bool touch_on, touch_rest;
     double touch_t;
     np_play_t server_state;
     int server_vol;
@@ -66,10 +67,10 @@ void np_ctl_push(np_ctl_t *c, double now);
 void np_ctl_skip(np_ctl_t *c, int dir, double now);
 /* A tap on the touch controls: hidden, it only shows them (a command badge still up turns into its control's pulse); shown, cmd NP_CMD_PLAY (play/pause), NP_CMD_NEXT or NP_CMD_PREVIOUS runs, NP_CMD_NONE keeps them up. False when it ran nothing. */
 bool np_ctl_tap(np_ctl_t *c, np_cmd_kind_t cmd, double now);
-/* Touch controls' opacity 0-255: full while paused (unless np_ctl_dim hid them) and for NP_TOUCH_SHOW_S after the last tap or a resume, then NP_TOUCH_FADE_STEPS steps down over NP_TOUCH_FADE_S. */
+/* Touch controls' opacity 0-255: for NP_TOUCH_SHOW_S after the last tap, push or resume full, then NP_TOUCH_FADE_STEPS steps down over NP_TOUCH_FADE_S; while paused at least 255, or NP_TOUCH_REST_OPA while np_ctl_rest is set. */
 int np_ctl_touch_opa(const np_ctl_t *c, double now);
-/* true: the face dimmed, so a pause no longer holds the touch controls up until the next tap, push, swipe or turn; false lifts that at once. */
-void np_ctl_dim(np_ctl_t *c, bool dim);
+/* true after the face's burn-in idle time without input: a pause holds the touch controls at NP_TOUCH_REST_OPA (still tappable); a tap, push, swipe or turn clears it. */
+void np_ctl_rest(np_ctl_t *c, bool rest);
 /* 255 until age reaches hold (at age == hold too, so a timer started this frame is full), then NP_TOUCH_FADE_STEPS steps down to 0 over NP_TOUCH_FADE_S. */
 int np_fade_opa(double age, double hold);
 /* A block for another track (title, artist, album, source or track_id) restarts the info timer; the first one after init or a state:none block too. */

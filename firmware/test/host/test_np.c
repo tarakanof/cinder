@@ -555,19 +555,40 @@ static void test_paused_touch(void)
     np_ctl_init(&c);
     np_ctl_server(&c, NP_PAUSED, 40, 1.0);
     tick(&c, 1.0, out);
-    np_ctl_dim(&c, true);
-    CHECK(np_ctl_touch_opa(&c, 200.0) == 0, "paused, the face dimmed: hidden");
-    np_ctl_dim(&c, false);
-    CHECK(np_ctl_touch_opa(&c, 200.0) == 255, "the dim lifted without input: up again");
-    np_ctl_dim(&c, true);
-    CHECK(!np_ctl_tap(&c, NP_CMD_PLAY, 300.0) && tick(&c, 300.0, out) == 0, "dimmed: the waking tap only shows them");
-    CHECK(np_ctl_touch_opa(&c, 300.0 + NP_TOUCH_SHOW_S + 1) == 255, "then paused holds them again");
-    CHECK(np_ctl_tap(&c, NP_CMD_PLAY, 310.0) && tick(&c, 310.0, out) == 1 && out[0].kind == NP_CMD_PLAY, "the next tap plays");
+    np_ctl_rest(&c, true);
+    CHECK(np_ctl_touch_opa(&c, 200.0) == NP_TOUCH_REST_OPA, "paused, idle past the burn-in time: held at the rest level");
+    np_ctl_rest(&c, false);
+    CHECK(np_ctl_touch_opa(&c, 200.0) == 255, "rest off: full again");
+    np_ctl_rest(&c, true);
+    CHECK(np_ctl_tap(&c, NP_CMD_PLAY, 300.0) && tick(&c, 300.0, out) == 1 && out[0].kind == NP_CMD_PLAY,
+          "resting: one tap on play/pause still plays");
+    CHECK(!c.touch_rest && np_ctl_touch_opa(&c, 300.0) == 255, "and brings them back to full");
     np_ctl_server(&c, NP_PAUSED, 40, 320.0);
     np_ctl_failed(&c);
-    np_ctl_dim(&c, true);
+    np_ctl_rest(&c, true);
     np_ctl_turn(&c, 1, 330.0);
-    CHECK(np_ctl_touch_opa(&c, 330.0) == 255, "a turn wakes them too");
+    CHECK(np_ctl_touch_opa(&c, 330.0) == 255, "a turn ends the rest too");
+    np_ctl_rest(&c, true);
+    np_ctl_server(&c, NP_PLAYING, 40, 400.0);
+    CHECK(np_ctl_touch_opa(&c, 400.0) == 255 && np_ctl_touch_opa(&c, 400.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01) == 0,
+          "a resume while resting: the normal fade from full");
+
+    np_ctl_init(&c);
+    np_ctl_server(&c, NP_PLAYING, 40, 1.0);
+    np_ctl_tap(&c, NP_CMD_NONE, 1.0);
+    CHECK(np_ctl_tap(&c, NP_CMD_PLAY, 2.0) && tick(&c, 2.0, out) == 1 && out[0].kind == NP_CMD_PAUSE, "tap pause");
+    CHECK(np_ctl_play_shown(&c, 2.0 + NP_HOLD_S + 0.01) == NP_PLAYING && np_ctl_touch_opa(&c, 2.0 + NP_HOLD_S + 0.01) == 255,
+          "an unconfirmed tap pause: playing again after %.0f s, the controls still up", NP_HOLD_S);
+    CHECK(np_ctl_touch_opa(&c, 2.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S / 2) > 0 &&
+              np_ctl_touch_opa(&c, 2.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S / 2) < 255 &&
+              np_ctl_touch_opa(&c, 2.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01) == 0,
+          "then the normal fade 4 s after the tap");
+    np_ctl_push(&c, 20.0);
+    tick(&c, 20.0, out);
+    CHECK(np_ctl_touch_opa(&c, 20.0 + NP_HOLD_S + 0.01) == 255 &&
+              np_ctl_touch_opa(&c, 20.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S / 2) < 255 &&
+              np_ctl_touch_opa(&c, 20.0 + NP_TOUCH_SHOW_S + NP_TOUCH_FADE_S + 0.01) == 0,
+          "an unconfirmed knob pause while hidden: no cut at %.0f s, the normal fade from the push", NP_HOLD_S);
 }
 
 static void test_cover_parse(void)
