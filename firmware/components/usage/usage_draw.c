@@ -79,6 +79,24 @@ void usage_arc_mask(float cx, float cy, float r, float hw, float a0, float a1, i
 
 void usage_dot_xy(int k, int n, float *x, float *y) { wx_arc_dot_xy(k, n, USAGE_DOT_ARC, USAGE_DOT_PITCH, USAGE_CX, USAGE_CY, x, y); }
 
+void usage_dots_box(int *x, int *y, int *w, int *h)
+{
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (int n = 2; n <= USAGE_MAX; n++)
+        for (int k = 0; k < n; k++) {
+            float cx, cy;
+            usage_dot_xy(k, n, &cx, &cy);
+            x0 = fminf(x0, cx), x1 = fmaxf(x1, cx), y0 = fminf(y0, cy), y1 = fmaxf(y1, cy);
+        }
+    float m = USAGE_DOT_R + 2;
+    int ix0 = ((int)floorf(x0 - m)) & ~1, iy0 = (int)floorf(y0 - m);
+    int ix1 = (int)ceilf(x1 + m), iy1 = (int)ceilf(y1 + m);
+    *x = ix0;
+    *y = iy0;
+    *w = (ix1 - ix0 + 2) & ~1;
+    *h = iy1 - iy0 + 1;
+}
+
 static uint16_t rgb565(uint32_t rgb)
 {
     return (uint16_t)((((rgb >> 16) & 0xF8) << 8) | (((rgb >> 8) & 0xFC) << 3) | ((rgb & 0xFF) >> 3));

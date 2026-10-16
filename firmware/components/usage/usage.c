@@ -243,12 +243,24 @@ static void reset_line(const usage_acct_t *a, double now, bool has_offset, int o
     snprintf(f->reset, sizeof f->reset, "resets in %s", s);
 }
 
+static void models_line(const usage_acct_t *a, bool initials, char *out, size_t cap)
+{
+    size_t n = 0;
+    out[0] = 0;
+    for (int i = 0; i < a->n_models && n < cap; i++) {
+        const char *name = a->models[i].name + strspn(a->models[i].name, " ");
+        int k = initials ? snprintf(out + n, cap - n, "%s%c %d%%", i ? " \xE2\x80\xA2 " : "", name[0], a->models[i].pct)
+                         : snprintf(out + n, cap - n, "%s%s %d%%", i ? " \xE2\x80\xA2 " : "", name, a->models[i].pct);
+        if (k < 0) return;
+        n += (size_t)k;
+    }
+}
+
 static void week_line(const usage_acct_t *a, double now, bool has_offset, int off, usage_face_t *f)
 {
     if (a->n_models > 0) {
-        int n = snprintf(f->week_line, sizeof f->week_line, "%s %d%%", a->models[0].name, a->models[0].pct);
-        if (a->n_models > 1 && n > 0 && (size_t)n < sizeof f->week_line)
-            snprintf(f->week_line + n, sizeof f->week_line - (size_t)n, " \xE2\x80\xA2 %s %d%%", a->models[1].name, a->models[1].pct);
+        models_line(a, false, f->week_line, sizeof f->week_line);
+        models_line(a, true, f->week_short, sizeof f->week_short);
         return;
     }
     const usage_win_t *w = &a->week;

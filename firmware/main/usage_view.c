@@ -223,13 +223,27 @@ static void apply_rings(const usage_face_t *f)
     if (r5) usage_ring5_render(V.buf, SCREEN_W, SCREEN_H, f);
     if (r7) usage_ring7_render(V.buf, SCREEN_W, SCREEN_H, f);
     if (dots) usage_dots_render(V.buf, SCREEN_W, SCREEN_H, V.blk.n, V.nav.idx);
-    lv_obj_invalidate(V.ring);
+    if (r5 || r7) {
+        lv_obj_invalidate(V.ring);
+    } else {
+        int x, y, w, h;
+        usage_dots_box(&x, &y, &w, &h);
+        lv_obj_invalidate_area(V.ring, &(lv_area_t){x, y, x + w - 1, y + h - 1});
+    }
     ESP_LOGI(TAG, "face %d/%d: rings in %d ms", V.nav.idx + 1, V.blk.n, (int)((esp_timer_get_time() - t0) / 1000));
     V.key5 = (ring_key_t){f->five_frac, f->five_rgb};
     V.key7 = (ring_key_t){f->week_frac, f->week_rgb};
     V.dots_n = V.blk.n;
     V.dots_idx = V.nav.idx;
     V.ring_drawn = true;
+}
+
+static const char *week_text(const usage_face_t *f)
+{
+    if (!f->week_short[0]) return f->week_line;
+    lv_point_t p;
+    lv_text_get_size(&p, f->week_line, &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return p.x > WEEK_W ? f->week_short : f->week_line;
 }
 
 static double server_now(void) { return V.clk.have_srv ? pomo_client_now() + V.clk.srv_offset : 0; }
@@ -253,7 +267,7 @@ static void apply_face(void)
     apply_value(f);
     set_text(V.reset, f->reset);
     set_color(V.reset, f->reset_rgb);
-    set_text(V.week, f->week_line);
+    set_text(V.week, week_text(f));
     apply_tick(f);
     V.face_idx = V.nav.idx;
     V.face_sec = sec;
