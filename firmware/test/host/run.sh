@@ -458,22 +458,20 @@ echo "bot view wiring: outline dy from bot_rim_dy, label icon from bot_label_mar
 MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 UGL=""
-body "$MAINC" page_bot_show | awk '/^    if \(!on\) \{$/ {o = 1} o && /^        usage_view_close\(\);$/ {c = 1} END {exit !c}' || UGL="$UGL page_bot_show-false-closes-the-usage-screens"
+body "$MAINC" page_bot_show | awk '/^    if \(!on\) \{$/ {o = 1; next} o && /^    }$/ {o = 0} o && /^        usage_view_close\(\);$/ {c = 1} END {exit !c}' || UGL="$UGL page_bot_show-false-closes-the-usage-screens"
 body "$MAINC" pages_pause | grep -qxF '    pages_hide_all();' && body "$MAINC" ota_frame | grep -qxF '            pages_pause();' || UGL="$UGL the-OTA-face-hides-every-page"
-body "$MAINC" page_bot_input | grep -qxF '    bool was = usage_view_open();' &&
-    body "$MAINC" page_bot_input | grep -qxF '    if (usage_view_input(&u, t)) {' &&
-    body "$MAINC" page_bot_input | grep -qxF '        if (!was) for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);' &&
-    body "$MAINC" page_bot_input | grep -qxF '    for (int n = in->pushes + in->touches; n > 0; n--) bot_push(&s_bot, t);' || UGL="$UGL page_bot_input-keeps-pushes-and-falls-through-to-the-bot"
-body "$MAINC" page_bot_frame | grep -qxF '    bot_under_usage(usage_view_frame(t));' && body "$MAINC" page_bot_frame | grep -qxF '    if (s_usage_on) return;' &&
-    body "$MAINC" page_bot_frame | grep -qxF '    bot_view_set_hint(usage_view_hint());' || UGL="$UGL page_bot_frame-hides-the-bot-under-the-screens-and-feeds-the-hint"
-fbody "$MAINC" page_tick | grep -qxF '    usage_view_poll();' && fbody "$MAINC" page_tick | grep -qxF '    usage_view_set_offline(offline);' &&
-    fbody "$MAINC" page_tick | grep -qxF '    bool bot_page = pg->frame == page_bot_frame && !usage_view_open();' || UGL="$UGL page_tick-polls-and-marks-offline"
+body "$MAINC" page_bot_input | awk '/^    if \(usage_view_input\(&u, t\)\) return;$/ {r = NR} /bot_(push|look|set_mood_user)\(/ && !b {b = NR} /^    for \(int n = in->pushes \+ in->touches; n > 0; n--\) bot_push\(&s_bot, t\);$/ {p = NR} END {exit !(r && b > r && p > r)}' ||
+    UGL="$UGL page_bot_input-gives-the-screens-every-input-they-take-then-falls-through-to-the-bot"
+body "$MAINC" page_bot_frame | awk '/^    bot_under_usage\(usage_view_frame\(t\)\);$/ {u = NR} /^    if \(s_usage_on\) return;$/ {r = NR} /bot_view_|bot_wait_restart\(/ && !b {b = NR} /^    bot_view_set_hint\(usage_view_hint\(\)\);$/ {h = NR} END {exit !(u && r > u && b > r && h > r)}' ||
+    UGL="$UGL page_bot_frame-hides-the-bot-under-the-screens-and-feeds-the-hint"
+fbody "$MAINC" page_tick | awk '/^    usage_view_poll\(\);$/ {p = NR} /^    usage_view_set_offline\(offline\);$/ {o = NR} /^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool bot_page = pg->frame == page_bot_frame && !usage_view_open\(\);$/ {b = NR} END {exit !(p && o > p && d > o && b > d)}' ||
+    UGL="$UGL page_tick-polls-and-marks-offline-before-the-input"
 grep -qxF 'static EXT_RAM_BSS_ATTR bool s_usage_on;' "$MAINC" || UGL="$UGL s_usage_on-in-PSRAM"
 if [ -n "$UGL" ]; then
     echo "run.sh: FAIL usage screens wiring:$UGL" >&2
     exit 1
 fi
-echo "usage screens wiring: closed on a page change and under the OTA face, a push kept beside an opening tap, the bot's input when they don't open, offline marks them stale"
+echo "usage screens wiring: closed on a page change and under the OTA face, the opening tap's frame all theirs (a push beside it dropped), the bot's input when they don't open, offline marks them stale"
 for ARG in true false; do
     body "$MAINC" ota_frame | grep -qF "moment_view_hold($ARG);" || WIRING="$WIRING ota_frame-moment_view_hold($ARG)"
 done

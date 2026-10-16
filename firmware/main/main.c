@@ -803,11 +803,7 @@ void page_bot_input(const page_input_t *in, double t)
 {
     usage_in_t u = {.taps = in->touches, .pushes = in->pushes, .longs = in->longs, .detents = in->detents,
                     .hswipes = in->hswipes, .wakes = in->wakes};
-    bool was = usage_view_open();
-    if (usage_view_input(&u, t)) {
-        if (!was) for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);
-        return;
-    }
+    if (usage_view_input(&u, t)) return;
     if (in->detents) {
         s_ring_deg += in->detents * DEGREES_PER_DETENT;
         double a = s_ring_deg * M_PI / 180;

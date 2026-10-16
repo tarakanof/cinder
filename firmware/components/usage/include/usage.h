@@ -117,6 +117,7 @@ typedef struct {
     char reset[48];
     uint32_t reset_rgb;
     char week_line[48];
+    char week_short[24]; /* the models with initials, for a week_line too wide for its label; empty without models */
 } usage_face_t;
 
 /* now: server Unix seconds (0 unknown). has_offset/utc_offset: weather.utc_offset for clock labels, else relative. */
@@ -133,6 +134,8 @@ void usage_arc_box(float cx, float cy, float r, float hw, float a0, float a1, in
 void usage_arc_mask(float cx, float cy, float r, float hw, float a0, float a1, int x, int y, int w, int h, uint8_t *out);
 /* Dot k of n on the r USAGE_DOT_ARC arc at the bottom, USAGE_DOT_PITCH apart. */
 void usage_dot_xy(int k, int n, float *x, float *y);
+/* The box of every dot usage_dots_render can draw or clear (2 to USAGE_MAX dots), x and w even. */
+void usage_dots_box(int *x, int *y, int *w, int *h);
 /* Each redraws only its own band of the RGB565 w x h face (the rest untouched): the 5-hour ring, the 7-day ring, the n
    dots (none under 2) with the shown one lit. */
 void usage_ring5_render(uint16_t *buf, int w, int h, const usage_face_t *f);

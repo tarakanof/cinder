@@ -41,6 +41,9 @@ static void test_open_on_highest(void)
     CHECK(in(&nav, &b, (usage_in_t){.taps = 1}, 2) == USAGE_ACT_OPEN && nav.open && nav.idx == 1 && strcmp(nav.id, "b") == 0,
           "a tap opens the highest 5-hour %%: %d", nav.idx);
     usage_nav_close(&nav);
+    CHECK(in(&nav, &b, (usage_in_t){.taps = 1, .pushes = 1}, 2) == USAGE_ACT_OPEN && nav.open,
+          "a push in the opening tap's frame neither closes it nor reaches the bot");
+    usage_nav_close(&nav);
     b.a[2].five.pct = 93;
     in(&nav, &b, (usage_in_t){.taps = 1}, 2);
     CHECK(nav.idx == 1, "a tie opens the first in Ember's order: %d", nav.idx);
@@ -217,10 +220,19 @@ static void test_week_line(void)
     a.models[1] = (usage_model_t){"Sonnet", 12};
     f = face_at(&a, T0 + 3600, true);
     CHECK(strcmp(f.week_line, "Opus 38% \xE2\x80\xA2 Sonnet 12%") == 0, "models replace the week: %s", f.week_line);
+    CHECK(strcmp(f.week_short, "O 38% \xE2\x80\xA2 S 12%") == 0, "and their initials: %s", f.week_short);
+    a.models[0] = (usage_model_t){"  Opus", 100};
+    a.models[1].pct = 100;
+    f = face_at(&a, T0 + 3600, true);
+    CHECK(strcmp(f.week_line, "Opus 100% \xE2\x80\xA2 Sonnet 100%") == 0 && strcmp(f.week_short, "O 100% \xE2\x80\xA2 S 100%") == 0,
+          "leading spaces dropped: %s / %s", f.week_line, f.week_short);
+    a.models[0] = (usage_model_t){"Opus", 38};
     a.n_models = 1;
     f = face_at(&a, T0 + 3600, true);
-    CHECK(strcmp(f.week_line, "Opus 38%") == 0, "one model: %s", f.week_line);
+    CHECK(strcmp(f.week_line, "Opus 38%") == 0 && strcmp(f.week_short, "O 38%") == 0, "one model: %s", f.week_line);
     a.n_models = 0;
+    f = face_at(&a, T0 + 3600, true);
+    CHECK(!f.week_short[0], "no models: no short line");
     a.week.resets_at = 0;
     f = face_at(&a, T0 + 3600, true);
     CHECK(strcmp(f.week_line, "week 41%") == 0, "no reset time: %s", f.week_line);
@@ -357,10 +369,23 @@ static void test_band_redraw(void)
     CHECK(lit(buf, x, y) > 20, "three dots");
     usage_dots_render(buf, W, H, 1, 0);
     CHECK(lit(buf, x, y) == 0, "down to one account: the old dots are cleared");
+    int bx, by, bw, bh;
+    usage_dots_box(&bx, &by, &bw, &bh);
+    CHECK(bx % 2 == 0 && bw % 2 == 0 && bw * bh < 4000, "a small even dots box: %d,%d %dx%d", bx, by, bw, bh);
+    uint16_t *dots = malloc(W * H * 2);
+    for (int n = 1; n <= USAGE_MAX; n++) {
+        for (int i = 0; i < W * H; i++) dots[i] = 0x1234;
+        usage_dots_render(dots, W, H, n, n - 1);
+        int out = 0;
+        for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
+                out += dots[j * W + i] != 0 && dots[j * W + i] != 0x1234 && (i < bx || i >= bx + bw || j < by || j >= by + bh);
+        CHECK(out == 0, "%d dots stay inside the dots box: %d px outside", n, out);
+    }
+    free(dots);
     usage_rings_render(buf, W, H, &f, 1, 0);
     uint16_t *ref = malloc(W * H * 2);
     memcpy(ref, buf, W * H * 2);
-    for (int i = 0; i < W * H; i++) buf[i] = 0x1234;
     memset(buf, 0, W * H * 2);
     usage_ring5_render(buf, W, H, &f);
     usage_ring7_render(buf, W, H, &f);

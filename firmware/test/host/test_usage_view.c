@@ -10,6 +10,7 @@
 #include "lvgl.h"
 #include "pomo_client.h"
 #include "src/display/lv_display_private.h"
+#include "src/widgets/label/lv_label_private.h"
 #include "usage_client.h"
 #include "usage_view.h"
 
@@ -149,7 +150,7 @@ static void tick_pos(float frac, int *x, int *y)
     *y = (int)lroundf(233 - 222 * cosf(a));
 }
 
-static int labels(lv_obj_t *scr, lv_area_t *out, const char **txt, int max, int *line_h)
+static int label_objs(lv_obj_t *scr, lv_area_t *out, const char **txt, int max, int *line_h, lv_obj_t **objs)
 {
     lv_obj_t *root = lv_obj_get_child(scr, -1);
     int n = 0;
@@ -158,21 +159,41 @@ static int labels(lv_obj_t *scr, lv_area_t *out, const char **txt, int max, int 
         if (!lv_obj_check_type(o, &lv_label_class) || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) continue;
         lv_obj_get_coords(o, &out[n]);
         if (line_h) line_h[n] = lv_obj_get_style_text_font(o, LV_PART_MAIN)->line_height;
+        if (objs) objs[n] = o;
         txt[n++] = lv_label_get_text(o);
     }
     return n;
 }
 
-static void check_labels(lv_obj_t *scr, const char *state)
+static int labels(lv_obj_t *scr, lv_area_t *out, const char **txt, int max, int *line_h) { return label_objs(scr, out, txt, max, line_h, NULL); }
+
+static const char *label_with(lv_obj_t *scr, const char *prefix)
+{
+    lv_area_t a[8];
+    const char *t[8];
+    int n = labels(scr, a, t, 8, NULL);
+    for (int i = 0; i < n; i++)
+        if (strncmp(t[i], prefix, strlen(prefix)) == 0) return t[i];
+    return NULL;
+}
+
+static void check_labels(lv_obj_t *scr, const char *state, const char *dotted)
 {
     lv_area_t a[8];
     const char *t[8];
     int lh[8];
-    int n = labels(scr, a, t, 8, lh);
+    lv_obj_t *o[8];
+    int n = label_objs(scr, a, t, 8, lh, o);
     CHECK(n >= 4, "%s: name, value, %%, reset and week labels: %d", state, n);
     for (int i = 0; i < n; i++) {
         int h = lv_area_get_height(&a[i]);
         CHECK(h <= lh[i], "%s: '%s' stays on one line: %d px for a %d px line", state, t[i], h, lh[i]);
+        lv_point_t sz;
+        lv_text_get_size(&sz, t[i], lv_obj_get_style_text_font(o[i], LV_PART_MAIN), lv_obj_get_style_text_letter_space(o[i], LV_PART_MAIN), 0,
+                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        bool may_dot = dotted && strncmp(t[i], dotted, strlen(dotted)) == 0;
+        CHECK((may_dot || ((lv_label_t *)o[i])->dot_begin == UINT32_MAX) && sz.x <= lv_area_get_width(&a[i]),
+              "%s: '%s' fits its label: %d px in %d", state, t[i], (int)sz.x, (int)lv_area_get_width(&a[i]));
         float corners[4][2] = {{a[i].x1, a[i].y1}, {a[i].x2, a[i].y1}, {a[i].x1, a[i].y2}, {a[i].x2, a[i].y2}};
         for (int k = 0; h < 60 && k < 4; k++)
             CHECK(hypotf(corners[k][0] - 236, corners[k][1] - 233) < 196, "%s: '%s' inside the inner ring", state, t[i]);
@@ -270,6 +291,15 @@ int main(int argc, char **argv)
     publish(&b);
     frame(d, t + 5);
     save("usage-models");
+    CHECK(label_with(scr, "Opus 38% \xE2\x80\xA2 Sonnet 12%") != NULL, "the models line with their names");
+    check_labels(scr, "models", NULL);
+    b.a[0].models[0].pct = 100;
+    b.a[0].models[1].pct = 100;
+    publish(&b);
+    frame(d, t + 5.2);
+    save("usage-models-100");
+    CHECK(label_with(scr, "O 100% \xE2\x80\xA2 S 100%") != NULL, "100/100: the models by initial, since the names would truncate");
+    check_labels(scr, "models at 100/100", NULL);
 
     b.a[0].n_models = 0;
     b.a[0].stale = true;
@@ -286,6 +316,23 @@ int main(int argc, char **argv)
     CHECK(!usage_view_open(), "a push goes back");
     frame(d, t + 7);
     CHECK(s_fb[233 * W + 236 + 222] == 0, "the face is gone");
+
+    CHECK(usage_view_input(&(usage_in_t){.taps = 1, .pushes = 1}, t + 8) && usage_view_open(),
+          "a push in the opening tap's frame: taken, not the bot's, and the screen stays open");
+    usage_view_close();
+
+    usage_block_t twin = {.n = 2};
+    twin.a[0] = acct("claude:t1", USAGE_TOOL_CLAUDE, "Twin", 40, 0.5, 20);
+    twin.a[1] = acct("claude:t2", USAGE_TOOL_CLAUDE, "Twin", 40, 0.5, 20);
+    publish(&twin);
+    usage_view_input(&(usage_in_t){.taps = 1}, t + 9);
+    frame(d, t + 9);
+    usage_view_input(&(usage_in_t){.hswipes = 1}, t + 10);
+    frame(d, t + 10);
+    printf("usage view: dots-only step: %d areas, %ld px\n", s_areas, s_px);
+    CHECK(s_areas >= 1 && s_px < 5000, "same rings, another dot: only the dots redraw: %d areas, %ld px", s_areas, s_px);
+    usage_view_close();
+    frame(d, t + 10);
 
     usage_block_t one = {.n = 1};
     one.a[0] = acct("claude:9", USAGE_TOOL_CLAUDE, "Max", 55, 0.6, 30);
@@ -332,11 +379,11 @@ int main(int argc, char **argv)
         for (int i = 0; i < fn; i++) fc |= strncmp(ft[i], "limit in ", 9) == 0 && strstr(ft[i], "at this pace") != NULL;
         CHECK(fc, "the relative forecast line");
     }
-    check_labels(scr, "long name, relative forecast");
+    check_labels(scr, "long name, relative forecast", "Wwww");
     lng.a[0].five.pct = 100;
     publish(&lng);
     frame(d, 301);
-    check_labels(scr, "limited, relative");
+    check_labels(scr, "limited, relative", "Wwww");
 
     s_now += 1;
     usage_view_set_offline(true);
