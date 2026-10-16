@@ -142,6 +142,7 @@ static bool build(void)
     V.mark_rgb = 0xFFFFFFFF;
     V.tick_x = V.tick_y = -1000;
     V.name_txt[0] = V.value_txt[0] = V.reset_txt[0] = V.week_txt[0] = 0;
+    lv_obj_update_layout(V.root);
     return true;
 }
 
@@ -250,7 +251,6 @@ static const char *week_text(const usage_face_t *f)
     lv_point_t p;
     lv_text_get_size(&p, f->week_line, lv_obj_get_style_text_font(V.week, LV_PART_MAIN), lv_obj_get_style_text_letter_space(V.week, LV_PART_MAIN),
                      0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    lv_obj_update_layout(V.week);
     return p.x > lv_obj_get_content_width(V.week) ? f->week_short : f->week_line;
 }
 

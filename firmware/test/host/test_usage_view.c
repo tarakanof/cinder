@@ -88,8 +88,6 @@ static bool redrawn(const lv_area_t *a)
     return false;
 }
 
-static bool redrawn_px(int x, int y) { return redrawn(&(lv_area_t){x, y, x, y}); }
-
 static uint32_t rgb_at(int x, int y)
 {
     uint16_t p = s_fb[y * W + x];
@@ -342,13 +340,35 @@ int main(int argc, char **argv)
     frame(d, t + 10);
     printf("usage view: dots-only step: %d areas, %ld px\n", s_areas, s_px);
     CHECK(s_areas >= 1 && s_px < 5000, "same rings, another dot: only the dots redraw: %d areas, %ld px", s_areas, s_px);
-    float d0x, d0y, d1x, d1y;
-    usage_dot_xy(0, 2, &d0x, &d0y);
+    int bx, by, bw, bh;
+    usage_dots_box(&bx, &by, &bw, &bh);
+    CHECK(s_areas == 1 && s_inv[0].x1 == bx && s_inv[0].y1 == by && s_inv[0].x2 == bx + bw - 1 && s_inv[0].y2 == by + bh - 1,
+          "the redrawn area is the dots box on screen: %d areas, %d,%d-%d,%d for %d,%d %dx%d", s_areas, (int)s_inv[0].x1, (int)s_inv[0].y1,
+          (int)s_inv[0].x2, (int)s_inv[0].y2, bx, by, bw, bh);
+    float d1x, d1y;
     usage_dot_xy(1, 2, &d1x, &d1y);
-    CHECK(redrawn_px((int)d1x, (int)d1y) && redrawn_px((int)d0x, (int)d0y) && near_rgb(rgb_at((int)d1x, (int)d1y), USAGE_DOT_ON, 12),
-          "the redrawn area holds the dot lit now and the one before, on screen: %06x", (unsigned)rgb_at((int)d1x, (int)d1y));
+    CHECK(near_rgb(rgb_at((int)d1x, (int)d1y), USAGE_DOT_ON, 12), "the second dot lit on screen: %06x", (unsigned)rgb_at((int)d1x, (int)d1y));
     usage_view_close();
     frame(d, t + 10);
+
+    usage_block_t mod = {.n = 1};
+    mod.a[0] = acct("claude:mod", USAGE_TOOL_CLAUDE, "Models", 41, 0.5, 20);
+    mod.a[0].n_models = 2;
+    mod.a[0].models[0] = (usage_model_t){"Opus", 38};
+    mod.a[0].models[1] = (usage_model_t){"Sonnet", 12};
+    publish(&mod);
+    usage_view_input(&(usage_in_t){.taps = 1}, t + 11);
+    frame(d, t + 11);
+    CHECK(label_with(scr, "Opus 38% \xE2\x80\xA2 Sonnet 12%") != NULL, "opened on a models account: the full models line in the first frame");
+    usage_view_close();
+    frame(d, t + 11);
+    usage_view_input(&(usage_in_t){.taps = 1}, t + 12);
+    frame(d, t + 12);
+    CHECK(label_with(scr, "Models") && label_with(scr, "41") && label_with(scr, "resets in ") &&
+              label_with(scr, "Opus 38% \xE2\x80\xA2 Sonnet 12%"),
+          "the same account reopened with the same strings: name, value, reset and models lines shown");
+    usage_view_close();
+    frame(d, t + 12);
 
     usage_block_t one = {.n = 1};
     one.a[0] = acct("claude:9", USAGE_TOOL_CLAUDE, "Max", 55, 0.6, 30);

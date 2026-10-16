@@ -114,10 +114,11 @@ static uint32_t over(uint32_t dst, uint32_t src, float a)
 
 typedef void (*span_fn)(uint16_t *row, int x0, int x1, float dy, const void *ctx);
 
-static void spans(uint16_t *buf, int w, int h, float r_in, float r_out, int y_from, span_fn fn, const void *ctx)
+static void spans(uint16_t *buf, int w, int h, float r_in, float r_out, int y_from, int y_to, span_fn fn, const void *ctx)
 {
     int y0 = (int)floorf(USAGE_CY - r_out), y1 = (int)ceilf(USAGE_CY + r_out);
     if (y0 < y_from) y0 = y_from;
+    if (y1 > y_to) y1 = y_to;
     if (y0 < 0) y0 = 0;
     if (y1 > h - 1) y1 = h - 1;
     for (int y = y0; y <= y1; y++) {
@@ -169,7 +170,7 @@ static void ring(uint16_t *buf, int w, int h, float r, float hw, float frac, uin
     ring_ctx_t c = {.track_rgb = track, .arc_rgb = rgb, .track565 = rgb565(track), .arc565 = rgb565(rgb)};
     arc_init(&c.track, r, hw, 0, 360.0f);
     arc_init(&c.arc, r, hw, 0, frac_deg(frac));
-    spans(buf, w, h, r - hw - 1, r + hw + 1, 0, ring_span, &c);
+    spans(buf, w, h, r - hw - 1, r + hw + 1, 0, h - 1, ring_span, &c);
 }
 
 void usage_ring5_render(uint16_t *buf, int w, int h, const usage_face_t *f)
@@ -184,9 +185,8 @@ void usage_ring7_render(uint16_t *buf, int w, int h, const usage_face_t *f)
 
 static void clear_span(uint16_t *row, int x0, int x1, float dy, const void *ctx)
 {
+    (void)dy;
     const int *box = ctx;
-    int y = (int)lroundf(dy + USAGE_CY - 0.5f);
-    if (y >= box[1] + box[3]) return;
     if (x0 < box[0]) x0 = box[0];
     if (x1 > box[0] + box[2] - 1) x1 = box[0] + box[2] - 1;
     if (x1 >= x0) memset(row + x0, 0, (size_t)(x1 - x0 + 1) * sizeof *row);
@@ -197,7 +197,7 @@ void usage_dots_render(uint16_t *buf, int w, int h, int n, int shown)
     float m = USAGE_DOT_R + 2;
     int box[4];
     usage_dots_box(&box[0], &box[1], &box[2], &box[3]);
-    spans(buf, w, h, USAGE_DOT_ARC - m, USAGE_DOT_ARC + m, box[1], clear_span, box);
+    spans(buf, w, h, USAGE_DOT_ARC - m, USAGE_DOT_ARC + m, box[1], box[1] + box[3] - 1, clear_span, box);
     if (n < 2) return;
     for (int k = 0; k < n; k++) {
         float cx, cy;
