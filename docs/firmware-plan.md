@@ -22,7 +22,7 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 | **Bot** (home) | Ember bot face; mood from the winning session state; in waiting/error the host label (e.g. `M4`) under the face | `GET /state` (`render.source`, else the winning session), port of Ember's bot |
 | **Pomodoro** | arc around the bezel + time left | `GET /v1/pomodoro/state` |
 | **Media** | volume arc, play/pause icon, BLE link state | BLE HID (below) |
-| **Usage** | 5 h / weekly usage gauges | `GET /v1/usage` |
+| **Usage** | 5 h / weekly gauges per Claude or Codex account: screens behind a tap on the bot face, not a page (built, `features.md` "Usage screens") | the view's `usage` block |
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |
 | Debug | Wi-Fi, BLE, heap, Ember health | `GET /v1/clock/health` |
 
@@ -41,7 +41,7 @@ One rule for every page: **push and turn** (hold the knob down while turning) ch
 | Push and turn | change page | change page |
 | Swipe up / down (touch, `swipe_pages`) | next / previous page | next / previous page |
 | Hold 10 s, then turn right one full turn (still holding) | factory reset | factory reset |
-| Touch (tap, decided on release) | wake / hop | mute toggle |
+| Touch (tap, decided on release) | bot: the usage screens with an account, else wake / hop; Pomodoro: as a push | mute toggle |
 
 Detent count per turn and double-push timing need tuning on hardware.
 
