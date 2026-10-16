@@ -407,7 +407,7 @@ body "$TFC" set_sprites | grep -qxF '    int i = drift ? wx_drift_step(&s_cd) : 
     WIRING="$WIRING drift-moves-only-the-stepped-cloud-and-only-on-the-temperature-face-after-the-arrival"
 body "$TFC" temp_face_update | awk '/^    s_t \+= dt;$/ {t = NR} /^    if \(s_t >= WX_ARRIVE_S\) wx_drift_tick\(&s_cd, dt\);$/ {if (t == NR - 1) k = 1} END {exit !k}' &&
     [ "$(grep -c 'wx_drift_tick(' "$TFC")" -eq 1 ] && [ "$(grep -c '&s_cd' "$TFC")" -eq 3 ] &&
-    ! grep -qE 's_cd(\.[a-z_]+(\[[^]]*\])?)? *([-+*/]?=[^=]|\+\+|--)|(\+\+|--) *s_cd' "$TFC" && ! body "$TFC" set_sprites | grep -q 's_t' ||
+    ! grep -qE '(^|[^a-z_0-9])s_cd(\.[a-z_]+(\[[^]]*\])?)? *(([-+*/%&|^]|<<|>>)?=[^=]|\+\+|--)|(\+\+|--) *s_cd' "$TFC" && ! body "$TFC" set_sprites | grep -q 's_t' ||
     WIRING="$WIRING the-drift-runs-on-its-own-clock-so-a-show-that-rewinds-s_t-never-freezes-it"
 grep -qxF '_Static_assert(WX_SCENE_ALIGN % LV_DRAW_BUF_ALIGN == 0, "cloud sprites start on LVGL'"'"'s draw buffer alignment");' "$TFC" ||
     WIRING="$WIRING cloud-sprite-offsets-asserted-on-LVGL-draw-buffer-alignment"
