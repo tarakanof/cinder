@@ -1,6 +1,7 @@
 #include "usage_view.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_attr.h"
@@ -54,6 +55,8 @@ static EXT_RAM_BSS_ATTR struct {
     int mark_tool;
     uint32_t mark_rgb;
     int tick_x, tick_y;
+    char name_txt[sizeof ((usage_acct_t *)0)->name], value_txt[sizeof ((usage_face_t *)0)->value],
+        reset_txt[sizeof ((usage_face_t *)0)->reset], week_txt[sizeof ((usage_face_t *)0)->week_line];
 } V;
 
 static lv_obj_t *plain(lv_obj_t *parent)
@@ -138,6 +141,7 @@ static bool build(void)
     V.mark_tool = -1;
     V.mark_rgb = 0xFFFFFFFF;
     V.tick_x = V.tick_y = -1000;
+    V.name_txt[0] = V.value_txt[0] = V.reset_txt[0] = V.week_txt[0] = 0;
     return true;
 }
 
@@ -148,9 +152,11 @@ static void show(lv_obj_t *o, bool on)
     else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void set_text(lv_obj_t *l, const char *s)
+static void set_text(lv_obj_t *l, char *shown, size_t cap, const char *s)
 {
-    if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
+    if (strcmp(shown, s) == 0) return;
+    snprintf(shown, cap, "%s", s);
+    lv_label_set_text(l, s);
 }
 
 static void set_color(lv_obj_t *l, uint32_t rgb)
@@ -184,8 +190,8 @@ static void apply_mark(const usage_face_t *f)
 
 static void apply_value(const usage_face_t *f)
 {
-    bool moved = strcmp(lv_label_get_text(V.value), f->value) != 0;
-    set_text(V.value, f->value);
+    bool moved = strcmp(V.value_txt, f->value) != 0;
+    set_text(V.value, V.value_txt, sizeof V.value_txt, f->value);
     set_color(V.value, f->value_rgb);
     set_color(V.pct, f->value_rgb);
     show(V.pct, strcmp(f->value, "--") != 0);
@@ -242,8 +248,10 @@ static const char *week_text(const usage_face_t *f)
 {
     if (!f->week_short[0]) return f->week_line;
     lv_point_t p;
-    lv_text_get_size(&p, f->week_line, &lv_font_montserrat_24, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    return p.x > WEEK_W ? f->week_short : f->week_line;
+    lv_text_get_size(&p, f->week_line, lv_obj_get_style_text_font(V.week, LV_PART_MAIN), lv_obj_get_style_text_letter_space(V.week, LV_PART_MAIN),
+                     0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    lv_obj_update_layout(V.week);
+    return p.x > lv_obj_get_content_width(V.week) ? f->week_short : f->week_line;
 }
 
 static double server_now(void) { return V.clk.have_srv ? pomo_client_now() + V.clk.srv_offset : 0; }
@@ -263,11 +271,11 @@ static void apply_face(void)
     usage_face(a, now, V.clk.has_utc_offset, V.clk.utc_offset, f);
     apply_rings(f);
     apply_mark(f);
-    set_text(V.name, V.blk.a[V.nav.idx].name);
+    set_text(V.name, V.name_txt, sizeof V.name_txt, V.blk.a[V.nav.idx].name);
     apply_value(f);
-    set_text(V.reset, f->reset);
+    set_text(V.reset, V.reset_txt, sizeof V.reset_txt, f->reset);
     set_color(V.reset, f->reset_rgb);
-    set_text(V.week, week_text(f));
+    set_text(V.week, V.week_txt, sizeof V.week_txt, week_text(f));
     apply_tick(f);
     V.face_idx = V.nav.idx;
     V.face_sec = sec;

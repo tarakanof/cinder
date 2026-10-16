@@ -184,14 +184,20 @@ void usage_ring7_render(uint16_t *buf, int w, int h, const usage_face_t *f)
 
 static void clear_span(uint16_t *row, int x0, int x1, float dy, const void *ctx)
 {
-    (void)dy, (void)ctx;
+    const int *box = ctx;
+    int y = (int)lroundf(dy + USAGE_CY - 0.5f);
+    if (y >= box[1] + box[3]) return;
+    if (x0 < box[0]) x0 = box[0];
+    if (x1 > box[0] + box[2] - 1) x1 = box[0] + box[2] - 1;
     if (x1 >= x0) memset(row + x0, 0, (size_t)(x1 - x0 + 1) * sizeof *row);
 }
 
 void usage_dots_render(uint16_t *buf, int w, int h, int n, int shown)
 {
     float m = USAGE_DOT_R + 2;
-    spans(buf, w, h, USAGE_DOT_ARC - m, USAGE_DOT_ARC + m, (int)(USAGE_CY + USAGE_DOT_ARC / 2), clear_span, NULL);
+    int box[4];
+    usage_dots_box(&box[0], &box[1], &box[2], &box[3]);
+    spans(buf, w, h, USAGE_DOT_ARC - m, USAGE_DOT_ARC + m, box[1], clear_span, box);
     if (n < 2) return;
     for (int k = 0; k < n; k++) {
         float cx, cy;
