@@ -7,7 +7,7 @@
 #include "bot_raster.h"
 #include "bot_shape.h"
 #include "bot_view.h"
-#include "join_label.h"
+#include "join_view.h"
 #include "lvgl.h"
 #include "offline_glyph.h"
 #include "moment_view.h"
@@ -449,44 +449,83 @@ static bool hit_screen(int x, int y)
     return lv_indev_search_obj(lv_screen_active(), &pt) == lv_screen_active();
 }
 
+static float far_corner(const lv_area_t *a)
+{
+    float c[4][2] = {{a->x1, a->y1}, {a->x2 + 1, a->y1}, {a->x1, a->y2 + 1}, {a->x2 + 1, a->y2 + 1}}, worst = 0;
+    for (int k = 0; k < 4; k++) {
+        float r = hypotf(c[k][0] - 236, c[k][1] - 233);
+        worst = r > worst ? r : worst;
+    }
+    return worst;
+}
+
+static bool join_line_ok(lv_obj_t *o, const lv_font_t *font)
+{
+    return lv_obj_get_style_text_font(o, LV_PART_MAIN) == font && lv_label_get_long_mode(o) == LV_LABEL_LONG_DOT &&
+           lv_obj_get_style_text_align(o, LV_PART_MAIN) == LV_TEXT_ALIGN_CENTER && lv_obj_get_width(o) == JOIN_VIEW_W &&
+           lv_obj_get_height(o) == lv_font_get_line_height(font);
+}
+
 static void test_join_label(lv_display_t *d)
 {
-    lv_obj_t *l = lv_label_create(lv_layer_top());
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(l, JOIN_LABEL_W);
-    lv_obj_set_style_max_height(l, JOIN_LABEL_LINES * lv_font_get_line_height(&lv_font_montserrat_24), 0);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
-    lv_obj_align(l, LV_ALIGN_BOTTOM_MID, 0, JOIN_LABEL_Y);
-    char text[64];
-    join_label_text(JOIN_CANT_JOIN, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", text, sizeof text);
-    lv_label_set_text(l, text);
+    join_view_create();
+    lv_obj_t *top = lv_layer_top(), *line = lv_obj_get_child(top, 0), *ssid = lv_obj_get_child(top, 1);
+    static const char *const SSIDS[] = {"Telekom-ABC123-5G", "Vodafone-ABCD1234", "NETGEAR-5G-Extender", "FRITZ!Box 7590 XY", "My Home Network 5GHz",
+                                        "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"};
+    static const int OFF[][2] = {{0, 0}, {-4, -4}, {4, -4}, {-4, 4}, {4, 4}};
+    for (size_t n = 0; n < sizeof SSIDS / sizeof SSIDS[0]; n++) {
+        bool dots = n == sizeof SSIDS / sizeof SSIDS[0] - 1;
+        join_view_show(JOIN_CANT_JOIN, SSIDS[n]);
+        float worst = 0;
+        lv_area_t a0 = {0}, b0 = {0};
+        int moved = 0;
+        for (size_t k = 0; k < sizeof OFF / sizeof OFF[0]; k++) {
+            join_view_shift(OFF[k][0], OFF[k][1]);
+            lv_refr_now(d);
+            lv_area_t a, b;
+            lv_obj_get_coords(line, &a);
+            lv_obj_get_coords(ssid, &b);
+            float r = far_corner(&a) > far_corner(&b) ? far_corner(&a) : far_corner(&b);
+            worst = r > worst ? r : worst;
+            int dx = OFF[k][0], dy = OFF[k][1];
+            if (k) {
+                moved += a.x1 == a0.x1 + dx && a.y1 == a0.y1 + dy && b.x1 == b0.x1 + dx && b.y1 == b0.y1 + dy;
+                continue;
+            }
+            a0 = a;
+            b0 = b;
+            const char *t = lv_label_get_text(ssid);
+            size_t len = strlen(t);
+            printf("join label '%s': %d,%d..%d,%d over %d,%d..%d,%d shows '%s'\n", SSIDS[n], (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2,
+                   (int)b.x1, (int)b.y1, (int)b.x2, (int)b.y2, t);
+            CHECK(join_line_ok(line, &lv_font_montserrat_24) && join_line_ok(ssid, &lv_font_montserrat_18),
+                  "join label '%s': both lines one line high, %d px wide, centred, with dots, in 24 and 18", SSIDS[n], JOIN_VIEW_W);
+            CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && !lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) &&
+                      strcmp(lv_label_get_text(line), "Can't join") == 0,
+                  "join label '%s': the status over the SSID", SSIDS[n]);
+            CHECK(b.y2 == H - 1 + JOIN_VIEW_Y && a.y2 == b.y1 - 1, "join label '%s': SSID at the bottom (%d), status right above it (%d)",
+                  SSIDS[n], (int)b.y2, (int)a.y2);
+            if (dots)
+                CHECK(len > 3 && strcmp(t + len - 3, "...") == 0, "join label: a 32-character SSID ends in dots: %s", t);
+            else
+                CHECK(strcmp(t, SSIDS[n]) == 0, "join label: '%s' shows in full: %s", SSIDS[n], t);
+        }
+        printf("join label '%s': worst corner %.1f px from the centre over the orbit\n", SSIDS[n], worst);
+        CHECK(moved == (int)(sizeof OFF / sizeof OFF[0]) - 1, "join label '%s': both lines follow the orbit (%d of %d offsets)", SSIDS[n],
+              moved, (int)(sizeof OFF / sizeof OFF[0]) - 1);
+        CHECK(worst <= 233, "join label '%s': both boxes inside the round panel at every orbit corner (%.1f px)", SSIDS[n], worst);
+    }
+    join_view_shift(0, 0);
+    join_view_show(JOIN_NOT_PAIRED, "");
     lv_refr_now(d);
     lv_area_t a;
-    lv_obj_get_coords(l, &a);
-    int lh = lv_font_get_line_height(&lv_font_montserrat_24);
-    printf("join label: %d,%d..%d,%d\n", (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2);
-    CHECK(lv_area_get_height(&a) == JOIN_LABEL_LINES * lh && a.y2 == H - 1 + JOIN_LABEL_Y, "join label: a long SSID stays within two lines at the bottom (%d px for 2 x %d)", (int)lv_area_get_height(&a), lh);
-    const char *shown = lv_label_get_text(l);
-    CHECK(strlen(shown) > 3 && strcmp(shown + strlen(shown) - 3, "...") == 0, "join label: the long SSID ends in dots: %s", shown);
-    float worst = 0;
-    for (int dx = -4; dx <= 4; dx += 8)
-        for (int dy = -4; dy <= 4; dy += 8) {
-            float c[4][2] = {{a.x1, a.y1}, {a.x2 + 1, a.y1}, {a.x1, a.y2 + 1}, {a.x2 + 1, a.y2 + 1}};
-            for (int k = 0; k < 4; k++) {
-                float r = hypotf(c[k][0] + dx - 236, c[k][1] + dy - 233);
-                worst = r > worst ? r : worst;
-            }
-        }
-    CHECK(worst <= 233, "join label: its box stays inside the round panel at every orbit corner (%.1f px from the centre)", worst);
-    join_label_text(JOIN_NOT_PAIRED, "", text, sizeof text);
-    lv_label_set_text(l, text);
-    lv_obj_update_layout(l);
-    lv_obj_get_coords(l, &a);
-    CHECK(lv_area_get_height(&a) == lh && a.y2 == H - 1 + JOIN_LABEL_Y, "join label: one line keeps its place (%d..%d)", (int)a.y1,
-          (int)a.y2);
-    lv_obj_delete(l);
+    lv_obj_get_coords(line, &a);
+    CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) && a.y2 == H - 1 + JOIN_VIEW_Y &&
+              strcmp(lv_label_get_text(line), "Not paired") == 0,
+          "join label: 'Not paired' alone on the bottom line (%d)", (int)a.y2);
+    join_view_show(JOIN_NONE, "");
     lv_refr_now(d);
+    CHECK(lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN), "join label: none hides both");
 }
 
 static void test_orbit(lv_display_t *d)
