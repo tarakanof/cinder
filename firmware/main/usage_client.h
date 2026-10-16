@@ -9,6 +9,7 @@ typedef struct {
     double srv_offset;   /* server Unix s = pomo_client_now() + srv_offset */
     bool has_utc_offset;
     int utc_offset;
+    long long fed_at;    /* server Unix s of the last applied view, 0 unknown; not a change by itself */
 } usage_clock_t;
 
 /* Once, before the ember task starts. */

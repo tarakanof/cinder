@@ -1098,10 +1098,10 @@ static void test_view_usage(void)
     CHECK(strcmp(c->id, "codex:ddddddddddddddd4") == 0 && c->tool == USAGE_TOOL_CODEX && strcmp(c->name, "Plus") == 0 &&
               c->five.pct == 12 && c->five.starts_at == 1782039600 && c->week.pct == 5 && !c->stale,
           "Plus");
-    CHECK(usage_highest(u) == 0 && !usage_hint(u), "opens on Max 1, no hint");
+    CHECK(usage_highest(u) == 0 && !usage_hint(u, 0), "opens on Max 1, no hint");
     knob_view_t un;
     if (!view("view_usage_uncapped.json", &un)) return;
-    CHECK(un.usage.n == 0 && !usage_hint(&un.usage) && usage_highest(&un.usage) == -1, "no block: no accounts");
+    CHECK(un.usage.n == 0 && !usage_hint(&un.usage, 0) && usage_highest(&un.usage) == -1, "no block: no accounts");
 }
 
 static void test_controls_action(void)

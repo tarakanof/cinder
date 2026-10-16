@@ -20,6 +20,7 @@ LV_FONT_DECLARE(font_digits_96);
 #define NAME_Y 140
 #define NAME_W 300
 #define LINE_W 340
+#define WEEK_W 300
 #define VALUE_BASE 262
 #define RESET_BASE 310
 #define WEEK_BASE 350
@@ -31,9 +32,8 @@ LV_FONT_DECLARE(font_digits_96);
 static const char *TAG = "usage";
 
 typedef struct {
-    float five_frac, week_frac;
-    uint32_t five_rgb, week_rgb;
-    int n, idx;
+    float frac;
+    uint32_t rgb;
 } ring_key_t;
 
 static EXT_RAM_BSS_ATTR struct {
@@ -46,14 +46,14 @@ static EXT_RAM_BSS_ATTR struct {
     bool moved;
     usage_nav_t nav;
     usage_face_t face;
-    ring_key_t ring_key;
-    bool ring_drawn;
+    ring_key_t key5, key7;
+    int dots_n, dots_idx;
+    bool ring_drawn, offline;
     int face_idx;
     long long face_sec;
     int mark_tool;
     uint32_t mark_rgb;
     int tick_x, tick_y;
-    bool tick_on;
 } V;
 
 static lv_obj_t *plain(lv_obj_t *parent)
@@ -84,7 +84,7 @@ static lv_obj_t *text(lv_obj_t *parent, const lv_font_t *f, int w, int base, uin
     lv_obj_set_style_text_color(l, lv_color_hex(rgb), 0);
     lv_label_set_text_static(l, "");
     if (w > 0) {
-        lv_obj_set_width(l, w);
+        lv_obj_set_size(l, w, f->line_height);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
         lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
         lv_obj_set_pos(l, CX - w / 2, top_for(f, base));
@@ -104,7 +104,7 @@ static void destroy(void)
 
 static bool build(void)
 {
-    V.buf = heap_caps_malloc(SCREEN_W * SCREEN_H * 2, MALLOC_CAP_SPIRAM);
+    V.buf = heap_caps_calloc(SCREEN_W * SCREEN_H, 2, MALLOC_CAP_SPIRAM);
     if (!V.buf) {
         ESP_LOGW(TAG, "no PSRAM for the face (%d B): staying on the bot", SCREEN_W * SCREEN_H * 2);
         return false;
@@ -129,7 +129,7 @@ static bool build(void)
     V.pct = text(V.root, &lv_font_montserrat_48, 0, VALUE_BASE, USAGE_GREEN);
     lv_label_set_text_static(V.pct, "%");
     V.reset = text(V.root, &lv_font_montserrat_24, LINE_W, RESET_BASE, USAGE_TEXT);
-    V.week = text(V.root, &lv_font_montserrat_24, LINE_W, WEEK_BASE, USAGE_DIM);
+    V.week = text(V.root, &lv_font_montserrat_24, WEEK_W, WEEK_BASE, USAGE_DIM);
     V.tick_out = disc(V.root, TICK_OUT, 0x000000);
     V.tick_in = disc(V.root, TICK_IN, USAGE_TEXT);
     V.ring_drawn = false;
@@ -137,7 +137,6 @@ static bool build(void)
     V.face_sec = -1;
     V.mark_tool = -1;
     V.mark_rgb = 0xFFFFFFFF;
-    V.tick_on = true;
     V.tick_x = V.tick_y = -1000;
     return true;
 }
@@ -213,16 +212,23 @@ static void apply_tick(const usage_face_t *f)
     lv_obj_set_pos(V.tick_in, x - TICK_IN, y - TICK_IN);
 }
 
+static bool same_key(const ring_key_t *k, float frac, uint32_t rgb) { return V.ring_drawn && k->frac == frac && k->rgb == rgb; }
+
 static void apply_rings(const usage_face_t *f)
 {
-    ring_key_t k = {.five_frac = f->five_frac, .week_frac = f->week_frac, .five_rgb = f->five_rgb, .week_rgb = f->week_rgb,
-                    .n = V.blk.n, .idx = V.nav.idx};
-    if (V.ring_drawn && memcmp(&k, &V.ring_key, sizeof k) == 0) return;
+    bool r5 = !same_key(&V.key5, f->five_frac, f->five_rgb), r7 = !same_key(&V.key7, f->week_frac, f->week_rgb);
+    bool dots = !V.ring_drawn || V.dots_n != V.blk.n || V.dots_idx != V.nav.idx;
+    if (!r5 && !r7 && !dots) return;
     int64_t t0 = esp_timer_get_time();
-    usage_rings_render(V.buf, SCREEN_W, SCREEN_H, f, V.blk.n, V.nav.idx);
+    if (r5) usage_ring5_render(V.buf, SCREEN_W, SCREEN_H, f);
+    if (r7) usage_ring7_render(V.buf, SCREEN_W, SCREEN_H, f);
+    if (dots) usage_dots_render(V.buf, SCREEN_W, SCREEN_H, V.blk.n, V.nav.idx);
     lv_obj_invalidate(V.ring);
     ESP_LOGI(TAG, "face %d/%d: rings in %d ms", V.nav.idx + 1, V.blk.n, (int)((esp_timer_get_time() - t0) / 1000));
-    V.ring_key = k;
+    V.key5 = (ring_key_t){f->five_frac, f->five_rgb};
+    V.key7 = (ring_key_t){f->week_frac, f->week_rgb};
+    V.dots_n = V.blk.n;
+    V.dots_idx = V.nav.idx;
     V.ring_drawn = true;
 }
 
@@ -234,7 +240,13 @@ static void apply_face(void)
     long long sec = (long long)floor(now);
     if (!V.moved && V.face_idx == V.nav.idx && sec == V.face_sec) return;
     usage_face_t *f = &V.face;
-    usage_face(&V.blk.a[V.nav.idx], now, V.clk.has_utc_offset, V.clk.utc_offset, f);
+    const usage_acct_t *a = &V.blk.a[V.nav.idx];
+    usage_acct_t off;
+    if (V.offline) {
+        off = usage_as_stale(a, V.clk.fed_at);
+        a = &off;
+    }
+    usage_face(a, now, V.clk.has_utc_offset, V.clk.utc_offset, f);
     apply_rings(f);
     apply_mark(f);
     set_text(V.name, V.blk.a[V.nav.idx].name);
@@ -257,7 +269,14 @@ void usage_view_poll(void)
 
 bool usage_view_open(void) { return V.nav.open; }
 
-bool usage_view_hint(void) { return usage_hint(&V.blk); }
+void usage_view_set_offline(bool offline)
+{
+    if (offline == V.offline) return;
+    V.offline = offline;
+    V.moved = true;
+}
+
+bool usage_view_hint(void) { return !V.offline && usage_hint(&V.blk, server_now()); }
 
 void usage_view_close(void)
 {

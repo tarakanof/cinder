@@ -1,44 +1,51 @@
 #include "usage.h"
 
 #include <math.h>
+#include <string.h>
+
+#include "wx_clock.h"
 
 #define DEG (3.14159265358979f / 180.0f)
 
 typedef struct {
-    float r, hw, a0, span;
-    bool full;
-    float x0, y0, x1, y1;
+    float r, hw;
+    float sx, sy, ex, ey;
+    bool none, full, big;
 } arc_t;
 
 static void arc_init(arc_t *c, float r, float hw, float a0, float a1)
 {
-    *c = (arc_t){.r = r, .hw = hw, .a0 = a0, .span = a1 - a0, .full = a1 - a0 >= 360.0f};
-    c->x0 = r * sinf(a0 * DEG), c->y0 = -r * cosf(a0 * DEG);
-    c->x1 = r * sinf(a1 * DEG), c->y1 = -r * cosf(a1 * DEG);
+    float span = a1 - a0;
+    *c = (arc_t){.r = r, .hw = hw, .none = span <= 0, .full = span >= 360.0f, .big = span > 180.0f};
+    c->sx = sinf(a0 * DEG), c->sy = -cosf(a0 * DEG);
+    c->ex = sinf(a1 * DEG), c->ey = -cosf(a1 * DEG);
 }
 
-static float arc_cov(const arc_t *c, float dx, float dy)
+static bool arc_inside(const arc_t *c, float dx, float dy)
 {
-    if (c->span <= 0) return 0;
-    float dist = fabsf(hypotf(dx, dy) - c->r);
-    if (dist > c->hw + 0.5f && !c->full) {
-        float e = fminf(hypotf(dx - c->x0, dy - c->y0), hypotf(dx - c->x1, dy - c->y1));
-        if (e > c->hw + 0.5f) return 0;
-    }
-    if (!c->full) {
-        float a = atan2f(dx, -dy) / DEG;
-        float rel = fmodf(a - c->a0 + 720.0f, 360.0f);
-        if (rel > c->span) dist = fminf(hypotf(dx - c->x0, dy - c->y0), hypotf(dx - c->x1, dy - c->y1));
-    }
-    float v = c->hw + 0.5f - dist;
-    return v <= 0 ? 0 : v >= 1 ? 1 : v;
+    float cs = c->sx * dy - c->sy * dx, ce = c->ex * dy - c->ey * dx;
+    return c->big ? !(ce > 0 && cs < 0) : cs >= 0 && ce <= 0;
+}
+
+static float clamp01(float v) { return v <= 0 ? 0 : v >= 1 ? 1 : v; }
+
+static float arc_cov_d(const arc_t *c, float dx, float dy, float d)
+{
+    if (c->none) return 0;
+    float lim = c->hw + 0.5f, radial = fabsf(d - c->r);
+    if (c->full || arc_inside(c, dx, dy)) return clamp01(lim - radial);
+    if (radial >= lim) return 0;
+    float ax = dx - c->r * c->sx, ay = dy - c->r * c->sy, bx = dx - c->r * c->ex, by = dy - c->r * c->ey;
+    float e2 = fminf(ax * ax + ay * ay, bx * bx + by * by);
+    if (e2 >= lim * lim) return 0;
+    return clamp01(lim - sqrtf(e2));
 }
 
 float usage_arc_cover(float dx, float dy, float r, float hw, float a0, float a1)
 {
     arc_t c;
     arc_init(&c, r, hw, a0, a1);
-    return arc_cov(&c, dx, dy);
+    return arc_cov_d(&c, dx, dy, sqrtf(dx * dx + dy * dy));
 }
 
 void usage_arc_box(float cx, float cy, float r, float hw, float a0, float a1, int *x, int *y, int *w, int *h)
@@ -65,17 +72,12 @@ void usage_arc_mask(float cx, float cy, float r, float hw, float a0, float a1, i
     arc_init(&a, r, hw, a0, a1);
     for (int j = 0; j < h; j++)
         for (int i = 0; i < w; i++) {
-            float c = arc_cov(&a, x + i + 0.5f - cx, y + j + 0.5f - cy);
-            out[j * w + i] = (uint8_t)(c * 255.0f + 0.5f);
+            float dx = x + i + 0.5f - cx, dy = y + j + 0.5f - cy;
+            out[j * w + i] = (uint8_t)(arc_cov_d(&a, dx, dy, sqrtf(dx * dx + dy * dy)) * 255.0f + 0.5f);
         }
 }
 
-void usage_dot_xy(int k, int n, float *x, float *y)
-{
-    float a = ((float)k - (float)(n - 1) / 2) * USAGE_DOT_PITCH / USAGE_DOT_ARC;
-    *x = USAGE_CX + USAGE_DOT_ARC * sinf(a);
-    *y = USAGE_CY + USAGE_DOT_ARC * cosf(a);
-}
+void usage_dot_xy(int k, int n, float *x, float *y) { wx_arc_dot_xy(k, n, USAGE_DOT_ARC, USAGE_DOT_PITCH, USAGE_CX, USAGE_CY, x, y); }
 
 static uint16_t rgb565(uint32_t rgb)
 {
@@ -92,38 +94,86 @@ static uint32_t over(uint32_t dst, uint32_t src, float a)
     return out;
 }
 
-static uint32_t ring_px(const arc_t *track_arc, const arc_t *arc, float dx, float dy, uint32_t track, uint32_t rgb)
+typedef void (*span_fn)(uint16_t *row, int x0, int x1, float dy, const void *ctx);
+
+static void spans(uint16_t *buf, int w, int h, float r_in, float r_out, int y_from, span_fn fn, const void *ctx)
 {
-    float t = arc_cov(track_arc, dx, dy);
-    if (t <= 0) return 0;
-    uint32_t px = over(0, track, t);
-    float a = arc_cov(arc, dx, dy);
-    return a > 0 ? over(px, rgb, a) : px;
+    int y0 = (int)floorf(USAGE_CY - r_out), y1 = (int)ceilf(USAGE_CY + r_out);
+    if (y0 < y_from) y0 = y_from;
+    if (y0 < 0) y0 = 0;
+    if (y1 > h - 1) y1 = h - 1;
+    for (int y = y0; y <= y1; y++) {
+        float dy = y + 0.5f - USAGE_CY, o2 = r_out * r_out - dy * dy;
+        if (o2 <= 0) continue;
+        float xo = sqrtf(o2), i2 = r_in * r_in - dy * dy;
+        int a0 = (int)floorf(USAGE_CX - xo), b1 = (int)ceilf(USAGE_CX + xo);
+        if (a0 < 0) a0 = 0;
+        if (b1 > w - 1) b1 = w - 1;
+        uint16_t *row = buf + (size_t)y * w;
+        if (i2 > 0) {
+            float xi = sqrtf(i2);
+            int a1 = (int)ceilf(USAGE_CX - xi), b0 = (int)floorf(USAGE_CX + xi);
+            fn(row, a0, a1 < b1 ? a1 : b1, dy, ctx);
+            fn(row, b0 > a0 ? b0 : a0, b1, dy, ctx);
+        } else {
+            fn(row, a0, b1, dy, ctx);
+        }
+    }
+}
+
+typedef struct {
+    arc_t track, arc;
+    uint32_t track_rgb, arc_rgb;
+    uint16_t track565, arc565;
+} ring_ctx_t;
+
+static void ring_span(uint16_t *row, int x0, int x1, float dy, const void *p)
+{
+    const ring_ctx_t *c = p;
+    for (int x = x0; x <= x1; x++) {
+        float dx = x + 0.5f - USAGE_CX, d = sqrtf(dx * dx + dy * dy);
+        float t = clamp01(c->track.hw + 0.5f - fabsf(d - c->track.r));
+        if (t <= 0) {
+            row[x] = 0;
+            continue;
+        }
+        float a = arc_cov_d(&c->arc, dx, dy, d);
+        if (a >= 1) row[x] = c->arc565;
+        else if (a <= 0) row[x] = t >= 1 ? c->track565 : rgb565(over(0, c->track_rgb, t));
+        else row[x] = rgb565(over(over(0, c->track_rgb, t), c->arc_rgb, a));
+    }
 }
 
 static float frac_deg(float f) { return f <= 0 ? 0 : f >= 1 ? 360.0f : f * 360.0f; }
 
-void usage_rings_render(uint16_t *buf, int w, int h, const usage_face_t *f, int n, int shown)
+static void ring(uint16_t *buf, int w, int h, float r, float hw, float frac, uint32_t track, uint32_t rgb)
 {
-    arc_t t5, a5, t7, a7;
-    arc_init(&t5, USAGE_R5, USAGE_HW5, 0, 360.0f);
-    arc_init(&a5, USAGE_R5, USAGE_HW5, 0, frac_deg(f->five_frac));
-    arc_init(&t7, USAGE_R7, USAGE_HW7, 0, 360.0f);
-    arc_init(&a7, USAGE_R7, USAGE_HW7, 0, frac_deg(f->week_frac));
-    float b5o = USAGE_R5 + USAGE_HW5 + 1, b5i = USAGE_R5 - USAGE_HW5 - 1;
-    float b7o = USAGE_R7 + USAGE_HW7 + 1, b7i = USAGE_R7 - USAGE_HW7 - 1;
-    for (int y = 0; y < h; y++) {
-        float dy = y + 0.5f - USAGE_CY;
-        for (int x = 0; x < w; x++) {
-            float dx = x + 0.5f - USAGE_CX, d2 = dx * dx + dy * dy;
-            uint32_t px = 0;
-            if (d2 <= b5o * b5o && d2 >= b5i * b5i)
-                px = ring_px(&t5, &a5, dx, dy, USAGE_TRACK, f->five_rgb);
-            else if (d2 <= b7o * b7o && d2 >= b7i * b7i)
-                px = ring_px(&t7, &a7, dx, dy, USAGE_TRACK2, f->week_rgb);
-            buf[y * w + x] = px ? rgb565(px) : 0;
-        }
-    }
+    ring_ctx_t c = {.track_rgb = track, .arc_rgb = rgb, .track565 = rgb565(track), .arc565 = rgb565(rgb)};
+    arc_init(&c.track, r, hw, 0, 360.0f);
+    arc_init(&c.arc, r, hw, 0, frac_deg(frac));
+    spans(buf, w, h, r - hw - 1, r + hw + 1, 0, ring_span, &c);
+}
+
+void usage_ring5_render(uint16_t *buf, int w, int h, const usage_face_t *f)
+{
+    ring(buf, w, h, USAGE_R5, USAGE_HW5, f->five_frac, USAGE_TRACK, f->five_rgb);
+}
+
+void usage_ring7_render(uint16_t *buf, int w, int h, const usage_face_t *f)
+{
+    ring(buf, w, h, USAGE_R7, USAGE_HW7, f->week_frac, USAGE_TRACK2, f->week_rgb);
+}
+
+static void clear_span(uint16_t *row, int x0, int x1, float dy, const void *ctx)
+{
+    (void)dy, (void)ctx;
+    if (x1 >= x0) memset(row + x0, 0, (size_t)(x1 - x0 + 1) * sizeof *row);
+}
+
+void usage_dots_render(uint16_t *buf, int w, int h, int n, int shown)
+{
+    float m = USAGE_DOT_R + 2;
+    spans(buf, w, h, USAGE_DOT_ARC - m, USAGE_DOT_ARC + m, (int)(USAGE_CY + USAGE_DOT_ARC / 2), clear_span, NULL);
     if (n < 2) return;
     for (int k = 0; k < n; k++) {
         float cx, cy;
@@ -137,4 +187,12 @@ void usage_rings_render(uint16_t *buf, int w, int h, const usage_face_t *f, int 
                 buf[y * w + x] = rgb565(over(0, c, a > 1 ? 1 : a));
             }
     }
+}
+
+void usage_rings_render(uint16_t *buf, int w, int h, const usage_face_t *f, int n, int shown)
+{
+    memset(buf, 0, (size_t)w * h * sizeof *buf);
+    usage_ring5_render(buf, w, h, f);
+    usage_ring7_render(buf, w, h, f);
+    usage_dots_render(buf, w, h, n, shown);
 }

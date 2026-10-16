@@ -40,6 +40,8 @@ bool usage_client_take(unsigned *gen, usage_block_t *out, usage_clock_t *clk)
 }
 
 double pomo_client_now(void) { return s_now; }
+static bool s_heap_fail;
+int host_heap_fail(size_t n) { return s_heap_fail && n >= 400000; }
 int64_t esp_timer_get_time(void) { return (int64_t)(s_now * 1e6); }
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...)
 {
@@ -147,6 +149,41 @@ static void tick_pos(float frac, int *x, int *y)
     *y = (int)lroundf(233 - 222 * cosf(a));
 }
 
+static int labels(lv_obj_t *scr, lv_area_t *out, const char **txt, int max, int *line_h)
+{
+    lv_obj_t *root = lv_obj_get_child(scr, -1);
+    int n = 0;
+    for (uint32_t i = 0; root && i < lv_obj_get_child_count(root) && n < max; i++) {
+        lv_obj_t *o = lv_obj_get_child(root, (int32_t)i);
+        if (!lv_obj_check_type(o, &lv_label_class) || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) continue;
+        lv_obj_get_coords(o, &out[n]);
+        if (line_h) line_h[n] = lv_obj_get_style_text_font(o, LV_PART_MAIN)->line_height;
+        txt[n++] = lv_label_get_text(o);
+    }
+    return n;
+}
+
+static void check_labels(lv_obj_t *scr, const char *state)
+{
+    lv_area_t a[8];
+    const char *t[8];
+    int lh[8];
+    int n = labels(scr, a, t, 8, lh);
+    CHECK(n >= 4, "%s: name, value, %%, reset and week labels: %d", state, n);
+    for (int i = 0; i < n; i++) {
+        int h = lv_area_get_height(&a[i]);
+        CHECK(h <= lh[i], "%s: '%s' stays on one line: %d px for a %d px line", state, t[i], h, lh[i]);
+        float corners[4][2] = {{a[i].x1, a[i].y1}, {a[i].x2, a[i].y1}, {a[i].x1, a[i].y2}, {a[i].x2, a[i].y2}};
+        for (int k = 0; h < 60 && k < 4; k++)
+            CHECK(hypotf(corners[k][0] - 236, corners[k][1] - 233) < 196, "%s: '%s' inside the inner ring", state, t[i]);
+        for (int j = i + 1; j < n; j++) {
+            bool apart = a[i].x2 < a[j].x1 || a[j].x2 < a[i].x1 || a[i].y2 < a[j].y1 || a[j].y2 < a[i].y1;
+            bool value_pct = (strcmp(t[i], "%") == 0 || strcmp(t[j], "%") == 0) && (lv_area_get_height(&a[i]) > 60 || lv_area_get_height(&a[j]) > 60);
+            CHECK(apart || value_pct, "%s: '%s' and '%s' overlap", state, t[i], t[j]);
+        }
+    }
+}
+
 static int lit_dots(int n)
 {
     int lit = 0;
@@ -172,7 +209,8 @@ int main(int argc, char **argv)
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     usage_view_create(scr);
-    s_clk = (usage_clock_t){.have_srv = true, .srv_offset = (double)(T0 + 10000) - s_now, .has_utc_offset = true, .utc_offset = 3600};
+    s_clk = (usage_clock_t){.have_srv = true, .srv_offset = (double)(T0 + 10000) - s_now, .has_utc_offset = true, .utc_offset = 3600,
+                           .fed_at = T0 + 10000 - 5 * 60};
 
     usage_block_t b = {.n = 3};
     b.a[0] = acct("claude:1", USAGE_TOOL_CLAUDE, "Work", 62, 0.48, 41);
@@ -276,14 +314,69 @@ int main(int argc, char **argv)
     publish(&none);
     CHECK(!usage_view_open(), "no accounts left: back to the bot");
 
+    usage_block_t lng = {.n = 2};
+    lng.a[0] = acct("claude:l", USAGE_TOOL_CLAUDE, "Wwwwwwwwwwwwwwwwwwwwwwww", 78, 0.4, 52);
+    lng.a[1] = acct("claude:m", USAGE_TOOL_CLAUDE, "Personal account, home", 10, 0.5, 5);
+    publish(&lng);
+    s_clk.has_utc_offset = false;
+    s_gen++;
+    usage_view_poll();
+    usage_view_input(&(usage_in_t){.taps = 1}, 300);
+    frame(d, 300);
+    save("usage-long-name-forecast");
+    {
+        lv_area_t fa[8];
+        const char *ft[8];
+        int fn = labels(scr, fa, ft, 8, NULL);
+        bool fc = false;
+        for (int i = 0; i < fn; i++) fc |= strncmp(ft[i], "limit in ", 9) == 0 && strstr(ft[i], "at this pace") != NULL;
+        CHECK(fc, "the relative forecast line");
+    }
+    check_labels(scr, "long name, relative forecast");
+    lng.a[0].five.pct = 100;
+    publish(&lng);
+    frame(d, 301);
+    check_labels(scr, "limited, relative");
+
+    s_now += 1;
+    usage_view_set_offline(true);
+    CHECK(!usage_view_hint(), "offline: no hint");
+    frame(d, 302);
+    save("usage-offline");
+    CHECK(near_rgb(rgb_at(236 + 222, 233 - 1), USAGE_GREY, 12), "offline: the ring goes grey");
+    lv_area_t la[8];
+    const char *lt[8];
+    int nl = labels(scr, la, lt, 8, NULL);
+    bool said = false;
+    for (int i = 0; i < nl; i++) said |= strncmp(lt[i], "no update for", 13) == 0;
+    CHECK(said, "offline: 'no update for ...'");
+    usage_view_set_offline(false);
+    frame(d, 303);
+    CHECK(near_rgb(rgb_at(236 + 222, 233 - 1), USAGE_RED, 12), "online again: red");
+    lng.a[0].five.pct = 95;
+    publish(&lng);
+    CHECK(usage_view_hint(), "95%%: hint");
+    s_now += 6 * 3600;
+    CHECK(!usage_view_hint(), "its 5h window has reset by the knob's clock: hint off");
+    usage_view_close();
+
+    s_heap_fail = true;
+    CHECK(!usage_view_input(&(usage_in_t){.taps = 1}, 400) && !usage_view_open(),
+          "no PSRAM for the face: the tap stays the bot's");
+    s_heap_fail = false;
+
     usage_face_t f;
     usage_face(&b.a[1], (double)(T0 + 10000), true, 3600, &f);
     static uint16_t rb[W * H];
-    struct timespec a0, a1;
+    struct timespec a0, a1, a2;
     clock_gettime(CLOCK_MONOTONIC, &a0);
-    for (int i = 0; i < 10; i++) usage_rings_render(rb, W, H, &f, 3, 1);
+    for (int i = 0; i < 100; i++) usage_rings_render(rb, W, H, &f, 3, 1);
     clock_gettime(CLOCK_MONOTONIC, &a1);
-    printf("usage view: rings bake %.2f ms on the host\n", ((a1.tv_sec - a0.tv_sec) * 1e3 + (a1.tv_nsec - a0.tv_nsec) / 1e6) / 10);
+    for (int i = 0; i < 100; i++) usage_ring5_render(rb, W, H, &f);
+    clock_gettime(CLOCK_MONOTONIC, &a2);
+    printf("usage view: host bake %.3f ms for the whole face, %.3f ms for the 5h ring alone\n",
+           ((a1.tv_sec - a0.tv_sec) * 1e3 + (a1.tv_nsec - a0.tv_nsec) / 1e6) / 100,
+           ((a2.tv_sec - a1.tv_sec) * 1e3 + (a2.tv_nsec - a1.tv_nsec) / 1e6) / 100);
 
     if (failures) {
         printf("usage view: %d failure(s)\n", failures);

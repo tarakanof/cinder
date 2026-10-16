@@ -2,6 +2,7 @@
 
 #include <math.h>
 
+#include "wx_clock.h"
 #include "wx_temp.h"
 
 int wx_face_step(int face, int steps)
@@ -33,7 +34,5 @@ bool wx_faces_turn(wx_faces_t *f, int on_screen, int requested, int detents)
 
 void wx_face_dot_xy(int k, int n, float *x, float *y)
 {
-    float a = ((float)k - (float)(n - 1) / 2) * WXF_DOT_PITCH / WXF_DOT_R;
-    *x = WX_FACE_C + WXF_DOT_R * sinf(a);
-    *y = WX_FACE_C + WXF_DOT_R * cosf(a);
+    wx_arc_dot_xy(k, n, WXF_DOT_R, WXF_DOT_PITCH, WX_FACE_C, WX_FACE_C, x, y);
 }

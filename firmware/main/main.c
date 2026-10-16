@@ -803,7 +803,11 @@ void page_bot_input(const page_input_t *in, double t)
 {
     usage_in_t u = {.taps = in->touches, .pushes = in->pushes, .longs = in->longs, .detents = in->detents,
                     .hswipes = in->hswipes, .wakes = in->wakes};
-    if (usage_view_input(&u, t)) return;
+    bool was = usage_view_open();
+    if (usage_view_input(&u, t)) {
+        if (!was) for (int n = in->pushes; n > 0; n--) bot_push(&s_bot, t);
+        return;
+    }
     if (in->detents) {
         s_ring_deg += in->detents * DEGREES_PER_DETENT;
         double a = s_ring_deg * M_PI / 180;
@@ -1034,6 +1038,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     usage_view_poll();
 
     bool offline = ember_client_offline();
+    usage_view_set_offline(offline);
     wx_obs_t wx;
     bool have_wx = weather_client_get(&wx);
     temp_face_update(have_wx ? &wx : NULL, offline, dt);

@@ -3,20 +3,10 @@
 #include <math.h>
 #include <string.h>
 
+#include "wx_clock.h"
 #include "wx_temp.h"
 
-int wx_weekday(long long t, bool has_offset, int utc_offset)
-{
-    long long s = t + (has_offset ? utc_offset : 0) + 43200;
-    long long d = s >= 0 ? s / 86400 : -((-s + 86399) / 86400);
-    return (int)(((d + 4) % 7 + 7) % 7);
-}
-
-const char *wx_weekday_name(int wday)
-{
-    static const char *const N[7] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    return N[((wday % 7) + 7) % 7];
-}
+int wx_weekday(long long t, bool has_offset, int utc_offset) { return wx_local_wday(t + 43200, has_offset ? utc_offset : 0); }
 
 wx_icon_t wx_days_icon(int face)
 {

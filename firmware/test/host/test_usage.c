@@ -118,19 +118,29 @@ static void test_sync(void)
 static void test_hint(void)
 {
     usage_block_t b = three();
-    CHECK(usage_hint(&b), "93%% is past 90: hint on");
+    CHECK(usage_hint(&b, 0), "93%% is past 90: hint on");
     b.a[1].five.pct = 89;
-    CHECK(!usage_hint(&b), "89%%: off");
+    CHECK(!usage_hint(&b, 0), "89%%: off");
     b.a[1].five.pct = 90;
-    CHECK(usage_hint(&b), "exactly 90: on");
+    CHECK(usage_hint(&b, 0), "exactly 90: on");
     b.a[1].stale = true;
-    CHECK(!usage_hint(&b), "a stale account never lights it");
+    CHECK(!usage_hint(&b, 0), "a stale account never lights it");
     b.a[0].five.pct = 100;
-    CHECK(usage_hint(&b), "another fresh one at 100 does");
+    CHECK(usage_hint(&b, 0), "another fresh one at 100 does");
     b.a[0].five.have = false;
-    CHECK(!usage_hint(&b), "no 5-hour window: off");
+    CHECK(!usage_hint(&b, 0), "no 5-hour window: off");
     usage_block_t none = {0};
-    CHECK(!usage_hint(&none), "no accounts: off");
+    CHECK(!usage_hint(&none, 0), "no accounts: off");
+    usage_block_t r = three();
+    long long reset = r.a[1].five.resets_at;
+    CHECK(usage_hint(&r, (double)reset - 1), "93%% a second before its reset: on");
+    CHECK(!usage_hint(&r, (double)reset), "its 5h window reset: off before Ember says so");
+    usage_acct_t st = usage_as_stale(&r.a[1], T0 + 600);
+    CHECK(st.stale && st.updated_at == T0 + 600 && st.five.pct == 93, "offline: shown stale since the last view");
+    r.a[1].stale = true;
+    r.a[1].updated_at = T0 + 60;
+    st = usage_as_stale(&r.a[1], T0 + 600);
+    CHECK(st.updated_at == T0 + 60, "Ember's own updated_at wins");
 }
 
 static usage_face_t face_at(const usage_acct_t *a, long long now, bool off)
@@ -169,7 +179,7 @@ static void test_reset_and_forecast(void)
     a.five.pct = 0;
     a.five.resets_at = a.five.starts_at = 0;
     f = face_at(&a, now, true);
-    CHECK(strcmp(f.reset, "5h window reset") == 0 && !f.tick && f.five_frac == 0, "past its reset: %s", f.reset);
+    CHECK(strcmp(f.reset, "new 5h window") == 0 && !f.tick && f.five_frac == 0, "past its reset: %s", f.reset);
     usage_acct_t g = acct("g", USAGE_TOOL_CLAUDE, 70, 22);
     g.five.starts_at = 0;
     f = face_at(&g, T0 + 3600, true);
@@ -253,6 +263,14 @@ static void test_parse_edges(void)
     CHECK(!a->stale && a->updated_at == 0, "non-boolean stale and fractional updated_at ignored");
     CHECK(strcmp(b.a[7].id, "8") == 0 && !b.a[7].five.have, "the ninth is dropped");
     cJSON_Delete(o);
+    o = cJSON_Parse("{\"accounts\":[{\"id\":\"claude:0123456789abcdef0123456789abcdef0A\",\"five_hour\":{\"pct\":91}},"
+                    "{\"id\":\"claude:0123456789abcdef0123456789abcdef0B\",\"five_hour\":{\"pct\":10}},"
+                    "{\"id\":\"claude:0123456789abcdef0123456789abcdef0\",\"five_hour\":{\"pct\":20},"
+                    "\"models\":[{\"name\":\"\",\"pct\":3},{\"name\":\" \",\"pct\":4},{\"name\":\"Opus\",\"pct\":5}]}]}");
+    CHECK(usage_parse(o, &b) && b.n == 1 && strlen(b.a[0].id) == USAGE_ID_MAX && b.a[0].five.pct == 20,
+          "ids over 40 bytes sharing a prefix are dropped, not truncated into one: %d", b.n);
+    CHECK(b.a[0].n_models == 1 && strcmp(b.a[0].models[0].name, "Opus") == 0, "empty model names skipped");
+    cJSON_Delete(o);
     CHECK(!usage_parse(NULL, &b) && b.n == 0, "no block");
     o = cJSON_Parse("{\"accounts\":{}}");
     CHECK(!usage_parse(o, &b) && b.n == 0, "accounts not an array");
@@ -319,6 +337,38 @@ static void test_rings_and_dots(void)
     free(buf);
 }
 
+static void test_band_redraw(void)
+{
+    uint16_t *buf = malloc(W * H * 2);
+    for (int i = 0; i < W * H; i++) buf[i] = 0x1234;
+    usage_acct_t a = acct("a", USAGE_TOOL_CLAUDE, 62, 41);
+    usage_face_t f = face_at(&a, T0 + 3600, true);
+    usage_ring5_render(buf, W, H, &f);
+    CHECK(buf[233 * W + 236] == 0x1234 && buf[ring_y(USAGE_R7, 90) * W + ring_x(USAGE_R7, 90)] == 0x1234,
+          "the 5h ring leaves the centre and the 7d ring alone");
+    CHECK(buf[ring_y(USAGE_R5, 90) * W + ring_x(USAGE_R5, 90)] != 0x1234 && buf[ring_y(USAGE_R5 + 7.5f, 45) * W + ring_x(USAGE_R5 + 7.5f, 45)] == 0,
+          "and redraws its whole band, black at the edge");
+    usage_ring7_render(buf, W, H, &f);
+    CHECK(near_rgb(px_rgb(buf, ring_x(USAGE_R7, 90), ring_y(USAGE_R7, 90)), f.week_rgb, 8) && buf[233 * W + 236] == 0x1234, "7d band only");
+    memset(buf, 0, W * H * 2);
+    usage_dots_render(buf, W, H, 3, 0);
+    float x, y;
+    usage_dot_xy(0, 3, &x, &y);
+    CHECK(lit(buf, x, y) > 20, "three dots");
+    usage_dots_render(buf, W, H, 1, 0);
+    CHECK(lit(buf, x, y) == 0, "down to one account: the old dots are cleared");
+    usage_rings_render(buf, W, H, &f, 1, 0);
+    uint16_t *ref = malloc(W * H * 2);
+    memcpy(ref, buf, W * H * 2);
+    for (int i = 0; i < W * H; i++) buf[i] = 0x1234;
+    memset(buf, 0, W * H * 2);
+    usage_ring5_render(buf, W, H, &f);
+    usage_ring7_render(buf, W, H, &f);
+    CHECK(memcmp(ref, buf, W * H * 2) == 0, "the parts add up to the whole face");
+    free(ref);
+    free(buf);
+}
+
 static void test_arc_mask(void)
 {
     int x, y, w, h;
@@ -357,6 +407,7 @@ int main(void)
     test_week_line();
     test_parse_edges();
     test_rings_and_dots();
+    test_band_redraw();
     test_arc_mask();
     if (failures) {
         printf("usage: %d failure(s)\n", failures);

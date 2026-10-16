@@ -5,7 +5,8 @@
 
 #include "cJSON.h"
 #include "np.h"
-
+#include "wx_clock.h"
+#include "wx_clock.h"
 
 static const cJSON *item(const cJSON *o, const char *k) { return cJSON_IsObject(o) ? cJSON_GetObjectItemCaseSensitive(o, k) : NULL; }
 
@@ -55,7 +56,7 @@ bool usage_parse(const cJSON *o, usage_block_t *out)
     const cJSON *list = item(o, "accounts");
     for (const cJSON *e = cJSON_IsArray(list) ? list->child : NULL; e && out->n < USAGE_MAX; e = e->next) {
         const char *id = cJSON_GetStringValue(item(e, "id"));
-        if (!id || !id[0]) continue;
+        if (!id || !id[0] || strlen(id) > USAGE_ID_MAX) continue;
         usage_acct_t *a = &out->a[out->n++];
         snprintf(a->id, sizeof a->id, "%s", id);
         a->tool = tool_in(e);
@@ -67,7 +68,7 @@ bool usage_parse(const cJSON *o, usage_block_t *out)
             usage_model_t *md = &a->models[a->n_models];
             if (!cJSON_IsString(item(m, "name")) || !pct_in(m, &md->pct)) continue;
             fold(m, "name", md->name, sizeof md->name);
-            a->n_models++;
+            if (md->name[strspn(md->name, " ")]) a->n_models++;
         }
         a->stale = cJSON_IsTrue(item(e, "stale"));
         a->updated_at = unix_in(e, "updated_at");
@@ -85,11 +86,22 @@ int usage_highest(const usage_block_t *b)
     return best;
 }
 
-bool usage_hint(const usage_block_t *b)
+bool usage_hint(const usage_block_t *b, double now)
 {
-    for (int i = 0; i < b->n; i++)
-        if (!b->a[i].stale && five_pct(&b->a[i]) >= USAGE_HINT_PCT) return true;
+    for (int i = 0; i < b->n; i++) {
+        const usage_acct_t *a = &b->a[i];
+        bool reset = a->five.resets_at && now > 0 && now >= (double)a->five.resets_at;
+        if (!a->stale && !reset && five_pct(a) >= USAGE_HINT_PCT) return true;
+    }
     return false;
+}
+
+usage_acct_t usage_as_stale(const usage_acct_t *a, long long fed_at)
+{
+    usage_acct_t s = *a;
+    if (!s.stale) s.updated_at = fed_at;
+    s.stale = true;
+    return s;
 }
 
 uint32_t usage_scale_rgb(int pct) { return pct >= 90 ? USAGE_RED : pct >= 70 ? USAGE_AMBER : USAGE_GREEN; }
@@ -158,29 +170,18 @@ void usage_dur(long long s, char *out, size_t cap)
     else snprintf(out, cap, "%lldd %lldh", s / 86400, s / 3600 % 24);
 }
 
-static long long local_s(long long t, int off) { return t + off; }
-
-static void hhmm(long long t, int off, char *out, size_t cap)
-{
-    long long d = local_s(t, off) % 86400;
-    if (d < 0) d += 86400;
-    snprintf(out, cap, "%02lld:%02lld", d / 3600, d / 60 % 60);
-}
-
 static void day_hhmm(long long t, int off, char *out, size_t cap)
 {
-    static const char *const DAY[7] = {"Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"};
-    long long l = local_s(t, off), days = l >= 0 ? l / 86400 : (l - 86399) / 86400;
     char hm[8];
-    hhmm(t, off, hm, sizeof hm);
-    snprintf(out, cap, "%s %s", DAY[((days % 7) + 7) % 7], hm);
+    wx_hhmm(t, off, hm, sizeof hm);
+    snprintf(out, cap, "%s %s", wx_weekday_name(wx_local_wday(t, off)), hm);
 }
 
 static void when(const char *at, const char *in, long long t, double now, bool has_offset, int off, char *out, size_t cap)
 {
     char s[24];
     if (has_offset) {
-        hhmm(t, off, s, sizeof s);
+        wx_hhmm(t, off, s, sizeof s);
         snprintf(out, cap, "%s %s", at, s);
     } else {
         usage_dur(t - (long long)now, s, sizeof s);
@@ -221,7 +222,7 @@ static void reset_line(const usage_acct_t *a, double now, bool has_offset, int o
         return;
     }
     if (!w->resets_at) {
-        snprintf(f->reset, sizeof f->reset, "5h window reset");
+        snprintf(f->reset, sizeof f->reset, "new 5h window");
         return;
     }
     if (!timed) {

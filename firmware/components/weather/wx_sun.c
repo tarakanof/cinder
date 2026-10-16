@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "wx_cast.h"
+#include "wx_clock.h"
 #include "wx_temp.h"
 
 #define BLUE_OUT 0x4A4FC8
@@ -14,12 +15,6 @@
 #define DAY_EDGE 0x7E5A20
 #define DAY_NOON 0xB5832A
 #define DAY_S 86400LL
-
-static void hhmm(long long t, int off, char *buf, size_t n)
-{
-    long long m = (t + off) % DAY_S / 60;
-    snprintf(buf, n, "%02d:%02d", (int)(m / 60), (int)(m % 60));
-}
 
 static void keep(long long t[WX_SUN_N], int i, long long v, long long *lo, long long hi)
 {
@@ -66,7 +61,7 @@ static void value_of(wx_sun_t *s, long long secs, bool left)
 static void sub_at(wx_sun_t *s, const char *what, long long t, uint32_t rgb)
 {
     char at[8];
-    hhmm(t, s->utc_offset, at, sizeof at);
+    wx_hhmm(t, s->utc_offset, at, sizeof at);
     snprintf(s->sub, sizeof s->sub, "%s %s", what, at);
     s->sub_rgb = rgb;
 }
@@ -101,8 +96,8 @@ void wx_sun_from(const wx_obs_t *o, wx_sun_t *s)
     } else {
         crossings(o, s->t);
     }
-    hhmm(s->t[WX_SUN_RISE], s->utc_offset, s->rise, sizeof s->rise);
-    hhmm(s->t[WX_SUN_SET], s->utc_offset, s->set, sizeof s->set);
+    wx_hhmm(s->t[WX_SUN_RISE], s->utc_offset, s->rise, sizeof s->rise);
+    wx_hhmm(s->t[WX_SUN_SET], s->utc_offset, s->set, sizeof s->set);
     if (!s->has_now) return;
     const long long r = s->t[WX_SUN_RISE], st = s->t[WX_SUN_SET], ge = s->t[WX_SUN_GOLD_END], gs = s->t[WX_SUN_GOLD_START];
     s->frac = wx_sun_frac(s, now);

@@ -73,13 +73,15 @@ typedef struct {
 } usage_block_t;
 
 struct cJSON;
-/* The view's usage block; zeroes out first. An account without a string id is skipped; at most USAGE_MAX. */
+/* The view's usage block; zeroes out first. An account without a string id, or with one over USAGE_ID_MAX bytes, is skipped; at most USAGE_MAX. */
 bool usage_parse(const struct cJSON *o, usage_block_t *out);
 
 /* Index of the highest 5-hour %, the first on a tie; -1 with no accounts. */
 int usage_highest(const usage_block_t *b);
-/* Any non-stale account's 5-hour % at USAGE_HINT_PCT or more. */
-bool usage_hint(const usage_block_t *b);
+/* Any non-stale account's 5-hour % at USAGE_HINT_PCT or more, its window not yet reset at now (server Unix s, 0 unknown). */
+bool usage_hint(const usage_block_t *b, double now);
+/* a as the knob shows it while Ember is unreachable: stale, updated_at the last view (fed_at, Unix s) unless Ember set one. */
+usage_acct_t usage_as_stale(const usage_acct_t *a, long long fed_at);
 uint32_t usage_scale_rgb(int pct);
 
 typedef struct {
@@ -131,7 +133,12 @@ void usage_arc_box(float cx, float cy, float r, float hw, float a0, float a1, in
 void usage_arc_mask(float cx, float cy, float r, float hw, float a0, float a1, int x, int y, int w, int h, uint8_t *out);
 /* Dot k of n on the r USAGE_DOT_ARC arc at the bottom, USAGE_DOT_PITCH apart. */
 void usage_dot_xy(int k, int n, float *x, float *y);
-/* The whole face background, RGB565 w x h: black, both rings with their tracks, and n dots (none under 2), shown lit. */
+/* Each redraws only its own band of the RGB565 w x h face (the rest untouched): the 5-hour ring, the 7-day ring, the n
+   dots (none under 2) with the shown one lit. */
+void usage_ring5_render(uint16_t *buf, int w, int h, const usage_face_t *f);
+void usage_ring7_render(uint16_t *buf, int w, int h, const usage_face_t *f);
+void usage_dots_render(uint16_t *buf, int w, int h, int n, int shown);
+/* The whole face background: black, then all three. */
 void usage_rings_render(uint16_t *buf, int w, int h, const usage_face_t *f, int n, int shown);
 
 #ifdef __cplusplus
