@@ -9,6 +9,7 @@
 #include "bot_view.h"
 #include "lvgl.h"
 #include "offline_glyph.h"
+#include "moment_view.h"
 #include "tool_marks.h"
 #include <unistd.h>
 
@@ -25,6 +26,13 @@ static uint16_t s_fb[W * H];
 static float s_want[W * H];
 static uint8_t s_ref[W * H];
 static uint16_t s_tmp[W * H];
+
+int64_t esp_timer_get_time(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_sec * 1000000 + tv.tv_usec;
+}
 
 static uint32_t tick_ms(void)
 {
@@ -531,6 +539,37 @@ static void test_orbit(lv_display_t *d)
     CHECK(label1 < label0 && !ghost, "orbit +4,-4: the chase wipe redraws where the label is (%d -> %d px, %d ghost)", label0, label1,
           ghost);
     bot_view_chase(false, false);
+
+    wxm_moment_t m = {.kind = WXM_GLANCE, .quiet = true, .sun = true, .text = "Sunny 21", .rgb = 0xFFFFFF};
+    double tm = t0 + 4;
+    CHECK(moment_view_start(&m, tm), "orbit: a quiet weather moment starts");
+    double tau = -1;
+    for (int i = 0; i < 2000 && tau < 0; i++) {
+        tau = moment_view_poll(tm);
+        if (tau < 0) usleep(2000);
+    }
+    CHECK(tau >= 0, "orbit: the moment baked and plays");
+    int frames = 0, lit_max = 0;
+    ghost = 0;
+    for (int k = 0; tau >= 0 && k <= WXM_FRAMES; k++) {
+        double t = tm + (k + 0.5) / WXM_FPS;
+        orbit_frame(d, &p, t);
+        moment_view_frame(t);
+        lv_refr_now(d);
+        int lit = 0;
+        for (int y = WXM_BOX_Y - 4; y < WXM_BOX_Y + WXM_BOX_H + 4; y++)
+            for (int x = WXM_BOX_X; x < WXM_BOX_X + WXM_BOX_W + 8 && x < W; x++) lit += s_fb[y * W + x] != 0;
+        lit_max = lit > lit_max ? lit : lit_max;
+        int g = redraw_diff(d, &x0, &y0);
+        if (g && !ghost) printf("orbit +4,-4: moment frame %d: %d px differ, first at %d,%d\n", k, g, x0, y0);
+        ghost += g;
+        frames++;
+    }
+    printf("orbit +4,-4: quiet moment %d frames, up to %d px in the sprite box, %d px differ from full redraws\n", frames, lit_max, ghost);
+    CHECK(frames > WXM_FRAMES / 2 && lit_max > 500 && !ghost && !moment_view_busy() && icon_px() == before,
+          "orbit +4,-4: the moment sprite, text and icon join redraw where they are (%d frames, %d px, %d ghost, icon %d of %d)", frames,
+          lit_max, ghost, icon_px(), before);
+
     bot_view_set_hint(false);
     page_shift(0, 0);
     orbit_frame(d, &p, t0 + 3);
@@ -554,6 +593,7 @@ int main(int argc, char **argv)
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     bot_view_create(s_page);
+    moment_view_create(s_page);
 
     struct {
         const char *name;

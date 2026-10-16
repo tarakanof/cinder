@@ -24,13 +24,10 @@ typedef struct {
     int i;
 } wx_shift_t;
 
-/* Weather faces: the corners of a 2 px square, 120 s each. */
 extern const wx_shift_path_t WX_SHIFT_SQUARE;
-/* Bot page: 2 px steps through the 5 x 5 grid of even offsets within +-4 px and back, from 0,0, 120 s each. */
 extern const wx_shift_path_t WX_SHIFT_ORBIT;
 
-/* Burn-in: after p->period_s s of dt the offset steps to the next point of p; true on a step, at most one per call. A
-   non-finite or negative dt counts as 0. */
+/* True on a step to p's next point (at most one per call); a non-finite or negative dt counts as 0. */
 bool wx_shift_tick(wx_shift_t *s, const wx_shift_path_t *p, double dt);
 void wx_shift_xy(const wx_shift_t *s, const wx_shift_path_t *p, int *dx, int *dy);
 
