@@ -8,6 +8,9 @@ extern "C" {
 #endif
 
 #define JOIN_FAILS_SHOWN 3
+#define JOIN_LABEL_W 240
+#define JOIN_LABEL_Y (-40)
+#define JOIN_LABEL_LINES 2
 
 typedef enum { JOIN_NONE, JOIN_CANT_JOIN, JOIN_NOT_PAIRED, JOIN_UPDATE_KNOB, JOIN_UPDATE_EMBER } join_label_t;
 

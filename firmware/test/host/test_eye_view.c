@@ -7,6 +7,7 @@
 #include "bot_raster.h"
 #include "bot_shape.h"
 #include "bot_view.h"
+#include "join_label.h"
 #include "lvgl.h"
 #include "offline_glyph.h"
 #include "moment_view.h"
@@ -448,6 +449,46 @@ static bool hit_screen(int x, int y)
     return lv_indev_search_obj(lv_screen_active(), &pt) == lv_screen_active();
 }
 
+static void test_join_label(lv_display_t *d)
+{
+    lv_obj_t *l = lv_label_create(lv_layer_top());
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(l, JOIN_LABEL_W);
+    lv_obj_set_style_max_height(l, JOIN_LABEL_LINES * lv_font_get_line_height(&lv_font_montserrat_24), 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    lv_obj_align(l, LV_ALIGN_BOTTOM_MID, 0, JOIN_LABEL_Y);
+    char text[64];
+    join_label_text(JOIN_CANT_JOIN, "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", text, sizeof text);
+    lv_label_set_text(l, text);
+    lv_refr_now(d);
+    lv_area_t a;
+    lv_obj_get_coords(l, &a);
+    int lh = lv_font_get_line_height(&lv_font_montserrat_24);
+    printf("join label: %d,%d..%d,%d\n", (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2);
+    CHECK(lv_area_get_height(&a) == JOIN_LABEL_LINES * lh && a.y2 == H - 1 + JOIN_LABEL_Y, "join label: a long SSID stays within two lines at the bottom (%d px for 2 x %d)", (int)lv_area_get_height(&a), lh);
+    const char *shown = lv_label_get_text(l);
+    CHECK(strlen(shown) > 3 && strcmp(shown + strlen(shown) - 3, "...") == 0, "join label: the long SSID ends in dots: %s", shown);
+    float worst = 0;
+    for (int dx = -4; dx <= 4; dx += 8)
+        for (int dy = -4; dy <= 4; dy += 8) {
+            float c[4][2] = {{a.x1, a.y1}, {a.x2 + 1, a.y1}, {a.x1, a.y2 + 1}, {a.x2 + 1, a.y2 + 1}};
+            for (int k = 0; k < 4; k++) {
+                float r = hypotf(c[k][0] + dx - 236, c[k][1] + dy - 233);
+                worst = r > worst ? r : worst;
+            }
+        }
+    CHECK(worst <= 233, "join label: its box stays inside the round panel at every orbit corner (%.1f px from the centre)", worst);
+    join_label_text(JOIN_NOT_PAIRED, "", text, sizeof text);
+    lv_label_set_text(l, text);
+    lv_obj_update_layout(l);
+    lv_obj_get_coords(l, &a);
+    CHECK(lv_area_get_height(&a) == lh && a.y2 == H - 1 + JOIN_LABEL_Y, "join label: one line keeps its place (%d..%d)", (int)a.y1,
+          (int)a.y2);
+    lv_obj_delete(l);
+    lv_refr_now(d);
+}
+
 static void test_orbit(lv_display_t *d)
 {
     ember_host_info_t h = {.color = HOST_RGB, .tool = EMBER_TOOL_CLAUDE};
@@ -560,7 +601,8 @@ static void test_orbit(lv_display_t *d)
         for (int y = WXM_BOX_Y - 4; y < WXM_BOX_Y + WXM_BOX_H + 4; y++)
             for (int x = WXM_BOX_X; x < WXM_BOX_X + WXM_BOX_W + 8 && x < W; x++) lit += s_fb[y * W + x] != 0;
         lit_max = lit > lit_max ? lit : lit_max;
-        icon_min = icon_px() < icon_min ? icon_px() : icon_min;
+        int icon = icon_px();
+        icon_min = icon < icon_min ? icon : icon_min;
         int g = redraw_diff(d, &x0, &y0);
         if (g && !ghost) printf("orbit +4,-4: moment frame %d: %d px differ, first at %d,%d\n", k, g, x0, y0);
         ghost += g;
@@ -642,6 +684,7 @@ int main(int argc, char **argv)
     test_label(d);
     test_hint(d, argc > 1 ? argv[1] : NULL);
     test_orbit(d);
+    test_join_label(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;
 }

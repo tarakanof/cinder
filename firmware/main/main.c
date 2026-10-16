@@ -758,9 +758,10 @@ static void join_label_create(void)
     lv_obj_set_style_text_font(s_join_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(s_join_label, lv_color_hex(0xF5A623), 0);
     lv_obj_set_style_text_align(s_join_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_join_label, 300);
+    lv_obj_set_width(s_join_label, JOIN_LABEL_W);
+    lv_obj_set_style_max_height(s_join_label, JOIN_LABEL_LINES * lv_font_get_line_height(&lv_font_montserrat_24), 0);
     lv_label_set_long_mode(s_join_label, LV_LABEL_LONG_DOT);
-    lv_obj_align(s_join_label, LV_ALIGN_BOTTOM_MID, 0, -40);
+    lv_obj_align(s_join_label, LV_ALIGN_BOTTOM_MID, 0, JOIN_LABEL_Y);
     lv_obj_add_flag(s_join_label, LV_OBJ_FLAG_HIDDEN);
 }
 
