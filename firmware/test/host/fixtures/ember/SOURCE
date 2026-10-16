@@ -1,4 +1,4 @@
 repo: tarakanof/ember
 path: cmd/ember/testdata/devices
-ref: v0.63.0
-commit: 0168a4e38f8e0c6f5c9787372a1c6830bd44f983
+ref: f3b9333a
+commit: f3b9333aec9166879c8ceaac3504929eb1274612
