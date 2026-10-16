@@ -184,11 +184,31 @@ static const char *label_with(lv_obj_t *scr, const char *prefix)
     return NULL;
 }
 
+static int label_role(lv_obj_t *o)
+{
+    lv_obj_t *root = lv_obj_get_parent(o);
+    int role = 0;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(root); i++) {
+        lv_obj_t *c = lv_obj_get_child(root, (int32_t)i);
+        if (c == o) return role;
+        role += lv_obj_check_type(c, &lv_label_class);
+    }
+    return -1;
+}
+
+static const char *week_src(lv_obj_t *o, const usage_face_t *f)
+{
+    if (!f->week_short[0]) return f->week_line;
+    lv_point_t p;
+    lv_text_get_size(&p, f->week_line, lv_obj_get_style_text_font(o, LV_PART_MAIN), lv_obj_get_style_text_letter_space(o, LV_PART_MAIN), 0,
+                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return p.x > lv_obj_get_content_width(o) ? f->week_short : f->week_line;
+}
+
 static void check_labels(lv_obj_t *scr, const char *state, const usage_acct_t *acc, bool name_dots)
 {
     usage_face_t f;
     usage_face(acc, s_now + s_clk.srv_offset, s_clk.has_utc_offset, s_clk.utc_offset, &f);
-    const char *src[] = {acc->name, f.value, "%", f.reset, f.week_line, f.week_short};
     lv_area_t a[8];
     const char *t[8];
     int lh[8];
@@ -201,11 +221,14 @@ static void check_labels(lv_obj_t *scr, const char *state, const usage_acct_t *a
         lv_point_t sz;
         lv_text_get_size(&sz, t[i], lv_obj_get_style_text_font(o[i], LV_PART_MAIN), lv_obj_get_style_text_letter_space(o[i], LV_PART_MAIN), 0,
                          LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        bool as_set = false;
-        for (size_t k = 0; k < sizeof src / sizeof src[0]; k++) as_set |= src[k][0] && strcmp(t[i], src[k]) == 0;
+        int role = label_role(o[i]);
+        const char *src = role == 0 ? acc->name : role == 1 ? f.value : role == 2 ? "%" : role == 3 ? f.reset : role == 4 ? week_src(o[i], &f) : NULL;
+        CHECK(src != NULL, "%s: '%s' is one of the five labels: role %d", state, t[i], role);
         size_t len = strlen(t[i]);
-        bool name_dotted = name_dots && len >= 3 && len < strlen(acc->name) && strcmp(t[i] + len - 3, "...") == 0 && strncmp(t[i], acc->name, len - 3) == 0;
-        CHECK((as_set || name_dotted) && sz.x <= lv_area_get_width(&a[i]),
+        bool name_dotted = role == 0 && name_dots && len > 3 && len <= strlen(acc->name) && strcmp(t[i] + len - 3, "...") == 0 &&
+                           strncmp(t[i], acc->name, len - 3) == 0;
+        CHECK(src && (strcmp(t[i], src) == 0 || name_dotted), "%s: label %d shows '%s', set from '%s'", state, role, t[i], src ? src : "");
+        CHECK(sz.x <= lv_area_get_width(&a[i]),
               "%s: '%s' fits its label: %d px in %d", state, t[i], (int)sz.x, (int)lv_area_get_width(&a[i]));
         float corners[4][2] = {{a[i].x1, a[i].y1}, {a[i].x2, a[i].y1}, {a[i].x1, a[i].y2}, {a[i].x2, a[i].y2}};
         for (int k = 0; h < 60 && k < 4; k++)
