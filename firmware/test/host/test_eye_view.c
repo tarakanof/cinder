@@ -9,6 +9,7 @@
 #include "bot_view.h"
 #include "lvgl.h"
 #include "offline_glyph.h"
+#include "moment_view.h"
 #include "tool_marks.h"
 #include <unistd.h>
 
@@ -25,6 +26,13 @@ static uint16_t s_fb[W * H];
 static float s_want[W * H];
 static uint8_t s_ref[W * H];
 static uint16_t s_tmp[W * H];
+
+int64_t esp_timer_get_time(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_sec * 1000000 + tv.tv_usec;
+}
 
 static uint32_t tick_ms(void)
 {
@@ -371,6 +379,202 @@ static void test_hint(lv_display_t *d, const char *dir)
     printf("eye view: limit hint %d px on the rim, gone when off\n", on);
 }
 
+static lv_obj_t *s_page;
+static uint16_t s_base[W * H], s_inc[W * H];
+
+static void orbit_frame(lv_display_t *d, const bot_pose_t *p, double t)
+{
+    bot_view_rim_feed(p->mood, false, true);
+    bot_view_update(p, t);
+    bot_view_rim_pose(p, t);
+    bot_view_tick(t, false);
+    lv_refr_now(d);
+}
+
+static void page_shift(int dx, int dy)
+{
+    lv_obj_set_style_translate_x(s_page, dx, 0);
+    lv_obj_set_style_translate_y(s_page, dy, 0);
+}
+
+static int redraw_diff(lv_display_t *d, int *x0, int *y0)
+{
+    memcpy(s_inc, s_fb, sizeof s_fb);
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(d);
+    int n = 0;
+    *x0 = *y0 = -1;
+    for (int i = 0; i < W * H; i++)
+        if (s_inc[i] != s_fb[i]) {
+            if (!n) *x0 = i % W, *y0 = i / W;
+            n++;
+        }
+    return n;
+}
+
+static int moved_diff(int dx, int dy, int *edge)
+{
+    int n = 0;
+    *edge = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            int sx = x - dx, sy = y - dy;
+            if (sx < 0 || sy < 0 || sx >= W || sy >= H) *edge += s_fb[y * W + x] != 0;
+            else n += s_fb[y * W + x] != s_base[sy * W + sx];
+        }
+    return n;
+}
+
+static int glint_px(const uint16_t *fb)
+{
+    int n = 0;
+    for (int i = 0; i < W * H; i++) {
+        uint16_t v = fb[i];
+        n += (v >> 11) >= 24 && ((v >> 5) & 63) >= 60 && (v & 31) >= 20 && s_want[i] <= 0;
+    }
+    return n;
+}
+
+static int icon_px(void)
+{
+    int n = 0;
+    for (int i = 0; i < W * H; i++) n += s_fb[i] == 0xD3AA;
+    return n;
+}
+
+static bool hit_screen(int x, int y)
+{
+    lv_point_t pt = {x, y};
+    return lv_indev_search_obj(lv_screen_active(), &pt) == lv_screen_active();
+}
+
+static void test_orbit(lv_display_t *d)
+{
+    ember_host_info_t h = {.color = HOST_RGB, .tool = EMBER_TOOL_CLAUDE};
+    ember_host_lead_info("", "m4", 1, "learn-language", 3, 0, &h);
+    CHECK(shown_label(d, &h, BOT_WORKING, BOT_EYES_DASH), "orbit: the working outline with its label");
+    bot_view_set_hint(true);
+    bot_pose_t p = {.mood = BOT_WORKING, .face = BOT_WORKING, .eyes = BOT_EYES_DASH, .gaze_y = 0.6, .scale_x = 1, .scale_y = 1};
+    const double t0 = 600.02;
+    page_shift(0, 0);
+    for (int i = 0; i < 400 && hint_px() < 800; i++) {
+        orbit_frame(d, &p, t0);
+        usleep(5000);
+    }
+    expect(&p);
+    int x0, y0, n = redraw_diff(d, &x0, &y0);
+    memcpy(s_base, s_fb, sizeof s_fb);
+    int glint = glint_px(s_base), hint = hint_px(), icon = icon_px();
+    printf("orbit base: glint %d px, hint %d px, Clawd %d px\n", glint, hint, icon);
+    CHECK(!n && glint > 200 && hint > 800 && icon > 300, "orbit base: glint %d, hint %d, icon %d px, %d px differ from a full redraw at %d,%d",
+          glint, hint, icon, n, x0, y0);
+
+    static const int OFF[][2] = {{2, 0}, {4, 0}, {4, 4}, {-2, 4}, {-4, -2}, {-4, -4}, {0, -4}, {2, 2}};
+    for (size_t k = 0; k < sizeof OFF / sizeof OFF[0]; k++) {
+        int dx = OFF[k][0], dy = OFF[k][1], edge;
+        page_shift(dx, dy);
+        orbit_frame(d, &p, t0);
+        n = redraw_diff(d, &x0, &y0);
+        int moved = moved_diff(dx, dy, &edge);
+        printf("orbit %+d,%+d: %d px off the moved base, %d lit in the uncovered edge, %d px differ from a full redraw\n", dx, dy, moved,
+               edge, n);
+        CHECK(!moved && !edge, "orbit %+d,%+d: ring, eyes, label, icon, glint and hint move together (%d px off, %d edge)", dx, dy, moved,
+              edge);
+        CHECK(!n, "orbit %+d,%+d: no ghost after the step (%d px, first at %d,%d)", dx, dy, n, x0, y0);
+        CHECK(hit_screen(236, 233) && hit_screen(1, 1) && hit_screen(470, 464) && hit_screen(236 + dx, 233 + 140 + dy),
+              "orbit %+d,%+d: taps still reach the screen (the bot page's tap)", dx, dy);
+    }
+
+    page_shift(4, -4);
+    orbit_frame(d, &p, t0);
+    int ghost = 0;
+    for (int i = 1; i <= 12; i++) {
+        orbit_frame(d, &p, t0 + i * (1.0 / 15));
+        n = redraw_diff(d, &x0, &y0);
+        ghost += n;
+    }
+    CHECK(!ghost, "orbit +4,-4: 12 glint steps leave no ghost (%d px)", ghost);
+    bot_view_set_hint(false);
+    orbit_frame(d, &p, t0 + 1);
+    n = redraw_diff(d, &x0, &y0);
+    CHECK(!n && hint_px() < 20, "orbit +4,-4: the hint leaves cleanly (%d px differ, %d red)", n, hint_px());
+    bot_view_set_hint(true);
+    orbit_frame(d, &p, t0 + 1.1);
+    n = redraw_diff(d, &x0, &y0);
+    CHECK(!n && hint_px() > 800, "orbit +4,-4: the hint returns cleanly (%d px differ, %d red)", n, hint_px());
+
+    lv_area_t a;
+    int before = icon_px();
+    CHECK(bot_view_icon_off(true, &a), "orbit: the label has an icon to step aside");
+    int outside = 0;
+    for (int i = 0; i < W * H; i++)
+        if (s_fb[i] == 0xD3AA) outside += i % W < a.x1 || i % W > a.x2 || i / W < a.y1 || i / W > a.y2;
+    bot_view_icon_redraw(&a);
+    lv_refr_now(d);
+    int left = icon_px();
+    n = redraw_diff(d, &x0, &y0);
+    printf("orbit +4,-4: icon box %d,%d..%d,%d, %d icon px outside it, %d left after off\n", (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2,
+           outside, left);
+    CHECK(before > 300 && !outside && !left && !n, "orbit +4,-4: the icon's box is its shifted place (%d outside, %d left, %d differ)",
+          outside, left, n);
+    bot_view_icon_off(false, &a);
+    bot_view_icon_redraw(&a);
+    lv_refr_now(d);
+    CHECK(icon_px() == before, "orbit +4,-4: the icon comes back (%d of %d px)", icon_px(), before);
+
+    bot_pose_t low = p;
+    low.gaze_y = -0.95;
+    low.orbit = 0.9;
+    bot_view_chase(true, true);
+    int label0 = 0, label1 = 0;
+    for (int i = 0; i < W * H; i++) label0 += s_fb[i] == 0x07E0;
+    ghost = 0;
+    for (int i = 0; i < 8; i++) {
+        low.gaze_x = -0.6 + i * 0.15;
+        orbit_frame(d, &low, t0 + 2 + i * 0.02);
+        ghost += redraw_diff(d, &x0, &y0);
+    }
+    for (int i = 0; i < W * H; i++) label1 += s_fb[i] == 0x07E0;
+    printf("orbit +4,-4: chase wipe took the label %d -> %d px, %d px differ from full redraws\n", label0, label1, ghost);
+    CHECK(label1 < label0 && !ghost, "orbit +4,-4: the chase wipe redraws where the label is (%d -> %d px, %d ghost)", label0, label1,
+          ghost);
+    bot_view_chase(false, false);
+
+    wxm_moment_t m = {.kind = WXM_GLANCE, .quiet = true, .sun = true, .text = "Sunny 21", .rgb = 0xFFFFFF};
+    double tm = t0 + 4;
+    CHECK(moment_view_start(&m, tm), "orbit: a quiet weather moment starts");
+    double tau = -1;
+    for (int i = 0; i < 2000 && tau < 0; i++) {
+        tau = moment_view_poll(tm);
+        if (tau < 0) usleep(2000);
+    }
+    CHECK(tau >= 0, "orbit: the moment baked and plays");
+    int frames = 0, lit_max = 0;
+    ghost = 0;
+    for (int k = 0; tau >= 0 && k <= WXM_FRAMES; k++) {
+        double t = tm + (k + 0.5) / WXM_FPS;
+        orbit_frame(d, &p, t);
+        moment_view_frame(t);
+        lv_refr_now(d);
+        int lit = 0;
+        for (int y = WXM_BOX_Y - 4; y < WXM_BOX_Y + WXM_BOX_H + 4; y++)
+            for (int x = WXM_BOX_X; x < WXM_BOX_X + WXM_BOX_W + 8 && x < W; x++) lit += s_fb[y * W + x] != 0;
+        lit_max = lit > lit_max ? lit : lit_max;
+        int g = redraw_diff(d, &x0, &y0);
+        if (g && !ghost) printf("orbit +4,-4: moment frame %d: %d px differ, first at %d,%d\n", k, g, x0, y0);
+        ghost += g;
+        frames++;
+    }
+    printf("orbit +4,-4: quiet moment %d frames, up to %d px in the sprite box, %d px differ from full redraws\n", frames, lit_max, ghost);
+    CHECK(frames > WXM_FRAMES / 2 && lit_max > 500 && !ghost && !moment_view_busy() && icon_px() == before,
+          "orbit +4,-4: the moment sprite, text and icon join redraw where they are (%d frames, %d px, %d ghost, icon %d of %d)", frames,
+          lit_max, ghost, icon_px(), before);
+
+    bot_view_set_hint(false);
+    page_shift(0, 0);
+    orbit_frame(d, &p, t0 + 3);
+}
+
 int main(int argc, char **argv)
 {
     lv_init();
@@ -382,7 +586,14 @@ int main(int argc, char **argv)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    bot_view_create(scr);
+    s_page = lv_obj_create(scr);
+    lv_obj_remove_style_all(s_page);
+    lv_obj_set_size(s_page, lv_pct(100), lv_pct(100));
+    lv_obj_remove_flag(s_page, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    bot_view_create(s_page);
+    moment_view_create(s_page);
 
     struct {
         const char *name;
@@ -428,6 +639,7 @@ int main(int argc, char **argv)
     test_rim_hue(d);
     test_label(d);
     test_hint(d, argc > 1 ? argv[1] : NULL);
+    test_orbit(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;
 }

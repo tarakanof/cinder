@@ -157,7 +157,7 @@ if [ -n "$WIRING" ]; then
 fi
 echo "cJSON hook wiring: app_main sets PSRAM-first hooks before anything parses"
 TFC="$D/../../main/temp_face.c"
-body "$TFC" temp_face_update | grep -qF 'if (wx_shift_tick(&s_shift, dt)) shift_root();' || WIRING="$WIRING update-steps-the-burn-in-shift"
+body "$TFC" temp_face_update | grep -qF 'if (wx_shift_tick(&s_shift, &WX_SHIFT_SQUARE, dt)) shift_root();' || WIRING="$WIRING update-steps-the-burn-in-shift"
 body "$TFC" shift_root | grep -qF 'lv_obj_set_style_translate_y(s_root, dy, 0);' || WIRING="$WIRING shift-moves-the-root"
 [ "$(grep -c 'wx_bake(' "$TFC")" -eq 1 ] && body "$TFC" bake_task | grep -qF 'wx_bake(t, s_io.kind, &s_buf, &s_io.out);' ||
     WIRING="$WIRING wx_bake-only-in-bake_task"
@@ -499,6 +499,23 @@ if [ -n "$UGL" ]; then
     echo "run.sh: FAIL usage screens wiring:$UGL" >&2
     exit 1
 fi
+ORB=""
+body "$MAINC" page_bot_frame | awk '/^    if \(s_usage_on\) return;$/ {r = NR} /^    if \(wx_shift_tick\(&s_bot_shift, &WX_SHIFT_ORBIT, f->dt\)\) bot_shift_root\(\);$/ {o = NR} END {exit !(r && o == r + 1)}' ||
+    ORB="$ORB page_bot_frame-steps-the-orbit-only-on-screen"
+body "$MAINC" bot_shift_root | grep -qxF '    wx_shift_xy(&s_bot_shift, &WX_SHIFT_ORBIT, &dx, &dy);' &&
+    body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_x(s_bot_page, dx, 0);' &&
+    body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_y(s_bot_page, dy, 0);' || ORB="$ORB the-orbit-translates-the-bot-page"
+[ "$(grep -c 'bot_shift_root()' "$MAINC")" -eq 1 ] || ORB="$ORB bot_shift_root-only-on-a-step"
+fbody "$MAINC" page_tick | grep -qxF '    page_frame_t f = {.t = t, .dt = dt, .offline = offline};' || ORB="$ORB page_tick-passes-the-frame-dt"
+grep -qxF 'static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;' "$MAINC" || ORB="$ORB s_bot_shift-in-PSRAM"
+body "$MAINC" app_main | grep -qxF '    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);' || ORB="$ORB the-screen-is-not-scrollable-so-the-shifted-page-shows-no-scrollbars"
+body "$MVC" sprite | grep -qxF '    lv_area_t box = on_screen(WXM_BOX_X, WXM_BOX_Y, WXM_BOX_W, WXM_BOX_H);' &&
+    body "$MVC" text | grep -qF 'u = on_screen(WXM_TEXT_X, WXM_TEXT_Y, WXM_TEXT_W, WXM_TEXT_H);' &&
+    body "$MVC" on_screen | grep -qxF '    lv_obj_get_coords(s_parent, &c);' || ORB="$ORB moment-areas-follow-the-shifted-page"
+if [ -n "$ORB" ]; then
+    echo "run.sh: FAIL bot orbit wiring:$ORB" >&2
+    exit 1
+fi
 echo "usage screens wiring: closed on a page change and under the OTA face, the opening tap's frame all theirs (a push beside it dropped), the bot's input when they don't open, offline marks them stale"
 for ARG in true false; do
     body "$MAINC" ota_frame | grep -qF "moment_view_hold($ARG);" || WIRING="$WIRING ota_frame-moment_view_hold($ARG)"
@@ -724,22 +741,22 @@ cc $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/music_moment.
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
 cc $CFLAGS -I"$C/include" -I"$W/include" "$W/weather_face.c" "$W/weather_scene.c" "$C/bot_raster.c" \
     "$D/test_weather.c" -lm -o "${OUT}_weather"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_umbrella.c" -lm -o "${OUT}_umbrella"
-cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_job.c" \
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_temp.c" -lm -o "${OUT}_temp"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_cast.c" -lm -o "${OUT}_cast"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_rain.c" -lm -o "${OUT}_rain"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_faces.c" -lm -o "${OUT}_faces"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_umbrella.c" -lm -o "${OUT}_umbrella"
+cc $CFLAGS "-DWJ_RACE_POINT(j,at)=wj_race_point(j,at)" -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_job.c" \
     "$D/test_wx_job.c" -lm -o "${OUT}_wx_job"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_wind.c" -lm -o "${OUT}_wind"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_days.c" -lm -o "${OUT}_days"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_sun.c" -lm -o "${OUT}_sun"
-cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
-cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_wind.c" -lm -o "${OUT}_wind"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_days.c" -lm -o "${OUT}_days"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_sun.c" -lm -o "${OUT}_sun"
+cc $CFLAGS -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
+cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
-cc $CFLAGS -I"$W/include" -I"$D" -include "$D/moment_pixel.h" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" \
+cc $CFLAGS -I"$W/include" -I"$D" -include "$D/moment_pixel.h" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" \
     "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_moment_paint.c" -lm -o "${OUT}_moment_paint"
-cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
+cc $CFLAGS -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
 cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
@@ -791,21 +808,23 @@ if [ -d "$LV" ]; then
         "$D/test_wind_label.c" -lm -o "${OUT}_wind_label"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_24.c" "$LV/src/font/lv_font_montserrat_30.c" \
-        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_days_label.c" -lm -o "${OUT}_days_label"
+        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_days_label.c" -lm -o "${OUT}_days_label"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" \
-        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_sun_label.c" -lm -o "${OUT}_sun_label"
+        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_sun_label.c" -lm -o "${OUT}_sun_label"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -DLV_FONT_MONTSERRAT_36=1 -I"$LV" -I"$W/include" -I"$D/../../main" "$LV/src/font/lv_font.c" \
         "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" \
         "$W/weather_face.c" "$W/wx_air.c" "$D/test_air_label.c" -lm -o "${OUT}_air_label"
     cc $CFLAGS -DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_30=1 -I"$LV" -I"$W/include" "$LV/src/font/lv_font.c" \
-        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" \
+        "$LV/src/font/fmt_txt/lv_font_fmt_txt.c" "$LV/src/font/lv_font_montserrat_30.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" \
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$D/test_moment_label.c" -lm -o "${OUT}_moment_label"
     LVDEF="-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_18=1 -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_30=1 -DLV_FONT_MONTSERRAT_48=1 -DLV_USE_STDLIB_MALLOC=LV_STDLIB_CLIB"
     mkdir -p "$OUT_DIR/lv"
     find "$LV/src" -name '*.c' -print0 | LVDEF="$LVDEF" LV="$LV" LVO="$OUT_DIR/lv" xargs -0 -P 8 -n 1 \
         sh -c 'cc -std=c11 -O1 -w $LVDEF -I"$LV" -c "$1" -o "$LVO/$(printf "%s" "$1" | tr / _).o"' sh
-    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" "$D/../../main/bot_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" -I"$D/idf_stubs" "$D/../../main/bot_view.c" "$D/../../main/moment_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
+        "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
+        "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
         "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
     cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$J" \
@@ -881,7 +900,7 @@ cc $CFLAGS -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/in
 "${OUT}_legacy"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$J" "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
-    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \

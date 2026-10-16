@@ -706,7 +706,7 @@ static void apply(const wx_temp_t *t, const wx_bake_out_t *o, int kind)
 static void shift_root(void)
 {
     int dx, dy;
-    wx_shift_xy(&s_shift, &dx, &dy);
+    wx_shift_xy(&s_shift, &WX_SHIFT_SQUARE, &dx, &dy);
     lv_obj_set_style_translate_x(s_root, dx, 0);
     lv_obj_set_style_translate_y(s_root, dy, 0);
 }
@@ -1264,7 +1264,7 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     int a = wx_job_step(&s_job, &t, dt);
     act(a);
     if (!(a & WX_DO_PAINT)) return;
-    if (wx_shift_tick(&s_shift, dt)) shift_root();
+    if (wx_shift_tick(&s_shift, &WX_SHIFT_SQUARE, dt)) shift_root();
     s_t += dt;
     if (s_t >= WX_ARRIVE_S) wx_drift_tick(&s_cd, dt);
     int tick = (int)floor(s_t * ARRIVE_FPS);
