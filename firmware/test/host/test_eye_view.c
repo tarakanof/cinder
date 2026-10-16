@@ -523,6 +523,12 @@ static void test_join_label(lv_display_t *d)
     CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) && a.y2 == H - 1 + JOIN_VIEW_Y &&
               strcmp(lv_label_get_text(line), "Not paired") == 0,
           "join label: 'Not paired' alone on the bottom line (%d)", (int)a.y2);
+    join_view_show(JOIN_CANT_JOIN, "");
+    lv_refr_now(d);
+    lv_obj_get_coords(line, &a);
+    CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) && a.y2 == H - 1 + JOIN_VIEW_Y &&
+              strcmp(lv_label_get_text(line), "Can't join") == 0,
+          "join label: 'Can't join' with no SSID alone on the bottom line, no blank SSID line (%d)", (int)a.y2);
     join_view_show(JOIN_NONE, "");
     lv_refr_now(d);
     CHECK(lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN), "join label: none hides both");
