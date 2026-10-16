@@ -335,6 +335,13 @@ static void label_unwipe(void)
     lv_obj_invalidate(s_label);
 }
 
+static lv_point_t origin(void)
+{
+    lv_area_t c;
+    lv_obj_get_coords(s_glint, &c);
+    return (lv_point_t){c.x1, c.y1};
+}
+
 static void area_add(lv_area_t *a, bool *any, int x1, int y1, int x2, int y2)
 {
     if (x2 < x1 || y2 < y1) return;
@@ -492,7 +499,8 @@ bool bot_view_icon_off(bool off, lv_area_t *a)
         icon_apply();
     }
     if (s_icon_box.x2 < s_icon_box.x1 || lv_obj_has_flag(s_label, LV_OBJ_FLAG_HIDDEN)) return false;
-    int lx = LABEL_X + s_label_cx + s_label_sx, ly = LABEL_Y + s_label_cy + s_label_sy + s_rim_dy;
+    lv_point_t o = origin();
+    int lx = LABEL_X + s_label_cx + s_label_sx + o.x, ly = LABEL_Y + s_label_cy + s_label_sy + s_rim_dy + o.y;
     *a = (lv_area_t){(lx + s_icon_box.x1) & ~1, (ly + s_icon_box.y1) & ~1, (lx + s_icon_box.x2) | 1, (ly + s_icon_box.y2) | 1};
     return true;
 }
@@ -518,13 +526,21 @@ void bot_view_set_options(bool source_label, bool working_ring)
     host_sync();
 }
 
+static void hint_area(lv_area_t *a)
+{
+    lv_point_t o = origin();
+    int y = s_hint.y + s_hint.dy + o.y;
+    *a = (lv_area_t){s_hint.x + o.x, y, s_hint.x + o.x + s_hint.w - 1, y + s_hint.h - 1};
+}
+
 static void hint_draw(lv_layer_t *layer)
 {
     lv_draw_image_dsc_t d;
     lv_draw_image_dsc_init(&d);
     d.src = &s_hint.img;
     d.recolor = lv_color_hex(USAGE_RED);
-    lv_area_t a = {s_hint.x, s_hint.y + s_hint.dy, s_hint.x + s_hint.w - 1, s_hint.y + s_hint.dy + s_hint.h - 1};
+    lv_area_t a;
+    hint_area(&a);
     lv_draw_image(layer, &d, &a);
 }
 
@@ -543,8 +559,9 @@ static void glint_draw_cb(lv_event_t *e)
     lv_draw_image_dsc_init(&d);
     d.src = &s_glint_img;
     d.recolor = lv_color_hex(ring_glint_color(mood_rgb(s_rim_mood), GLINT_MIX));
-    int y = st->box.y + s_glint_dy;
-    lv_area_t a = {st->box.x, y, st->box.x + st->box.w - 1, y + st->box.h - 1};
+    lv_point_t o = origin();
+    int x = st->box.x + o.x, y = st->box.y + s_glint_dy + o.y;
+    lv_area_t a = {x, y, x + st->box.w - 1, y + st->box.h - 1};
     lv_draw_image(lv_event_get_layer(e), &d, &a);
 }
 
@@ -560,10 +577,12 @@ static float glint_head(int idx) { return (float)idx * 360.0f / GLINT_STEPS - 90
 static void glint_invalidate(float from_deg, float to_deg)
 {
     float span = (to_deg - from_deg) / GLINT_PIECES;
+    lv_point_t o = origin();
     for (int i = 0; i < GLINT_PIECES; i++) {
         ring_glint_box_t b;
         ring_glint_span_box(glint_geom(), to_deg - span * (float)i, span, &b);
-        lv_area_t a = {b.x, b.y + s_glint_dy, b.x + b.w - 1, b.y + s_glint_dy + b.h - 1};
+        int x = b.x + o.x, y = b.y + s_glint_dy + o.y;
+        lv_area_t a = {x, y, x + b.w - 1, y + b.h - 1};
         lv_obj_invalidate_area(s_glint, &a);
     }
 }
@@ -623,7 +642,8 @@ void bot_view_set_hint(bool on) { s_hint.want = on; }
 
 static void hint_invalidate(void)
 {
-    lv_area_t a = {s_hint.x, s_hint.y + s_hint.dy, s_hint.x + s_hint.w - 1, s_hint.y + s_hint.dy + s_hint.h - 1};
+    lv_area_t a;
+    hint_area(&a);
     lv_obj_invalidate_area(s_glint, &a);
 }
 
@@ -869,7 +889,10 @@ static void eyes_merged(const double ex[2][BOT_STROKE_MAX], const double ey[2][B
         lw_stroke_t ls[2] = {{ex[0], ey[0], st[0].n, width[0] / 2}, {ex[1], ey[1], st[1].n, width[1] / 2}};
         label_wipe_eyes(ls, &a, &any);
     }
-    if (any) lv_obj_invalidate_area(s_glint, &a);
+    if (!any) return;
+    lv_point_t o = origin();
+    lv_area_move(&a, o.x, o.y);
+    lv_obj_invalidate_area(s_glint, &a);
 }
 
 void bot_view_update(const bot_pose_t *p, double t)

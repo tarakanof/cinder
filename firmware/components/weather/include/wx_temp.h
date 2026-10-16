@@ -9,6 +9,7 @@
 #include "wx_days.h"
 #include "wx_faces.h"
 #include "wx_rain.h"
+#include "wx_shift.h"
 #include "wx_sun.h"
 #include "wx_wind.h"
 
@@ -26,8 +27,6 @@ extern "C" {
 #define WX_COUNT_MAX 30
 #define WX_MERC_BOTTOM 184.0f
 #define WX_THERMO_DY (-14.0f)
-#define WX_SHIFT_S 120.0
-#define WX_SHIFT_PX 2
 #define WX_BAND_HYST 5
 #define WX_ILLUM_STEP 5
 
@@ -119,15 +118,6 @@ void wx_clouds_for(int band, bool night, wx_clouds_t *out);
 int wx_cloud_band(int cloud);
 /* shown: the band on screen or -1. */
 int wx_cloud_band_keep(int cloud, int shown);
-
-typedef struct {
-    double t;
-    int i;
-} wx_shift_t;
-
-/* Burn-in: after WX_SHIFT_S s on screen the face steps to the next corner of a WX_SHIFT_PX square; true on a step. A non-finite or negative dt counts as 0. */
-bool wx_shift_tick(wx_shift_t *s, double dt);
-void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy);
 
 #define WX_DRIFT_X 6
 #define WX_DRIFT_Y 1

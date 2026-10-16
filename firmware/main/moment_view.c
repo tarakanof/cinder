@@ -167,9 +167,16 @@ double moment_view_poll(double t)
     return s_state == MV_PLAYING ? t - s_t0 : -1;
 }
 
+static lv_area_t on_screen(int x, int y, int w, int h)
+{
+    lv_area_t c;
+    lv_obj_get_coords(s_parent, &c);
+    return (lv_area_t){c.x1 + x, c.y1 + y, c.x1 + x + w - 1, c.y1 + y + h - 1};
+}
+
 static void sprite(const wxm_frame_t *f)
 {
-    lv_area_t box = {WXM_BOX_X, WXM_BOX_Y, WXM_BOX_X + WXM_BOX_W - 1, WXM_BOX_Y + WXM_BOX_H - 1};
+    lv_area_t box = on_screen(WXM_BOX_X, WXM_BOX_Y, WXM_BOX_W, WXM_BOX_H);
     lv_obj_invalidate_area(s_parent, &box);
     bool was = s_any && s_shown.opa > 0;
     if (!was || s_shown.opa != f->opa) lv_obj_set_style_opa(s_box, (lv_opa_t)f->opa, 0);
@@ -185,7 +192,7 @@ static void sprite(const wxm_frame_t *f)
 
 static void text(const wxm_frame_t *f)
 {
-    lv_area_t icon, u = {WXM_TEXT_X, WXM_TEXT_Y, WXM_TEXT_X + WXM_TEXT_W - 1, WXM_TEXT_Y + WXM_TEXT_H - 1};
+    lv_area_t icon, u = on_screen(WXM_TEXT_X, WXM_TEXT_Y, WXM_TEXT_W, WXM_TEXT_H);
     bool turns = s_m.quiet && (s_any && s_shown.icon_off) != f->icon_off;
     bool joined = turns && bot_view_icon_off(f->icon_off, &icon);
     if (joined) {

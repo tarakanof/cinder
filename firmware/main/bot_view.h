@@ -10,6 +10,8 @@
 #define BOT_VIEW_LABEL_H 116
 #define BOT_VIEW_LABEL_Y 312
 
+/* parent: the bot page root, full screen at 0,0; its translate (the burn-in orbit) moves every part, and the view's
+   screen areas follow it. */
 void bot_view_create(lv_obj_t *parent);
 /* LVGL task only; t: the frame's time, bot_pose's clock. */
 void bot_view_update(const bot_pose_t *p, double t);

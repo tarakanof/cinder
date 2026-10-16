@@ -325,21 +325,6 @@ void wx_clouds_for(int band, bool night, wx_clouds_t *out)
     }
 }
 
-bool wx_shift_tick(wx_shift_t *s, double dt)
-{
-    if (isfinite(dt) && dt > 0) s->t += dt;
-    if (s->t < WX_SHIFT_S) return false;
-    s->t = 0;
-    s->i = (s->i + 1) & 3;
-    return true;
-}
-
-void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy)
-{
-    *dx = (s->i == 1 || s->i == 2) ? WX_SHIFT_PX : 0;
-    *dy = s->i >= 2 ? WX_SHIFT_PX : 0;
-}
-
 static uint32_t drift_rand(uint32_t *s)
 {
     uint32_t z = (*s += 0x9E3779B9u);

@@ -589,22 +589,73 @@ static void test_shift(void)
     static const int DX[5] = {0, 2, 2, 0, 0}, DY[5] = {0, 0, 2, 2, 0};
     wx_shift_t s = {0};
     int dx, dy, steps = 0;
-    wx_shift_xy(&s, &dx, &dy);
+    wx_shift_xy(&s, &WX_SHIFT_SQUARE, &dx, &dy);
     CHECK(dx == 0 && dy == 0, "burn-in: starts at 0,0");
     for (int k = 1; k <= 4; k++) {
-        for (int f = 0; f < 119 * 30; f++) steps += wx_shift_tick(&s, 1.0 / 30);
+        for (int f = 0; f < 119 * 30; f++) steps += wx_shift_tick(&s, &WX_SHIFT_SQUARE, 1.0 / 30);
         CHECK(steps == k - 1, "burn-in: no step before %g s (%d)", WX_SHIFT_S, steps);
-        for (int f = 0; f < 31; f++) steps += wx_shift_tick(&s, 1.0 / 30);
-        wx_shift_xy(&s, &dx, &dy);
+        for (int f = 0; f < 31; f++) steps += wx_shift_tick(&s, &WX_SHIFT_SQUARE, 1.0 / 30);
+        wx_shift_xy(&s, &WX_SHIFT_SQUARE, &dx, &dy);
         CHECK(steps == k && dx == DX[k] && dy == DY[k], "burn-in step %d: %d,%d want %d,%d", k, dx, dy, DX[k], DY[k]);
     }
-    CHECK(!wx_shift_tick(&s, 0) && !wx_shift_tick(&s, NAN) && !wx_shift_tick(&s, INFINITY) && !wx_shift_tick(&s, -1e9),
+    CHECK(!wx_shift_tick(&s, &WX_SHIFT_SQUARE, 0) && !wx_shift_tick(&s, &WX_SHIFT_SQUARE, NAN) && !wx_shift_tick(&s, &WX_SHIFT_SQUARE, INFINITY) && !wx_shift_tick(&s, &WX_SHIFT_SQUARE, -1e9),
           "burn-in: no step on 0, NaN, infinity or a negative dt");
     steps = 0;
-    for (int f = 0; f < 121 * 30; f++) steps += wx_shift_tick(&s, 1.0 / 30);
-    wx_shift_xy(&s, &dx, &dy);
+    for (int f = 0; f < 121 * 30; f++) steps += wx_shift_tick(&s, &WX_SHIFT_SQUARE, 1.0 / 30);
+    wx_shift_xy(&s, &WX_SHIFT_SQUARE, &dx, &dy);
     CHECK(steps == 1 && dx == DX[1] && dy == DY[1], "burn-in: steps again after a NaN dt (%d steps, at %d,%d)", steps, dx,
           dy);
+}
+
+static void test_orbit(void)
+{
+    const wx_shift_path_t *p = &WX_SHIFT_ORBIT;
+    int seen[5][5] = {{0}}, bad_step = 0, odd = 0, far = 0, xmin = 0, xmax = 0, ymin = 0, ymax = 0;
+    CHECK(p->n == 48 && p->period_s == 120.0, "orbit: 48 points, 120 s each (%d, %g)", p->n, p->period_s);
+    CHECK(p->pt[0].x == 0 && p->pt[0].y == 0, "orbit: starts centred");
+    for (int i = 0; i < p->n; i++) {
+        const wx_shift_pt_t *a = &p->pt[i], *b = &p->pt[(i + 1) % p->n];
+        odd += (a->x & 1) || (a->y & 1);
+        far += abs(a->x) > 4 || abs(a->y) > 4;
+        bad_step += abs(b->x - a->x) + abs(b->y - a->y) != 2;
+        if (!odd && !far) seen[(a->y + 4) / 2][(a->x + 4) / 2]++;
+        xmin = a->x < xmin ? a->x : xmin, xmax = a->x > xmax ? a->x : xmax;
+        ymin = a->y < ymin ? a->y : ymin, ymax = a->y > ymax ? a->y : ymax;
+    }
+    int missing = 0, most = 0;
+    for (int y = 0; y < 5; y++)
+        for (int x = 0; x < 5; x++) missing += !seen[y][x], most = seen[y][x] > most ? seen[y][x] : most;
+    CHECK(!odd && !far, "orbit: even offsets within 4 px only (%d odd, %d past 4)", odd, far);
+    CHECK(!bad_step, "orbit: every step, the wrap too, is 2 px along one axis (%d not)", bad_step);
+    CHECK(xmin == -4 && xmax == 4 && ymin == -4 && ymax == 4, "orbit: reaches +-4 px on both axes (x %d..%d y %d..%d)", xmin, xmax,
+          ymin, ymax);
+    CHECK(!missing && most <= 2, "orbit: visits all 25 grid points, none more than twice a lap (%d missing, max %d)", missing, most);
+
+    wx_shift_t s = {0};
+    int dx, dy, steps = 0;
+    for (int f = 0; f < 119 * 60; f++) steps += wx_shift_tick(&s, p, 1.0 / 60);
+    CHECK(!steps, "orbit: no step in the first 119 s (%d)", steps);
+    for (int f = 0; f < 61; f++) steps += wx_shift_tick(&s, p, 1.0 / 60);
+    wx_shift_xy(&s, p, &dx, &dy);
+    CHECK(steps == 1 && dx == 2 && dy == 0, "orbit: one 2 px step at 120 s (%d steps, at %d,%d)", steps, dx, dy);
+    steps = 0;
+    for (int f = 0; f < 60 * 60; f++) steps += wx_shift_tick(&s, p, 1.0 / 60);
+    for (int f = 0; f < 60 * 60 + 2; f++) steps += wx_shift_tick(&s, p, 1.0 / 60);
+    wx_shift_xy(&s, p, &dx, &dy);
+    CHECK(steps == 1 && dx == 4 && dy == 0, "orbit: 60 s shown, hidden (no ticks), 60 s shown again: one step (%d, at %d,%d)", steps, dx,
+          dy);
+    CHECK(!wx_shift_tick(&s, p, NAN) && !wx_shift_tick(&s, p, -INFINITY) && !wx_shift_tick(&s, p, -1e9),
+          "orbit: no step on NaN, -infinity or a negative dt");
+    CHECK(wx_shift_tick(&s, p, 1e9) && !wx_shift_tick(&s, p, 1.0 / 60), "orbit: a huge dt (a stall) steps once, not a lap");
+    s = (wx_shift_t){.t = NAN, .i = -1};
+    CHECK(!wx_shift_tick(&s, p, 1.0), "orbit: a corrupt clock restarts instead of stepping (t %g)", s.t);
+    wx_shift_xy(&s, p, &dx, &dy);
+    CHECK(s.t == 0 && dx == p->pt[p->n - 1].x && dy == p->pt[p->n - 1].y, "orbit: index -1 reads as the last point, t reset");
+    s = (wx_shift_t){0};
+    int lap = 0;
+    for (int k = 0; k < p->n; k++) lap += wx_shift_tick(&s, p, 120.0);
+    wx_shift_xy(&s, p, &dx, &dy);
+    CHECK(lap == p->n && s.i == 0 && dx == 0 && dy == 0, "orbit: a lap is 48 steps (96 min) and comes back to 0,0 (i %d)", s.i);
 }
 
 static int px_of(wx_box_t b) { return (b.x1 - b.x0) * (b.y1 - b.y0); }
@@ -996,6 +1047,7 @@ int main(void)
     test_cloud_path();
     test_paint();
     test_shift();
+    test_orbit();
     test_bake();
     test_drift();
     if (getenv("CINDER_TEMP_PPM")) strip(getenv("CINDER_TEMP_PPM"));

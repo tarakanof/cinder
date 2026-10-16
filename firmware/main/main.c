@@ -57,6 +57,7 @@
 #include "music_view.h"
 #include "wx_faces.h"
 #include "wx_moment.h"
+#include "wx_shift.h"
 #include "bsp_knob_15_md50et.h"
 
 static const char *TAG = "cinder";
@@ -105,6 +106,7 @@ static bot_t s_bot;
 static bot_pose_t s_last_pose;
 static bool s_drawn;
 static EXT_RAM_BSS_ATTR bool s_usage_on;
+static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;
 static double s_ring_deg;
 static int s_demo_index;
 static double s_demo_until;
@@ -632,7 +634,7 @@ static void page_go(int steps, double t)
 }
 
 struct page_frame {
-    double t;
+    double t, dt;
     bool offline;
     bot_pose_t pose;
     gc_out_t chase;
@@ -830,11 +832,20 @@ static void bot_under_usage(bool under)
     s_bot_shown = true;
 }
 
+static void bot_shift_root(void)
+{
+    int dx, dy;
+    wx_shift_xy(&s_bot_shift, &WX_SHIFT_ORBIT, &dx, &dy);
+    lv_obj_set_style_translate_x(s_bot_page, dx, 0);
+    lv_obj_set_style_translate_y(s_bot_page, dy, 0);
+}
+
 void page_bot_frame(const page_frame_t *f)
 {
     double t = f->t;
     bot_under_usage(usage_view_frame(t));
     if (s_usage_on) return;
+    if (wx_shift_tick(&s_bot_shift, &WX_SHIFT_ORBIT, f->dt)) bot_shift_root();
     const bot_pose_t *p = &f->pose;
     const gc_out_t *chase = &f->chase;
     ember_host_info_t host;
@@ -1064,7 +1075,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
         gc_half_chase_reset(&s_half);
     }
-    page_frame_t f = {.t = t, .offline = offline};
+    page_frame_t f = {.t = t, .dt = dt, .offline = offline};
     gc_out_t *chase = &f.chase;
     gc_tick(&s_chase, t, glint, 3.0, chase);
     atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
