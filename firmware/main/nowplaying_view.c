@@ -688,6 +688,7 @@ void np_view_update(double now, bool offline)
     }
     if (live) np_ctl_track_pos(&V->ctl, np_anchor_at(&V->snap.anchor, now), V->snap.anchor.dur_ms, now);
     if (live) controls_tick(now);
+    np_ctl_rest(&V->ctl, now - s_last_input >= BURN_IN_S);
     np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     if (s_kind == KIND_COVER) {
         cover_update(now, offline, live, fresh, shown);
@@ -695,8 +696,9 @@ void np_view_update(double now, bool offline)
     }
     if (live) {
         int hi = legacy_controls(now);
-        bool up = btns_update(np_ctl_touch_opa(&V->ctl, now), !V->badge[0], shown == NP_PLAYING, hi);
-        note_show(!up && !V->badge[0]);
+        int opa = np_ctl_touch_opa(&V->ctl, now);
+        btns_update(opa, !V->badge[0], shown == NP_PLAYING, hi);
+        note_show((opa == 0 || opa == NP_TOUCH_REST_OPA) && !V->badge[0]);
     } else {
         btns_update(0, true, true, -1);
         if (s_vol_shown != -2 || V->badge[0]) {
