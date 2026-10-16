@@ -491,9 +491,9 @@ static void test_boxes(void)
         wx_box_t c = l.cover_box[s];
         CHECK(inside(wx_sheet(s)->box, c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0) && (c.x1 - c.x0) % 2 == 0, "cover %d in its box, even", s);
     }
-    int still = wx_scene_px() * 3;
-    CHECK(l.total <= still, "rain layers %d B fit the still-cloud buffer %d B", l.total, still);
-    printf("rain: layers %d B in the %d B still-cloud buffer\n", l.total, still);
+    int scene = wx_scene_px() * 3;
+    CHECK(l.total <= scene, "rain layers %d B fit the scene buffer %d B", l.total, scene);
+    printf("rain: layers %d B in the %d B scene buffer\n", l.total, scene);
 }
 
 static uint16_t blend(uint16_t d, uint32_t rgb, int a)
@@ -829,8 +829,8 @@ static void test_bake_and_areas(void)
     static uint16_t bg[WX_FACE * WX_FACE], fb[WX_FACE * WX_FACE], prev[WX_FACE * WX_FACE], ref[WX_FACE * WX_FACE];
     static uint16_t lut[WX_RING_LUT];
     static wx_ring_t ring;
-    size_t still = (size_t)wx_scene_px() * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    size_t scene = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, scene), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
     wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_rain_layout_t l;
     wx_rain_layout(&l);
@@ -944,11 +944,11 @@ static void test_bake_and_areas(void)
     wx_bake(&t, WX_BAKE_FULL, &b, &o);
     static uint16_t keep[WX_FACE * WX_FACE];
     memcpy(keep, bg, sizeof keep);
-    uint8_t *mk = malloc(still);
-    memcpy(mk, m, still);
+    uint8_t *mk = malloc(scene);
+    memcpy(mk, m, scene);
     t.rain.has_pop = true;
     wx_bake(&t, WX_BAKE_RING, &b, &o);
-    CHECK(!memcmp(bg, keep, sizeof keep) && !memcmp(m, mk, still), "a ring bake leaves the background and the layers");
+    CHECK(!memcmp(bg, keep, sizeof keep) && !memcmp(m, mk, scene), "a ring bake leaves the background and the layers");
     wx_ring_blit(&ring, bg);
     static uint16_t full[WX_FACE * WX_FACE];
     memcpy(keep, bg, sizeof keep);

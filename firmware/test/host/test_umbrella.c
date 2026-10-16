@@ -292,7 +292,7 @@ static void test_bake(void)
         wx_bake(&t, WX_BAKE_FULL, &b, &o);
         ref_bake_rain(&t, rbg, &rring, rlut, rm);
         CHECK(!memcmp(bg, rbg, sizeof bg), "%s: bake_rain bg as the brute-force painters", CASES[c].name);
-        CHECK(!memcmp(m, rm, (size_t)l.total), "%s: bake_rain still buffer as the brute-force painters", CASES[c].name);
+        CHECK(!memcmp(m, rm, (size_t)l.total), "%s: bake_rain scene buffer as the brute-force painters", CASES[c].name);
     }
     const char *bench = getenv("CINDER_BENCH");
     bool on = bench && *bench && strcmp(bench, "0");

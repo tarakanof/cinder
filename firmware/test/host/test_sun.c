@@ -485,16 +485,16 @@ static void test_layout(void)
 {
     wx_sun_layout_t l;
     wx_sun_layout(&l);
-    size_t still = (size_t)wx_scene_px() * 3;
+    size_t scene = (size_t)wx_scene_px() * 3;
     CHECK(box_in(l.sun, l.rays), "the sun box inside the rays box: one redraw area");
     CHECK(l.sun.y1 == WX_SUN_CLIP_Y && l.rays.y1 == WX_SUN_CLIP_Y, "both end at the horizon cut");
     CHECK(l.sun.x0 <= WX_SUN_CX - 74 && l.sun.x1 >= WX_SUN_CX + 74 && l.sun.y0 <= WX_SUN_CY - 74, "the sun box holds the glow");
     CHECK(!(l.rays.x0 & 1) && !(l.rays.x1 & 1) && !(l.sun.x0 & 1) && !(l.sun.x1 & 1), "even edges");
     int rays = (l.rays.x1 - l.rays.x0) * (l.rays.y1 - l.rays.y0), sun = (l.sun.x1 - l.sun.x0) * (l.sun.y1 - l.sun.y0);
     CHECK(l.rays_at == 0 && l.sun_at == rays && l.total == rays + 3 * sun && !(l.sun_at & 3), "back to back: A8 then RGB565A8");
-    CHECK((size_t)l.total <= still, "fits the still buffer: %d of %zu B", l.total, still);
+    CHECK((size_t)l.total <= scene, "fits the scene buffer: %d of %zu B", l.total, scene);
     printf("sun: rays %dx%d A8, sun %dx%d RGB565A8, %d of %zu B\n", l.rays.x1 - l.rays.x0, l.rays.y1 - l.rays.y0,
-           l.sun.x1 - l.sun.x0, l.sun.y1 - l.sun.y0, l.total, still);
+           l.sun.x1 - l.sun.x0, l.sun.y1 - l.sun.y0, l.total, scene);
 
     wx_box_t face = {0, 0, WX_FACE, WX_FACE};
     uint8_t *a = calloc(WX_FACE * WX_FACE, 1);
@@ -561,8 +561,8 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_scene_px() * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    size_t scene = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, scene), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
     wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_obs_t o = as2_at(H(10, 30));
     wx_temp_t t;

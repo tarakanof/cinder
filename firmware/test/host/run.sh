@@ -387,19 +387,28 @@ body "$TFC" apply | awk '/s_front \^= 1;/ {f = NR} /sprite\(s_hero, s_hero_buf\[
     [ "$(grep -c 'sprite(s_hero, ' "$TFC")" -eq 1 ] && [ "$(grep -c 's_buf.hero = ' "$TFC")" -eq 3 ] ||
     WIRING="$WIRING hero-shows-the-front-and-bakes-the-back"
 body "$TFC" apply | awk '/if \(kind & WX_BAKE_SCENE\) \{/ {s = NR} /\} else if \(kind & WX_BAKE_RING\) \{/ {e = NR}
+    /^        for \(int i = 0; i < WX_CLOUDS_MAX; i\+\+\) \{$/ {l = NR}
     /sprite\(s_cl\[i\], on \? s_buf\.scene \+ o->cloud_at\[i\] : s_none, on \? o->cloud\[i\] : \(wx_box_t\)\{0, 0, 0, 0\}\);/ {c = NR}
-    /wx_drift_start\(&s_cd, o->nclouds, esp_random\(\)\);/ {d = NR} /s_drift_at = s_t > WX_ARRIVE_S \? s_t : WX_ARRIVE_S;/ {a = NR}
-    /^    \}/ && s && !a {out = 1} END {exit !(s && c > s && d > c && a > d && e > a && !out)}' &&
-    [ "$(grep -c 'wx_drift_start(' "$TFC")" -eq 1 ] && [ "$(grep -c 's_drift_at = ' "$TFC")" -eq 1 ] &&
+    /wx_drift_start\(&s_cd, o->nclouds, o->cloud_back, esp_random\(\)\);/ {d = NR}
+    /^    \}/ && s && !d {out = 1} END {exit !(s && l > s && c > l && d > c && e > d && !out)}' &&
+    [ "$(grep -c 'wx_drift_start(' "$TFC")" -eq 1 ] &&
     [ "$(grep -c 'sprite(s_cl\[' "$TFC")" -eq 1 ] && [ "$(grep -c 'lv_canvas_set_buffer(s_cl\[' "$TFC")" -eq 1 ] ||
-    WIRING="$WIRING a-scene-apply-shows-one-sprite-per-cloud-and-starts-new-drift-paths-after-the-arrival"
-body "$TFC" set_sprites | grep -qxF '    int i = drift ? wx_drift_step(&s_cd, s_t - s_drift_at) : -1;' &&
+    WIRING="$WIRING a-scene-apply-shows-every-cloud-sprite-and-starts-new-drift-paths"
+body "$TFC" detach | grep -qxF '    for (int i = 0; i < WX_CLOUDS_MAX; i++) lv_canvas_set_buffer(s_cl[i], s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);' &&
+    body "$TFC" temp_face_create | grep -qxF '    for (int i = 0; i < WX_CLOUDS_MAX; i++) s_cl[i] = canvas(s_root, LV_COLOR_FORMAT_RGB565A8);' &&
+    body "$TFC" temp_face_create | grep -qxF '    for (int i = 0; i < WX_CLOUDS_MAX; i++) lv_obj_add_flag(s_cl[i], LV_OBJ_FLAG_HIDDEN);' ||
+    WIRING="$WIRING every-cloud-canvas-created-hidden-and-detached"
+body "$TFC" set_sprites | grep -qxF '        for (int i = 0; i < WX_CLOUDS_MAX; i++) lv_obj_set_style_image_opa(s_cl[i], (lv_opa_t)opa, 0);' &&
+    [ "$(grep -c 'lv_obj_set_style_image_opa(s_cl\[' "$TFC")" -eq 1 ] || WIRING="$WIRING every-cloud-fades-with-the-sprites"
+body "$TFC" set_sprites | grep -qxF '    int i = drift ? wx_drift_step(&s_cd) : -1;' &&
     body "$TFC" set_sprites | grep -qxF '    lv_obj_set_pos(s_cl[i], s_out.cloud[i].x0 + s_cd.dx[i], s_out.cloud[i].y0 + s_cd.dy[i]);' &&
     [ "$(grep -cE 'lv_obj_set_(pos|x|y)\(s_cl\[' "$TFC")" -eq 1 ] && [ "$(grep -c 'wx_drift_step(' "$TFC")" -eq 1 ] &&
     body "$TFC" paint | grep -qxF '    set_sprites(sprite_opa, temp && s_t >= WX_ARRIVE_S);' ||
     WIRING="$WIRING drift-moves-only-the-stepped-cloud-and-only-on-the-temperature-face-after-the-arrival"
-grep -qxF 'static EXT_RAM_BSS_ATTR wx_drift_t s_cd;' "$TFC" && grep -qxF 'static EXT_RAM_BSS_ATTR double s_drift_at;' "$TFC" &&
-    grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_cl[WX_DRIFT_MAX];' "$TFC" ||
+body "$TFC" temp_face_update | awk '/^    s_t \+= dt;$/ {t = NR} /^    if \(s_t >= WX_ARRIVE_S\) wx_drift_tick\(&s_cd, dt\);$/ {if (t == NR - 1) k = 1} END {exit !k}' &&
+    [ "$(grep -c 'wx_drift_tick(' "$TFC")" -eq 1 ] && ! grep -qE 's_cd\.(t|frame) *=' "$TFC" && ! body "$TFC" set_sprites | grep -q 's_t' ||
+    WIRING="$WIRING the-drift-runs-on-its-own-clock-so-a-show-that-rewinds-s_t-never-freezes-it"
+grep -qxF 'static EXT_RAM_BSS_ATTR wx_drift_t s_cd;' "$TFC" && grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_cl[WX_CLOUDS_MAX];' "$TFC" ||
     WIRING="$WIRING drift-state-in-PSRAM"
 [ "$(grep -c 'heap_caps_free(' "$TFC")" -eq 1 ] && grep -qF '#define DROP(p) do { heap_caps_free(p); (p) = NULL; } while (0)' "$TFC" ||
     WIRING="$WIRING free-only-through-DROP"

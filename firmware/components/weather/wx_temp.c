@@ -360,23 +360,26 @@ static void drift_perm(uint32_t *s, int n, int *p)
     }
 }
 
-void wx_drift_start(wx_drift_t *d, int n, uint32_t entropy)
+void wx_drift_start(wx_drift_t *d, int n, const bool *back, uint32_t entropy)
 {
     uint32_t starts = d->starts + 1;
     memset(d, 0, sizeof *d);
     d->starts = starts;
     d->frame = -1;
-    d->n = n < 0 ? 0 : n > WX_DRIFT_MAX ? WX_DRIFT_MAX : n;
+    d->n = n < 0 ? 0 : n > WX_CLOUDS_MAX ? WX_CLOUDS_MAX : n;
     if (!d->n) return;
     uint32_t s = entropy ^ (starts * 0x2545F491u);
-    int pp[WX_DRIFT_MAX], px[WX_DRIFT_MAX];
+    int pp[WX_CLOUDS_MAX], px[WX_CLOUDS_MAX];
     drift_perm(&s, d->n, pp);
     drift_perm(&s, d->n, px);
+    float lean = WX_DRIFT_LEAN_MIN + (WX_DRIFT_LEAN_MAX - WX_DRIFT_LEAN_MIN) * drift_unit(&s);
+    d->lean = drift_rand(&s) & 1 ? lean : -lean;
     float slot = (WX_DRIFT_MAX_S - WX_DRIFT_MIN_S) / (float)d->n;
     for (int i = 0; i < d->n; i++) {
         d->period[i] = WX_DRIFT_MIN_S + slot * ((float)pp[i] + 0.15f + 0.7f * drift_unit(&s));
         d->phase_x[i] = ((float)px[i] + 0.15f + 0.7f * drift_unit(&s)) / (float)d->n;
         d->phase_y[i] = drift_unit(&s);
+        d->depth[i] = back && back[i] ? WX_DRIFT_BACK : 1;
     }
 }
 
@@ -385,16 +388,22 @@ void wx_drift_path(const wx_drift_t *d, int i, double t, int *dx, int *dy)
     *dx = *dy = 0;
     if (i < 0 || i >= d->n || !(t > 0) || !isfinite(t)) return;
     double ramp = t < WX_DRIFT_RAMP_S ? t / WX_DRIFT_RAMP_S : 1, p = fmod(t / d->period[i], 1.0);
-    *dx = (int)lround(WX_DRIFT_X * ramp * sin(2 * M_PI * (p + d->phase_x[i])));
-    *dy = (int)lround(WX_DRIFT_Y * ramp * sin(2 * M_PI * (p + d->phase_y[i])));
+    double swing = WX_DRIFT_X - fabs(d->lean), k = d->depth[i] * ramp;
+    *dx = (int)lround(k * (d->lean + swing * sin(2 * M_PI * (p + d->phase_x[i]))));
+    *dy = (int)lround(k * WX_DRIFT_Y * sin(2 * M_PI * (p + d->phase_y[i])));
+}
+
+void wx_drift_tick(wx_drift_t *d, double dt)
+{
+    if (isfinite(dt) && dt > 0) d->t += dt;
 }
 
 static int toward(int from, int to) { return from + (to > from) - (to < from); }
 
-int wx_drift_step(wx_drift_t *d, double t)
+int wx_drift_step(wx_drift_t *d)
 {
-    if (d->n <= 0 || !(t >= 0) || !isfinite(t)) return -1;
-    long f = (long)floor(t * WX_DRIFT_FPS);
+    if (d->n <= 0) return -1;
+    long f = (long)floor(d->t * WX_DRIFT_FPS);
     if (f <= d->frame) return -1;
     d->frame = f;
     for (int k = 0; k < d->n; k++) {

@@ -631,12 +631,12 @@ static bool inside(wx_box_t a, wx_box_t b) { return a.x0 >= b.x0 && a.y0 >= b.y0
 
 static void test_layout(void)
 {
-    int still = wx_scene_px() * 3;
+    int scene = wx_scene_px() * 3;
     for (int v = 0; v <= 3; v++) {
         wx_cast_layout_t l;
         wx_cast_layout(v, &l);
         CHECK(l.sides == wx_cast_sides(v), "variant %d sides", v);
-        CHECK(l.total <= still, "variant %d: layers %d B fit the still-cloud buffer %d B", v, l.total, still);
+        CHECK(l.total <= scene, "variant %d: layers %d B fit the scene buffer %d B", v, l.total, scene);
         int px = 0;
         for (int s = 0; s < l.sides; s++) {
             const wx_cast_sheet_t *sh = wx_cast_sheet(v, s);
@@ -646,7 +646,7 @@ static void test_layout(void)
             CHECK(!(cb.x0 & 1) && !(cb.y0 & 1), "even sprite origin");
             px += box_px(l.box[s]);
         }
-        if (v) printf("cast: variant %d, %d side(s), layers %d of %d B, cloud+sheet boxes %d px\n", v, l.sides, l.total, still, px);
+        if (v) printf("cast: variant %d, %d side(s), layers %d of %d B, cloud+sheet boxes %d px\n", v, l.sides, l.total, scene, px);
     }
     wx_cast_layout_t a, b;
     wx_cast_layout(2, &a);
@@ -698,8 +698,8 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_scene_px() * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    size_t scene = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, scene), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
     wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     wx_obs_t o = dry_with(LOCAL(17, 0), LOCAL(19, 0), 1, 0);
     wx_temp_t t;
@@ -728,7 +728,7 @@ static void test_paint(void)
     for (int v = 1; v <= 3; v++) {
         wx_obs_t ov = dry_with(LOCAL(17, 0), LOCAL(19, 0), v, 0);
         wx_temp_face(&ov, NULL, WXF_CAST, &t);
-        memset(m, 0, still);
+        memset(m, 0, scene);
         clock_t t0 = clock();
         wx_bake(&t, WX_BAKE_FULL, &b, &out);
         double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC;

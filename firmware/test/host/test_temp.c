@@ -646,8 +646,8 @@ static void test_bake(void)
     static uint8_t hero[WX_HERO_BOX * WX_HERO_BOX * 3];
     static wx_ring_t ring;
     int scene_px = wx_scene_px();
-    uint8_t *still = malloc((size_t)scene_px * 3);
-    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = still};
+    uint8_t *scene = malloc((size_t)scene_px * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = scene};
 
     int layer_max = 0, sprites_max = 0, old_max = 0;
     for (int band = 1; band <= 4; band++)
@@ -667,19 +667,23 @@ static void test_bake(void)
             memset(&o, 0x5A, sizeof o);
             wx_bake(&t, WX_BAKE_FULL, &b, &o);
             CHECK(o.nclouds == all.n, "band %d night %d: one sprite per cloud (%d of %d)", band, night, o.nclouds, all.n);
-            int at = 0, boxes = 0, own = 0;
+            int at = 0, boxes = 0, own = 0, aligned = 0;
             for (int i = 0; i < o.nclouds; i++) {
                 wx_cloud_one(&all, i, &one);
                 wx_box_t want;
                 uint8_t *ref = paint_layer(&one, &want);
-                boxes += !memcmp(&o.cloud[i], &want, sizeof want) && o.cloud_at[i] == at;
-                own += !memcmp(still + o.cloud_at[i], ref, (size_t)px_of(want) * 3);
-                at += px_of(want) * 3;
+                boxes += !memcmp(&o.cloud[i], &want, sizeof want) && o.cloud_at[i] >= at && o.cloud_at[i] < at + WX_SCENE_ALIGN &&
+                         o.cloud_back[i] == all.cl[i].back;
+                aligned += o.cloud_at[i] % WX_SCENE_ALIGN == 0 && (o.cloud_at[i] + px_of(want) * 2) % WX_SCENE_ALIGN == 0;
+                own += !memcmp(scene + o.cloud_at[i], ref, (size_t)px_of(want) * 3);
+                at = o.cloud_at[i] + px_of(want) * 3;
                 free(ref);
             }
-            for (int i = o.nclouds; i < WX_DRIFT_MAX; i++) boxes += o.cloud[i].x1 == 0 && o.cloud_at[i] == 0;
-            CHECK(boxes == WX_DRIFT_MAX && own == o.nclouds && at <= scene_px * 3,
-                  "band %d night %d: sprites back to back in the scene buffer, each its own cloud with its own rim fade (%d of %d B)", band,
+            for (int i = o.nclouds; i < WX_CLOUDS_MAX; i++) boxes += o.cloud[i].x1 == 0 && o.cloud_at[i] == 0 && !o.cloud_back[i];
+            CHECK(aligned == o.nclouds, "band %d night %d: every sprite and its alpha plane start on a %d-byte boundary (%d of %d)", band, night,
+                  WX_SCENE_ALIGN, aligned, o.nclouds);
+            CHECK(boxes == WX_CLOUDS_MAX && own == o.nclouds && at <= scene_px * 3,
+                  "band %d night %d: sprites back to back in the scene buffer, each its own cloud, depth and rim fade (%d of %d B)", band,
                   night, at, scene_px * 3);
             if (at / 3 > sprites_max) sprites_max = at / 3;
             int off_layer = 0, off_old = 0, rim_overlap = 0, rim_single = 0;
@@ -689,7 +693,7 @@ static void test_bake(void)
                     float r = hypotf(x + 0.5f - 233, y + 0.5f - 233);
                     if (r > 175) continue;
                     float got[4] = {0}, layer[4] = {0}, old[4] = {0};
-                    for (int i = 0; i < o.nclouds; i++) over(still + o.cloud_at[i], o.cloud[i], x, y, got);
+                    for (int i = 0; i < o.nclouds; i++) over(scene + o.cloud_at[i], o.cloud[i], x, y, got);
                     over(whole, ab, x, y, layer);
                     over(old_still, sb, x, y, old);
                     over(old_drift, db, x, y, old);
@@ -699,7 +703,7 @@ static void test_bake(void)
                         int cover = 0;
                         for (int i = 0; i < o.nclouds; i++) {
                             float one_acc[4] = {0};
-                            over(still + o.cloud_at[i], o.cloud[i], x, y, one_acc);
+                            over(scene + o.cloud_at[i], o.cloud[i], x, y, one_acc);
                             cover += one_acc[3] > 0;
                         }
                         rim_single += cover < 2;
@@ -751,7 +755,7 @@ static void test_bake(void)
 
     static uint16_t full[WX_FACE * WX_FACE], keep[WX_FACE * WX_FACE];
     static uint8_t hero2[WX_HERO_BOX * WX_HERO_BOX * 3];
-    uint8_t *still2 = malloc((size_t)scene_px * 3);
+    uint8_t *scene2 = malloc((size_t)scene_px * 3);
     for (size_t k = 0; k < sizeof CASES / sizeof CASES[0]; k++) {
         wx_temp_t t = CASES[k].t, n = t;
         n.lo -= 7;
@@ -761,7 +765,7 @@ static void test_bake(void)
         memcpy(full, bg, sizeof full);
         wx_bake(&t, WX_BAKE_FULL, &b, &o);
         memcpy(keep, bg, sizeof keep);
-        memcpy(still2, still, (size_t)scene_px * 3);
+        memcpy(scene2, scene, (size_t)scene_px * 3);
         memcpy(hero2, hero, sizeof hero2);
         clock_t c0 = clock();
         wx_bake(&n, WX_BAKE_RING, &b, &o);
@@ -769,7 +773,7 @@ static void test_bake(void)
         CHECK(!memcmp(bg, keep, sizeof keep) && memcmp(keep, full, sizeof full) != 0, "%s: a ring bake leaves the shown background", CASES[k].name);
         wx_ring_blit(&ring, bg);
         CHECK(!memcmp(bg, full, sizeof full), "%s: the ring blit over the old background = a full bake of the new range", CASES[k].name);
-        CHECK(!memcmp(hero, hero2, sizeof hero2) && !memcmp(still, still2, (size_t)scene_px * 3) && !memcmp(&o.hero, &o2.hero, sizeof o.hero),
+        CHECK(!memcmp(hero, hero2, sizeof hero2) && !memcmp(scene, scene2, (size_t)scene_px * 3) && !memcmp(&o.hero, &o2.hero, sizeof o.hero),
               "%s: a ring bake leaves the hero and the clouds", CASES[k].name);
         printf("temp: ring bake %s %.2f ms on the host\n", CASES[k].name, ms);
 
@@ -777,17 +781,17 @@ static void test_bake(void)
         n.moon_illum = t.moon_illum + 25;
         n.moon_phase = 100 - t.moon_phase;
         memcpy(keep, bg, sizeof keep);
-        memcpy(still2, still, (size_t)scene_px * 3);
+        memcpy(scene2, scene, (size_t)scene_px * 3);
         c0 = clock();
         wx_bake(&n, WX_BAKE_HERO, &b, &o);
         ms = (double)(clock() - c0) * 1000 / CLOCKS_PER_SEC;
-        CHECK(!memcmp(bg, keep, sizeof keep) && !memcmp(still, still2, (size_t)scene_px * 3), "%s: a hero bake leaves the background and the clouds",
+        CHECK(!memcmp(bg, keep, sizeof keep) && !memcmp(scene, scene2, (size_t)scene_px * 3), "%s: a hero bake leaves the background and the clouds",
               CASES[k].name);
         CHECK(t.hero < WX_HERO_MOON || memcmp(hero, hero2, sizeof hero2) != 0, "%s: a hero bake repaints the moon", CASES[k].name);
         printf("temp: hero bake %s %.2f ms on the host\n", CASES[k].name, ms);
     }
-    free(still2);
-    free(still);
+    free(scene2);
+    free(scene);
 }
 
 static double circ(double a, double b)
@@ -800,17 +804,21 @@ static void test_drift(void)
 {
     wx_drift_t d = {0};
     int px, py;
-    CHECK(wx_drift_step(&d, 1) == -1, "drift: nothing before a start");
+    CHECK(wx_drift_step(&d) == -1, "drift: nothing before a start");
+    int leans[2] = {0};
     for (int band = 1; band <= 4; band++) {
         wx_clouds_t all;
         wx_clouds_for(band, false, &all);
-        int n = all.n, steps = 0, lag_even = 0, worst_lag = 0, bad_step = 0, two = 0, wrong = 0, out = 0;
+        int n = all.n, steps = 0, lag_even = 0, worst_lag = 0, bad_step = 0, two = 0, wrong = 0, out = 0, off_extreme = 0, off_mean = 0;
+        int against = 0, flat_back = 0;
         long box_px = 0;
+        bool back[WX_CLOUDS_MAX];
+        for (int i = 0; i < n; i++) back[i] = all.cl[i].back;
         for (uint32_t seed = 0; seed < 32; seed++) {
-            wx_drift_start(&d, n, seed * 2654435761u);
-            CHECK(d.n == n, "band %d: %d paths", band, n);
-            int lo_x[WX_DRIFT_MAX] = {0}, hi_x[WX_DRIFT_MAX] = {0}, lo_y[WX_DRIFT_MAX] = {0}, hi_y[WX_DRIFT_MAX] = {0};
-            int seen[WX_DRIFT_MAX][2 * WX_DRIFT_X + 1] = {{0}};
+            wx_drift_start(&d, n, back, seed * 2654435761u);
+            CHECK(d.n == n && fabsf(d.lean) >= WX_DRIFT_LEAN_MIN && fabsf(d.lean) <= WX_DRIFT_LEAN_MAX, "band %d: %d paths, lean %.2f px", band,
+                  n, d.lean);
+            leans[d.lean > 0]++;
             for (int i = 0; i < n; i++) {
                 CHECK(d.period[i] >= WX_DRIFT_MIN_S && d.period[i] <= WX_DRIFT_MAX_S, "band %d seed %u: period %.2f s in 7-13 s", band,
                       seed, d.period[i]);
@@ -820,15 +828,18 @@ static void test_drift(void)
                           "band %d seed %u: clouds %d and %d differ in period (%.2f, %.2f s) and phase (%.3f, %.3f)", band, seed, i, j,
                           d.period[i], d.period[j], d.phase_x[i], d.phase_x[j]);
             }
-            double t = 0;
+            int lo[WX_CLOUDS_MAX], hi[WX_CLOUDS_MAX], plo[WX_CLOUDS_MAX], phi[WX_CLOUDS_MAX];
+            double sum[WX_CLOUDS_MAX] = {0};
+            int cnt = 0;
+            for (int k = 0; k < n; k++) lo[k] = hi[k] = plo[k] = phi[k] = 0;
             uint32_t r = seed + 1;
-            while (t < 60) {
+            while (d.t < 60) {
                 r = r * 1664525u + 1013904223u;
-                t += seed & 1 ? (1 + (r >> 30)) / 60.0 : 1.0 / WX_DRIFT_FPS;
-                int bx[WX_DRIFT_MAX], by[WX_DRIFT_MAX];
+                wx_drift_tick(&d, seed & 1 ? (1 + (r >> 30)) / 60.0 : 1.0 / WX_DRIFT_FPS);
+                int bx[WX_CLOUDS_MAX], by[WX_CLOUDS_MAX];
                 memcpy(bx, d.dx, sizeof bx);
                 memcpy(by, d.dy, sizeof by);
-                int i = wx_drift_step(&d, t), moved = 0;
+                int i = wx_drift_step(&d), moved = 0;
                 for (int k = 0; k < n; k++) {
                     if (d.dx[k] == bx[k] && d.dy[k] == by[k]) continue;
                     moved++;
@@ -843,62 +854,94 @@ static void test_drift(void)
                     wx_box_t b = wx_clouds_box(&one);
                     box_px += (long)(b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1);
                 }
+                bool settled = d.t >= WX_DRIFT_RAMP_S + 1;
+                cnt += settled;
                 for (int k = 0; k < n; k++) {
                     out += abs(d.dx[k]) > WX_DRIFT_X || abs(d.dy[k]) > WX_DRIFT_Y;
-                    if (d.dx[k] < lo_x[k]) lo_x[k] = d.dx[k];
-                    if (d.dx[k] > hi_x[k]) hi_x[k] = d.dx[k];
-                    if (d.dy[k] < lo_y[k]) lo_y[k] = d.dy[k];
-                    if (d.dy[k] > hi_y[k]) hi_y[k] = d.dy[k];
-                    if (abs(d.dx[k]) <= WX_DRIFT_X) seen[k][d.dx[k] + WX_DRIFT_X] = 1;
-                    wx_drift_path(&d, k, floor(t * WX_DRIFT_FPS) / WX_DRIFT_FPS, &px, &py);
+                    wx_drift_path(&d, k, floor(d.t * WX_DRIFT_FPS) / WX_DRIFT_FPS, &px, &py);
                     int lag = abs(px - d.dx[k]) > abs(py - d.dy[k]) ? abs(px - d.dx[k]) : abs(py - d.dy[k]);
                     if (lag > worst_lag) worst_lag = lag;
                     if (!(seed & 1) && lag > lag_even) lag_even = lag;
+                    if (!settled) continue;
+                    sum[k] += d.dx[k];
+                    if (d.dx[k] < lo[k] || cnt == 1) lo[k] = d.dx[k];
+                    if (d.dx[k] > hi[k] || cnt == 1) hi[k] = d.dx[k];
+                    if (px < plo[k] || cnt == 1) plo[k] = px;
+                    if (px > phi[k] || cnt == 1) phi[k] = px;
                 }
             }
+            int front_range = 0, back_range = 99;
             for (int k = 0; k < n; k++) {
-                int cells = 0;
-                for (int c = 0; c <= 2 * WX_DRIFT_X; c++) cells += seen[k][c];
-                CHECK(lo_x[k] == -WX_DRIFT_X && hi_x[k] == WX_DRIFT_X && lo_y[k] == -WX_DRIFT_Y && hi_y[k] == WX_DRIFT_Y &&
-                          cells == 2 * WX_DRIFT_X + 1,
-                      "band %d seed %u: cloud %d swings the full ±%d, ±%d px in 60 s (x %d..%d, y %d..%d, %d positions)", band, seed, k,
-                      WX_DRIFT_X, WX_DRIFT_Y, lo_x[k], hi_x[k], lo_y[k], hi_y[k], cells);
+                double mean = sum[k] / cnt, want = d.depth[k] * d.lean;
+                off_extreme += lo[k] != plo[k] || hi[k] != phi[k];
+                off_mean += fabs(mean - want) > 0.75;
+                against += mean * d.lean <= 0;
+                if (back[k]) back_range = hi[k] - lo[k] < back_range ? hi[k] - lo[k] : back_range;
+                else front_range = hi[k] - lo[k] > front_range ? hi[k] - lo[k] : front_range;
             }
+            if (band >= 3) flat_back += back_range >= front_range;
         }
         CHECK(two == 0 && wrong == 0, "band %d: at most one cloud steps per frame, the one returned (%d frames with two, %d other)", band,
               two, wrong);
-        CHECK(bad_step == 0 && out == 0, "band %d: 1 px steps within the amplitude (%d bigger steps, %d past it)", band, bad_step, out);
-        CHECK(lag_even <= 2 && worst_lag <= 2, "band %d: at most 2 px behind the path, called at %d fps or at 15-60 fps (%d, %d)", band,
+        CHECK(bad_step == 0 && out == 0, "band %d: 1 px steps within ±%d, ±%d px (%d bigger steps, %d past it)", band, WX_DRIFT_X,
+              WX_DRIFT_Y, bad_step, out);
+        CHECK(lag_even <= 2 && worst_lag <= 2, "band %d: at most 2 px behind the path, ticked at %d fps or at 15-60 fps (%d, %d)", band,
               WX_DRIFT_FPS, lag_even, worst_lag);
-        printf("drift: band %d, %d cloud(s): %.1f steps/s, one box of %ld px each (%ld px/s; the old single drift was 1 step/s)\n",
-               band, n, steps / (60.0 * 32), steps ? box_px / steps : 0,
-               steps ? (long)(box_px / (60.0 * 32)) : 0);
+        CHECK(off_extreme == 0, "band %d: every cloud reaches both ends of its path (%d short)", band, off_extreme);
+        CHECK(against == 0 && off_mean == 0, "band %d: every cloud leans with the shared wind, mean at depth x lean (%d against, %d off)",
+              band, against, off_mean);
+        CHECK(flat_back == 0, "band %d: back clouds swing less than front clouds (%d seeds not)", band, flat_back);
+        printf("drift: band %d, %d cloud(s): %.1f steps/s, one box of %ld px each (%ld px/s; the old single drift was 1 step/s)\n", band, n,
+               steps / (60.0 * 32), steps ? box_px / steps : 0, steps ? (long)(box_px / (60.0 * 32)) : 0);
     }
+    CHECK(leans[0] > 10 && leans[1] > 10, "drift: the wind blows either way across shows (%d left, %d right)", leans[0], leans[1]);
 
-    wx_drift_start(&d, 4, 7);
+    wx_drift_start(&d, 4, NULL, 7);
     wx_drift_t a = d;
-    wx_drift_start(&d, 4, 7);
+    wx_drift_start(&d, 4, NULL, 7);
     bool differ = false;
     for (int i = 0; i < 4; i++) differ |= a.period[i] != d.period[i] || a.phase_x[i] != d.phase_x[i];
     CHECK(differ && d.starts == a.starts + 1, "drift: a second show with the same entropy takes new paths");
     wx_drift_t e = d;
-    wx_drift_start(&e, 4, 8);
+    wx_drift_start(&e, 4, NULL, 8);
     differ = false;
     for (int i = 0; i < 4; i++) differ |= e.period[i] != d.period[i];
     CHECK(differ, "drift: other entropy, other paths");
-    wx_drift_start(&d, 4, 99);
+    for (int i = 0; i < 4; i++) CHECK(d.depth[i] == 1, "drift: no depths, all front");
+
+    wx_drift_start(&d, 4, NULL, 99);
     int moved = 0;
     for (int i = 0; i < 4; i++) {
         wx_drift_path(&d, i, 0, &px, &py);
         moved += px || py || d.dx[i] || d.dy[i];
     }
-    CHECK(moved == 0 && wx_drift_step(&d, 0) == -1, "drift: a start puts every cloud at rest, the first frame steps none");
-    CHECK(wx_drift_step(&d, 0) == -1 && wx_drift_step(&d, NAN) == -1 && wx_drift_step(&d, INFINITY) == -1 && wx_drift_step(&d, -1) == -1,
-          "drift: no step on the same frame, NaN, infinity or a negative t");
-    wx_drift_start(&d, 0, 1);
-    CHECK(d.n == 0 && wx_drift_step(&d, 5) == -1, "drift: no clouds, no steps");
-    wx_drift_start(&d, 9, 1);
-    CHECK(d.n == WX_DRIFT_MAX, "drift: at most %d paths", WX_DRIFT_MAX);
+    CHECK(moved == 0 && d.t == 0 && wx_drift_step(&d) == -1, "drift: a start puts every cloud at rest on a clock at 0, the first frame steps none");
+    wx_drift_tick(&d, NAN);
+    wx_drift_tick(&d, INFINITY);
+    wx_drift_tick(&d, -1);
+    CHECK(d.t == 0 && wx_drift_step(&d) == -1, "drift: NaN, infinity or a negative dt leave the clock");
+    wx_drift_tick(&d, 1);
+    int first = wx_drift_step(&d);
+    CHECK(first >= 0 && wx_drift_step(&d) == -1, "drift: one step per frame, none again on the same frame");
+
+    wx_drift_start(&d, 4, NULL, 5);
+    for (int f = 0; f < 2 * 3600 * WX_DRIFT_FPS; f++) {
+        wx_drift_tick(&d, 1.0 / WX_DRIFT_FPS);
+        wx_drift_step(&d);
+    }
+    int after = 0;
+    for (int f = 0; f < 2 * WX_DRIFT_FPS; f++) {
+        wx_drift_tick(&d, 1.0 / WX_DRIFT_FPS);
+        after += wx_drift_step(&d) >= 0;
+    }
+    CHECK(after >= 2, "drift: after 2 h and a hide/show that keeps the scene (the face's s_t back to 0) the clouds keep moving (%d steps in 2 s)",
+          after);
+
+    wx_drift_start(&d, 0, NULL, 1);
+    wx_drift_tick(&d, 5);
+    CHECK(d.n == 0 && wx_drift_step(&d) == -1, "drift: no clouds, no steps");
+    wx_drift_start(&d, 9, NULL, 1);
+    CHECK(d.n == WX_CLOUDS_MAX, "drift: at most %d paths", WX_CLOUDS_MAX);
 }
 
 static void strip(const char *dir)
@@ -916,12 +959,11 @@ static void strip(const char *dir)
         wx_bake_out_t o;
         wx_bake(&t, WX_BAKE_FULL, &b, &o);
         wx_drift_t d = {0};
-        wx_drift_start(&d, o.nclouds, 212);
-        double now = 0;
+        wx_drift_start(&d, o.nclouds, o.cloud_back, 212);
         for (int f = 0; f < FRAMES; f++) {
-            while (now < AT[f]) {
-                now += 1.0 / WX_DRIFT_FPS;
-                wx_drift_step(&d, now);
+            while (d.t < AT[f]) {
+                wx_drift_tick(&d, 1.0 / WX_DRIFT_FPS);
+                wx_drift_step(&d);
             }
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < WX_FACE; x++) {

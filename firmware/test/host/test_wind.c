@@ -405,11 +405,11 @@ static bool inside(wx_box_t a, wx_box_t b) { return a.x0 >= b.x0 && a.y0 >= b.y0
 
 static void test_layout(void)
 {
-    int still = wx_scene_px() * 3;
+    int scene = wx_scene_px() * 3;
     for (int lv = 0; lv < WX_WIND_LEVELS; lv++) {
         wx_wind_layout_t l;
         wx_wind_layout(lv, &l);
-        CHECK(l.total <= still, "level %d: layers %d B fit the still-cloud buffer %d B", lv, l.total, still);
+        CHECK(l.total <= scene, "level %d: layers %d B fit the scene buffer %d B", lv, l.total, scene);
         CHECK(inside(l.sock, l.area), "level %d: the sock inside the area", lv);
         CHECK(!(l.area.x0 & 1) && !(l.area.y0 & 1) && !(l.area.x1 & 1) && !(l.area.y1 & 1) && !(l.sock.x0 & 1) && !(l.sock.y0 & 1),
               "level %d: even boxes", lv);
@@ -440,7 +440,7 @@ static void test_layout(void)
         }
         CHECK(ok, "level %d: every streak and leaf stays in the area for 80 s", lv);
         printf("wind: level %d, sock box %dx%d, area %d,%d-%d,%d (%d px), layers %d of %d B\n", lv, l.sock.x1 - l.sock.x0,
-               l.sock.y1 - l.sock.y0, l.area.x0, l.area.y0, l.area.x1, l.area.y1, box_px(l.area), l.total, still);
+               l.sock.y1 - l.sock.y0, l.area.x0, l.area.y0, l.area.x1, l.area.y1, box_px(l.area), l.total, scene);
     }
 }
 
@@ -473,8 +473,8 @@ static void test_paint(void)
 {
     static wx_ring_t ring;
     static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
-    size_t still = (size_t)wx_scene_px() * 3;
-    uint8_t *m = calloc(1, still), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
+    size_t scene = (size_t)wx_scene_px() * 3;
+    uint8_t *m = calloc(1, scene), *hero = calloc(1, WX_HERO_BOX * WX_HERO_BOX * 3);
     wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = m};
     for (int lv = 0; lv < WX_WIND_LEVELS; lv++) {
         static const int KMH[WX_WIND_LEVELS] = {4, 18, 45};
@@ -483,7 +483,7 @@ static void test_paint(void)
         wx_temp_face(&o, NULL, WXF_WIND, &t);
         CHECK(t.wind.level == lv, "level %d from %d km/h", lv, KMH[lv]);
         wx_bake_out_t out = {.hero = {1, 1, 2, 2}, .nclouds = 1};
-        memset(m, 0, still);
+        memset(m, 0, scene);
         clock_t t0 = clock();
         wx_bake(&t, WX_BAKE_FULL, &b, &out);
         printf("wind: level %d host bake %.2f ms\n", lv, (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC);

@@ -76,10 +76,10 @@ void wx_paint_marker(wx_img_t *im);
 /* n face dots (wx_face_dot_xy), dot face white, the others grey. */
 void wx_paint_face_dots(wx_img_t *im, int face, int n);
 
+#define WX_SCENE_ALIGN 4
 /* Cloud i of all on its own, with all's tone and rim fade: one sprite. */
 void wx_cloud_one(const wx_clouds_t *all, int i, wx_clouds_t *one);
-/* The scene buffer in RGB565A8 pixels: the largest band's cloud sprites back to back or its whole cloud layer's box, the
-   room the other faces' layers are laid out in. */
+/* Scene buffer in RGB565A8 px: the most of a band's cloud sprites together or its whole layer (the other faces' room). */
 int wx_scene_px(void);
 
 #define WX_DRIP_W 8
@@ -201,9 +201,10 @@ typedef struct {
 
 typedef struct {
     wx_box_t hero; /* face box; empty when not shown */
-    int nclouds;   /* cloud sprites, back to front, each at cloud_at bytes into scene with its face box */
-    wx_box_t cloud[WX_DRIFT_MAX];
-    int cloud_at[WX_DRIFT_MAX];
+    int nclouds;   /* cloud sprites back to front: face box, byte offset into scene (WX_SCENE_ALIGN), a back cloud */
+    wx_box_t cloud[WX_CLOUDS_MAX];
+    int cloud_at[WX_CLOUDS_MAX];
+    bool cloud_back[WX_CLOUDS_MAX];
 } wx_bake_out_t;
 
 /* The WX_BAKE_* parts of t: RING the ring, HERO the hero and out->hero, SCENE all of it (background with the
