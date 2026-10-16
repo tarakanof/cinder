@@ -184,8 +184,11 @@ static const char *label_with(lv_obj_t *scr, const char *prefix)
     return NULL;
 }
 
-static void check_labels(lv_obj_t *scr, const char *state, const char *dotted)
+static void check_labels(lv_obj_t *scr, const char *state, const usage_acct_t *acc, bool name_dots)
 {
+    usage_face_t f;
+    usage_face(acc, s_now + s_clk.srv_offset, s_clk.has_utc_offset, s_clk.utc_offset, &f);
+    const char *src[] = {acc->name, f.value, "%", f.reset, f.week_line, f.week_short};
     lv_area_t a[8];
     const char *t[8];
     int lh[8];
@@ -198,10 +201,11 @@ static void check_labels(lv_obj_t *scr, const char *state, const char *dotted)
         lv_point_t sz;
         lv_text_get_size(&sz, t[i], lv_obj_get_style_text_font(o[i], LV_PART_MAIN), lv_obj_get_style_text_letter_space(o[i], LV_PART_MAIN), 0,
                          LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        bool may_dot = dotted && strncmp(t[i], dotted, strlen(dotted)) == 0;
+        bool as_set = false;
+        for (size_t k = 0; k < sizeof src / sizeof src[0]; k++) as_set |= src[k][0] && strcmp(t[i], src[k]) == 0;
         size_t len = strlen(t[i]);
-        bool dots = len >= 3 && strcmp(t[i] + len - 3, "...") == 0;
-        CHECK((may_dot || !dots) && sz.x <= lv_area_get_width(&a[i]),
+        bool name_dotted = name_dots && len >= 3 && len < strlen(acc->name) && strcmp(t[i] + len - 3, "...") == 0 && strncmp(t[i], acc->name, len - 3) == 0;
+        CHECK((as_set || name_dotted) && sz.x <= lv_area_get_width(&a[i]),
               "%s: '%s' fits its label: %d px in %d", state, t[i], (int)sz.x, (int)lv_area_get_width(&a[i]));
         float corners[4][2] = {{a[i].x1, a[i].y1}, {a[i].x2, a[i].y1}, {a[i].x1, a[i].y2}, {a[i].x2, a[i].y2}};
         for (int k = 0; h < 60 && k < 4; k++)
@@ -301,14 +305,14 @@ int main(int argc, char **argv)
     frame(d, t + 5);
     save("usage-models");
     CHECK(label_with(scr, "Opus 38% \xE2\x80\xA2 Sonnet 12%") != NULL, "the models line with their names");
-    check_labels(scr, "models", NULL);
+    check_labels(scr, "models", &b.a[0], false);
     b.a[0].models[0].pct = 100;
     b.a[0].models[1].pct = 100;
     publish(&b);
     frame(d, t + 5.2);
     save("usage-models-100");
     CHECK(label_with(scr, "Op 100% \xE2\x80\xA2 So 100%") != NULL, "100/100: the models by two letters, since the names would truncate");
-    check_labels(scr, "models at 100/100", NULL);
+    check_labels(scr, "models at 100/100", &b.a[0], false);
 
     b.a[0].n_models = 0;
     b.a[0].stale = true;
@@ -415,14 +419,14 @@ int main(int argc, char **argv)
         for (int i = 0; i < fn; i++) fc |= strncmp(ft[i], "limit in ", 9) == 0 && strstr(ft[i], "at this pace") != NULL;
         CHECK(fc, "the relative forecast line");
     }
-    check_labels(scr, "long name, relative forecast", "Wwww");
+    check_labels(scr, "long name, relative forecast", &lng.a[0], true);
     {
         lv_area_t na[8];
         const char *nt[8];
         int nn = labels(scr, na, nt, 8, NULL), ni = -1;
         for (int i = 0; i < nn; i++)
             if (strncmp(nt[i], "Wwww", 4) == 0) ni = i;
-        CHECK(ni >= 0 && strcmp(nt[ni] + strlen(nt[ni]) - 3, "...") == 0, "the 24-char name is dotted");
+        CHECK(ni >= 0 && strcmp(nt[ni], lng.a[0].name) != 0, "the 24-char name is dotted");
         s_now += 1;
         frame(d, 300.5);
         CHECK(ni >= 0 && !redrawn(&na[ni]), "a second later the dotted name is not set and redrawn again: %d areas, %ld px", s_areas, s_px);
@@ -430,7 +434,7 @@ int main(int argc, char **argv)
     lng.a[0].five.pct = 100;
     publish(&lng);
     frame(d, 301);
-    check_labels(scr, "limited, relative", "Wwww");
+    check_labels(scr, "limited, relative", &lng.a[0], true);
 
     s_now += 1;
     usage_view_set_offline(true);
