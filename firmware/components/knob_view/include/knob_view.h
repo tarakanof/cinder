@@ -7,6 +7,7 @@
 #include "demo.h"
 #include "np.h"
 #include "pomo.h"
+#include "usage.h"
 #include "weather_face.h"
 
 #ifdef __cplusplus
@@ -49,6 +50,8 @@ typedef struct {
 
     bool has_np;
     np_info_t np;
+
+    usage_block_t usage;
 
     long long diag_live_until;   /* server Unix s; 0 = absent */
 

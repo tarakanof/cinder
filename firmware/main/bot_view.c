@@ -13,6 +13,7 @@
 #include "rim_slots.h"
 #include "ring_glint.h"
 #include "tool_marks.h"
+#include "usage.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
@@ -107,6 +108,13 @@ static int s_glint_idx = -1;
 static int s_glint_dy;
 static int s_glint_defer;
 static void glint_draw_cb(lv_event_t *e);
+
+static EXT_RAM_BSS_ATTR struct {
+    uint8_t *mask;
+    lv_image_dsc_t img;
+    int x, y, w, h, dy;
+    bool want, on;
+} s_hint;
 
 #define OFFLINE_RGB 0x5A5A5A
 static lv_obj_t *s_offline;
@@ -510,8 +518,19 @@ void bot_view_set_options(bool source_label, bool working_ring)
     host_sync();
 }
 
+static void hint_draw(lv_layer_t *layer)
+{
+    lv_draw_image_dsc_t d;
+    lv_draw_image_dsc_init(&d);
+    d.src = &s_hint.img;
+    d.recolor = lv_color_hex(USAGE_RED);
+    lv_area_t a = {s_hint.x, s_hint.y + s_hint.dy, s_hint.x + s_hint.w - 1, s_hint.y + s_hint.dy + s_hint.h - 1};
+    lv_draw_image(layer, &d, &a);
+}
+
 static void glint_draw_cb(lv_event_t *e)
 {
+    if (s_hint.on) hint_draw(lv_event_get_layer(e));
     if (s_glint_idx < 0) return;
     const glint_step_t *st = &s_glint_cache[s_glint_idx];
     s_glint_img = (lv_image_dsc_t){
@@ -600,28 +619,67 @@ bool bot_view_glint_deg(double t, float *deg)
 
 static void rim_sync(double t);
 
+void bot_view_set_hint(bool on) { s_hint.want = on; }
+
+static void hint_invalidate(void)
+{
+    lv_area_t a = {s_hint.x, s_hint.y + s_hint.dy, s_hint.x + s_hint.w - 1, s_hint.y + s_hint.dy + s_hint.h - 1};
+    lv_obj_invalidate_area(s_glint, &a);
+}
+
+static bool hint_mask(void)
+{
+    if (s_hint.mask) return true;
+    float hw = (float)(RIM_PX / 2);
+    usage_arc_box((float)CX, (float)CY, (float)s_r, hw, USAGE_HINT_A0, USAGE_HINT_A1, &s_hint.x, &s_hint.y, &s_hint.w, &s_hint.h);
+    s_hint.mask = heap_caps_malloc((size_t)(s_hint.w * s_hint.h), MALLOC_CAP_SPIRAM);
+    if (!s_hint.mask) return false;
+    usage_arc_mask((float)CX, (float)CY, (float)s_r, hw, USAGE_HINT_A0, USAGE_HINT_A1, s_hint.x, s_hint.y, s_hint.w, s_hint.h,
+                   s_hint.mask);
+    s_hint.img = (lv_image_dsc_t){
+        .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8, .w = (uint32_t)s_hint.w, .h = (uint32_t)s_hint.h,
+                   .stride = (uint32_t)s_hint.w},
+        .data_size = (uint32_t)(s_hint.w * s_hint.h),
+        .data = s_hint.mask,
+    };
+    return true;
+}
+
+static bool hint_sync(void)
+{
+    bool on = s_hint.want && s_slots.shown == RIM_SLOT_BASE && s_rim_shape == 0 &&
+              !lv_obj_has_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN) && hint_mask();
+    if (on == s_hint.on && (!on || s_hint.dy == s_rim_dy)) return false;
+    if (s_hint.on) hint_invalidate();
+    s_hint.on = on;
+    s_hint.dy = s_rim_dy;
+    if (on) hint_invalidate();
+    return true;
+}
+
 bool bot_view_tick(double t, bool defer)
 {
     rim_sync(t);
+    bool hint = hint_sync();
     int lap = glint_enabled() ? -1 : lap_step(t);
     bool on = (glint_enabled() || lap >= 0) && s_slots.shown == RIM_SLOT_BASE;
     if (!on) {
         glint_hide();
-        return false;
+        return hint;
     }
     s_glint_dy = s_rim_dy;
     int idx = lap >= 0 ? lap : glint_step(t);
-    if (idx == s_glint_idx) return false;
+    if (idx == s_glint_idx) return hint;
     if (defer && s_glint_idx >= 0 && s_glint_defer < GLINT_MAX_DEFER) {
         s_glint_defer++;
-        return false;
+        return hint;
     }
     s_glint_defer = 0;
     glint_step_t *st = &s_glint_cache[idx];
     if (!st->mask) {
         ring_glint_box(glint_geom(), glint_head(idx), &st->box);
         uint8_t *m = heap_caps_malloc((size_t)(st->box.w * st->box.h), MALLOC_CAP_SPIRAM);
-        if (!m) return false;
+        if (!m) return hint;
         ring_glint_raster(glint_geom(), glint_head(idx), &st->box, m);
         st->mask = m;
     }

@@ -42,6 +42,7 @@
 #include "nvs.h"
 #include "ota_client.h"
 #include "pomo_client.h"
+#include "usage_client.h"
 #include "view_policy.h"
 #include "view_wait.h"
 #include "weather_client.h"
@@ -807,6 +808,7 @@ static void apply_mode(void)
     if (legacy) {
         view_etag_clear(&P->etag);
         view_reset();
+        usage_client_feed(NULL, false, 0);
     }
     dev_sched_epoch_reset(&s_sched);
     pomo_client_legacy(legacy);
@@ -868,6 +870,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
         pomo_client_feed(e->has_pomo ? &e->pomo : NULL, e->pomo_counting, e->ends_at, srv_now, sent, received);
     weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
     np_client_feed(e->has_np ? &e->np : NULL, want);
+    usage_client_feed(&e->usage, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
     demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));

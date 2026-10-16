@@ -17,6 +17,7 @@ CP="$D/../../components/caps"
 RT="$D/../../components/rotation"
 DM="$D/../../components/demo"
 RS="$D/../../components/refr_stats"
+U="$D/../../components/usage"
 IDF="${IDF_PATH:?source the ESP-IDF export script first (IDF_PATH)}"
 J="$IDF/components/json/cJSON"
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cinder_test.XXXXXX")"
@@ -460,7 +461,7 @@ for ARG in true false; do
     body "$MAINC" ota_frame | grep -qF "moment_view_hold($ARG);" || WIRING="$WIRING ota_frame-moment_view_hold($ARG)"
 done
 body "$MAINC" ota_frame | grep -qF 'moment_unact(now_s());' || WIRING="$WIRING ota_frame-ends-the-act"
-fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, pg->frame == page_bot_frame\);/ {m = NR} /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && m < p)}' ||
+fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, bot_page\);/ {m = NR} /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && m < p)}' ||
     WIRING="$WIRING page_tick-runs-moment_tick-before-the-chase-and-the-pose"
 fbody "$MAINC" page_tick | awk '/^    else if \(!ds\.view_on && s_scene_resume_at == 0\) moment_tick\(/ {m = NR} /^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && r == m + 1 && r < p)}' ||
     WIRING="$WIRING page_tick-reads-around-a-moment-before-the-pose"
@@ -562,7 +563,7 @@ done
 body "$MAINC" music_unact | grep -qxF '    if (s_mm_acting && s_bot.mood != s_mm_mood) bot_act_drop(&s_bot, t);' &&
     body "$MAINC" music_unact | grep -qxF '    else if (s_mm_acting) bot_act_end(&s_bot, true, 0.3, t);' || WIRING="$WIRING music_unact-ends-the-act"
 fbody "$MAINC" page_tick | awk '/^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR}
-    /^    music_tick\(t, calm, offline, pg->frame == page_bot_frame, !s_scene_on && !ds\.view_on && s_scene_resume_at == 0\);$/ {m = NR}
+    /^    music_tick\(t, calm, offline, bot_page, !s_scene_on && !ds\.view_on && s_scene_resume_at == 0\);$/ {m = NR}
     /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && m < p)}' ||
     WIRING="$WIRING page_tick-runs-music_tick-after-the-weather-moment-before-the-chase-and-the-pose"
 fbody "$MAINC" page_tick | awk '/^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} /^    f\.pose\.eye_dy -= music_view_eye_px\(t\) \/ bot_view_radius_px\(\);$/ {e = NR}
@@ -660,7 +661,7 @@ fi
 echo "waiting restart wiring: page shown, new lead or a higher count, demo scene number before the mood"
 grep -A1 -F '    bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);' "$MAINC" | grep -qxF '    bot_set_ring(&s_bot, s_ks_lv->working_ring);' ||
     WIRING="$WIRING bot-told-the-working-ring-setting"
-fbody "$MAINC" page_tick | awk '/^    bot_rim_ready\(&s_bot, bot_view_rim_feed\(s_bot\.mood, s_bot\.asleep, pg->frame == page_bot_frame\)\);$/ {r = NR} /^    f\.pose = bot_pose\(&s_bot, t\);$/ {p = NR}
+fbody "$MAINC" page_tick | awk '/^    bot_rim_ready\(&s_bot, bot_view_rim_feed\(s_bot\.mood, s_bot\.asleep, bot_page\)\);$/ {r = NR} /^    f\.pose = bot_pose\(&s_bot, t\);$/ {p = NR}
     /^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} END {exit !(r && p == r + 1 && s == p + 1)}' ||
     WIRING="$WIRING page_tick-feeds-the-outline-before-the-pose"
 if [ -n "$WIRING" ]; then
@@ -715,15 +716,17 @@ cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c
 cc $CFLAGS "-DLT_RACE_POINT(t)=lt_race_point(t)" -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
 K="$D/../../components/knob_view"
 NP="$D/../../components/nowplaying"
-cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$H/include" -I"$J" \
-    "$K/knob_view.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$H/ember_host.c" "$J/cJSON.c" \
+cc $CFLAGS -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$H/include" -I"$J" \
+    "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$H/ember_host.c" "$J/cJSON.c" \
     "$D/test_view.c" -lm \
     -o "${OUT}_view"
-cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
-    "$K/knob_view.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" \
+cc $CFLAGS -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
+    "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" \
     "$D/test_demo.c" -lm -o "${OUT}_demo"
-cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$J" "$K/knob_view.c" "$DM/demo.c" \
+cc $CFLAGS -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$J" "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" \
     "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$D/test_np.c" -lm -o "${OUT}_np"
+cc $CFLAGS -I"$U/include" -I"$NP/include" -I"$J" "$U/usage.c" "$U/usage_draw.c" "$NP/np.c" "$J/cJSON.c" "$D/test_usage.c" -lm -o "${OUT}_usage"
+"${OUT}_usage"
 LV="$D/../../managed_components/lvgl__lvgl"
 TITLE_FONT=0
 if [ -d "$LV" ]; then
@@ -756,12 +759,15 @@ if [ -d "$LV" ]; then
     mkdir -p "$OUT_DIR/lv"
     find "$LV/src" -name '*.c' -print0 | LVDEF="$LVDEF" LV="$LV" LVO="$OUT_DIR/lv" xargs -0 -P 8 -n 1 \
         sh -c 'cc -std=c11 -O1 -w $LVDEF -I"$LV" -c "$1" -o "$LVO/$(printf "%s" "$1" | tr / _).o"' sh
-    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" "$D/../../main/bot_view.c" \
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" "$D/../../main/bot_view.c" "$U/usage_draw.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
         "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
     cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$J" \
         "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
         "$G/touch_swipe.c" "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
+        -I"$NP/include" -I"$J" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$U/usage_draw.c" \
+        "$NP/np.c" "$J/cJSON.c" "$D/test_usage_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_usage_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
         "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
 fi
@@ -798,7 +804,7 @@ fi
 "${OUT}_demo" "$D/fixtures/demo" "$D/fixtures/ember/demo"
 "${OUT}_np"
 cc $CFLAGS -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" \
-    -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
+    -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
     "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$C/music_moment.c" "$D/test_np_client.c" \
     -lm -lpthread -o "${OUT}_np_client"
 "${OUT}_np_client"
@@ -811,27 +817,28 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_sun_label"
     "${OUT}_air_label"
     "${OUT}_moment_label"
-    "${OUT}_eye_view"
+    "${OUT}_eye_view" ${USAGE_VIEW_SHOTS:+"$USAGE_VIEW_SHOTS"}
     "${OUT}_np_view" ${NP_VIEW_SHOTS:+"$NP_VIEW_SHOTS"}
     "${OUT}_music_view" ${MUSIC_VIEW_SHOTS:+"$MUSIC_VIEW_SHOTS"}
+    "${OUT}_usage_view" ${USAGE_VIEW_SHOTS:+"$USAGE_VIEW_SHOTS"}
 else
-    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing and music moment view tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing, music moment and usage view tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 cc $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
 "${OUT}_ota_rec"
 cc $CFLAGS -I"$D/view_stubs" "$D/test_task_stub.c" -lpthread -o "${OUT}_task_stub"
 "${OUT}_task_stub"
-cc $CFLAGS -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$G/include" -I"$J" \
-    "$K/knob_view.c" "$DM/demo.c" "$K/ember_legacy.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
+cc $CFLAGS -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$G/include" -I"$J" \
+    "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$K/ember_legacy.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" "$W/weather_face.c" "$W/wx_legacy.c" "$NP/np.c" \
     "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
 "${OUT}_legacy"
-cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
-    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$J" "$K/knob_view.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
+cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$J" "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
     "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
-cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
     "$O/ota_policy.c" "$PG/pages.c" "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_caps.c" -lm \
     -o "${OUT}_caps"
@@ -839,9 +846,9 @@ cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$DM/include" -I"$C/include" -I"$P/i
 cc $CFLAGS -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_pages.c" -lm -o "${OUT}_pages"
 "${OUT}_pages" "$D/fixtures/ember"
-cc $CFLAGS -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DM/include" \
+cc $CFLAGS -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
-    "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$DM/demo.c" "$P/pomo.c" \
+    "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" \
     "$W/weather_face.c" "$NP/np.c" "$H/ember_host.c" "$LS/link_state.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
     "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_http.c" -lm \
     -o "${OUT}_http"

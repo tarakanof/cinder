@@ -305,7 +305,73 @@ static void test_label(lv_display_t *d)
     }
 }
 
-int main(void)
+static int hint_px(void)
+{
+    int n = 0;
+    for (int y = 30; y < 160; y++)
+        for (int x = 40; x < 200; x++) {
+            uint16_t v = s_fb[y * W + x];
+            int r = (v >> 11) << 3, g = ((v >> 5) & 63) << 2, b = (v & 31) << 3;
+            n += r >= 200 && g <= 100 && b <= 100;
+        }
+    return n;
+}
+
+static void save_ppm(const char *dir, const char *name)
+{
+    if (!dir) return;
+    char path[512];
+    snprintf(path, sizeof path, "%s/%s.ppm", dir, name);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fprintf(f, "P6\n%d %d\n255\n", W, H);
+    for (int i = 0; i < W * H; i++) {
+        uint16_t v = s_fb[i];
+        fputc((v >> 11) * 255 / 31, f);
+        fputc(((v >> 5) & 63) * 255 / 63, f);
+        fputc((v & 31) * 255 / 31, f);
+    }
+    fclose(f);
+}
+
+static int hint_frames(lv_display_t *d, bot_mood_t m, double t0, int want)
+{
+    bot_pose_t p = {.mood = m, .face = m, .eyes = BOT_EYES_DASH, .gaze_y = 0.2, .scale_x = 1, .scale_y = 1};
+    int n = 0;
+    for (int i = 0; i < 2000; i++) {
+        double t = t0 + i * 0.01;
+        bot_view_rim_feed(m, false, true);
+        bot_view_update(&p, t);
+        bot_view_rim_pose(&p, t);
+        bot_view_tick(t, false);
+        lv_refr_now(d);
+        n = hint_px();
+        if (want ? n > want : n < 20) return n;
+        usleep(5000);
+    }
+    return n;
+}
+
+static void test_hint(lv_display_t *d, const char *dir)
+{
+    bot_view_set_host(&(ember_host_info_t){.color = -1});
+    CHECK(shown_rim(d, BOT_WORKING), "the working outline before the hint");
+    bot_view_set_hint(true);
+    int on = hint_frames(d, BOT_WORKING, 400, 900);
+    CHECK(on > 900 && on < 2000, "the limit hint: a short red arc on the working rim: %d px", on);
+    save_ppm(dir, "bot-hint");
+    bot_view_set_hint(false);
+    int off = hint_frames(d, BOT_WORKING, 430, 0);
+    CHECK(off < 20, "hint off: the rim back to green: %d red px", off);
+    bot_view_set_hint(true);
+    on = hint_frames(d, BOT_IDLE, 460, 900);
+    CHECK(on > 900, "on the idle rim too: %d px", on);
+    bot_view_set_hint(false);
+    hint_frames(d, BOT_IDLE, 490, 0);
+    printf("eye view: limit hint %d px on the rim, gone when off\n", on);
+}
+
+int main(int argc, char **argv)
 {
     lv_init();
     lv_tick_set_cb(tick_ms);
@@ -361,6 +427,7 @@ int main(void)
     test_offline(d, eye_bottom);
     test_rim_hue(d);
     test_label(d);
+    test_hint(d, argc > 1 ? argv[1] : NULL);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;
 }

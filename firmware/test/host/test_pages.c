@@ -102,7 +102,9 @@ static bool same_in(page_input_t a, page_input_t b)
 static void test_route(void)
 {
     const page_input_t in = {.detents = 2, .pushes = 1, .longs = 3, .touches = 4, .wakes = 5, .hswipes = -1, .taps = {1, 0, 3, 0}};
-    CHECK(SAME_IN(pages_route(&PAGES[index_of("bot")], in), .detents = 2, .pushes = 5, .longs = 3), "bot");
+    CHECK(SAME_IN(pages_route(&PAGES[index_of("bot")], in), .detents = 2, .pushes = 1, .longs = 3, .touches = 4, .wakes = 5,
+                  .hswipes = -1, .taps = {1, 0, 3, 0}),
+          "bot: raw taps (a tap opens the usage screens), wakes and horizontal swipes");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("pomodoro")], in), .pushes = 5, .longs = 3), "pomodoro: no detents");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("weather")], in), .detents = 2, .pushes = 5, .longs = 3),
           "weather: turns switch faces; pushes and longs reach it and are ignored there");
@@ -132,8 +134,9 @@ static void test_dispatch(void)
     const page_input_t raw = {.detents = 2, .pushes = 3, .longs = 1, .touches = 4, .wakes = 5, .hswipes = 2, .taps = {1, 1, 0, 2}};
     pages_nav_t nav = nav_at(index_of("bot"));
     dispatch(&nav, raw);
-    CHECK(strcmp(page_log, "bot.in ") == 0 && SAME_IN(page_stub_in, .detents = 2, .pushes = 7, .longs = 1),
-          "bot gets turns, pushes + taps, longs: %s", page_log);
+    CHECK(strcmp(page_log, "bot.in ") == 0 &&
+              SAME_IN(page_stub_in, .detents = 2, .pushes = 3, .longs = 1, .touches = 4, .wakes = 5, .hswipes = 2, .taps = {1, 1, 0, 2}),
+          "bot gets raw input: %s", page_log);
     nav = nav_at(index_of("pomodoro"));
     dispatch(&nav, raw);
     CHECK(strcmp(page_log, "pomo.in ") == 0 && SAME_IN(page_stub_in, .pushes = 7, .longs = 1),
@@ -153,7 +156,7 @@ static void test_dispatch(void)
     dispatch(&nav, (page_input_t){.pushes = 3});
     CHECK(page_stub_inputs == 1 && page_stub_in.pushes == 3, "repeated pushes reach the page as a count");
     dispatch(&nav, (page_input_t){.touches = 2});
-    CHECK(page_stub_in.pushes == 2 && page_stub_in.touches == 0, "bot: repeated taps are pushes");
+    CHECK(page_stub_in.pushes == 0 && page_stub_in.touches == 2, "bot: repeated taps stay taps (pushes only without accounts)");
 
     pages_nav_t np_first = {.order = {index_of("nowplaying"), index_of("bot")}, .n = 2, .pos = 0,
                             .page = index_of("nowplaying")};
