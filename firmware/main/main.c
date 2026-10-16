@@ -838,6 +838,8 @@ static void bot_shift_root(void)
     wx_shift_xy(&s_bot_shift, &WX_SHIFT_ORBIT, &dx, &dy);
     lv_obj_set_style_translate_x(s_bot_page, dx, 0);
     lv_obj_set_style_translate_y(s_bot_page, dy, 0);
+    lv_obj_set_style_translate_x(s_join_label, dx, 0);
+    lv_obj_set_style_translate_y(s_join_label, dy, 0);
 }
 
 void page_bot_frame(const page_frame_t *f)

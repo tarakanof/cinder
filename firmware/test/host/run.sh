@@ -505,6 +505,10 @@ body "$MAINC" page_bot_frame | awk '/^    if \(s_usage_on\) return;$/ {r = NR} /
 body "$MAINC" bot_shift_root | grep -qxF '    wx_shift_xy(&s_bot_shift, &WX_SHIFT_ORBIT, &dx, &dy);' &&
     body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_x(s_bot_page, dx, 0);' &&
     body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_y(s_bot_page, dy, 0);' || ORB="$ORB the-orbit-translates-the-bot-page"
+body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_x(s_join_label, dx, 0);' &&
+    body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_y(s_join_label, dy, 0);' &&
+    [ "$(grep -c 'lv_obj_set_style_translate_[xy](s_join_label, ' "$MAINC")" -eq 2 ] &&
+    body "$MAINC" join_label_create | grep -qxF '    s_join_label = lv_label_create(lv_layer_top());' || ORB="$ORB the-join-label-on-the-top-layer-orbits-with-the-bot-page"
 [ "$(grep -c 'bot_shift_root()' "$MAINC")" -eq 1 ] || ORB="$ORB bot_shift_root-only-on-a-step"
 fbody "$MAINC" page_tick | grep -qxF '    page_frame_t f = {.t = t, .dt = dt, .offline = offline};' || ORB="$ORB page_tick-passes-the-frame-dt"
 grep -qxF 'static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;' "$MAINC" || ORB="$ORB s_bot_shift-in-PSRAM"
