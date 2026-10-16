@@ -372,8 +372,6 @@ void wx_drift_start(wx_drift_t *d, int n, const bool *back, uint32_t entropy)
     int pp[WX_CLOUDS_MAX], px[WX_CLOUDS_MAX];
     drift_perm(&s, d->n, pp);
     drift_perm(&s, d->n, px);
-    float lean = WX_DRIFT_LEAN_MIN + (WX_DRIFT_LEAN_MAX - WX_DRIFT_LEAN_MIN) * drift_unit(&s);
-    d->lean = drift_rand(&s) & 1 ? lean : -lean;
     float slot = (WX_DRIFT_MAX_S - WX_DRIFT_MIN_S) / (float)d->n;
     for (int i = 0; i < d->n; i++) {
         d->period[i] = WX_DRIFT_MIN_S + slot * ((float)pp[i] + 0.15f + 0.7f * drift_unit(&s));
@@ -388,8 +386,8 @@ void wx_drift_path(const wx_drift_t *d, int i, double t, int *dx, int *dy)
     *dx = *dy = 0;
     if (i < 0 || i >= d->n || !(t > 0) || !isfinite(t)) return;
     double ramp = t < WX_DRIFT_RAMP_S ? t / WX_DRIFT_RAMP_S : 1, p = fmod(t / d->period[i], 1.0);
-    double swing = WX_DRIFT_X - fabs(d->lean), k = d->depth[i] * ramp;
-    *dx = (int)lround(k * (d->lean + swing * sin(2 * M_PI * (p + d->phase_x[i]))));
+    double k = d->depth[i] * ramp;
+    *dx = (int)lround(k * WX_DRIFT_X * sin(2 * M_PI * (p + d->phase_x[i])));
     *dy = (int)lround(k * WX_DRIFT_Y * sin(2 * M_PI * (p + d->phase_y[i])));
 }
 

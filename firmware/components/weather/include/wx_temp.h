@@ -135,8 +135,6 @@ void wx_shift_xy(const wx_shift_t *s, int *dx, int *dy);
 #define WX_DRIFT_MAX_S 13.0f
 #define WX_DRIFT_RAMP_S 2.0
 #define WX_DRIFT_FPS 15
-#define WX_DRIFT_LEAN_MIN 1.5f
-#define WX_DRIFT_LEAN_MAX 2.5f
 #define WX_DRIFT_BACK 0.6f
 
 typedef struct {
@@ -144,14 +142,13 @@ typedef struct {
     long frame;
     uint32_t starts;
     double t;   /* s since the start, only wx_drift_tick advances it */
-    float lean; /* px, the wind's side for every cloud this start */
     float period[WX_CLOUDS_MAX], phase_x[WX_CLOUDS_MAX], phase_y[WX_CLOUDS_MAX], depth[WX_CLOUDS_MAX];
     int dx[WX_CLOUDS_MAX], dy[WX_CLOUDS_MAX];
 } wx_drift_t;
 
 /* n clouds at rest on a new set of paths (back[i]: a back cloud, swings less; NULL: all front); seeded from entropy and the start count. */
 void wx_drift_start(wx_drift_t *d, int n, const bool *back, uint32_t entropy);
-/* Cloud i's path t s after the start: depth * (lean + swing * sin) across, depth * sin bob; within ±WX_DRIFT_X, ±WX_DRIFT_Y, 0 at t 0. */
+/* Cloud i's path t s after the start: depth * ±WX_DRIFT_X across, depth * ±WX_DRIFT_Y bob, 0 at t 0. */
 void wx_drift_path(const wx_drift_t *d, int i, double t, int *dx, int *dy);
 /* Advances the drift clock; a non-finite or negative dt counts as 0. */
 void wx_drift_tick(wx_drift_t *d, double dt);

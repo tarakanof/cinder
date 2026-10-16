@@ -76,7 +76,6 @@ void wx_paint_marker(wx_img_t *im);
 /* n face dots (wx_face_dot_xy), dot face white, the others grey. */
 void wx_paint_face_dots(wx_img_t *im, int face, int n);
 
-#define WX_SCENE_ALIGN 4
 /* Cloud i of all on its own, with all's tone and rim fade: one sprite. */
 void wx_cloud_one(const wx_clouds_t *all, int i, wx_clouds_t *one);
 /* Scene buffer in RGB565A8 px: the most of a band's cloud sprites together or its whole layer (the other faces' room). */
@@ -198,6 +197,8 @@ typedef struct {
     uint8_t *hero, *scene; /* RGB565A8: WX_HERO_BOX squared; wx_scene_px() (the cloud sprites or another face's layers) */
     void (*yield)(void); /* NULL: none; wx_bake calls it before every painted row, it decides when to sleep */
 } wx_bake_buf_t;
+
+#define WX_SCENE_ALIGN 4
 
 typedef struct {
     wx_box_t hero; /* face box; empty when not shown */

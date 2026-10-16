@@ -805,20 +805,17 @@ static void test_drift(void)
     wx_drift_t d = {0};
     int px, py;
     CHECK(wx_drift_step(&d) == -1, "drift: nothing before a start");
-    int leans[2] = {0};
     for (int band = 1; band <= 4; band++) {
         wx_clouds_t all;
         wx_clouds_for(band, false, &all);
-        int n = all.n, steps = 0, lag_even = 0, worst_lag = 0, bad_step = 0, two = 0, wrong = 0, out = 0, off_extreme = 0, off_mean = 0;
-        int against = 0, flat_back = 0;
+        int n = all.n, steps = 0, lag_even = 0, worst_lag = 0, bad_step = 0, two = 0, wrong = 0, out = 0, off_extreme = 0;
+        int swing = 0, flat_back = 0;
         long box_px = 0;
         bool back[WX_CLOUDS_MAX];
         for (int i = 0; i < n; i++) back[i] = all.cl[i].back;
         for (uint32_t seed = 0; seed < 32; seed++) {
             wx_drift_start(&d, n, back, seed * 2654435761u);
-            CHECK(d.n == n && fabsf(d.lean) >= WX_DRIFT_LEAN_MIN && fabsf(d.lean) <= WX_DRIFT_LEAN_MAX, "band %d: %d paths, lean %.2f px", band,
-                  n, d.lean);
-            leans[d.lean > 0]++;
+            CHECK(d.n == n, "band %d: %d paths", band, n);
             for (int i = 0; i < n; i++) {
                 CHECK(d.period[i] >= WX_DRIFT_MIN_S && d.period[i] <= WX_DRIFT_MAX_S, "band %d seed %u: period %.2f s in 7-13 s", band,
                       seed, d.period[i]);
@@ -829,7 +826,6 @@ static void test_drift(void)
                           d.period[i], d.period[j], d.phase_x[i], d.phase_x[j]);
             }
             int lo[WX_CLOUDS_MAX], hi[WX_CLOUDS_MAX], plo[WX_CLOUDS_MAX], phi[WX_CLOUDS_MAX];
-            double sum[WX_CLOUDS_MAX] = {0};
             int cnt = 0;
             for (int k = 0; k < n; k++) lo[k] = hi[k] = plo[k] = phi[k] = 0;
             uint32_t r = seed + 1;
@@ -863,7 +859,6 @@ static void test_drift(void)
                     if (lag > worst_lag) worst_lag = lag;
                     if (!(seed & 1) && lag > lag_even) lag_even = lag;
                     if (!settled) continue;
-                    sum[k] += d.dx[k];
                     if (d.dx[k] < lo[k] || cnt == 1) lo[k] = d.dx[k];
                     if (d.dx[k] > hi[k] || cnt == 1) hi[k] = d.dx[k];
                     if (px < plo[k] || cnt == 1) plo[k] = px;
@@ -872,10 +867,9 @@ static void test_drift(void)
             }
             int front_range = 0, back_range = 99;
             for (int k = 0; k < n; k++) {
-                double mean = sum[k] / cnt, want = d.depth[k] * d.lean;
+                int reach = (int)lround(d.depth[k] * WX_DRIFT_X);
                 off_extreme += lo[k] != plo[k] || hi[k] != phi[k];
-                off_mean += fabs(mean - want) > 0.75;
-                against += mean * d.lean <= 0;
+                swing += lo[k] != -reach || hi[k] != reach;
                 if (back[k]) back_range = hi[k] - lo[k] < back_range ? hi[k] - lo[k] : back_range;
                 else front_range = hi[k] - lo[k] > front_range ? hi[k] - lo[k] : front_range;
             }
@@ -888,13 +882,12 @@ static void test_drift(void)
         CHECK(lag_even <= 2 && worst_lag <= 2, "band %d: at most 2 px behind the path, ticked at %d fps or at 15-60 fps (%d, %d)", band,
               WX_DRIFT_FPS, lag_even, worst_lag);
         CHECK(off_extreme == 0, "band %d: every cloud reaches both ends of its path (%d short)", band, off_extreme);
-        CHECK(against == 0 && off_mean == 0, "band %d: every cloud leans with the shared wind, mean at depth x lean (%d against, %d off)",
-              band, against, off_mean);
+        CHECK(swing == 0, "band %d: front clouds swing the full ±%d px, back clouds ±%d (%d short)", band, WX_DRIFT_X,
+              (int)lround(WX_DRIFT_BACK * WX_DRIFT_X), swing);
         CHECK(flat_back == 0, "band %d: back clouds swing less than front clouds (%d seeds not)", band, flat_back);
         printf("drift: band %d, %d cloud(s): %.1f steps/s, one box of %ld px each (%ld px/s; the old single drift was 1 step/s)\n", band, n,
                steps / (60.0 * 32), steps ? box_px / steps : 0, steps ? (long)(box_px / (60.0 * 32)) : 0);
     }
-    CHECK(leans[0] > 10 && leans[1] > 10, "drift: the wind blows either way across shows (%d left, %d right)", leans[0], leans[1]);
 
     wx_drift_start(&d, 4, NULL, 7);
     wx_drift_t a = d;

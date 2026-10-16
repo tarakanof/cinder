@@ -652,6 +652,8 @@ void wx_cloud_one(const wx_clouds_t *all, int i, wx_clouds_t *one)
 
 static int box_px(wx_box_t b) { return (b.x1 - b.x0) * (b.y1 - b.y0); }
 
+static int scene_bytes(wx_box_t b) { return (box_px(b) * 3 + WX_SCENE_ALIGN - 1) / WX_SCENE_ALIGN * WX_SCENE_ALIGN; }
+
 static void clouds_none(wx_bake_out_t *out)
 {
     out->nclouds = 0;
@@ -669,7 +671,7 @@ int wx_scene_px(void)
         int sum = 0;
         for (int i = 0; i < all.n; i++) {
             wx_cloud_one(&all, i, &one);
-            sum += (box_px(wx_clouds_box(&one)) * 3 + WX_SCENE_ALIGN - 1) / WX_SCENE_ALIGN * WX_SCENE_ALIGN;
+            sum += scene_bytes(wx_clouds_box(&one));
         }
         sum = (sum + 2) / 3;
         int whole = box_px(wx_clouds_box(&all));
@@ -825,7 +827,7 @@ void wx_bake(const wx_temp_t *t, int kind, const wx_bake_buf_t *b, wx_bake_out_t
             out->cloud[out->nclouds] = bx;
             out->cloud_back[out->nclouds] = one.cl[0].back;
             out->cloud_at[out->nclouds++] = at;
-            at += (box_px(bx) * 3 + WX_SCENE_ALIGN - 1) / WX_SCENE_ALIGN * WX_SCENE_ALIGN;
+            at += scene_bytes(bx);
         }
     }
     if (kind & WX_BAKE_HERO) {
