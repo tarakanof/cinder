@@ -1056,6 +1056,7 @@ static void test_config_custom(void)
     CHECK(!ks.fast_link, "fast link off");
     CHECK(!ks.quiet_calm && ks.quiet_dim == 5, "quiet calm off, dim 5");
     CHECK(ks.rotation == 180, "rotation 180");
+    CHECK(!ks.swipe_pages, "swipe off");
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
     int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
