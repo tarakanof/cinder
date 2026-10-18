@@ -447,9 +447,9 @@ static void drift_at(int k, int *dx, int *dy)
     *dy = k ? (int)lround(-DRIFT_PX * cos(a)) : 0;
 }
 
-static bool dim_step(bool playing, double now)
+static bool dim_step(bool live, double now)
 {
-    bool dim = playing && now - s_last_input >= BURN_IN_S;
+    bool dim = live && now - s_last_input >= BURN_IN_S;
     if (dim != s_dimmed) {
         s_dimmed = dim;
         s_drift = 0;
@@ -464,7 +464,7 @@ static bool dim_step(bool playing, double now)
 static void burn_in(double now)
 {
     if (s_kind != KIND_LEGACY) return;
-    bool dim = s_mode == MODE_PLAYING && now - s_last_input >= BURN_IN_S;
+    bool dim = (s_mode == MODE_PLAYING || s_mode == MODE_PAUSED) && now - s_last_input >= BURN_IN_S;
     if (dim != s_dimmed) {
         s_dimmed = dim;
         lv_obj_set_style_image_opa(s_face, dim ? FACE_DIM_OPA : LV_OPA_COVER, 0);
@@ -640,7 +640,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
                     (last != NP_NONE ? last : V->snap.info.state) == NP_PAUSED;
         f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED || held);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
-        f.dim = dim_step(st == NPF_PLAYING || (st == NPF_PAUSED && npc_vinyl()), now);
+        f.dim = dim_step(np_face_live(st), now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
     } else {
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {

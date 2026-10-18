@@ -1833,6 +1833,12 @@ static int text_opa(lv_obj_t *scr, const char *txt)
     return lv_obj_get_style_opa_recursive(l, 0);
 }
 
+static int label_dim(lv_obj_t *scr, const char *txt)
+{
+    lv_obj_t *l = label_find(scr, txt);
+    return l ? lv_obj_get_style_text_opa(l, 0) : -1;
+}
+
 static void frames_off(lv_display_t *d, int n)
 {
     for (int i = 0; i < n; i++) {
@@ -2070,14 +2076,21 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     publish_now(&np);
     frames(d, 1700);
     CHECK(ctl_opa_in(scr) == 255, "cover face, paused 170 s: full");
+    CHECK(label_dim(scr, "Paused Tap") == LV_OPA_COVER, "cover face, paused 170 s: the title is not dimmed (%d)",
+          label_dim(scr, "Paused Tap"));
     frames(d, 110);
     CHECK(rest_opa(scr), "cover face, paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
           ctl_opa_in(scr));
+    CHECK(label_dim(scr, "Paused Tap") == LV_OPA_50, "cover face, paused 3 min without input: the face dims (title %d)",
+          label_dim(scr, "Paused Tap"));
     frames(d, 3000);
     CHECK(rest_opa(scr), "cover face: still resting 8 min on, not hidden");
+    CHECK(label_dim(scr, "Paused Tap") == LV_OPA_50, "cover face: still dimmed 8 min on");
     s_ncmds = 0;
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY && ctl_opa_in(scr) == 255 && all_shown(),
           "cover face, resting: one tap on play/pause plays and brings them back to full");
+    CHECK(label_dim(scr, "Paused Tap") == LV_OPA_COVER, "cover face: the tap undims the face (%d)",
+          label_dim(scr, "Paused Tap"));
     np.state = NP_PLAYING;
     publish_now(&np);
     frames(d, 50);
@@ -2108,11 +2121,16 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     CHECK(rest_opa(scr), "old face, paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
           ctl_opa_in(scr));
     CHECK(note_ink() > 100, "old face, resting: the placeholder's note is back: %d px", note_ink());
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "old face, paused 3 min without input: the face dims (title %d)",
+          label_dim(scr, "Glass Harbor"));
     frames(d, 3000);
     CHECK(rest_opa(scr), "old face: still resting 8 min on");
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "old face: still dimmed 8 min on");
     s_ncmds = 0;
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY && ctl_opa_in(scr) == 255 && all_shown(),
           "old face, resting: one tap on play/pause plays and brings them back to full");
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_COVER, "old face: the tap undims the face (%d)",
+          label_dim(scr, "Glass Harbor"));
     np_view_show(false);
 
     np_view_create(scr);
@@ -2127,8 +2145,10 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     frames(d, 2);
     CHECK(npc_vinyl() && all_shown(), "vinyl, paused: the controls are up");
     frames(d, 1810);
-    CHECK(rest_opa(scr), "vinyl paused 3 min without input: the face dims, the controls rest at %d (%d)",
-          NP_TOUCH_REST_OPA, ctl_opa_in(scr));
+    CHECK(rest_opa(scr), "vinyl paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
+          ctl_opa_in(scr));
+    CHECK(label_dim(scr, "Vinyl Pause") == LV_OPA_50, "vinyl paused 3 min without input: the face dims (title %d)",
+          label_dim(scr, "Vinyl Pause"));
     s_ncmds = 0;
     np_view_input(s_now_us / 1e6);
     np_view_tap(TS_ZONE_PLAY, s_now_us / 1e6);
@@ -2146,7 +2166,8 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     strcpy(old.art_version, "fb43cf74b67a");
     publish(&old);
     frames(d, 2);
-    CHECK(luma(FX + 233 - 198, 233) > 30 && rest_opa(scr), "rebuilt as the paused old face: still held (%d)",
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50 && rest_opa(scr),
+          "rebuilt as the paused old face: dimmed (title %d), still held (%d)", label_dim(scr, "Glass Harbor"),
           ctl_opa_in(scr));
     s_ncmds = 0;
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face after the switch: one tap plays");
