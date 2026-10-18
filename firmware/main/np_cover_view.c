@@ -889,6 +889,7 @@ void npc_update(const npc_frame_t *f)
         lv_obj_set_style_text_opa(s_title, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
         lv_obj_set_style_text_opa(s_artist, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
         lv_obj_set_style_text_opa(s_time, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(s_badge_lbl, f->dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
     }
     if (relayout || f->dx != s_dx || f->dy != s_dy) {
         s_dx = f->dx;

@@ -2208,11 +2208,13 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     strcpy(old.art_version, "fb43cf74b67a");
     publish(&old);
     frames(d, 2);
+    CHECK(luma(FX + 233 + 198, 233) > 30, "rebuilt as the paused old face: the ring is drawn (%d)", luma(FX + 233 + 198, 233));
     CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50 && rest_opa(scr),
           "rebuilt as the paused old face: dimmed (title %d), still held (%d)", label_dim(scr, "Glass Harbor"),
           ctl_opa_in(scr));
     s_ncmds = 0;
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face after the switch: one tap plays");
+    CHECK(luma(FX + 233 - 198, 233) > 30, "old face after the switch: the tap wakes the drawn ring (%d)", luma(FX + 233 - 198, 233));
     np_view_show(false);
 }
 
@@ -2260,6 +2262,78 @@ static void test_paused_dim_art(lv_display_t *d, lv_obj_t *scr)
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "cover face, paused by Ember: one tap plays");
     frames(d, 1);
     CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "cover face: and wakes (%d)", pic_opa(scr, NP_COVER_PX));
+    np_view_show(false);
+}
+
+static int label_y(lv_obj_t *scr, const char *txt)
+{
+    lv_obj_t *l = label_find(scr, txt);
+    if (!l) return -1000;
+    lv_obj_update_layout(l);
+    return lv_obj_get_y(l);
+}
+
+static int badge_ink(void) { return ink(OFF_CY - 24, OFF_CY + 24, 193, 273, 200); }
+
+static void test_offline_dim(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np;
+    cover_track(d, &np, "Offline Night", 900000, 60000, true);
+    frames(d, 10);
+    np_view_input(s_now_us / 1e6);
+    frames_off(d, 1700);
+    int y0 = label_y(scr, "Offline Night"), b0 = badge_ink();
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER && label_dim(scr, "Offline Night") == LV_OPA_COVER &&
+              label_dim(scr, "Ember\noffline") == LV_OPA_COVER && b0 > 100,
+          "cover face, offline 170 s: full (cover %d, title %d, badge %d, %d px)", pic_opa(scr, NP_COVER_PX),
+          label_dim(scr, "Offline Night"), label_dim(scr, "Ember\noffline"), b0);
+    frames_off(d, 110);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109 && label_dim(scr, "Offline Night") == LV_OPA_50 &&
+              label_dim(scr, "Ember\noffline") == LV_OPA_50 && badge_ink() < b0 / 4,
+          "cover face, offline 3 min without input: dims (cover %d, title %d, badge %d, %d px)", pic_opa(scr, NP_COVER_PX),
+          label_dim(scr, "Offline Night"), label_dim(scr, "Ember\noffline"), badge_ink());
+    frames_off(d, 610);
+    CHECK(label_y(scr, "Offline Night") != y0, "cover face, offline: the text drifts once a minute (%d, was %d)",
+          label_y(scr, "Offline Night"), y0);
+    np_view_input(s_now_us / 1e6);
+    frames_off(d, 1);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER && label_dim(scr, "Offline Night") == LV_OPA_COVER &&
+              label_dim(scr, "Ember\noffline") == LV_OPA_COVER && label_y(scr, "Offline Night") == y0,
+          "cover face, offline: input wakes it (cover %d, title %d, y %d)", pic_opa(scr, NP_COVER_PX),
+          label_dim(scr, "Offline Night"), label_y(scr, "Offline Night"));
+    frames_off(d, 1810);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, offline: dims again (%d)", pic_opa(scr, NP_COVER_PX));
+    publish_now(&np);
+    frames(d, 2);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER && label_dim(scr, "Offline Night") == LV_OPA_COVER,
+          "cover face: live data back wakes it (cover %d, title %d)", pic_opa(scr, NP_COVER_PX),
+          label_dim(scr, "Offline Night"));
+    frames(d, 1700);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "cover face, live again 170 s: still full (%d)", pic_opa(scr, NP_COVER_PX));
+    frames(d, 110);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, live again 3 min: dims as usual (%d)", pic_opa(scr, NP_COVER_PX));
+    np_view_show(false);
+
+    np_view_create(scr);
+    np_view_show(true);
+    cover_track(d, &np, "Vinyl Offline", 900000, 60000, false);
+    s_pend = (np_art_set_t){.is_cover = true, .no_cover = true};
+    strcpy(s_pend.version, np.cover_version);
+    s_has_pend = true;
+    frames(d, 10);
+    np_view_input(s_now_us / 1e6);
+    frames_off(d, 1700);
+    CHECK(npc_vinyl() && pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "vinyl, offline 170 s: full (%d)",
+          pic_opa(scr, NP_COVER_PX));
+    frames_off(d, 110);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109 && label_dim(scr, "Ember\noffline") == LV_OPA_50,
+          "vinyl, offline 3 min without input: dims (%d, badge %d)", pic_opa(scr, NP_COVER_PX),
+          label_dim(scr, "Ember\noffline"));
+    np_view_input(s_now_us / 1e6);
+    frames_off(d, 1);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "vinyl, offline: input wakes it (%d)", pic_opa(scr, NP_COVER_PX));
     np_view_show(false);
 }
 
@@ -2483,6 +2557,7 @@ int main(int argc, char **argv)
     test_burn_in_gap(d, scr);
     test_paused_controls(d, scr);
     test_paused_dim_art(d, scr);
+    test_offline_dim(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;
