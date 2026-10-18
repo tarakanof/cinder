@@ -841,6 +841,38 @@ static void test_downscale(void)
           "edge averaged: %04x", dst[21]);
 }
 
+static int return_run(np_return_t *r, double *t, double secs, bool offline)
+{
+    int woke = 0;
+    for (double end = *t + secs; *t < end - 1e-9; *t += 0.1)
+        woke += np_return_step(r, offline, *t, 180);
+    return woke;
+}
+
+static void test_return(void)
+{
+    np_return_t r = {0};
+    double t = 0;
+    CHECK(return_run(&r, &t, 300, false) == 0, "return: online from the start never wakes");
+    CHECK(return_run(&r, &t, 179, true) == 0 && return_run(&r, &t, 120, false) == 0,
+          "return: a 179 s outage does not wake");
+    CHECK(return_run(&r, &t, 10, true) == 0 && return_run(&r, &t, 120, false) == 0, "return: a 10 s blip does not wake");
+    CHECK(return_run(&r, &t, 181, true) == 0 && return_run(&r, &t, 59.9, false) == 0,
+          "return: back from 181 s, not yet NP_RETURN_DWELL_S");
+    CHECK(return_run(&r, &t, 0.2, false) == 1 && return_run(&r, &t, 300, false) == 0,
+          "return: wakes once after the dwell");
+    int woke = 0;
+    for (int i = 0; i < 20; i++) woke += return_run(&r, &t, 20, true) + return_run(&r, &t, 30, false);
+    CHECK(woke == 0, "return: flapping 20 s off, 30 s on never wakes while it flaps (%d)", woke);
+    CHECK(return_run(&r, &t, 61, false) == 1, "return: flapping counts as one outage, so a steady return wakes");
+    woke = 0;
+    for (int i = 0; i < 6; i++) woke += return_run(&r, &t, 20, true) + return_run(&r, &t, 70, false);
+    CHECK(woke == 0, "return: short outages with steady minutes between never wake (%d)", woke);
+    CHECK(return_run(&r, &t, 200, true) == 0 && return_run(&r, &t, 1, false) == 0 && return_run(&r, &t, 100, true) == 0,
+          "return: a lone good poll in a long outage does not wake");
+    CHECK(return_run(&r, &t, 61, false) == 1, "return: and the outage it interrupted still counts");
+}
+
 static void test_review_fixes(void)
 {
     np_info_t a, b;
@@ -1330,6 +1362,7 @@ int main(void)
     test_downscale();
     test_vinyl();
     test_review_fixes();
+    test_return();
     test_motion();
     test_v15();
     if (failures) {

@@ -2214,7 +2214,7 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
           ctl_opa_in(scr));
     s_ncmds = 0;
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face after the switch: one tap plays");
-    CHECK(luma(FX + 233 - 198, 233) > 30, "old face after the switch: the tap wakes the drawn ring (%d)", luma(FX + 233 - 198, 233));
+    CHECK(luma(FX + 233 - 198, 233) > 30, "old face after the switch: the tap wakes the ring track (%d)", luma(FX + 233 - 198, 233));
     np_view_show(false);
 }
 
@@ -2307,8 +2307,13 @@ static void test_offline_dim(lv_display_t *d, lv_obj_t *scr)
     CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, offline: dims again (%d)", pic_opa(scr, NP_COVER_PX));
     publish_now(&np);
     frames(d, 2);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, back after 3 min offline: dimmed until Ember stays (%d)",
+          pic_opa(scr, NP_COVER_PX));
+    frames(d, 598);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, back 59.9 s: still dimmed (%d)", pic_opa(scr, NP_COVER_PX));
+    frames(d, 2);
     CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER && label_dim(scr, "Offline Night") == LV_OPA_COVER,
-          "cover face: live data back wakes it (cover %d, title %d)", pic_opa(scr, NP_COVER_PX),
+          "cover face: live data back for NP_RETURN_DWELL_S wakes it (cover %d, title %d)", pic_opa(scr, NP_COVER_PX),
           label_dim(scr, "Offline Night"));
     frames(d, 1700);
     CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "cover face, live again 170 s: still full (%d)", pic_opa(scr, NP_COVER_PX));
@@ -2334,6 +2339,147 @@ static void test_offline_dim(lv_display_t *d, lv_obj_t *scr)
     np_view_input(s_now_us / 1e6);
     frames_off(d, 1);
     CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "vinyl, offline: input wakes it (%d)", pic_opa(scr, NP_COVER_PX));
+    np_view_show(false);
+}
+
+static int cover_opa(lv_obj_t *scr) { return pic_opa(scr, NP_COVER_PX); }
+
+static void cover_fresh(lv_display_t *d, lv_obj_t *scr, np_info_t *np, const char *title)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    cover_track(d, np, title, 3600000, 60000, true);
+    frames(d, 10);
+    np_view_input(s_now_us / 1e6);
+}
+
+static void legacy_block(np_info_t *old, np_play_t state)
+{
+    *old = (np_info_t){.state = state, .duration_ms = 3600000, .position_ms = 134000, .album_art = true};
+    strcpy(old->title, "Glass Harbor");
+    strcpy(old->art_version, "fb43cf74b67a");
+}
+
+static void test_offline_return(lv_display_t *d, lv_obj_t *scr)
+{
+    np_info_t np;
+    cover_fresh(d, scr, &np, "Gate Check");
+    frames(d, 600);
+    frames_off(d, 600);
+    frames(d, 500);
+    CHECK(cover_opa(scr) == LV_OPA_COVER, "a 60 s outage, back 50 s: full at 170 s (%d)", cover_opa(scr));
+    frames(d, 110);
+    CHECK(cover_opa(scr) == 109, "a 60 s outage does not restart the clock: dimmed at 181 s (%d)", cover_opa(scr));
+    np_view_show(false);
+
+    cover_fresh(d, scr, &np, "Flapping Link");
+    int bright = 0;
+    for (int i = 0; i < 12; i++) {
+        frames_off(d, 200);
+        frames(d, 200);
+        if (i >= 4 && cover_opa(scr) != 109) bright++;
+    }
+    CHECK(bright == 0, "20 s outages every 40 s for 8 min: dimmed from 181 s on (%d bright checks)", bright);
+    np_view_show(false);
+
+    cover_fresh(d, scr, &np, "Short Blip");
+    frames(d, 1810);
+    CHECK(cover_opa(scr) == 109, "playing 3 min: dimmed (%d)", cover_opa(scr));
+    frames_off(d, 100);
+    frames(d, 2);
+    CHECK(cover_opa(scr) == 109, "a 10 s blip on a dimmed face: still dimmed on return (%d)", cover_opa(scr));
+    frames(d, 700);
+    CHECK(cover_opa(scr) == 109, "and 70 s later (%d)", cover_opa(scr));
+    np_view_show(false);
+
+    cover_fresh(d, scr, &np, "Lone Poll");
+    frames(d, 1810);
+    frames_off(d, 2000);
+    frames(d, 10);
+    frames_off(d, 1000);
+    CHECK(cover_opa(scr) == 109, "a lone good poll in a long outage does not wake it (%d)", cover_opa(scr));
+    frames(d, 2);
+    CHECK(cover_opa(scr) == 109, "back after the long outage: dimmed at first (%d)", cover_opa(scr));
+    frames(d, 600);
+    CHECK(cover_opa(scr) == LV_OPA_COVER && label_dim(scr, "Lone Poll") == LV_OPA_COVER,
+          "back for NP_RETURN_DWELL_S after a long outage: wakes (%d)", cover_opa(scr));
+    np_view_show(false);
+
+    cover_fresh(d, scr, &np, "Kind Change");
+    frames(d, 1810);
+    frames_off(d, 2000);
+    np_info_t old;
+    legacy_block(&old, NP_PLAYING);
+    publish_now(&old);
+    frames(d, 2);
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "back as the 0.9.0 face after a long outage: dimmed at first (%d)",
+          label_dim(scr, "Glass Harbor"));
+    frames(d, 600);
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_COVER && pic_opa(scr, NP_BACKDROP_PX) == LV_OPA_COVER,
+          "the rebuilt 0.9.0 face wakes after NP_RETURN_DWELL_S (title %d, backdrop %d)", label_dim(scr, "Glass Harbor"),
+          pic_opa(scr, NP_BACKDROP_PX));
+    np_view_show(false);
+
+    np_view_create(scr);
+    np_view_show(true);
+    legacy_block(&old, NP_PLAYING);
+    publish_now(&old);
+    frames(d, 1810);
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "0.9.0 face playing 3 min: dimmed (%d)", label_dim(scr, "Glass Harbor"));
+    frames_off(d, 100);
+    frames(d, 700);
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "0.9.0 face: a 10 s blip leaves it dimmed (%d)",
+          label_dim(scr, "Glass Harbor"));
+    frames_off(d, 2000);
+    frames(d, 2);
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "0.9.0 face back after a long outage: dimmed at first (%d)",
+          label_dim(scr, "Glass Harbor"));
+    frames(d, 600);
+    CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_COVER, "0.9.0 face: wakes after NP_RETURN_DWELL_S (%d)",
+          label_dim(scr, "Glass Harbor"));
+    np_view_show(false);
+
+    cover_fresh(d, scr, &np, "Paused Return");
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 1810);
+    CHECK(cover_opa(scr) == 109 && rest_opa(scr), "paused 3 min: dimmed (%d), resting (%d)", cover_opa(scr), ctl_opa_in(scr));
+    frames_off(d, 2000);
+    frames(d, 2);
+    CHECK(cover_opa(scr) == 109 && rest_opa(scr), "paused, back after a long outage: dimmed and resting at first (%d, %d)",
+          cover_opa(scr), ctl_opa_in(scr));
+    frames(d, 600);
+    CHECK(cover_opa(scr) == LV_OPA_COVER && ctl_opa_in(scr) == 255,
+          "paused, back for NP_RETURN_DWELL_S: wakes, the controls at full (%d, %d)", cover_opa(scr), ctl_opa_in(scr));
+    np_view_show(false);
+
+    np_view_create(scr);
+    np_view_show(true);
+    cover_track(d, &np, "Vinyl Return", 3600000, 60000, false);
+    s_pend = (np_art_set_t){.is_cover = true, .no_cover = true};
+    strcpy(s_pend.version, np.cover_version);
+    s_has_pend = true;
+    frames(d, 10);
+    np_view_input(s_now_us / 1e6);
+    frames(d, 1810);
+    CHECK(npc_vinyl() && cover_opa(scr) == 109, "vinyl playing 3 min: dimmed (%d)", cover_opa(scr));
+    frames_off(d, 2000);
+    frames(d, 602);
+    CHECK(npc_vinyl() && cover_opa(scr) == LV_OPA_COVER, "vinyl back for NP_RETURN_DWELL_S after a long outage: wakes (%d)",
+          cover_opa(scr));
+    np_view_show(false);
+
+    np_view_create(scr);
+    np_view_show(true);
+    cover_track(d, &np, "Empty Return", 3600000, 60000, false);
+    np_view_input(s_now_us / 1e6);
+    frames(d, 1810);
+    CHECK(!npc_has_cover() && label_dim(scr, "Empty Return") == LV_OPA_50, "cover face without a cover yet, 3 min: dimmed (%d)",
+          label_dim(scr, "Empty Return"));
+    frames_off(d, 2000);
+    frames(d, 602);
+    CHECK(label_dim(scr, "Empty Return") == LV_OPA_COVER,
+          "back from \"Ember offline\" without a cover after a long outage: wakes (%d)", label_dim(scr, "Empty Return"));
     np_view_show(false);
 }
 
@@ -2558,6 +2704,7 @@ int main(int argc, char **argv)
     test_paused_controls(d, scr);
     test_paused_dim_art(d, scr);
     test_offline_dim(d, scr);
+    test_offline_return(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

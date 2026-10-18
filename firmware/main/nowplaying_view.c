@@ -71,7 +71,8 @@ typedef struct {
     lv_obj_t *btn[3];
     int btn_opa, btn_hi;
     bool btn_mid, btn_pause;
-    bool track_due, was_live, was_offline;
+    bool track_due, was_live;
+    np_return_t ret;
 } view_mem_t;
 static view_mem_t *V;
 #define s_face_dsc (V->face_dsc)
@@ -323,7 +324,8 @@ void np_view_show(bool show)
         s_vol_shown = -2;
         V->badge[0] = 0;
         V->dropped[0] = 0;
-        V->track_due = V->was_live = V->was_offline = false;
+        V->track_due = V->was_live = false;
+        V->ret = (np_return_t){0};
         s_error_t = -1e9;
         np_ctl_result_t r;
         np_client_control_result(&r);
@@ -668,8 +670,7 @@ void np_view_update(double now, bool offline)
     const np_info_t *np = &V->snap.info;
     bool live = !offline && V->snap.have && np->state != NP_NONE;
     bool known = V->snap.have && np->state != NP_NONE;
-    if (!offline && V->was_offline && s_dimmed) s_last_input = now;
-    V->was_offline = offline;
+    if (np_return_step(&V->ret, offline, now, BURN_IN_S)) s_last_input = now;
     int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
     set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
     if (np_client_take_art(&in)) {
