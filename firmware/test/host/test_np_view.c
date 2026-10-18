@@ -2039,6 +2039,31 @@ static int ctl_opa_in(lv_obj_t *o)
     return best;
 }
 
+static int pic_opa(lv_obj_t *o, int w)
+{
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return -1;
+    int best = -1;
+    if (lv_obj_get_width(o) == w) {
+        if (lv_obj_check_type(o, &lv_image_class)) {
+            if (lv_image_get_src(o)) best = lv_obj_get_style_image_opa(o, 0);
+        } else if (!lv_obj_check_type(o, &lv_label_class) && lv_obj_get_style_radius(o, 0) == LV_RADIUS_CIRCLE) {
+            best = lv_obj_get_style_bg_opa(o, 0);
+        }
+    }
+    for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) {
+        int v = pic_opa(lv_obj_get_child(o, (int32_t)i), w);
+        if (v > best) best = v;
+    }
+    return best;
+}
+
+static uint8_t *make_disc565a8(int px)
+{
+    uint8_t *p = malloc((size_t)px * px * 3);
+    memset(p, 0xFF, (size_t)px * px * 3);
+    return p;
+}
+
 static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
 {
     np_view_create(scr);
@@ -2078,11 +2103,15 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     CHECK(ctl_opa_in(scr) == 255, "cover face, paused 170 s: full");
     CHECK(label_dim(scr, "Paused Tap") == LV_OPA_COVER, "cover face, paused 170 s: the title is not dimmed (%d)",
           label_dim(scr, "Paused Tap"));
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "cover face, paused 170 s: the cover is not dimmed (%d)",
+          pic_opa(scr, NP_COVER_PX));
     frames(d, 110);
     CHECK(rest_opa(scr), "cover face, paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
           ctl_opa_in(scr));
     CHECK(label_dim(scr, "Paused Tap") == LV_OPA_50, "cover face, paused 3 min without input: the face dims (title %d)",
           label_dim(scr, "Paused Tap"));
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, paused 3 min without input: the cover dims (%d)",
+          pic_opa(scr, NP_COVER_PX));
     frames(d, 3000);
     CHECK(rest_opa(scr), "cover face: still resting 8 min on, not hidden");
     CHECK(label_dim(scr, "Paused Tap") == LV_OPA_50, "cover face: still dimmed 8 min on");
@@ -2091,6 +2120,8 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
           "cover face, resting: one tap on play/pause plays and brings them back to full");
     CHECK(label_dim(scr, "Paused Tap") == LV_OPA_COVER, "cover face: the tap undims the face (%d)",
           label_dim(scr, "Paused Tap"));
+    frames(d, 1);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "cover face: and the cover (%d)", pic_opa(scr, NP_COVER_PX));
     np.state = NP_PLAYING;
     publish_now(&np);
     frames(d, 50);
@@ -2123,6 +2154,9 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     CHECK(note_ink() > 100, "old face, resting: the placeholder's note is back: %d px", note_ink());
     CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "old face, paused 3 min without input: the face dims (title %d)",
           label_dim(scr, "Glass Harbor"));
+    CHECK(pic_opa(scr, NP_BACKDROP_PX) == 109 && pic_opa(scr, NP_ALBUM_PX) == 109 && pic_opa(scr, 16) == LV_OPA_50,
+          "old face, no art: backdrop %d, placeholder %d and dot %d dim", pic_opa(scr, NP_BACKDROP_PX),
+          pic_opa(scr, NP_ALBUM_PX), pic_opa(scr, 16));
     frames(d, 3000);
     CHECK(rest_opa(scr), "old face: still resting 8 min on");
     CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_50, "old face: still dimmed 8 min on");
@@ -2131,6 +2165,9 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
           "old face, resting: one tap on play/pause plays and brings them back to full");
     CHECK(label_dim(scr, "Glass Harbor") == LV_OPA_COVER, "old face: the tap undims the face (%d)",
           label_dim(scr, "Glass Harbor"));
+    CHECK(pic_opa(scr, NP_BACKDROP_PX) == LV_OPA_COVER && pic_opa(scr, NP_ALBUM_PX) == LV_OPA_COVER &&
+              pic_opa(scr, 16) == LV_OPA_COVER,
+          "old face, no art: and the backdrop, placeholder and dot");
     np_view_show(false);
 
     np_view_create(scr);
@@ -2144,16 +2181,21 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
     publish_now(&np);
     frames(d, 2);
     CHECK(npc_vinyl() && all_shown(), "vinyl, paused: the controls are up");
-    frames(d, 1810);
+    frames(d, 1700);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "vinyl paused 170 s: the face image is not dimmed (%d)",
+          pic_opa(scr, NP_COVER_PX));
+    frames(d, 110);
     CHECK(rest_opa(scr), "vinyl paused 3 min without input: the controls rest at %d (%d)", NP_TOUCH_REST_OPA,
           ctl_opa_in(scr));
-    CHECK(label_dim(scr, "Vinyl Pause") == LV_OPA_50, "vinyl paused 3 min without input: the face dims (title %d)",
-          label_dim(scr, "Vinyl Pause"));
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "vinyl paused 3 min without input: the face image dims (%d)",
+          pic_opa(scr, NP_COVER_PX));
     s_ncmds = 0;
     np_view_input(s_now_us / 1e6);
     np_view_tap(TS_ZONE_PLAY, s_now_us / 1e6);
     frames(d, 1);
     CHECK(s_ncmds == 1 && s_cmds[0] == NP_CMD_PLAY && ctl_opa_in(scr) == 255, "vinyl, resting: one tap plays");
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "vinyl: the tap undims the face image (%d)",
+          pic_opa(scr, NP_COVER_PX));
     np.state = NP_PLAYING;
     publish_now(&np);
     frames(d, 50);
@@ -2171,6 +2213,53 @@ static void test_paused_controls(lv_display_t *d, lv_obj_t *scr)
           ctl_opa_in(scr));
     s_ncmds = 0;
     CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face after the switch: one tap plays");
+    np_view_show(false);
+}
+
+static void test_paused_dim_art(lv_display_t *d, lv_obj_t *scr)
+{
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t old = {.state = NP_PAUSED, .duration_ms = 228000, .position_ms = 134000, .album_art = true, .artist_art = true};
+    strcpy(old.title, "Art Pause");
+    strcpy(old.art_version, "c0ffee000001");
+    publish(&old);
+    frames(d, 2);
+    s_pend = (np_art_set_t){.album = make_disc565a8(NP_ALBUM_PX), .artist = make_disc565a8(NP_ARTIST_PX)};
+    strcpy(s_pend.version, old.art_version);
+    s_has_pend = true;
+    frames(d, 3);
+    int y = 90;
+    CHECK(pic_opa(scr, NP_ALBUM_PX) == LV_OPA_COVER && pic_opa(scr, NP_ARTIST_PX) == LV_OPA_COVER && luma(FX + 233, y) > 230,
+          "old face with art, paused: album %d, avatar %d, album luma %d", pic_opa(scr, NP_ALBUM_PX),
+          pic_opa(scr, NP_ARTIST_PX), luma(FX + 233, y));
+    frames(d, 1810);
+    CHECK(pic_opa(scr, NP_ALBUM_PX) == 109 && pic_opa(scr, NP_ARTIST_PX) == LV_OPA_50 && luma(FX + 233, y) < 130,
+          "old face with art, paused 3 min without input: album %d, avatar %d, album luma %d", pic_opa(scr, NP_ALBUM_PX),
+          pic_opa(scr, NP_ARTIST_PX), luma(FX + 233, y));
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "old face with art, resting: one tap plays");
+    CHECK(pic_opa(scr, NP_ALBUM_PX) == LV_OPA_COVER && pic_opa(scr, NP_ARTIST_PX) == LV_OPA_COVER && luma(FX + 233, y) > 230,
+          "old face with art: the tap brings the pictures back: album %d, avatar %d, luma %d", pic_opa(scr, NP_ALBUM_PX),
+          pic_opa(scr, NP_ARTIST_PX), luma(FX + 233, y));
+    np_view_show(false);
+
+    np_view_create(scr);
+    np_view_show(true);
+    np_info_t np;
+    cover_track(d, &np, "Phone Pause", 900000, 60000, true);
+    frames(d, 1810);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109, "cover face, playing 3 min without input: dimmed (%d)", pic_opa(scr, NP_COVER_PX));
+    np.state = NP_PAUSED;
+    publish_now(&np);
+    frames(d, 3);
+    CHECK(pic_opa(scr, NP_COVER_PX) == 109 && label_dim(scr, "Phone Pause") == LV_OPA_50 && rest_opa(scr),
+          "cover face, paused by Ember while dimmed: stays dimmed (%d), controls rest (%d)", pic_opa(scr, NP_COVER_PX),
+          ctl_opa_in(scr));
+    s_ncmds = 0;
+    CHECK(touch(d, TS_ZONE_PLAY) == 1 && s_cmds[0] == NP_CMD_PLAY, "cover face, paused by Ember: one tap plays");
+    frames(d, 1);
+    CHECK(pic_opa(scr, NP_COVER_PX) == LV_OPA_COVER, "cover face: and wakes (%d)", pic_opa(scr, NP_COVER_PX));
     np_view_show(false);
 }
 
@@ -2393,6 +2482,7 @@ int main(int argc, char **argv)
     test_offline_push(d, scr);
     test_burn_in_gap(d, scr);
     test_paused_controls(d, scr);
+    test_paused_dim_art(d, scr);
     if (failures) {
         printf("np_view: %d failure(s)\n", failures);
         return 1;

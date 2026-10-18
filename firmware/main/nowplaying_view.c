@@ -471,6 +471,10 @@ static void burn_in(double now)
         lv_obj_set_style_text_opa(s_title, dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
         lv_obj_set_style_text_opa(s_sub, dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
         lv_obj_set_style_text_opa(s_meta, dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_image_opa(s_album, dim ? FACE_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(s_album_ph, dim ? FACE_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_image_opa(s_avatar, dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_opa(s_dot, dim ? TEXT_DIM_OPA : LV_OPA_COVER, 0);
         s_drift = 0;
         s_drift_t = now;
         lv_obj_align(s_album, LV_ALIGN_CENTER, 0, ALBUM_DY);
