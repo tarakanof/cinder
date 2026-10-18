@@ -859,7 +859,7 @@ static void test_return(void)
     CHECK(return_run(&r, &t, 10, true) == 0 && return_run(&r, &t, 120, false) == 0, "return: a 10 s blip does not wake");
     CHECK(return_run(&r, &t, 181, true) == 0 && return_run(&r, &t, 59.9, false) == 0,
           "return: back from 181 s, not yet NP_RETURN_DWELL_S");
-    CHECK(return_run(&r, &t, 0.2, false) == 1 && return_run(&r, &t, 300, false) == 0,
+    CHECK(return_run(&r, &t, 0.2, false) == 1 && return_run(&r, &t, NP_RETURN_CAP_S, false) == 0,
           "return: wakes once after the dwell");
     int woke = 0;
     for (int i = 0; i < 20; i++) woke += return_run(&r, &t, 20, true) + return_run(&r, &t, 30, false);
@@ -868,9 +868,23 @@ static void test_return(void)
     woke = 0;
     for (int i = 0; i < 6; i++) woke += return_run(&r, &t, 20, true) + return_run(&r, &t, 70, false);
     CHECK(woke == 0, "return: short outages with steady minutes between never wake (%d)", woke);
-    CHECK(return_run(&r, &t, 200, true) == 0 && return_run(&r, &t, 1, false) == 0 && return_run(&r, &t, 100, true) == 0,
+    CHECK(return_run(&r, &t, NP_RETURN_CAP_S, false) == 0 && return_run(&r, &t, 200, true) == 0 &&
+              return_run(&r, &t, 1, false) == 0 && return_run(&r, &t, 100, true) == 0,
           "return: a lone good poll in a long outage does not wake");
     CHECK(return_run(&r, &t, 61, false) == 1, "return: and the outage it interrupted still counts");
+
+    r = (np_return_t){0};
+    t = 0;
+    woke = 0;
+    double last = -NP_RETURN_CAP_S, gap = NP_RETURN_CAP_S;
+    for (int i = 0; i < 26; i++) {
+        int w = return_run(&r, &t, 200, true) + return_run(&r, &t, 70, false);
+        if (w && t - last < gap) gap = t - last;
+        if (w) last = t;
+        woke += w;
+    }
+    CHECK(woke == 4 && gap >= NP_RETURN_CAP_S,
+          "return: a crash loop, 200 s down and 70 s up for 2 h, wakes 4 times, not 26 (%d, shortest gap %.0f s)", woke, gap);
 }
 
 static void test_review_fixes(void)

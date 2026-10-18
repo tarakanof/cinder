@@ -170,7 +170,10 @@ bool np_return_step(np_return_t *r, bool offline, double now, double min_s)
     }
     if (!r->back || now - r->on_t < NP_RETURN_DWELL_S) return false;
     r->back = false;
-    return r->on_t - r->off_t >= min_s;
+    if (r->on_t - r->off_t < min_s || (r->woke && now - r->wake_t < NP_RETURN_CAP_S)) return false;
+    r->woke = true;
+    r->wake_t = now;
+    return true;
 }
 
 void np_face_look(np_face_state_t s, np_ring_mode_t m, uint32_t accent, np_face_look_t *out)
