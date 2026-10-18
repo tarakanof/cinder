@@ -155,6 +155,24 @@ np_face_state_t np_face_state(bool have, np_play_t shown, bool offline, bool cov
 
 bool np_face_live(np_face_state_t s) { return s == NPF_PLAYING || s == NPF_PAUSED; }
 
+bool np_return_step(np_return_t *r, bool offline, double now, double min_s)
+{
+    if (offline) {
+        if (!r->off && !r->back) r->off_t = now;
+        r->off = true;
+        r->back = false;
+        return false;
+    }
+    if (r->off) {
+        r->off = false;
+        r->back = true;
+        r->on_t = now;
+    }
+    if (!r->back || now - r->on_t < NP_RETURN_DWELL_S) return false;
+    r->back = false;
+    return r->on_t - r->off_t >= min_s;
+}
+
 void np_face_look(np_face_state_t s, np_ring_mode_t m, uint32_t accent, np_face_look_t *out)
 {
     memset(out, 0, sizeof *out);

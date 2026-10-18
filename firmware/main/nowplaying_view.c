@@ -72,6 +72,7 @@ typedef struct {
     int btn_opa, btn_hi;
     bool btn_mid, btn_pause;
     bool track_due, was_live;
+    np_return_t ret;
 } view_mem_t;
 static view_mem_t *V;
 #define s_face_dsc (V->face_dsc)
@@ -324,6 +325,7 @@ void np_view_show(bool show)
         V->badge[0] = 0;
         V->dropped[0] = 0;
         V->track_due = V->was_live = false;
+        V->ret = (np_return_t){0};
         s_error_t = -1e9;
         np_ctl_result_t r;
         np_client_control_result(&r);
@@ -644,7 +646,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
                     (last != NP_NONE ? last : V->snap.info.state) == NP_PAUSED;
         f.text_out = 255 - np_ctl_info_opa(&V->ctl, now, st == NPF_PAUSED || held);
         f.pos_ms = shown_pos(st == NPF_PAUSED, now);
-        f.dim = dim_step(np_face_live(st), now);
+        f.dim = dim_step(np_face_live(st) || st == NPF_OFFLINE, now);
         drift_at(f.dim ? s_drift : 0, &f.dx, &f.dy);
     } else {
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {
@@ -668,6 +670,7 @@ void np_view_update(double now, bool offline)
     const np_info_t *np = &V->snap.info;
     bool live = !offline && V->snap.have && np->state != NP_NONE;
     bool known = V->snap.have && np->state != NP_NONE;
+    if (np_return_step(&V->ret, offline, now, BURN_IN_S)) s_last_input = now;
     int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
     set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
     if (np_client_take_art(&in)) {

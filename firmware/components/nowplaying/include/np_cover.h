@@ -58,6 +58,14 @@ typedef enum { NPF_WAITING, NPF_NOTHING, NPF_PLAYING, NPF_PAUSED, NPF_OFFLINE, N
 np_face_state_t np_face_state(bool have, np_play_t shown, bool offline, bool cover_held);
 bool np_face_live(np_face_state_t s);
 
+#define NP_RETURN_DWELL_S 60.0
+typedef struct {
+    double off_t, on_t;
+    bool off, back;
+} np_return_t;
+/* Every shown frame, from a zeroed struct. True once, after Ember has been back NP_RETURN_DWELL_S from an outage of at least min_s; a shorter return does not end the outage. */
+bool np_return_step(np_return_t *r, bool offline, double now, double min_s);
+
 typedef struct {
     uint8_t shade;      /* black over the cover disc, 0..255 */
     uint32_t ring;
