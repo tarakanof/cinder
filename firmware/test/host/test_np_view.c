@@ -2500,6 +2500,7 @@ static void test_offline_return(lv_display_t *d, lv_obj_t *scr)
     CHECK(cover_opa(scr) == LV_OPA_COVER, "crash loop: input still wakes it (%d)", cover_opa(scr));
     frames(d, 1810);
     frames_off(d, 2000);
+    CHECK(cover_opa(scr) == 109, "crash loop: dimmed again before the last return (%d)", cover_opa(scr));
     frames(d, 700);
     CHECK(cover_opa(scr) == LV_OPA_COVER, "crash loop: a return after NP_RETURN_CAP_S wakes again (%d)", cover_opa(scr));
     np_view_show(false);
