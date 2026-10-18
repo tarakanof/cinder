@@ -2481,6 +2481,28 @@ static void test_offline_return(lv_display_t *d, lv_obj_t *scr)
     CHECK(label_dim(scr, "Empty Return") == LV_OPA_COVER,
           "back from \"Ember offline\" without a cover after a long outage: wakes (%d)", label_dim(scr, "Empty Return"));
     np_view_show(false);
+
+    cover_fresh(d, scr, &np, "Crash Loop");
+    frames(d, 1810);
+    frames_off(d, 2000);
+    frames(d, 700);
+    CHECK(cover_opa(scr) == LV_OPA_COVER, "crash loop, first return: wakes (%d)", cover_opa(scr));
+    int woke = 0;
+    for (int i = 0; i < 6; i++) {
+        frames_off(d, 2000);
+        CHECK(cover_opa(scr) == 109, "crash loop, down 200 s: dimmed (cycle %d, %d)", i, cover_opa(scr));
+        frames(d, 700);
+        woke += cover_opa(scr) != 109;
+    }
+    CHECK(woke == 0, "crash loop: no return wake within NP_RETURN_CAP_S of the last (%d woke)", woke);
+    np_view_input(s_now_us / 1e6);
+    frames(d, 2);
+    CHECK(cover_opa(scr) == LV_OPA_COVER, "crash loop: input still wakes it (%d)", cover_opa(scr));
+    frames(d, 1810);
+    frames_off(d, 2000);
+    frames(d, 700);
+    CHECK(cover_opa(scr) == LV_OPA_COVER, "crash loop: a return after NP_RETURN_CAP_S wakes again (%d)", cover_opa(scr));
+    np_view_show(false);
 }
 
 static void test_burn_in_gap(lv_display_t *d, lv_obj_t *scr)
