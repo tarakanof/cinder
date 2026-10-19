@@ -238,7 +238,12 @@ static void test_usage(void)
           "a usage peek inside the debounce sends nothing");
 }
 
-static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
+typedef struct {
+    int shown, demo, wait;
+} loop_sent_t;
+
+static int loop_turns_url(shown_t *s, bool online, size_t q_cap, size_t url_cap, const char *demo_q, int64_t from, int64_t to,
+                          loop_sent_t *sent)
 {
     int n = 0;
     for (int64_t t = from; t < to && n < 100000; n++) {
@@ -250,12 +255,26 @@ static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
             t += step < end - t ? step : end - t;
         }
         if (online) {
-            char q[SHOWN_QUERY_MAX];
+            char q[SHOWN_QUERY_MAX], url[128];
             shown_val_t v;
-            if (shown_query(s, q, sizeof q, &v)) shown_sent(s, v);
+            int wait = 25;
+            if (!shown_query(s, q, q_cap < sizeof q ? q_cap : sizeof q, &v)) q[0] = 0;
+            if (!shown_poll_url(url, url_cap < sizeof url ? url_cap : sizeof url, "http://e/v", &wait, demo_q, q)) strcpy(url, "http://e/v");
+            shown_sent(s, v);
+            CHECK((wait > 0) == (strstr(url, "wait=") != NULL), "wait %d matches the URL: %s", wait, url);
+            if (sent) {
+                sent->shown += strstr(url, "shown=") != NULL;
+                sent->demo += strstr(url, "demo_id=") != NULL;
+                sent->wait += wait > 0;
+            }
         }
     }
     return n;
+}
+
+static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
+{
+    return loop_turns_url(s, online, SHOWN_QUERY_MAX, 128, "", from, to, NULL);
 }
 
 static void test_offline(void)
@@ -272,6 +291,70 @@ static void test_offline(void)
     CHECK(n == 11 && shown_due_ms(&s, 21000) == -1, "online again: sent on the first turn, then paced (%d)", n);
 }
 
+static void test_overflow(void)
+{
+    shown_t s = SHOWN_INIT;
+    shown_note(&s, SHOWN_WEATHER, WXF_RAIN, 0);
+    int n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, sizeof "http://e/v?shown=weather:ra", "", 1000, 11000, NULL);
+    CHECK(n == 11, "a URL that overflows: the first plain poll at once, then one per poll_ms, never back to back (%d in 10 s)", n);
+    CHECK(shown_due_ms(&s, 11000) == -1, "the value that did not fit is dropped");
+    shown_note(&s, SHOWN_WEATHER, WXF_SUN, 11000);
+    CHECK(shown_due_ms(&s, 11000 + SHOWN_DEBOUNCE_MS) == 0, "a later change is due again");
+    n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, 2, "", 11000, 21000, NULL);
+    CHECK(n == 11 && shown_due_ms(&s, 21000) == -1, "even the bare view URL overflowing: paced (%d)", n);
+    shown_note(&s, "bot", -1, 21000);
+    n = loop_turns_url(&s, true, 4, 128, "", 21000, 31000, NULL);
+    CHECK(n == 11 && shown_due_ms(&s, 31000) == -1, "a query buffer too small: dropped and paced (%d)", n);
+}
+
+static void test_poll_url(void)
+{
+    const char *V = "http://e/v", *D = "demo_id=a&demo_state=done", *S = "shown=bot";
+    const struct {
+        size_t cap;
+        const char *demo, *shown, *want;
+        int wait;
+    } c[] = {
+        {sizeof "http://e/v?wait=25&demo_id=a&demo_state=done&shown=bot", D, S, "http://e/v?wait=25&demo_id=a&demo_state=done&shown=bot", 25},
+        {sizeof "http://e/v?demo_id=a&demo_state=done&shown=bot", D, S, "http://e/v?demo_id=a&demo_state=done&shown=bot", 0},
+        {sizeof "http://e/v?demo_id=a&demo_state=done", D, S, "http://e/v?demo_id=a&demo_state=done", 0},
+        {sizeof "http://e/v?shown=bot", D, S, "http://e/v?shown=bot", 0},
+        {sizeof "http://e/v?shown=bo", D, S, NULL, 0},
+        {sizeof "http://e/v?shown=bot", "", S, "http://e/v?shown=bot", 0},
+        {sizeof "http://e/v?demo_id=a&demo_state=done", D, "", "http://e/v?demo_id=a&demo_state=done", 0},
+        {sizeof "http://e/v?demo_id=a&demo_state=don", D, "", NULL, 0},
+        {sizeof "http://e/v?wait=2", "", "", NULL, 0},
+    };
+    for (size_t i = 0; i < sizeof c / sizeof c[0]; i++) {
+        char u[128];
+        int wait = 25;
+        bool ok = shown_poll_url(u, c[i].cap, V, &wait, c[i].demo, c[i].shown);
+        CHECK(ok == (c[i].want != NULL) && wait == c[i].wait && (c[i].want ? !strcmp(u, c[i].want) : !u[0]), "case %zu: %d %d %s", i,
+              ok, wait, u);
+    }
+    shown_t s = SHOWN_INIT;
+    shown_note(&s, "bot", -1, 0);
+    loop_sent_t sent = {0};
+    int n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, sizeof "http://e/v?demo_id=a&demo_state=done&shown=bot", D, 1000, 11000, &sent);
+    CHECK(n == 11 && sent.shown == 11 && sent.demo == 11 && sent.wait == 0 && shown_due_ms(&s, 11000) == -1,
+          "wait overflowing: both reports on every plain poll, paced (%d: shown %d demo %d wait %d)", n, sent.shown, sent.demo, sent.wait);
+    shown_note(&s, "pomodoro", -1, 11000);
+    sent = (loop_sent_t){0};
+    n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, sizeof "http://e/v?demo_id=a&demo_state=done", D, 11000, 21000, &sent);
+    CHECK(n == 11 && sent.shown == 0 && sent.demo == 11 && sent.wait == 0 && shown_due_ms(&s, 21000) == -1,
+          "both overflowing: the demo report kept, shown dropped, paced (%d: shown %d demo %d wait %d)", n, sent.shown, sent.demo,
+          sent.wait);
+    shown_note(&s, "bot", -1, 21000);
+    sent = (loop_sent_t){0};
+    n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, sizeof "http://e/v?shown=bot", D, 21000, 31000, &sent);
+    CHECK(n == 11 && sent.shown == 11 && sent.demo == 0 && sent.wait == 0, "only shown fits: shown on every poll, paced (%d: shown %d demo %d)",
+          n, sent.shown, sent.demo);
+    sent = (loop_sent_t){0};
+    n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, 128, D, 31000, 41000, &sent);
+    CHECK(sent.shown == n && sent.demo == n && sent.wait == n, "everything fits: the long-poll carries both (%d: %d %d %d)", n, sent.shown,
+          sent.demo, sent.wait);
+}
+
 int main(void)
 {
     test_query();
@@ -281,6 +364,8 @@ int main(void)
     test_sim();
     test_usage();
     test_offline();
+    test_overflow();
+    test_poll_url();
     if (failures) {
         printf("%d shown check(s) failed\n", failures);
         return 1;
