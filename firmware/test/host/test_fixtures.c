@@ -16,6 +16,8 @@
 #include "pages.h"
 #include "pomo.h"
 #include "pomo_legacy.h"
+#include "shown.h"
+#include "wx_faces.h"
 #include "wx_temp.h"
 
 static int failures;
@@ -32,7 +34,7 @@ static const char *const COVERED[] = {
     "checkin_req_caps.json",   "checkin_reply_caps.json",     "view_caps_limited.json",
     "view_faces.json",         "view_faces_met.json",         "view_faces_polar_dry.json",
     "view_np_cover.json",      "view_np_cover_light.json",    "view_usage.json",
-    "view_usage_uncapped.json", "controls_action.json",
+    "view_usage_uncapped.json", "controls_action.json",   "view_req_shown.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -1209,6 +1211,44 @@ static void test_not_yet_sent_used(void)
               features_ahead_used[i]);
 }
 
+static void test_view_req_shown(void)
+{
+    char *j = load("view_req_shown.json");
+    cJSON *want = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    CHECK(want, "view_req_shown.json parses");
+    if (!want) return;
+    const cJSON *wq = cJSON_GetObjectItemCaseSensitive(want, "query");
+    const char *wait = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(wq, "wait"));
+    CHECK(!strcmp(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(want, "method")), "GET"), "a GET");
+    shown_t sh = SHOWN_INIT;
+    shown_note(&sh, SHOWN_WEATHER, WXF_WIND, 0);
+    char q[SHOWN_QUERY_MAX], url[256];
+    CHECK(shown_query(&sh, q, sizeof q), "query fits");
+    const char *base = "http://ember.local:3627";
+    char view[128];
+    snprintf(view, sizeof view, "%s/v1/devices/self/view", base);
+    CHECK(shown_view_url(url, sizeof url, view, wait ? atoi(wait) : 0, "", q), "url fits");
+    const char *path = url + strlen(base), *qm = strchr(path, '?');
+    CHECK(qm && (size_t)(qm - path) == strlen(cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(want, "path"))) &&
+              !strncmp(path, cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(want, "path")), (size_t)(qm - path)),
+          "path: %s", path);
+    cJSON *got = cJSON_CreateObject();
+    for (char *k = qm ? (char *)qm + 1 : NULL; k && *k;) {
+        char *amp = strchr(k, '&');
+        if (amp) *amp = 0;
+        char *eq = strchr(k, '=');
+        if (eq) {
+            *eq = 0;
+            cJSON_AddStringToObject(got, k, eq + 1);
+        }
+        k = amp ? amp + 1 : NULL;
+    }
+    CHECK(cJSON_Compare(wq, got, true), "query: %s", url);
+    cJSON_Delete(got);
+    cJSON_Delete(want);
+}
+
 static void test_checkin_req_minimal(void)
 {
     char *j = load("checkin_req_minimal.json");
@@ -1358,6 +1398,7 @@ int main(int argc, char **argv)
     test_view_usage();
     test_controls_action();
     test_checkin_req_minimal();
+    test_view_req_shown();
     test_checkin_req_full();
     test_checkin_req_caps();
     test_not_yet_sent_used();
