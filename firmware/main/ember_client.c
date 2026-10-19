@@ -953,11 +953,9 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         if (shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)) url = P->wait_url;
         else wait = 0;
     }
-    if (url == P->wait_url && P->shown_q[0]) {
-        taskENTER_CRITICAL(&s_shown_mux);
-        shown_sent(&s_shown, sv);
-        taskEXIT_CRITICAL(&s_shown_mux);
-    }
+    taskENTER_CRITICAL(&s_shown_mux);
+    shown_sent(&s_shown, sv);
+    taskEXIT_CRITICAL(&s_shown_mux);
     if (wait > 0) fade_start();
     bool truncated = false;
     const http_req_opts_t o = {

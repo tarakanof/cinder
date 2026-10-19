@@ -43,8 +43,9 @@ int shown_wait_ms(const shown_t *s, int64_t now_ms, bool online);
 /* Long-poll idle slice: true ends the request; else *slice_ms is cut to the debounce left. */
 bool shown_idle(const shown_t *s, int64_t now_ms, int *slice_ms);
 /* "shown=<page>[:<face>]" for the next view request ("" before any page); *val is the value it carries. False when cap is too
-   small. Marks nothing sent: shown_sent once the request carries it. */
+   small. Marks nothing sent: shown_sent once the request URL is built. */
 bool shown_query(const shown_t *s, char *out, size_t cap, shown_val_t *val);
+/* After every view request URL is built from val's query, carried or not: a value that did not fit is dropped, not due again. */
 void shown_sent(shown_t *s, shown_val_t val);
 /* view_url, then wait (> 0), demo_q and shown_q ("" or NULL: left out) as its query. False when cap is too small. */
 bool shown_view_url(char *out, size_t cap, const char *view_url, int wait, const char *demo_q, const char *shown_q);

@@ -238,7 +238,7 @@ static void test_usage(void)
           "a usage peek inside the debounce sends nothing");
 }
 
-static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
+static int loop_turns_url(shown_t *s, bool online, size_t url_cap, int64_t from, int64_t to)
 {
     int n = 0;
     for (int64_t t = from; t < to && n < 100000; n++) {
@@ -250,13 +250,17 @@ static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
             t += step < end - t ? step : end - t;
         }
         if (online) {
-            char q[SHOWN_QUERY_MAX];
+            char q[SHOWN_QUERY_MAX], url[128];
             shown_val_t v;
-            if (shown_query(s, q, sizeof q, &v)) shown_sent(s, v);
+            if (!shown_query(s, q, sizeof q, &v)) q[0] = 0;
+            shown_view_url(url, url_cap < sizeof url ? url_cap : sizeof url, "http://e/v", 25, "", q);
+            shown_sent(s, v);
         }
     }
     return n;
 }
+
+static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to) { return loop_turns_url(s, online, 128, from, to); }
 
 static void test_offline(void)
 {
@@ -272,6 +276,19 @@ static void test_offline(void)
     CHECK(n == 11 && shown_due_ms(&s, 21000) == -1, "online again: sent on the first turn, then paced (%d)", n);
 }
 
+static void test_overflow(void)
+{
+    shown_t s = SHOWN_INIT;
+    shown_note(&s, SHOWN_WEATHER, WXF_RAIN, 0);
+    int n = loop_turns_url(&s, true, sizeof "http://e/v?wait=25&shown=weather:ra", 1000, 11000);
+    CHECK(n == 11, "a URL that overflows: the first plain poll at once, then one per poll_ms, never back to back (%d in 10 s)", n);
+    CHECK(shown_due_ms(&s, 11000) == -1, "the value that did not fit is dropped");
+    shown_note(&s, SHOWN_WEATHER, WXF_SUN, 11000);
+    CHECK(shown_due_ms(&s, 11000 + SHOWN_DEBOUNCE_MS) == 0, "a later change is due again");
+    n = loop_turns_url(&s, true, 2, 11000, 21000);
+    CHECK(n == 11 && shown_due_ms(&s, 21000) == -1, "even the bare view URL overflowing: paced (%d)", n);
+}
+
 int main(void)
 {
     test_query();
@@ -281,6 +298,7 @@ int main(void)
     test_sim();
     test_usage();
     test_offline();
+    test_overflow();
     if (failures) {
         printf("%d shown check(s) failed\n", failures);
         return 1;
