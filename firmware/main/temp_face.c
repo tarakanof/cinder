@@ -1240,6 +1240,8 @@ void temp_face_turn(int detents)
 
 int temp_face_picked(void) { return s_faces.pick; }
 
+int temp_face_resolved(void) { return s_root && s_job.visible ? s_face : -1; }
+
 void temp_face_pick(int face)
 {
     if (!s_root || !s_job.visible || face == s_faces.pick) return;

@@ -54,6 +54,8 @@ typedef struct {
 bool demo_act_parse(const char *s, demo_act_t *out);
 bool demo_page_parse(const char *s, demo_page_t *page, int *face);
 const char *demo_page_id(demo_page_t p);
+/* "temp" .. "air" for wx_face_id_t's 0 .. 6, NULL for any other face. */
+const char *demo_face_id(int face);
 /* d: the view's demo value. False (out->present false) when absent or not a usable block. */
 bool demo_block_parse(const cJSON *d, demo_block_t *out);
 

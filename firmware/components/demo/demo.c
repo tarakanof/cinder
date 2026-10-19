@@ -58,6 +58,8 @@ bool demo_page_parse(const char *s, demo_page_t *page, int *face)
 
 const char *demo_page_id(demo_page_t p) { return (unsigned)p < DEMO_PAGES ? PAGE_IDS[p] : PAGE_IDS[0]; }
 
+const char *demo_face_id(int face) { return face >= 0 && face < N_OF(FACES) ? FACES[face] : NULL; }
+
 bool demo_block_parse(const cJSON *d, demo_block_t *out)
 {
     memset(out, 0, sizeof *out);

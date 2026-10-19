@@ -19,6 +19,9 @@ void temp_face_turn(int detents);
 int temp_face_picked(void);
 void temp_face_pick(int face);
 
+/* The face the page resolved last frame (WXF_AUTO as what it chose), -1 while hidden or before the first frame. */
+int temp_face_resolved(void);
+
 /* OTA face: call with true on every OTA frame (parks a queued bake, frees the hidden face once a running one ends). */
 void temp_face_hold(bool hold);
 

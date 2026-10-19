@@ -74,6 +74,8 @@ bool ember_client_demo_take(demo_block_t *out, unsigned *gen);
 bool ember_client_demo_tick(double t);
 /* LVGL task: true when a demo was playing; it ends and the input is consumed. */
 bool ember_client_demo_input(void);
+/* LVGL task, every frame: the page on screen (a PAGES id) and on weather the resolved face; a change is reported after SHOWN_DEBOUNCE_MS. */
+void ember_client_shown(const char *page, int face);
 /* LVGL task: the act of the scene with this gen has played. */
 void ember_client_demo_act_done(unsigned gen);
 
