@@ -160,6 +160,26 @@ static void test_dim(void)
 
     dim_fade_init(&f, 100);
     dim_fade_set_target(&f, 140);
+    bool set;
+    CHECK(dim_fade_step(&f, 5000, &v, &set) == DIM_STEP_MS && set && v == 102, "step: the first at once: %d", v);
+    CHECK(dim_fade_step(&f, 5030, &v, &set) == DIM_STEP_MS - 30 && !set && f.cur == 102, "a turn 30 ms later: no step");
+    CHECK(dim_fade_step(&f, 5060, &v, &set) == DIM_STEP_MS - 60 && !set, "nor at 60 ms");
+    CHECK(dim_fade_step(&f, 5100, &v, &set) == DIM_STEP_MS && set && v == 104, "the next at DIM_STEP_MS: %d", v);
+    int steps = 2;
+    for (int t = 5100; dim_fade_step(&f, t, &v, &set) >= 0 && t < 20000; t += 10) steps += set;
+    CHECK(f.cur == 140 && steps == 20, "10 ms turns still take the fade's 20 steps: %d", steps);
+    CHECK(dim_fade_step(&f, 30000, &v, &set) == -1 && !set, "settled: -1");
+    dim_fade_init(&f, 100);
+    dim_fade_set_target(&f, 102);
+    dim_fade_step(&f, 1000, &v, &set);
+    dim_fade_step(&f, 1100, &v, &set);
+    CHECK(f.cur == 102 && dim_fade_step(&f, 1110, &v, &set) == -1, "settled 10 ms after its last step");
+    dim_fade_set_target(&f, 140);
+    CHECK(dim_fade_step(&f, 1120, &v, &set) == DIM_STEP_MS && set && v == 104, "a new target steps at once: %d", f.cur);
+    CHECK(dim_fade_step(&f, 1219, &v, &set) == DIM_STEP_MS && set && v == 106, "a turn 1 ms short of the step (tick rounding) steps");
+    CHECK(dim_fade_step(&f, 1317, &v, &set) == 2 && !set, "2 ms short does not");
+    dim_fade_init(&f, 100);
+    dim_fade_set_target(&f, 140);
     CHECK(dim_fade_tick(&f, &v) && v == 102, "first step: %d", v);
     CHECK(dim_fade_tick(&f, &v) && v == 104, "then continues: %d", v);
     while (dim_fade_tick(&f, &v)) {}

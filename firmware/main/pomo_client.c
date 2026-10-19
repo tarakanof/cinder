@@ -215,7 +215,7 @@ static void client_task(void *arg)
         pomo_press_t in;
         bool got = xQueueReceive(s_queue, &in, pdMS_TO_TICKS(wait_ms)) == pdTRUE;
         if (!lt_on(&s_lt)) {
-            if (got) xQueueSendToFront(s_queue, &in, 0);
+            if (got && xQueueSendToFront(s_queue, &in, 0) == pdTRUE) ember_client_wake();
             continue;
         }
         if (got) {
