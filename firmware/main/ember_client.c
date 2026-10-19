@@ -43,6 +43,7 @@
 #include "ota_client.h"
 #include "pomo_client.h"
 #include "shown.h"
+#include "wake_turn.h"
 #include "usage_client.h"
 #include "view_policy.h"
 #include "view_wait.h"
@@ -364,10 +365,12 @@ static void fade_start(void)
 
 static int fade_step(void)
 {
+    if (!s_fade_on) return -1;
     uint8_t v;
-    if (!s_fade_on || !dim_fade_tick(&s_fade, &v)) return -1;
-    panel_check_brightness(v);
-    return DIM_STEP_MS;
+    bool set;
+    int next = dim_fade_step(&s_fade, esp_timer_get_time() / 1000, &v, &set);
+    if (set) panel_check_brightness(v);
+    return next;
 }
 
 #define EMBER_HANG_MS 90000
@@ -440,6 +443,20 @@ static bool demo_moved(void)
 
 static atomic_int s_wake_fd = -1;
 
+static bool wake_take(void *ctx, int wait_ms, void *item)
+{
+    (void)ctx;
+    return pomo_client_next_action((uint32_t)wait_ms, item);
+}
+
+static int wake_wait(void *ctx, int ms)
+{
+    (void)ctx;
+    return http_conn_wake_wait(atomic_load(&s_wake_fd), ms);
+}
+
+static const wake_ops_t WAKE_OPS = {.take = wake_take, .wait = wake_wait};
+
 static void wait_and_fade(int ms, char *buf)
 {
     fade_start();
@@ -452,25 +469,16 @@ static void wait_and_fade(int ms, char *buf)
         if (buf && demo_moved()) return;
         int due = buf ? shown_due() : -1;
         if (due == 0) return;
-        TickType_t wait = (TickType_t)left;
-        if (due > 0 && wait > pdMS_TO_TICKS(due)) wait = pdMS_TO_TICKS(due);
-        if (wait > pdMS_TO_TICKS(1000)) wait = pdMS_TO_TICKS(1000);
         int next = fade_step();
-        if (next >= 0 && wait > pdMS_TO_TICKS(next)) wait = pdMS_TO_TICKS(next);
+        bool np = buf && np_client_visible();
+        if (np && atomic_load(&s_online) && np_client_cmds_pending()) np_client_run_controls(s_conn, P->base);
+        int wait = wake_slice_ms((int)pdTICKS_TO_MS(left), due, next, np);
         if (!buf) {
-            vTaskDelay(wait);
+            vTaskDelay(pdMS_TO_TICKS(wait));
             continue;
         }
-        if (np_client_visible()) {
-            if (atomic_load(&s_online) && np_client_cmds_pending()) np_client_run_controls(s_conn, P->base);
-            if (wait > pdMS_TO_TICKS(50)) wait = pdMS_TO_TICKS(50);
-        }
         pomo_press_t in;
-        bool got = pomo_client_next_action(0, &in);
-        int woke = got ? 0 : http_conn_wake_wait(atomic_load(&s_wake_fd), (int)pdTICKS_TO_MS(wait));
-        if (woke < 0) got = pomo_client_next_action(pdTICKS_TO_MS(wait), &in);
-        else if (woke > 0) got = pomo_client_next_action(0, &in);
-        if (got) {
+        if (wake_turn(&WAKE_OPS, wait, &in)) {
             pomo_client_run_action(in, s_conn, buf, RESP_MAX);
             pomo_client_log_state();
             return;
@@ -1274,7 +1282,7 @@ void ember_client_start(void)
         int fd = eventfd(0, 0);
         if (fd >= 0) atomic_store(&s_wake_fd, fd);
     }
-    if (atomic_load(&s_wake_fd) < 0) ESP_LOGW(TAG, "no wake fd: a push during a long-poll waits up to 1 s");
+    if (atomic_load(&s_wake_fd) < 0) ESP_LOGW(TAG, "no wake fd: a push during a long-poll, and a shown change between plain polls, wait up to 1 s");
     if (xTaskCreatePinnedToCore(poll_task, "ember", 6912, NULL, 3, NULL, 1) == pdPASS) watchdog_start();
 }
 

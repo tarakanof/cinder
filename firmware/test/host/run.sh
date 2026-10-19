@@ -942,17 +942,12 @@ body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, si
     body "$ECL" view_poll | grep -qF 'shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)' ||
     WIRING="$WIRING view_poll-sends-shown"
 body "$ECL" ember_client_shown | grep -qxF '    if (changed) ember_client_wake();' || WIRING="$WIRING ember_client_shown-wakes-the-long-poll"
-WF=$(body "$ECL" wait_and_fade)
-printf '%s\n' "$WF" | awk '
-    $0 == "        bool got = pomo_client_next_action(0, &in);" {a = NR}
-    $0 == "        int woke = got ? 0 : http_conn_wake_wait(atomic_load(&s_wake_fd), (int)pdTICKS_TO_MS(wait));" {b = NR}
-    $0 == "        if (woke < 0) got = pomo_client_next_action(pdTICKS_TO_MS(wait), &in);" {c = NR}
-    $0 == "        else if (woke > 0) got = pomo_client_next_action(0, &in);" {d = NR}
-    $0 == "        if (got) {" {e = NR}
-    END {exit !(a && b == a + 1 && c == a + 2 && d == a + 3 && e == a + 4)}' &&
-    [ "$(printf '%s\n' "$WF" | grep -c 'pomo_client_next_action(')" -eq 3 ] ||
-    WIRING="$WIRING wait_and_fade-wakes-on-the-wake-fd-and-takes-actions-at-once"
-grep -qxF '            if (got && xQueueSendToFront(s_queue, &in, 0) == pdTRUE) ember_client_wake();' "$D/../../main/pomo_client.c" ||
+body "$ECL" wait_and_fade | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
+    body "$ECL" wait_and_fade | grep -qF 'wake_slice_ms(' &&
+    ! body "$ECL" wait_and_fade | grep -qE 'pomo_client_next_action|http_conn_wake_wait' &&
+    body "$ECL" wake_take | grep -qF 'pomo_client_next_action(' && body "$ECL" wake_wait | grep -qF 'http_conn_wake_wait(' ||
+    WIRING="$WIRING wait_and_fade-takes-and-waits-through-wake_turn"
+grep -F 'xQueueSendToFront(' "$D/../../main/pomo_client.c" | grep -qF 'ember_client_wake()' ||
     WIRING="$WIRING pomo-requeue-wakes-the-wait"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
@@ -966,3 +961,8 @@ cc $CFLAGS -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$
     "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_http.c" -lm \
     -o "${OUT}_http"
 "${OUT}_http"
+WT="$D/../../components/wake_turn"
+cc $CFLAGS -I"$WT/include" -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" \
+    "$WT/wake_turn.c" "$SH/shown.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" \
+    "$J/cJSON.c" "$D/test_wake.c" -lm -o "${OUT}_wake"
+"${OUT}_wake"

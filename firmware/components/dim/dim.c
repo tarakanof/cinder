@@ -5,6 +5,7 @@ void dim_fade_init(dim_fade_t *f, int cur)
     f->cur = f->target = cur;
     f->step = 0;
     f->floor = DIM_FLOOR;
+    f->next_ms = 0;
 }
 
 void dim_fade_set_floor(dim_fade_t *f, int floor) { f->floor = floor < 1 ? 1 : floor > 255 ? 255 : floor; }
@@ -35,6 +36,19 @@ bool dim_fade_tick(dim_fade_t *f, uint8_t *out)
     }
     *out = (uint8_t)f->cur;
     return true;
+}
+
+int dim_fade_step(dim_fade_t *f, int64_t now_ms, uint8_t *out, bool *set)
+{
+    *set = false;
+    if (f->cur == f->target) {
+        f->step = 0;
+        return -1;
+    }
+    if (now_ms < f->next_ms) return (int)(f->next_ms - now_ms);
+    *set = dim_fade_tick(f, out);
+    f->next_ms = now_ms + DIM_STEP_MS;
+    return DIM_STEP_MS;
 }
 
 bool dim_level_valid(bool present, double level)

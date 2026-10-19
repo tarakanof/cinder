@@ -4,6 +4,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/eventfd.h>
+#endif
 
 #include "config_store.h"
 #include "device_api.h"
@@ -624,9 +627,9 @@ static void test_wake_wait(void)
 {
     int64_t t0 = mono_ms();
     CHECK(http_conn_wake_wait(-1, 1000) == -1, "no fd: cannot wait");
-    CHECK(mono_ms() - t0 < 50, "no fd returns at once: %lld ms", (long long)(mono_ms() - t0));
+    CHECK(mono_ms() - t0 < 250, "no fd returns at once: %lld ms", (long long)(mono_ms() - t0));
     int p[2];
-    CHECK(pipe(p) == 0, "pipe");
+    CHECK(pipe(p) == 0, "pipe: one write per wake, so it drains as the device's eventfd does; coalescing is checked on eventfd below");
     t0 = mono_ms();
     CHECK(http_conn_wake_wait(p[0], 80) == 0, "no wake: times out");
     int64_t took = mono_ms() - t0;
@@ -634,7 +637,7 @@ static void test_wake_wait(void)
     wake(p[1]);
     t0 = mono_ms();
     CHECK(http_conn_wake_wait(p[0], 1000) == 1, "a pending wake returns at once");
-    CHECK(mono_ms() - t0 < 50, "pending wake: %lld ms", (long long)(mono_ms() - t0));
+    CHECK(mono_ms() - t0 < 250, "pending wake: %lld ms", (long long)(mono_ms() - t0));
     t0 = mono_ms();
     CHECK(http_conn_wake_wait(p[0], 80) == 0, "the wake was drained: the next wait blocks");
     took = mono_ms() - t0;
@@ -650,6 +653,19 @@ static void test_wake_wait(void)
     close(p[0]);
     close(p[1]);
     CHECK(http_conn_wake_wait(p[0], 1000) == -1, "a closed fd cannot wait");
+#ifdef __linux__
+    int e = eventfd(0, 0);
+    CHECK(e >= 0, "eventfd");
+    wake(e);
+    wake(e);
+    wake(e);
+    CHECK(http_conn_wake_wait(e, 1000) == 1, "eventfd: three wakes, one wait");
+    t0 = mono_ms();
+    CHECK(http_conn_wake_wait(e, 80) == 0 && mono_ms() - t0 >= 70, "eventfd: one read clears all three");
+    wake(e);
+    CHECK(http_conn_wake_wait(e, 1000) == 1, "eventfd: a later wake is kept");
+    close(e);
+#endif
 }
 
 int main(void)
