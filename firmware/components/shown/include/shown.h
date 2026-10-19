@@ -12,6 +12,7 @@ extern "C" {
 #define SHOWN_PAGE_MAX 24
 #define SHOWN_QUERY_MAX (sizeof "shown=:" + SHOWN_PAGE_MAX + 8)
 #define SHOWN_WEATHER "weather"
+#define SHOWN_USAGE "usage"
 
 typedef struct {
     const char *page;
@@ -24,15 +25,27 @@ typedef struct {
 
 #define SHOWN_INIT {.face = -1, .sent_face = -1}
 
+typedef struct {
+    const char *page;
+    int face;
+} shown_val_t;
+
+/* The page to report: SHOWN_USAGE while the usage screens cover the page, else page. */
+const char *shown_page(const char *page, bool usage_open);
+
 /* page: an id in static storage; face: wx_face_id_t, read on SHOWN_WEATHER only. A NULL page, or SHOWN_WEATHER with a face
    out of range (none resolved yet), keeps the last value. True when the value changed. */
 bool shown_note(shown_t *s, const char *page, int face, int64_t now_ms);
 /* ms until the value settles unsent (0: poll now), -1 when nothing new is to be sent. */
 int shown_due_ms(const shown_t *s, int64_t now_ms);
+/* shown_due_ms while online; -1 offline, so a wait between polls is not cut short when no poll can follow. */
+int shown_wait_ms(const shown_t *s, int64_t now_ms, bool online);
 /* Long-poll idle slice: true ends the request; else *slice_ms is cut to the debounce left. */
 bool shown_idle(const shown_t *s, int64_t now_ms, int *slice_ms);
-/* "shown=<page>[:<face>]" for the next view request ("" before any page) and marks it sent. False when cap is too small. */
-bool shown_query(shown_t *s, char *out, size_t cap);
+/* "shown=<page>[:<face>]" for the next view request ("" before any page); *val is the value it carries. False when cap is too
+   small. Marks nothing sent: shown_sent once the request carries it. */
+bool shown_query(const shown_t *s, char *out, size_t cap, shown_val_t *val);
+void shown_sent(shown_t *s, shown_val_t val);
 /* view_url, then wait (> 0), demo_q and shown_q ("" or NULL: left out) as its query. False when cap is too small. */
 bool shown_view_url(char *out, size_t cap, const char *view_url, int wait, const char *demo_q, const char *shown_q);
 

@@ -927,31 +927,18 @@ cc $CFLAGS -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" 
 SH="$D/../../components/shown"
 cc $CFLAGS -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$SH/shown.c" "$DM/demo.c" \
     "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_shown.c" -lm -o "${OUT}_shown"
-TFC="$D/../../main/temp_face.c"
-awk '/^static __attribute__\(\(noinline\)\) void page_tick\(/ {on=1} on {print} on && /^}/ {exit}' "$MAINC" |
-    grep -qxF '    ember_client_shown(pg->id, temp_face_resolved());' || WIRING="$WIRING page_tick-reports-the-shown-page-and-face"
-grep -qxF 'int temp_face_resolved(void) { return s_root && s_job.visible ? s_face : -1; }' "$TFC" || WIRING="$WIRING temp_face_resolved-is-the-resolved-face"
-body "$ECL" longpoll_idle | grep -qxF '    bool shown = shown_idle(&s_shown, now, next_slice_ms);' && body "$ECL" longpoll_idle | grep -qxF '    if (shown) return true;' ||
-    WIRING="$WIRING longpoll_idle-ends-on-a-settled-shown-change"
-body "$ECL" wait_and_fade | grep -qxF '        if (shown == 0) return;' || WIRING="$WIRING wait_and_fade-ends-on-a-settled-shown-change"
-body "$ECL" view_poll | grep -qxF '    shown_query(&s_shown, P->shown_q, sizeof P->shown_q);' &&
-    body "$ECL" view_poll | grep -qF 'shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)' ||
-    WIRING="$WIRING view_poll-sends-shown"
-body "$ECL" ember_client_shown | grep -qxF '    if (changed) ember_client_wake();' || WIRING="$WIRING ember_client_shown-wakes-the-long-poll"
-if [ -n "$WIRING" ]; then
-    echo "run.sh: FAIL shown wiring:$WIRING" >&2
-    exit 1
-fi
-echo "shown wiring: page_tick reports, view_poll sends, a change wakes the long-poll, idle and wait_and_fade end it once settled"
 "${OUT}_shown"
 TFC="$D/../../main/temp_face.c"
 awk '/^static __attribute__\(\(noinline\)\) void page_tick\(/ {on=1} on {print} on && /^}/ {exit}' "$MAINC" |
-    grep -qxF '    ember_client_shown(pg->id, temp_face_resolved());' || WIRING="$WIRING page_tick-reports-the-shown-page-and-face"
+    grep -qxF '    ember_client_shown(shown_page(pg->id, usage_view_open()), temp_face_resolved());' || WIRING="$WIRING page_tick-reports-the-shown-page-and-face"
 grep -qxF 'int temp_face_resolved(void) { return s_root && s_job.visible ? s_face : -1; }' "$TFC" || WIRING="$WIRING temp_face_resolved-is-the-resolved-face"
-body "$ECL" longpoll_idle | grep -qxF '    bool shown = shown_idle(&s_shown, now, next_slice_ms);' && body "$ECL" longpoll_idle | grep -qxF '    if (shown) return true;' ||
+body "$ECL" longpoll_idle | grep -qxF '    bool settled = shown_idle(&s_shown, now, next_slice_ms);' && body "$ECL" longpoll_idle | grep -qxF '    if (settled) return true;' ||
     WIRING="$WIRING longpoll_idle-ends-on-a-settled-shown-change"
-body "$ECL" wait_and_fade | grep -qxF '        if (shown == 0) return;' || WIRING="$WIRING wait_and_fade-ends-on-a-settled-shown-change"
-body "$ECL" view_poll | grep -qxF '    shown_query(&s_shown, P->shown_q, sizeof P->shown_q);' &&
+body "$ECL" wait_and_fade | grep -qxF '        if (due == 0) return;' && body "$ECL" shown_due | grep -qxF '    bool online = atomic_load(&s_online);' &&
+    body "$ECL" shown_due | grep -qxF '    int due = shown_wait_ms(&s_shown, now, online);' || WIRING="$WIRING wait_and_fade-ends-on-a-settled-shown-change-only-online"
+body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, sizeof P->shown_q, &sv)) P->shown_q[0] = 0;' &&
+    body "$ECL" view_poll | grep -A2 -xF '    if (url == P->wait_url && P->shown_q[0]) {' | grep -qxF '        shown_sent(&s_shown, sv);' &&
+    [ "$(grep -c 'shown_sent(' "$ECL")" -eq 1 ] &&
     body "$ECL" view_poll | grep -qF 'shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)' ||
     WIRING="$WIRING view_poll-sends-shown"
 body "$ECL" ember_client_shown | grep -qxF '    if (changed) ember_client_wake();' || WIRING="$WIRING ember_client_shown-wakes-the-long-poll"
@@ -959,7 +946,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
     exit 1
 fi
-echo "shown wiring: page_tick reports, view_poll sends, a change wakes the long-poll, idle and wait_and_fade end it once settled"
+echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent once the URL carries it, a change wakes the long-poll, idle and wait_and_fade (online only) end it once settled"
 cc $CFLAGS -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
     "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" \

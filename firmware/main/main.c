@@ -55,6 +55,7 @@
 #include "moment_view.h"
 #include "music_moment.h"
 #include "music_view.h"
+#include "shown.h"
 #include "wx_faces.h"
 #include "wx_moment.h"
 #include "wx_shift.h"
@@ -1034,7 +1035,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     wx_obs_t wx;
     bool have_wx = weather_client_get(&wx);
     temp_face_update(have_wx ? &wx : NULL, offline, dt);
-    ember_client_shown(pg->id, temp_face_resolved());
+    ember_client_shown(shown_page(pg->id, usage_view_open()), temp_face_resolved());
 
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);

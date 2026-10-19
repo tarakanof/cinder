@@ -11,7 +11,9 @@ static int failures;
 static const char *query(shown_t *s)
 {
     static char q[SHOWN_QUERY_MAX];
-    CHECK(shown_query(s, q, sizeof q), "query fits");
+    shown_val_t v;
+    CHECK(shown_query(s, q, sizeof q, &v), "query fits");
+    shown_sent(s, v);
     return q;
 }
 
@@ -62,8 +64,21 @@ static void test_query(void)
     shown_t w = SHOWN_INIT;
     shown_note(&w, SHOWN_WEATHER, WXF_SUN, 0);
     char small[sizeof "shown=weather:su"];
-    CHECK(!shown_query(&w, small, sizeof small) && !small[0], "too small: empty, false");
-    CHECK(shown_due_ms(&w, 1000) == 0, "a failed query sends nothing");
+    shown_val_t v;
+    CHECK(!shown_query(&w, small, sizeof small, &v) && !small[0], "too small: empty, false");
+    CHECK(shown_due_ms(&w, 1000) == 0, "a failed query leaves it unsent");
+    char q[SHOWN_QUERY_MAX];
+    CHECK(shown_query(&w, q, sizeof q, &v) && !strcmp(q, "shown=weather:sun"), "query: %s", q);
+    CHECK(shown_due_ms(&w, 1000) == 0, "a query alone leaves it unsent: the URL may not carry it");
+    shown_note(&w, "bot", -1, 1000);
+    shown_sent(&w, v);
+    CHECK(shown_due_ms(&w, 1300) == 0, "sent marks the value the query carried, not a later one");
+    shown_note(&w, SHOWN_WEATHER, WXF_SUN, 1400);
+    CHECK(shown_due_ms(&w, 2000) == -1, "back to the value sent: nothing due");
+    shown_t none = SHOWN_INIT;
+    CHECK(shown_query(&none, q, sizeof q, &v) && !q[0], "nothing to say");
+    shown_sent(&none, v);
+    CHECK(!none.sent, "an empty query marks nothing");
 }
 
 static void test_debounce(void)
@@ -159,7 +174,9 @@ static int sim(const sim_ev_t *ev, int n_ev, int64_t end, sim_poll_t *polls, int
         if (!start) continue;
         if (n < max) {
             polls[n].at = t;
-            CHECK(shown_query(&s, polls[n].q, sizeof polls[n].q), "query fits");
+            shown_val_t v;
+            CHECK(shown_query(&s, polls[n].q, sizeof polls[n].q, &v), "query fits");
+            shown_sent(&s, v);
         }
         n++;
         poll_end = t + SIM_WAIT_MS;
@@ -203,6 +220,58 @@ static void test_sim(void)
     CHECK(n == 1, "turned away and back inside the debounce: no poll (%d)", n);
 }
 
+static void test_usage(void)
+{
+    CHECK(!strcmp(shown_page("bot", true), SHOWN_USAGE) && !strcmp(shown_page("bot", false), "bot"), "usage covers the bot page");
+    shown_t s = SHOWN_INIT;
+    shown_note(&s, shown_page("bot", false), -1, 0);
+    CHECK(!strcmp(query(&s), "shown=bot"), "bot first");
+    CHECK(shown_note(&s, shown_page("bot", true), -1, 1000), "opening the usage screens is a change");
+    CHECK(shown_due_ms(&s, 1100) == 200, "through the debounce: %d", shown_due_ms(&s, 1100));
+    CHECK(shown_due_ms(&s, 1300) == 0, "due once settled");
+    const char *q = query(&s);
+    CHECK(!strcmp(q, "shown=usage") && ember_pattern(q), "usage: %s", q);
+    CHECK(shown_note(&s, shown_page("bot", false), -1, 5000), "closing them is a change");
+    CHECK(!strcmp(query(&s), "shown=bot"), "back to the page under them");
+    CHECK(shown_note(&s, shown_page("bot", true), -1, 6000) && shown_note(&s, shown_page("bot", false), -1, 6100) &&
+              shown_due_ms(&s, 7000) == -1,
+          "a usage peek inside the debounce sends nothing");
+}
+
+static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
+{
+    int n = 0;
+    for (int64_t t = from; t < to && n < 100000; n++) {
+        int64_t end = t + 1000;
+        while (t < end) {
+            int due = shown_wait_ms(s, t, online);
+            if (due == 0) break;
+            int64_t step = due > 0 && due < 1000 ? due : 1000;
+            t += step < end - t ? step : end - t;
+        }
+        if (online) {
+            char q[SHOWN_QUERY_MAX];
+            shown_val_t v;
+            if (shown_query(s, q, sizeof q, &v)) shown_sent(s, v);
+        }
+    }
+    return n;
+}
+
+static void test_offline(void)
+{
+    shown_t s = SHOWN_INIT;
+    shown_note(&s, SHOWN_WEATHER, WXF_RAIN, 0);
+    CHECK(shown_wait_ms(&s, 1000, false) == -1, "offline: no wait is cut short");
+    CHECK(shown_wait_ms(&s, 1000, true) == 0, "online: due");
+    CHECK(shown_wait_ms(&s, 100, true) == 200, "online while debouncing: %d", shown_wait_ms(&s, 100, true));
+    int n = loop_turns(&s, false, 1000, 11000);
+    CHECK(n == 10, "a settled change offline: one loop turn per poll_ms, no busy loop (%d in 10 s)", n);
+    CHECK(shown_due_ms(&s, 11000) == 0, "still unsent offline");
+    n = loop_turns(&s, true, 11000, 21000);
+    CHECK(n == 11 && shown_due_ms(&s, 21000) == -1, "online again: sent on the first turn, then paced (%d)", n);
+}
+
 int main(void)
 {
     test_query();
@@ -210,6 +279,8 @@ int main(void)
     test_idle();
     test_url();
     test_sim();
+    test_usage();
+    test_offline();
     if (failures) {
         printf("%d shown check(s) failed\n", failures);
         return 1;

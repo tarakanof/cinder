@@ -408,8 +408,9 @@ static portMUX_TYPE s_shown_mux = portMUX_INITIALIZER_UNLOCKED;
 static int shown_due(void)
 {
     int64_t now = esp_timer_get_time() / 1000;
+    bool online = atomic_load(&s_online);
     taskENTER_CRITICAL(&s_shown_mux);
-    int due = shown_due_ms(&s_shown, now);
+    int due = shown_wait_ms(&s_shown, now, online);
     taskEXIT_CRITICAL(&s_shown_mux);
     return due;
 }
@@ -447,10 +448,10 @@ static void wait_and_fade(int ms, char *buf)
         if (left <= 0) return;
         if (ota_client_mark_pending()) return;
         if (buf && demo_moved()) return;
-        int shown = buf ? shown_due() : -1;
-        if (shown == 0) return;
+        int due = buf ? shown_due() : -1;
+        if (due == 0) return;
         TickType_t wait = (TickType_t)left;
-        if (shown > 0 && wait > pdMS_TO_TICKS(shown)) wait = pdMS_TO_TICKS(shown);
+        if (due > 0 && wait > pdMS_TO_TICKS(due)) wait = pdMS_TO_TICKS(due);
         if (wait > pdMS_TO_TICKS(1000)) wait = pdMS_TO_TICKS(1000);
         int next = fade_step();
         if (next >= 0 && wait > pdMS_TO_TICKS(next)) wait = pdMS_TO_TICKS(next);
@@ -908,9 +909,9 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (demo_moved()) return true;
     int64_t now = esp_timer_get_time() / 1000;
     taskENTER_CRITICAL(&s_shown_mux);
-    bool shown = shown_idle(&s_shown, now, next_slice_ms);
+    bool settled = shown_idle(&s_shown, now, next_slice_ms);
     taskEXIT_CRITICAL(&s_shown_mux);
-    if (shown) return true;
+    if (settled) return true;
     if (!P->has_pending && pomo_client_next_action(0, &P->pending)) P->has_pending = true;
     return P->has_pending;
 }
@@ -945,10 +946,17 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     demo_query(&s_demo, P->demo_q, sizeof P->demo_q);
     taskEXIT_CRITICAL(&s_demo_mux);
     taskENTER_CRITICAL(&s_shown_mux);
-    shown_query(&s_shown, P->shown_q, sizeof P->shown_q);
+    shown_val_t sv;
+    if (!shown_query(&s_shown, P->shown_q, sizeof P->shown_q, &sv)) P->shown_q[0] = 0;
     taskEXIT_CRITICAL(&s_shown_mux);
     if (wait > 0 || P->demo_q[0] || P->shown_q[0]) {
         if (shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)) url = P->wait_url;
+        else wait = 0;
+    }
+    if (url == P->wait_url && P->shown_q[0]) {
+        taskENTER_CRITICAL(&s_shown_mux);
+        shown_sent(&s_shown, sv);
+        taskEXIT_CRITICAL(&s_shown_mux);
     }
     if (wait > 0) fade_start();
     bool truncated = false;

@@ -1224,7 +1224,8 @@ static void test_view_req_shown(void)
     shown_t sh = SHOWN_INIT;
     shown_note(&sh, SHOWN_WEATHER, WXF_WIND, 0);
     char q[SHOWN_QUERY_MAX], url[256];
-    CHECK(shown_query(&sh, q, sizeof q), "query fits");
+    shown_val_t sv;
+    CHECK(shown_query(&sh, q, sizeof q, &sv), "query fits");
     const char *base = "http://ember.local:3627";
     char view[128];
     snprintf(view, sizeof view, "%s/v1/devices/self/view", base);

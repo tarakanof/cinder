@@ -32,6 +32,10 @@ int shown_due_ms(const shown_t *s, int64_t now_ms)
     return left > SHOWN_DEBOUNCE_MS ? SHOWN_DEBOUNCE_MS : (int)left;
 }
 
+const char *shown_page(const char *page, bool usage_open) { return usage_open ? SHOWN_USAGE : page; }
+
+int shown_wait_ms(const shown_t *s, int64_t now_ms, bool online) { return online ? shown_due_ms(s, now_ms) : -1; }
+
 bool shown_idle(const shown_t *s, int64_t now_ms, int *slice_ms)
 {
     int due = shown_due_ms(s, now_ms);
@@ -40,8 +44,9 @@ bool shown_idle(const shown_t *s, int64_t now_ms, int *slice_ms)
     return false;
 }
 
-bool shown_query(shown_t *s, char *out, size_t cap)
+bool shown_query(const shown_t *s, char *out, size_t cap, shown_val_t *val)
 {
+    *val = (shown_val_t){.page = s->page, .face = s->face};
     if (!cap) return false;
     out[0] = 0;
     if (!s->page) return true;
@@ -51,10 +56,15 @@ bool shown_query(shown_t *s, char *out, size_t cap)
         out[0] = 0;
         return false;
     }
-    s->sent = true;
-    s->sent_page = s->page;
-    s->sent_face = s->face;
     return true;
+}
+
+void shown_sent(shown_t *s, shown_val_t val)
+{
+    if (!val.page) return;
+    s->sent = true;
+    s->sent_page = val.page;
+    s->sent_face = val.face;
 }
 
 bool shown_view_url(char *out, size_t cap, const char *view_url, int wait, const char *demo_q, const char *shown_q)
