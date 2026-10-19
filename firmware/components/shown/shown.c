@@ -94,5 +94,8 @@ bool shown_poll_url(char *out, size_t cap, const char *view_url, int *wait, cons
 {
     if (shown_view_url(out, cap, view_url, *wait, demo_q, shown_q)) return true;
     *wait = 0;
-    return shown_q && shown_q[0] && shown_view_url(out, cap, view_url, 0, NULL, shown_q);
+    bool demo = demo_q && demo_q[0], shown = shown_q && shown_q[0];
+    if ((demo || shown) && shown_view_url(out, cap, view_url, 0, demo_q, shown_q)) return true;
+    if (!demo || !shown) return false;
+    return shown_view_url(out, cap, view_url, 0, demo_q, NULL) || shown_view_url(out, cap, view_url, 0, NULL, shown_q);
 }
