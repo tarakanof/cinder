@@ -50,7 +50,7 @@ void shown_sent(shown_t *s, shown_val_t val);
 /* view_url, then wait (> 0), demo_q and shown_q ("" or NULL: left out) as its query. False when cap is too small. */
 bool shown_view_url(char *out, size_t cap, const char *view_url, int wait, const char *demo_q, const char *shown_q);
 /* shown_view_url; when that does not fit, *wait = 0 and the first that fits of demo_q and shown_q, demo_q alone, shown_q alone
-   (the demo report first: Ember requires it on every request). False when none fits: poll view_url bare. */
+   (the demo report first: Ember requires it on every request while a scene plays). False when none fits: poll view_url bare. */
 bool shown_poll_url(char *out, size_t cap, const char *view_url, int *wait, const char *demo_q, const char *shown_q);
 
 #ifdef __cplusplus
