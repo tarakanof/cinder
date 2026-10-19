@@ -950,8 +950,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     if (!shown_query(&s_shown, P->shown_q, sizeof P->shown_q, &sv)) P->shown_q[0] = 0;
     taskEXIT_CRITICAL(&s_shown_mux);
     if (wait > 0 || P->demo_q[0] || P->shown_q[0]) {
-        if (shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)) url = P->wait_url;
-        else wait = 0;
+        if (shown_poll_url(P->wait_url, sizeof P->wait_url, P->view_url, &wait, P->demo_q, P->shown_q)) url = P->wait_url;
     }
     taskENTER_CRITICAL(&s_shown_mux);
     shown_sent(&s_shown, sv);

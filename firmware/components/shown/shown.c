@@ -89,3 +89,10 @@ bool shown_view_url(char *out, size_t cap, const char *view_url, int wait, const
     }
     return true;
 }
+
+bool shown_poll_url(char *out, size_t cap, const char *view_url, int *wait, const char *demo_q, const char *shown_q)
+{
+    if (shown_view_url(out, cap, view_url, *wait, demo_q, shown_q)) return true;
+    *wait = 0;
+    return shown_q && shown_q[0] && shown_view_url(out, cap, view_url, 0, NULL, shown_q);
+}

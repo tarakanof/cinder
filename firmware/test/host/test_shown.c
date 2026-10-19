@@ -238,7 +238,7 @@ static void test_usage(void)
           "a usage peek inside the debounce sends nothing");
 }
 
-static int loop_turns_url(shown_t *s, bool online, size_t url_cap, int64_t from, int64_t to)
+static int loop_turns_url(shown_t *s, bool online, size_t q_cap, size_t url_cap, const char *demo_q, int64_t from, int64_t to)
 {
     int n = 0;
     for (int64_t t = from; t < to && n < 100000; n++) {
@@ -252,15 +252,19 @@ static int loop_turns_url(shown_t *s, bool online, size_t url_cap, int64_t from,
         if (online) {
             char q[SHOWN_QUERY_MAX], url[128];
             shown_val_t v;
-            if (!shown_query(s, q, sizeof q, &v)) q[0] = 0;
-            shown_view_url(url, url_cap < sizeof url ? url_cap : sizeof url, "http://e/v", 25, "", q);
+            int wait = 25;
+            if (!shown_query(s, q, q_cap < sizeof q ? q_cap : sizeof q, &v)) q[0] = 0;
+            if (!shown_poll_url(url, url_cap < sizeof url ? url_cap : sizeof url, "http://e/v", &wait, demo_q, q)) url[0] = 0;
             shown_sent(s, v);
         }
     }
     return n;
 }
 
-static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to) { return loop_turns_url(s, online, 128, from, to); }
+static int loop_turns(shown_t *s, bool online, int64_t from, int64_t to)
+{
+    return loop_turns_url(s, online, SHOWN_QUERY_MAX, 128, "", from, to);
+}
 
 static void test_offline(void)
 {
@@ -280,13 +284,37 @@ static void test_overflow(void)
 {
     shown_t s = SHOWN_INIT;
     shown_note(&s, SHOWN_WEATHER, WXF_RAIN, 0);
-    int n = loop_turns_url(&s, true, sizeof "http://e/v?wait=25&shown=weather:ra", 1000, 11000);
+    int n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, sizeof "http://e/v?shown=weather:ra", "", 1000, 11000);
     CHECK(n == 11, "a URL that overflows: the first plain poll at once, then one per poll_ms, never back to back (%d in 10 s)", n);
     CHECK(shown_due_ms(&s, 11000) == -1, "the value that did not fit is dropped");
     shown_note(&s, SHOWN_WEATHER, WXF_SUN, 11000);
     CHECK(shown_due_ms(&s, 11000 + SHOWN_DEBOUNCE_MS) == 0, "a later change is due again");
-    n = loop_turns_url(&s, true, 2, 11000, 21000);
+    n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, 2, "", 11000, 21000);
     CHECK(n == 11 && shown_due_ms(&s, 21000) == -1, "even the bare view URL overflowing: paced (%d)", n);
+    shown_note(&s, "bot", -1, 21000);
+    n = loop_turns_url(&s, true, 4, 128, "", 21000, 31000);
+    CHECK(n == 11 && shown_due_ms(&s, 31000) == -1, "a query buffer too small: dropped and paced (%d)", n);
+}
+
+static void test_poll_url(void)
+{
+    char u[sizeof "http://e/v?wait=25&shown=bot"];
+    int wait = 25;
+    CHECK(shown_poll_url(u, sizeof u, "http://e/v", &wait, "", "shown=bot") && wait == 25 && !strcmp(u, "http://e/v?wait=25&shown=bot"),
+          "fits: %s", u);
+    wait = 25;
+    CHECK(shown_poll_url(u, sizeof u, "http://e/v", &wait, "demo_id=a&demo_state=done", "shown=bot") && wait == 0 &&
+              !strcmp(u, "http://e/v?shown=bot"),
+          "the demo report overflows: shown alone, no wait: %s", u);
+    char v[sizeof "http://e/v?shown=bo"];
+    wait = 25;
+    CHECK(!shown_poll_url(v, sizeof v, "http://e/v", &wait, "", "shown=bot") && wait == 0 && !v[0], "shown alone overflows: bare");
+    wait = 25;
+    CHECK(!shown_poll_url(v, sizeof v, "http://e/v", &wait, "demo_id=a&demo_state=done", "") && wait == 0, "nothing to keep: bare");
+    shown_t s = SHOWN_INIT;
+    shown_note(&s, "bot", -1, 0);
+    int n = loop_turns_url(&s, true, SHOWN_QUERY_MAX, sizeof "http://e/v?shown=bot", "demo_id=a&demo_state=done", 1000, 11000);
+    CHECK(n == 11 && shown_due_ms(&s, 11000) == -1, "the demo report overflowing: shown sent, paced (%d)", n);
 }
 
 int main(void)
@@ -299,6 +327,7 @@ int main(void)
     test_usage();
     test_offline();
     test_overflow();
+    test_poll_url();
     if (failures) {
         printf("%d shown check(s) failed\n", failures);
         return 1;

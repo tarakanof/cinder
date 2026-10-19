@@ -940,7 +940,7 @@ body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, si
     body "$ECL" view_poll | grep -A1 -xF '    taskENTER_CRITICAL(&s_shown_mux);' | grep -qxF '    shown_sent(&s_shown, sv);' &&
     ! body "$ECL" view_poll | grep -qF 'url == P->wait_url &&' &&
     [ "$(grep -c 'shown_sent(' "$ECL")" -eq 1 ] &&
-    body "$ECL" view_poll | grep -qF 'shown_view_url(P->wait_url, sizeof P->wait_url, P->view_url, wait, P->demo_q, P->shown_q)' ||
+    body "$ECL" view_poll | grep -qxF '        if (shown_poll_url(P->wait_url, sizeof P->wait_url, P->view_url, &wait, P->demo_q, P->shown_q)) url = P->wait_url;' ||
     WIRING="$WIRING view_poll-sends-shown"
 body "$ECL" ember_client_shown | grep -qxF '    if (changed) ember_client_wake();' || WIRING="$WIRING ember_client_shown-wakes-the-long-poll"
 if [ -n "$WIRING" ]; then
