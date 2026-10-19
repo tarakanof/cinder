@@ -29,7 +29,7 @@ bool dim_fade_set_target(dim_fade_t *f, int level);
 
 bool dim_fade_tick(dim_fade_t *f, uint8_t *out);
 
-/* dim_fade_tick at most once per DIM_STEP_MS of now_ms; *set when *out holds a level to write. ms until the next step, -1 settled. */
+/* dim_fade_tick once per DIM_STEP_MS of now_ms (1 ms early counts: tick rounding); *set when *out is to be written. ms to the next step, -1 settled. */
 int dim_fade_step(dim_fade_t *f, int64_t now_ms, uint8_t *out, bool *set);
 
 bool dim_level_valid(bool present, double level);

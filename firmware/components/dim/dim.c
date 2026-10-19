@@ -43,9 +43,10 @@ int dim_fade_step(dim_fade_t *f, int64_t now_ms, uint8_t *out, bool *set)
     *set = false;
     if (f->cur == f->target) {
         f->step = 0;
+        f->next_ms = 0;
         return -1;
     }
-    if (now_ms < f->next_ms) return (int)(f->next_ms - now_ms);
+    if (now_ms + 1 < f->next_ms) return (int)(f->next_ms - now_ms);
     *set = dim_fade_tick(f, out);
     f->next_ms = now_ms + DIM_STEP_MS;
     return DIM_STEP_MS;
