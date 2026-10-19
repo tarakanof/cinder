@@ -3,7 +3,7 @@ idf_component_register(SRCS "main.c" "panel_check.c" "bot_view.c" "ember_client.
                             "nowplaying_client.c" "nowplaying_view.c" "np_cover_view.c" "screen_snap.c" "ota_client.c" "ota_face.c" "font_title_bold.c"
                             "font_digits_96.c" "font_face_36.c" "moment_view.c" "music_view.c" "usage_client.c" "usage_view.c" "join_view.c"
                        INCLUDE_DIRS "."
-                       REQUIRES esp_driver_tsens usage refr_stats demo ota_policy pages caps link_state panel_req app_update mbedtls net_policy knob_view nowplaying bot pomo weather ember_host dim cinder_cfg provision bsp_knob esp_driver_usb_serial_jtag esp_app_format esp_wifi esp_netif esp_event nvs_flash esp_http_client esp_timer json espcoredump esp_partition)
+                       REQUIRES esp_driver_tsens shown usage refr_stats demo ota_policy pages caps link_state panel_req app_update mbedtls net_policy knob_view nowplaying bot pomo weather ember_host dim cinder_cfg provision bsp_knob esp_driver_usb_serial_jtag esp_app_format esp_wifi esp_netif esp_event nvs_flash esp_http_client esp_timer json espcoredump esp_partition)
 
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     if(NOT CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE OR CONFIG_BOOTLOADER_PROJECT_VER LESS 2)

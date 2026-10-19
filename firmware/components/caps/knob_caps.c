@@ -4,7 +4,7 @@
 #include "knob_rotation.h"
 #include "knob_view.h"
 
-static const char *const FEATURES[] = {"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals", "wx_faces", "wx_moments", "demo", "np_cover", "usage"};
+static const char *const FEATURES[] = {"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals", "wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown"};
 
 void knob_caps(dev_caps_t *c, const char *ids[PAGES_N])
 {
