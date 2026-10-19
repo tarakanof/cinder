@@ -89,6 +89,28 @@ static bool write_all(http_conn_t *c, const char *p, int n)
     return true;
 }
 
+static void wake_drain(int fd)
+{
+    uint64_t v;
+    ssize_t got = read(fd, &v, sizeof v);
+    (void)got;
+}
+
+int http_conn_wake_wait(int wake_fd, int ms)
+{
+    if (wake_fd < 0) return -1;
+    if (ms < 0) ms = 0;
+    fd_set rd;
+    FD_ZERO(&rd);
+    FD_SET(wake_fd, &rd);
+    struct timeval tv = {.tv_sec = ms / 1000, .tv_usec = (ms % 1000) * 1000};
+    int n = select(wake_fd + 1, &rd, NULL, NULL, &tv);
+    if (n < 0) return -1;
+    if (n == 0 || !FD_ISSET(wake_fd, &rd)) return 0;
+    wake_drain(wake_fd);
+    return 1;
+}
+
 static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, int len, char *buf, int cap,
                    http_fail_t *why, bool *cut, bool *dropped)
 {
@@ -140,11 +162,7 @@ static int attempt(http_conn_t *c, const http_req_opts_t *o, const char *body, i
                 *why = HTTP_FAIL_CLOSED;
                 return -1;
             }
-            if (o->wake_fd >= 0 && FD_ISSET(o->wake_fd, &rd)) {
-                uint64_t v;
-                ssize_t got = read(o->wake_fd, &v, sizeof v);
-                (void)got;
-            }
+            if (o->wake_fd >= 0 && FD_ISSET(o->wake_fd, &rd)) wake_drain(o->wake_fd);
             if (FD_ISSET(sock, &rd)) break;
             if (o->idle && o->idle(o->idle_ctx, &slice)) return HTTP_CONN_ABORTED;
         }

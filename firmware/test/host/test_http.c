@@ -1,6 +1,9 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "config_store.h"
 #include "device_api.h"
@@ -596,8 +599,62 @@ static void test_rx_buf(void)
     free(body);
 }
 
+static int64_t mono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void wake(int fd)
+{
+    uint64_t one = 1;
+    CHECK(write(fd, &one, sizeof one) == (ssize_t)sizeof one, "wake written");
+}
+
+static void *wake_later(void *arg)
+{
+    int *fd = arg;
+    usleep(100 * 1000);
+    wake(*fd);
+    return NULL;
+}
+
+static void test_wake_wait(void)
+{
+    int64_t t0 = mono_ms();
+    CHECK(http_conn_wake_wait(-1, 1000) == -1, "no fd: cannot wait");
+    CHECK(mono_ms() - t0 < 50, "no fd returns at once: %lld ms", (long long)(mono_ms() - t0));
+    int p[2];
+    CHECK(pipe(p) == 0, "pipe");
+    t0 = mono_ms();
+    CHECK(http_conn_wake_wait(p[0], 80) == 0, "no wake: times out");
+    int64_t took = mono_ms() - t0;
+    CHECK(took >= 70 && took < 500, "the timeout is waited, not spun: %lld ms", (long long)took);
+    wake(p[1]);
+    t0 = mono_ms();
+    CHECK(http_conn_wake_wait(p[0], 1000) == 1, "a pending wake returns at once");
+    CHECK(mono_ms() - t0 < 50, "pending wake: %lld ms", (long long)(mono_ms() - t0));
+    t0 = mono_ms();
+    CHECK(http_conn_wake_wait(p[0], 80) == 0, "the wake was drained: the next wait blocks");
+    took = mono_ms() - t0;
+    CHECK(took >= 70, "drained wake does not spin: %lld ms", (long long)took);
+    pthread_t th;
+    CHECK(pthread_create(&th, NULL, wake_later, &p[1]) == 0, "thread");
+    t0 = mono_ms();
+    CHECK(http_conn_wake_wait(p[0], 2000) == 1, "a wake mid-wait ends it");
+    took = mono_ms() - t0;
+    CHECK(took >= 80 && took < 500, "ends at the wake, not the timeout: %lld ms", (long long)took);
+    pthread_join(th, NULL);
+    CHECK(http_conn_wake_wait(p[0], 0) == 0, "drained after a mid-wait wake");
+    close(p[0]);
+    close(p[1]);
+    CHECK(http_conn_wake_wait(p[0], 1000) == -1, "a closed fd cannot wait");
+}
+
 int main(void)
 {
+    test_wake_wait();
     test_rx_buf();
     test_state_answer();
     http_conn_t c;

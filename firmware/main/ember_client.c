@@ -438,6 +438,8 @@ static bool demo_moved(void)
     return moved;
 }
 
+static atomic_int s_wake_fd = -1;
+
 static void wait_and_fade(int ms, char *buf)
 {
     fade_start();
@@ -464,7 +466,11 @@ static void wait_and_fade(int ms, char *buf)
             if (wait > pdMS_TO_TICKS(50)) wait = pdMS_TO_TICKS(50);
         }
         pomo_press_t in;
-        if (pomo_client_next_action(pdTICKS_TO_MS(wait), &in)) {
+        bool got = pomo_client_next_action(0, &in);
+        int woke = got ? 0 : http_conn_wake_wait(atomic_load(&s_wake_fd), (int)pdTICKS_TO_MS(wait));
+        if (woke < 0) got = pomo_client_next_action(pdTICKS_TO_MS(wait), &in);
+        else if (woke > 0) got = pomo_client_next_action(0, &in);
+        if (got) {
             pomo_client_run_action(in, s_conn, buf, RESP_MAX);
             pomo_client_log_state();
             return;
@@ -915,8 +921,6 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (!P->has_pending && pomo_client_next_action(0, &P->pending)) P->has_pending = true;
     return P->has_pending;
 }
-
-static atomic_int s_wake_fd = -1;
 
 void ember_client_wake(void)
 {

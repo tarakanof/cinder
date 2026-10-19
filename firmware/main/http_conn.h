@@ -89,6 +89,9 @@ typedef struct {
 /* GET with the bearer; a non-2xx body is read and dropped. */
 int http_conn_stream(http_conn_t *c, const char *url, const http_stream_opts_t *o);
 
+/* Up to ms for a write to wake_fd, then drains it: 1 woken, 0 timed out, -1 when it could not wait (no fd, select failed). */
+int http_conn_wake_wait(int wake_fd, int ms);
+
 /* Owner task only. */
 void http_conn_free(http_conn_t *c);
 
