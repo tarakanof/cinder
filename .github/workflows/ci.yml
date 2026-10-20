@@ -77,12 +77,12 @@ jobs:
       - name: Size report
         run: |
           . "$IDF_PATH/export.sh" >/dev/null
-          idf.py size
+          idf.py size | tee "$RUNNER_TEMP/size.txt"
           idf.py size-components
           {
             echo "## Firmware size"
             echo
             echo '```text'
-            idf.py size
+            cat "$RUNNER_TEMP/size.txt"
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
