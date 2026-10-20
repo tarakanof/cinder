@@ -358,6 +358,145 @@ static void test_bake_yield(void)
     free(scene[1]);
 }
 
+static wx_face_list_t list_of(const uint8_t *ids, int n)
+{
+    wx_face_list_t l;
+    wx_face_list_set(&l, ids, n);
+    return l;
+}
+
+static void test_list(void)
+{
+    wx_face_list_t all = list_of((const uint8_t[]){0, 1, 2, 3, 4, 5, 6}, 7), none = list_of(NULL, 0);
+    CHECK(all.n == 0 && none.n == 0 && wx_face_list_n(&all) == WXF_N && wx_face_list_first(&all) == WXF_TEMP,
+          "every face in order, or none given: the default list");
+    wx_face_list_t rev = list_of((const uint8_t[]){6, 5, 4, 3, 2, 1, 0}, 7);
+    CHECK(rev.n == 7 && wx_face_list_n(&rev) == 7 && wx_face_list_first(&rev) == WXF_AIR && wx_face_list_pos(&rev, WXF_TEMP) == 6,
+          "all seven in another order stay as sent");
+    wx_face_list_t l = list_of((const uint8_t[]){WXF_SUN, WXF_TEMP, 9, WXF_SUN, WXF_DAYS, 200}, 6);
+    CHECK(l.n == 3 && l.id[0] == WXF_SUN && l.id[1] == WXF_TEMP && l.id[2] == WXF_DAYS, "unknown and repeated ids skipped");
+    CHECK(list_of((const uint8_t[]){9, 8}, 2).n == 0, "no valid id: every face");
+    CHECK(wx_face_list_pos(&l, WXF_SUN) == 0 && wx_face_list_pos(&l, WXF_DAYS) == 2 && wx_face_list_pos(&l, WXF_RAIN) == -1 &&
+              wx_face_list_pos(&l, WXF_AUTO) == -1 && wx_face_list_pos(&none, WXF_AIR) == WXF_AIR && wx_face_list_pos(&none, 7) == -1,
+          "position in the list");
+    CHECK(wx_face_list_step(&l, WXF_SUN, 1) == WXF_TEMP && wx_face_list_step(&l, WXF_TEMP, 1) == WXF_DAYS &&
+              wx_face_list_step(&l, WXF_DAYS, 1) == WXF_SUN && wx_face_list_step(&l, WXF_SUN, -1) == WXF_DAYS,
+          "a turn steps the list in its order and wraps");
+    CHECK(wx_face_list_step(&l, WXF_TEMP, 7) == WXF_DAYS && wx_face_list_step(&l, WXF_TEMP, -7) == WXF_SUN &&
+              wx_face_list_step(&l, WXF_TEMP, 2147483647) == WXF_DAYS && wx_face_list_step(&l, WXF_SUN, -2147483647) == WXF_DAYS,
+          "several detents and huge counts");
+    CHECK(wx_face_list_step(&l, WXF_RAIN, 1) == WXF_TEMP && wx_face_list_step(&l, WXF_AUTO, 0) == WXF_SUN,
+          "a face outside the list steps from its first");
+    wx_face_list_t one = list_of((const uint8_t[]){WXF_WIND}, 1);
+    CHECK(one.n == 1 && wx_face_list_step(&one, WXF_WIND, 1) == WXF_WIND && wx_face_list_step(&one, WXF_TEMP, -3) == WXF_WIND,
+          "a one-face list always lands on it");
+    CHECK(wx_face_step(WXF_AIR, 1) == WXF_TEMP && wx_face_step(WXF_TEMP, -1) == WXF_AIR, "wx_face_step is the whole list");
+
+    wx_faces_t f = {.pick = WXF_AUTO, .list = l};
+    wx_faces_open(&f);
+    CHECK(f.pick == WXF_AUTO && f.list.n == 3, "a page open keeps the list");
+    CHECK(wx_faces_base(&f, -1, -1) == WXF_SUN, "nothing known: the list's first face, not Temperature");
+    CHECK(wx_faces_turn(&f, WXF_SUN, WXF_SUN, 1) && f.pick == WXF_TEMP, "from Sun to Temperature");
+    CHECK(wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 1) && f.pick == WXF_DAYS, "then Next days, skipping the unlisted");
+    CHECK(wx_faces_turn(&f, WXF_DAYS, WXF_DAYS, 1) && f.pick == WXF_SUN, "then wraps to Sun");
+    wx_faces_open(&f);
+    CHECK(wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, 1) && f.pick == WXF_TEMP, "a turn from an unlisted face on screen steps from the list's first");
+    f.list = one;
+    wx_faces_open(&f);
+    CHECK(wx_faces_turn(&f, WXF_WIND, WXF_WIND, 1) == false && f.pick == WXF_WIND, "a one-face list: a turn changes nothing");
+    f.list = none;
+    wx_faces_open(&f);
+    CHECK(wx_faces_base(&f, -1, -1) == WXF_TEMP && wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 1) && f.pick == WXF_RAIN,
+          "the default list is today's order");
+}
+
+static void test_listed(void)
+{
+    wx_obs_t dry = obs("clear", "0"), rain = wet();
+    wx_face_list_t temp_sun = list_of((const uint8_t[]){WXF_TEMP, WXF_SUN}, 2);
+    wx_face_list_t rain_temp = list_of((const uint8_t[]){WXF_RAIN, WXF_TEMP}, 2);
+    wx_face_list_t days_only = list_of((const uint8_t[]){WXF_DAYS}, 1);
+    wx_face_list_t none = list_of(NULL, 0);
+    wx_temp_t t, plain;
+
+    wx_temp_listed(&rain, NULL, WXF_AUTO, &none, &t);
+    wx_temp_face(&rain, NULL, WXF_AUTO, &plain);
+    CHECK(t.face == WXF_RAIN && plain.face == WXF_RAIN && t.rain.on && t.dots_n == 7 && t.dots_k == WXF_RAIN,
+          "the default list: auto picks Rain now while wet, seven dots");
+    wx_temp_listed(&rain, NULL, WXF_AUTO, &rain_temp, &t);
+    CHECK(t.face == WXF_RAIN && t.rain.on && t.dots_n == 2 && t.dots_k == 0, "auto picks Rain now when it is listed");
+    wx_temp_listed(&rain, NULL, WXF_AUTO, &temp_sun, &t);
+    CHECK(t.face == WXF_TEMP && !t.rain.on && t.dots_n == 2 && t.dots_k == 0,
+          "auto does not pick Rain now when it is not listed: the list's first face");
+    wx_temp_listed(&dry, NULL, WXF_AUTO, &temp_sun, &t);
+    CHECK(t.face == WXF_TEMP && t.dots_k == 0, "dry: Temperature");
+    wx_temp_listed(&dry, NULL, WXF_AUTO, &days_only, &t);
+    CHECK(t.face == WXF_DAYS && t.days.on && t.dots_n == 1 && t.dots_k == 0,
+          "auto's Temperature is not listed: a one-face list shows its face");
+    wx_temp_listed(&rain, NULL, WXF_SUN, &temp_sun, &t);
+    CHECK(t.face == WXF_SUN && t.dots_k == 1, "a pick shows");
+    wx_temp_listed(&rain, NULL, WXF_RAIN, &temp_sun, &t);
+    CHECK(t.face == WXF_RAIN && t.dots_n == 2 && t.dots_k == -1, "a pick outside the list (a demo) shows, no dot lit");
+    wx_temp_listed(&rain, NULL, 9, &temp_sun, &t);
+    CHECK(t.face == WXF_TEMP, "a face id outside the faces is auto");
+
+    wx_temp_t a, b;
+    wx_temp_listed(&dry, NULL, WXF_TEMP, &temp_sun, &a);
+    wx_temp_listed(&dry, NULL, WXF_TEMP, &none, &b);
+    CHECK(wx_temp_bake_kind(&a, &a) == 0 && wx_temp_bake_kind(&a, &b) == WX_BAKE_FULL,
+          "the same face under another list bakes again, for the dots");
+    wx_temp_listed(&dry, NULL, WXF_TEMP, &rain_temp, &b);
+    CHECK(wx_temp_bake_kind(&a, &b) == WX_BAKE_FULL, "the same face at another dot position bakes again");
+}
+
+static void test_list_dots(void)
+{
+    static uint16_t bg[WX_FACE * WX_FACE], lut[WX_RING_LUT];
+    static uint8_t hero[WX_HERO_BOX * WX_HERO_BOX * 3];
+    static wx_ring_t ring;
+    uint8_t *scene = malloc((size_t)wx_scene_px() * 3);
+    wx_bake_buf_t b = {.bg = bg, .lut = lut, .ring = &ring, .hero = hero, .scene = scene};
+    wx_obs_t dry = obs("clear", "0");
+    wx_face_list_t three = list_of((const uint8_t[]){WXF_AIR, WXF_TEMP, WXF_DAYS}, 3);
+    wx_face_list_t one = list_of((const uint8_t[]){WXF_SUN}, 1);
+    struct {
+        const wx_face_list_t *l;
+        int face, n, lit;
+        const char *what;
+    } C[] = {{&three, WXF_AIR, 3, 0, "Air first of three"}, {&three, WXF_TEMP, 3, 1, "Temperature second"},
+             {&three, WXF_DAYS, 3, 2, "Next days third"}, {&one, WXF_SUN, 0, -1, "a one-face list"}};
+    for (int c = 0; c < (int)(sizeof C / sizeof C[0]); c++) {
+        wx_temp_t t;
+        wx_bake_out_t o;
+        wx_temp_listed(&dry, NULL, C[c].face, C[c].l, &t);
+        memset(bg, 0, sizeof bg);
+        wx_bake(&t, WX_BAKE_FULL, &b, &o);
+        for (int k = 0; k < C[c].n; k++) {
+            float x, y;
+            wx_face_dot_xy(k, C[c].n, &x, &y);
+            uint32_t want = k == C[c].lit ? 0xF8FCF8 : 0x484848;
+            CHECK(rgb_at(bg, x, y) == want, "%s: dot %d of %d %06X, want %06X", C[c].what, k, C[c].n, (unsigned)rgb_at(bg, x, y),
+                  (unsigned)want);
+        }
+        if (C[c].n == 0) {
+            for (int k = 0; k < WXF_N; k++) {
+                float x, y;
+                wx_face_dot_xy(k, WXF_N, &x, &y);
+                CHECK(rgb_at(bg, x, y) == 0, "%s: no dot at the seven-dot position %d", C[c].what, k);
+            }
+            float x, y;
+            wx_face_dot_xy(0, 1, &x, &y);
+            CHECK(rgb_at(bg, x, y) == 0, "%s: no single dot", C[c].what);
+        } else {
+            float x, y, x6, y6;
+            wx_face_dot_xy(0, WXF_N, &x, &y);
+            wx_face_dot_xy(6, WXF_N, &x6, &y6);
+            CHECK(rgb_at(bg, x, y) == 0 && rgb_at(bg, x6, y6) == 0, "%s: nothing at the ends of the seven-dot row", C[c].what);
+        }
+    }
+    free(scene);
+}
+
 int main(void)
 {
     test_step();
@@ -366,6 +505,9 @@ int main(void)
     test_pick();
     test_bake_kind();
     test_dots();
+    test_list();
+    test_listed();
+    test_list_dots();
     test_bake_yield();
     if (failures) {
         printf("faces: %d failures\n", failures);

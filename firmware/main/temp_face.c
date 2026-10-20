@@ -1232,6 +1232,8 @@ void temp_face_show(bool on)
     act(wx_job_show(&s_job, on));
 }
 
+void temp_face_set_list(const uint8_t *ids, int n) { wx_face_list_set(&s_faces.list, ids, n); }
+
 void temp_face_turn(int detents)
 {
     if (!s_root || !s_job.visible) return;
@@ -1260,7 +1262,7 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     if (!isfinite(dt) || dt < 0) dt = 0;
     wx_temp_t t = {0};
     if (s_job.visible) {
-        wx_temp_face(obs, s_job.baked ? &s_io.key : NULL, s_faces.pick, &t);
+        wx_temp_listed(obs, s_job.baked ? &s_io.key : NULL, s_faces.pick, &s_faces.list, &t);
         s_face = t.face;
     }
     int a = wx_job_step(&s_job, &t, dt);

@@ -12,6 +12,9 @@ void temp_face_create(lv_obj_t *parent);
 /* Showing allocates the images and replays the arrival; hiding frees them. No PSRAM: black, retried every 5 s. */
 void temp_face_show(bool on);
 
+/* The faces a turn steps through and the dots count (Ember's apps.weather.faces as wx_face_id_t values); kept across opens. */
+void temp_face_set_list(const uint8_t *ids, int n);
+
 /* Plain knob detents on the weather page: the next or previous face, kept until the page shows again. */
 void temp_face_turn(int detents);
 

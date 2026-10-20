@@ -100,6 +100,79 @@ static void test_settings_idle(void)
     CHECK(memcmp(&d, &k, sizeof d) == 0, "non-numbers ignored");
 }
 
+static int face_ids(const knob_settings_t *k, const char *want)
+{
+    if (k->n_wx_faces != strlen(want)) return 0;
+    for (int i = 0; i < k->n_wx_faces; i++)
+        if (k->wx_faces[i] != want[i] - '0') return 0;
+    return 1;
+}
+
+static void test_settings_apps(void)
+{
+    knob_settings_t d, k;
+    knob_settings_defaults(&d);
+    CHECK(face_ids(&d, "0123456") && d.pomo_focus_rgb == 0xFF6A3D && d.pomo_break_rgb == 0x4FA9FF && d.np_dim_after_s == 180,
+          "defaults: all seven faces in order, the firmware colours, 180 s");
+    CHECK(KS_POMO_FOCUS_DEFAULT == 0xFF6A3D && KS_POMO_BREAK_DEFAULT == 0x4FA9FF && KS_NP_DIM_AFTER_S_DEFAULT == 180, "default values");
+    CHECK(knob_settings_parse("{}", &k) && memcmp(&d, &k, sizeof d) == 0, "absent apps: today's behaviour");
+    CHECK(knob_settings_parse("{\"apps\":true}", &k) && memcmp(&d, &k, sizeof d) == 0, "apps not an object: defaults");
+    CHECK(knob_settings_parse("{\"apps\":{}}", &k) && memcmp(&d, &k, sizeof d) == 0, "empty apps: defaults");
+    CHECK(knob_settings_parse("{\"apps\":{\"pomodoro\":{},\"weather\":{},\"nowplaying\":{}}}", &k) && memcmp(&d, &k, sizeof d) == 0,
+          "empty app blocks: defaults");
+    CHECK(knob_settings_parse("{\"apps\":{\"pomodoro\":1,\"weather\":[],\"nowplaying\":\"x\",\"other\":{\"a\":1}}}", &k) &&
+              memcmp(&d, &k, sizeof d) == 0,
+          "app blocks not objects and unknown apps: defaults");
+
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[\"air\",\"temp\",\"days\"]}}}", &k);
+    CHECK(face_ids(&k, "604"), "faces in the sent order: air, temp, days");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[\"sun\"]}}}", &k);
+    CHECK(face_ids(&k, "5"), "a one-face list");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[\"air\",\"sun\",\"days\",\"wind\",\"cast\",\"rain\",\"temp\"]}}}", &k);
+    CHECK(face_ids(&k, "6543210"), "all seven reversed");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[\"rain\",\"nope\",3,null,\"rain\",\"Temp\",\"wind\"]}}}", &k);
+    CHECK(face_ids(&k, "13"), "unknown ids, non-strings, repeats and wrong case skipped");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[\"nope\",1]}}}", &k);
+    CHECK(face_ids(&k, "0123456"), "no valid id: every face");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[]}}}", &k);
+    CHECK(face_ids(&k, "0123456"), "empty list: every face");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":\"temp\"}}}", &k);
+    CHECK(face_ids(&k, "0123456"), "a string instead of a list: every face");
+    knob_settings_parse("{\"apps\":{\"weather\":{\"faces\":[\"temp\",\"rain\",\"cast\",\"wind\",\"days\",\"sun\",\"air\",\"air\",\"temp\"]}}}", &k);
+    CHECK(face_ids(&k, "0123456"), "more than seven entries: the seven");
+
+    knob_settings_parse("{\"apps\":{\"pomodoro\":{\"focus_color\":\"#00ff7f\",\"break_color\":\"#A1B2C3\"}}}", &k);
+    CHECK(k.pomo_focus_rgb == 0x00FF7F && k.pomo_break_rgb == 0xA1B2C3, "colours, either case: %06X %06X", (unsigned)k.pomo_focus_rgb,
+          (unsigned)k.pomo_break_rgb);
+    knob_settings_parse("{\"apps\":{\"pomodoro\":{\"focus_color\":\"#112233\"}}}", &k);
+    CHECK(k.pomo_focus_rgb == 0x112233 && k.pomo_break_rgb == 0x4FA9FF, "one colour: the other keeps the default");
+    const char *bad[] = {"112233", "#12345", "#1234567", "#12345G", "#12 456", "red", "", "0x112233", " #112233"};
+    for (int i = 0; i < (int)(sizeof bad / sizeof bad[0]); i++) {
+        char js[128];
+        snprintf(js, sizeof js, "{\"apps\":{\"pomodoro\":{\"focus_color\":\"%s\",\"break_color\":\"%s\"}}}", bad[i], bad[i]);
+        knob_settings_parse(js, &k);
+        CHECK(memcmp(&d, &k, sizeof d) == 0, "bad colour '%s': defaults", bad[i]);
+    }
+    knob_settings_parse("{\"apps\":{\"pomodoro\":{\"focus_color\":16711680,\"break_color\":null}}}", &k);
+    CHECK(memcmp(&d, &k, sizeof d) == 0, "non-string colours: defaults");
+
+    knob_settings_parse("{\"apps\":{\"nowplaying\":{\"dim_after_s\":600}}}", &k);
+    CHECK(k.np_dim_after_s == 600, "dim after 600");
+    knob_settings_parse("{\"apps\":{\"nowplaying\":{\"dim_after_s\":60}}}", &k);
+    CHECK(k.np_dim_after_s == 60, "the minimum holds");
+    knob_settings_parse("{\"apps\":{\"nowplaying\":{\"dim_after_s\":1}}}", &k);
+    CHECK(k.np_dim_after_s == 60, "below the minimum: 60");
+    knob_settings_parse("{\"apps\":{\"nowplaying\":{\"dim_after_s\":0}}}", &k);
+    CHECK(k.np_dim_after_s == 60, "0 is not never here: 60");
+    knob_settings_parse("{\"apps\":{\"nowplaying\":{\"dim_after_s\":99999}}}", &k);
+    CHECK(k.np_dim_after_s == 1800, "above the maximum: 1800");
+    knob_settings_parse("{\"apps\":{\"nowplaying\":{\"dim_after_s\":\"x\"}}}", &k);
+    CHECK(k.np_dim_after_s == 180, "not a number: 180");
+
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":300},\"apps\":{\"nowplaying\":{\"dim_after_s\":90}}}", &k);
+    CHECK(k.idle_dim_after_s == 300 && k.np_dim_after_s == 90, "idle and apps together");
+}
+
 static void test_settings_values(void)
 {
     knob_settings_t k;
@@ -647,6 +720,7 @@ int main(void)
     test_settings_values();
     test_settings_quiet();
     test_settings_idle();
+    test_settings_apps();
     test_settings_rotation();
     test_pages();
     test_checkin_body();

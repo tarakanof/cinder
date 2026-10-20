@@ -75,6 +75,8 @@ typedef struct {
     wx_air_t air;   /* air.on: the Air face */
     int face;       /* WXF_*: rain.on exactly when WXF_RAIN, cast.on when WXF_CAST, wind.on when WXF_WIND, days.on when WXF_DAYS,
                        sun.on when WXF_SUN, air.on when WXF_AIR */
+    int dots_n;     /* the face dots (wx_temp_listed): 0 draws one per face in wx_face_id_t order, else the list's length */
+    int dots_k;     /* the lit dot when dots_n > 0, -1 when the face is not listed */
 } wx_temp_t;
 
 uint32_t wx_temp_rgb(float c);
@@ -95,6 +97,10 @@ void wx_temp_from_shown(const wx_obs_t *obs, const wx_temp_t *shown, wx_temp_t *
    even while wet; WXF_RAIN shows Rain now, dry (wx_rain_dry) when nothing falls; WXF_CAST the forecast, WXF_WIND the wind and
    WXF_DAYS the next days, WXF_SUN the sun and WXF_AIR the air on any weather; Next days and Sun are never the auto face. */
 void wx_temp_face(const wx_obs_t *obs, const wx_temp_t *shown, int face, wx_temp_t *out);
+/* wx_temp_face for a user's face list (wx_faces.h): face WXF_AUTO whose auto face is not listed shows the list's first
+   face instead; sets dots_n and dots_k, so a one-face list draws no dots. A face picked outside the list (a demo) shows,
+   with no dot lit. */
+void wx_temp_listed(const wx_obs_t *obs, const wx_temp_t *shown, int face, const wx_face_list_t *list, wx_temp_t *out);
 /* The sky word of t's look ("Partly cloudy", "Clear", "Rain"), whatever t->sub shows; NULL without data. */
 const char *wx_temp_sky(const wx_obs_t *obs, const wx_temp_t *t);
 /* WX_BAKE_* parts that differ from shown: RING the range (or the forecast dial), HERO the hero sprite, SCENE background

@@ -33,7 +33,6 @@
 
 #define TITLE_W 290
 #define SUB_W 260
-#define BURN_IN_S 180.0
 #define FACE_DIM_OPA 109
 #define TEXT_DIM_OPA LV_OPA_50
 #define AVATAR_EVERY_S 2.0
@@ -89,6 +88,7 @@ static double s_avatar_t;
 static int s_mode = MODE_UNSET;
 static long long s_meta_sec = -1;
 static double s_last_input;
+static double s_dim_after_s = 180.0;
 static bool s_dimmed;
 static int s_drift;
 static double s_drift_t;
@@ -451,7 +451,7 @@ static void drift_at(int k, int *dx, int *dy)
 
 static bool dim_step(bool live, double now)
 {
-    bool dim = live && now - s_last_input >= BURN_IN_S;
+    bool dim = live && now - s_last_input >= s_dim_after_s;
     if (dim != s_dimmed) {
         s_dimmed = dim;
         s_drift = 0;
@@ -466,7 +466,7 @@ static bool dim_step(bool live, double now)
 static void burn_in(double now)
 {
     if (s_kind != KIND_LEGACY) return;
-    bool dim = (s_mode == MODE_PLAYING || s_mode == MODE_PAUSED) && now - s_last_input >= BURN_IN_S;
+    bool dim = (s_mode == MODE_PLAYING || s_mode == MODE_PAUSED) && now - s_last_input >= s_dim_after_s;
     if (dim != s_dimmed) {
         s_dimmed = dim;
         lv_obj_set_style_image_opa(s_face, dim ? FACE_DIM_OPA : LV_OPA_COVER, 0);
@@ -491,6 +491,8 @@ static void burn_in(double now)
         lv_obj_align(s_album_ph, LV_ALIGN_CENTER, dx, ALBUM_DY + dy);
     }
 }
+
+void np_view_set_dim_after(int seconds) { s_dim_after_s = seconds; }
 
 void np_view_input(double now)
 {
@@ -670,7 +672,7 @@ void np_view_update(double now, bool offline)
     const np_info_t *np = &V->snap.info;
     bool live = !offline && V->snap.have && np->state != NP_NONE;
     bool known = V->snap.have && np->state != NP_NONE;
-    if (np_return_step(&V->ret, offline, now, BURN_IN_S)) s_last_input = now;
+    if (np_return_step(&V->ret, offline, now, s_dim_after_s)) s_last_input = now;
     int cur = s_kind == KIND_NONE ? -1 : s_kind == KIND_COVER;
     set_kind(np_face_kind_cover(known, np, cur) ? KIND_COVER : KIND_LEGACY);
     if (np_client_take_art(&in)) {
@@ -695,7 +697,7 @@ void np_view_update(double now, bool offline)
     }
     if (live) np_ctl_track_pos(&V->ctl, np_anchor_at(&V->snap.anchor, now), V->snap.anchor.dur_ms, now);
     if (live) controls_tick(now);
-    np_ctl_rest(&V->ctl, now - s_last_input >= BURN_IN_S);
+    np_ctl_rest(&V->ctl, now - s_last_input >= s_dim_after_s);
     np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     if (s_kind == KIND_COVER) {
         cover_update(now, offline, live, fresh, shown);

@@ -11,8 +11,6 @@
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
 #define SCREEN_H 466
 
-#define COL_FOCUS 0xFF6A3D
-#define COL_BREAK 0x4FA9FF
 #define COL_OTHER 0x9A9A9A
 #define COL_IDLE_TRACK 0x262626
 #define COL_TEXT 0xF4F4F2
@@ -33,6 +31,7 @@ static uint32_t s_ring_arc, s_ring_track;
 static char s_time_txt[12], s_phase_txt[24], s_round_txt[16];
 static uint32_t s_time_col = 1, s_phase_col = 1;
 static const char *s_note;
+static uint32_t s_col_focus = 0xFF6A3D, s_col_break = 0x4FA9FF;
 
 static uint32_t scale_rgb(uint32_t rgb, float k)
 {
@@ -81,6 +80,12 @@ void pomo_view_show(bool show)
 {
     if (show) lv_obj_remove_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+}
+
+void pomo_view_set_colors(uint32_t focus_rgb, uint32_t break_rgb)
+{
+    s_col_focus = focus_rgb;
+    s_col_break = break_rgb;
 }
 
 void pomo_view_set_note(const char *note) { s_note = note; }
@@ -133,8 +138,8 @@ void pomo_view_update(const pomo_est_t *e, double now)
     const pomo_state_t *s = e->has_state ? &e->state : NULL;
     pomo_mode_t mode = s ? pomo_mode(s) : POMO_MODE_IDLE;
     uint32_t base = !s ? COL_OTHER
-                       : s->phase == POMO_PHASE_FOCUS ? COL_FOCUS
-                       : pomo_phase_is_break(s->phase) ? COL_BREAK : COL_OTHER;
+                       : s->phase == POMO_PHASE_FOCUS ? s_col_focus
+                       : pomo_phase_is_break(s->phase) ? s_col_break : COL_OTHER;
     bool active = s && mode != POMO_MODE_IDLE;
 
     float frac = active ? pomo_fraction(s) : 0;

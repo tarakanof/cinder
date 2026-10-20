@@ -34,6 +34,11 @@ void knob_settings_defaults(knob_settings_t *ks)
     ks->quiet_calm = true;
     ks->quiet_dim = KS_QUIET_DIM_DEFAULT;
     ks->idle_dim_level = KS_IDLE_DIM_DEFAULT;
+    ks->n_wx_faces = KS_WX_FACES;
+    for (int i = 0; i < KS_WX_FACES; i++) ks->wx_faces[i] = (uint8_t)i;
+    ks->pomo_focus_rgb = KS_POMO_FOCUS_DEFAULT;
+    ks->pomo_break_rgb = KS_POMO_BREAK_DEFAULT;
+    ks->np_dim_after_s = KS_NP_DIM_AFTER_S_DEFAULT;
 }
 
 static void num(const cJSON *obj, const char *key, int lo, int hi, int *dst)
@@ -75,6 +80,43 @@ static void parse_pages(const cJSON *arr, knob_settings_t *ks)
     if (tmp.n_pages == 0) return;
     ks->n_pages = tmp.n_pages;
     memcpy(ks->pages, tmp.pages, sizeof tmp.pages);
+}
+
+static const char *const WX_FACE_NAMES[KS_WX_FACES] = {"temp", "rain", "cast", "wind", "days", "sun", "air"};
+
+static void parse_wx_faces(const cJSON *arr, knob_settings_t *ks)
+{
+    if (!cJSON_IsArray(arr)) return;
+    uint8_t ids[KS_WX_FACES];
+    int n = 0;
+    const cJSON *e;
+    cJSON_ArrayForEach(e, arr)
+    {
+        const char *name = cJSON_GetStringValue(e);
+        for (int f = 0; name && f < KS_WX_FACES; f++) {
+            if (strcmp(name, WX_FACE_NAMES[f]) != 0) continue;
+            bool dup = false;
+            for (int i = 0; i < n; i++) dup |= ids[i] == f;
+            if (!dup) ids[n++] = (uint8_t)f;
+        }
+    }
+    if (n == 0) return;
+    ks->n_wx_faces = (uint8_t)n;
+    memcpy(ks->wx_faces, ids, (size_t)n);
+}
+
+static void color(const cJSON *obj, const char *key, uint32_t *dst)
+{
+    const char *s = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(obj, key));
+    if (!s || s[0] != '#' || strlen(s) != 7) return;
+    uint32_t rgb = 0;
+    for (int i = 1; i < 7; i++) {
+        char c = s[i];
+        int v = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+        if (v < 0) return;
+        rgb = rgb << 4 | (uint32_t)v;
+    }
+    *dst = rgb;
 }
 
 static int parse_rotation(const cJSON *root)
@@ -152,6 +194,18 @@ bool knob_settings_parse(const char *json, knob_settings_t *ks)
         int level = ks->idle_dim_level;
         num(idle, "dim_level", 1, 255, &level);
         ks->idle_dim_level = (uint8_t)level;
+    }
+    const cJSON *apps = cJSON_GetObjectItemCaseSensitive(root, "apps");
+    if (cJSON_IsObject(apps)) {
+        const cJSON *pomo = cJSON_GetObjectItemCaseSensitive(apps, "pomodoro");
+        if (cJSON_IsObject(pomo)) {
+            color(pomo, "focus_color", &ks->pomo_focus_rgb);
+            color(pomo, "break_color", &ks->pomo_break_rgb);
+        }
+        const cJSON *wx = cJSON_GetObjectItemCaseSensitive(apps, "weather");
+        if (cJSON_IsObject(wx)) parse_wx_faces(cJSON_GetObjectItemCaseSensitive(wx, "faces"), ks);
+        const cJSON *np = cJSON_GetObjectItemCaseSensitive(apps, "nowplaying");
+        if (cJSON_IsObject(np)) num(np, "dim_after_s", KS_NP_DIM_AFTER_S_MIN, KS_NP_DIM_AFTER_S_MAX, &ks->np_dim_after_s);
     }
     cJSON_Delete(root);
     return true;
