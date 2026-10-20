@@ -750,6 +750,7 @@ fi
 echo "mood beat wiring: page_tick feeds the outline job right before the pose and syncs it right after, on every page; the beat frame draws through the chase throttle, with the frame time"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 FPC="-ffp-contract=off"
+for CM in components/weather/CMakeLists.txt main/CMakeLists.txt; do grep -qF -- "-ffp-contract=off" "$D/../../$CM" || { echo "run.sh: FAIL $CM lost -ffp-contract=off" >&2; exit 1; }; done
 cc $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" "-DRS_RACE_POINT(s,at)=rs_race_point(s,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$D/test_bot.c" -lm -lpthread -o "${OUT}_bot"
 cc $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/music_moment.c" "$D/test_music_moment.c" -lm -o "${OUT}_music"
 cc $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
@@ -917,7 +918,7 @@ cc $CFLAGS $FPC -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I
     "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
     "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$D/../../components/shown/shown.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
-cc $CFLAGS $FPC -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
     "$O/ota_policy.c" "$PG/pages.c" "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_caps.c" -lm \
     -o "${OUT}_caps"
@@ -926,7 +927,7 @@ cc $CFLAGS -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" 
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_pages.c" -lm -o "${OUT}_pages"
 "${OUT}_pages" "$D/fixtures/ember"
 SH="$D/../../components/shown"
-cc $CFLAGS $FPC -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$SH/shown.c" "$DM/demo.c" \
+cc $CFLAGS -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$SH/shown.c" "$DM/demo.c" \
     "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_shown.c" -lm -o "${OUT}_shown"
 "${OUT}_shown"
 TFC="$D/../../main/temp_face.c"
@@ -964,7 +965,7 @@ cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include"
     -o "${OUT}_http"
 "${OUT}_http"
 WT="$D/../../components/wake_turn"
-cc $CFLAGS $FPC -I"$WT/include" -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" \
+cc $CFLAGS -I"$WT/include" -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" \
     "$WT/wake_turn.c" "$SH/shown.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" \
     "$J/cJSON.c" "$D/test_wake.c" -lm -o "${OUT}_wake"
 "${OUT}_wake"
