@@ -353,12 +353,14 @@ static const char *const MOOD_NAMES[] = {"idle", "sleepy", "working", "waiting",
 
 static double now_s(void) { return esp_timer_get_time() / 1e6; }
 
+static pr_wake_t s_wake_press, s_wake_touch;
+
 static void knob_cb(void *event)
 {
     knob_event_t ev = (knob_event_t)(intptr_t)event;
     int dir = ev == KNOB_EVENT_CLOCKWISE ? 1 : -1;
     ota_client_note_input();
-    if (ember_client_idle_input()) return;
+    if (ember_client_idle_input() || pr_wake_held(&s_wake_press)) return;
     taskENTER_CRITICAL(&s_rg_mux);
     bool reset_turn = rg_turn(&s_rg, dir, now_s());
     taskEXIT_CRITICAL(&s_rg_mux);
@@ -375,20 +377,13 @@ static void knob_cb(void *event)
     }
 }
 
-static atomic_bool s_wake_press;
-static atomic_bool s_wake_touch;
 
 static void button_cb(void *event)
 {
     ota_client_note_input();
     button_event_t ev = (button_event_t)(intptr_t)event;
     bool woke = ember_client_idle_input();
-    if (ev == BUTTON_PRESS_DOWN) atomic_store(&s_wake_press, woke);
-    else if (woke) return;
-    if (atomic_load(&s_wake_press)) {
-        if (ev == BUTTON_PRESS_UP) atomic_store(&s_wake_press, false);
-        return;
-    }
+    if (pr_wake_swallow(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke)) return;
     switch (ev) {
     case BUTTON_PRESS_DOWN:
         taskENTER_CRITICAL(&s_rg_mux);
@@ -419,12 +414,8 @@ static void touch_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     bool woke = (code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING) && ember_client_idle_input();
-    if (code == LV_EVENT_PRESSED) atomic_store(&s_wake_touch, woke);
-    else if (woke) return;
-    if (atomic_load(&s_wake_touch)) {
-        if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) atomic_store(&s_wake_touch, false);
-        return;
-    }
+    if (code == LV_EVENT_PRESSED) ota_client_note_input();
+    if (pr_wake_swallow(&s_wake_touch, code == LV_EVENT_PRESSED, code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST, woke)) return;
     lv_point_t p = {0};
     lv_indev_t *indev = lv_indev_active();
     if (indev) lv_indev_get_point(indev, &p);
@@ -432,7 +423,6 @@ static void touch_cb(lv_event_t *e)
     ts_result_t r = TS_NONE;
     atomic_store(&s_touch_down, code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING);
     if (code == LV_EVENT_PRESSED) {
-        ota_client_note_input();
         atomic_fetch_add(&s_np_wakes, 1);
         bool classify = s_ks_lv->swipe_pages || (pages_current(&s_nav)->flags & PAGE_TOUCH_RAW);
         r = ts_press(&s_touch, p.x, p.y, report, classify);

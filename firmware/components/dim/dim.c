@@ -18,6 +18,12 @@ static void fade_retarget(dim_fade_t *f, bool one_step)
     f->step = one_step ? d : (d + DIM_FADE_STEPS - 1) / DIM_FADE_STEPS;
 }
 
+void dim_fade_sync(dim_fade_t *f, int level)
+{
+    f->cur = level < 0 ? 0 : level > 255 ? 255 : level;
+    fade_retarget(f, false);
+}
+
 bool dim_fade_set_off(dim_fade_t *f, bool off)
 {
     if (f->off == off) return false;
@@ -119,4 +125,9 @@ int dim_idle_level(int level, dim_idle_state_t st, const dim_idle_rules_t *r)
 int dim_idle_floor(int floor, dim_idle_state_t st, const dim_idle_rules_t *r)
 {
     return st == DIM_IDLE_DIMMED && r->dim_level < floor ? r->dim_level : floor;
+}
+
+int dim_idle_light(dim_idle_state_t was, int awake_level)
+{
+    return was != DIM_IDLE_AWAKE && awake_level > 0 ? clamp_level(awake_level) : -1;
 }

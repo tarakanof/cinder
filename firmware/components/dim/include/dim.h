@@ -36,6 +36,9 @@ int dim_fade_step(dim_fade_t *f, int64_t now_ms, uint8_t *out, bool *set);
 /* While off the fade goes to 0 in one step, below the floor; leaving off it jumps back to target in one step. set_target keeps the level for then. */
 bool dim_fade_set_off(dim_fade_t *f, bool off);
 
+/* The owner's fade learns that another task already wrote level to the panel: cur follows, the goal is unchanged. */
+void dim_fade_sync(dim_fade_t *f, int level);
+
 bool dim_level_valid(bool present, double level);
 
 /* Quiet caps the level at dim_level, below the floor too (docs/features.md, quiet hours). */
@@ -69,6 +72,9 @@ bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms);
 
 /* level is already floored and quiet-capped: the idle cap lowers it below the floor too, 0 while off. */
 int dim_idle_level(int level, dim_idle_state_t st, const dim_idle_rules_t *r);
+
+/* The level a task other than the fade's owner writes to the panel at once when an input or wake ends dim or off; -1 when there is nothing to write. */
+int dim_idle_light(dim_idle_state_t was, int awake_level);
 
 int dim_idle_floor(int floor, dim_idle_state_t st, const dim_idle_rules_t *r);
 

@@ -314,6 +314,8 @@ static EXT_RAM_BSS_ATTR struct {
 } s_idle;
 static portMUX_TYPE s_idle_mux = portMUX_INITIALIZER_UNLOCKED;
 static dim_idle_state_t s_idle_seen;
+static atomic_int s_awake_level = -1;
+static atomic_int s_lit = -1;
 
 static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }
 
@@ -356,6 +358,7 @@ static void bright_apply(void)
     if (idle != s_idle_seen) ESP_LOGI(TAG, "idle: %s", NAMES[idle]);
     s_idle_seen = idle;
     if (s_fade_on) dim_fade_set_floor(&s_fade, fade_floor());
+    atomic_store(&s_awake_level, s_bright_want < 0 ? -1 : dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim));
     int level = s_bright_want < 0 ? -1
                                   : dim_idle_level(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim),
                                                    idle, &s_idle.rules);
@@ -406,6 +409,11 @@ static void fade_start(void)
 static int fade_step(void)
 {
     if (!s_fade_on) return -1;
+    int lit = atomic_exchange(&s_lit, -1);
+    if (lit >= 0) {
+        dim_fade_sync(&s_fade, lit);
+        panel_check_brightness((uint8_t)lit);
+    }
     if (idle_state() != s_idle_seen) bright_apply();
     uint8_t v;
     bool set;
@@ -1482,6 +1490,11 @@ static bool idle_touch(bool input)
     if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now);
     else dim_idle_wake(&s_idle.clock, now);
     taskEXIT_CRITICAL(&s_idle_mux);
+    int lit = dim_idle_light(was, atomic_load(&s_awake_level));
+    if (lit >= 0) {
+        panel_check_brightness((uint8_t)lit);
+        atomic_store(&s_lit, lit);
+    }
     if (was != DIM_IDLE_AWAKE) ember_client_wake();
     return swallow;
 }

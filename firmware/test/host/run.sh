@@ -65,14 +65,19 @@ IDLE=""
 for FN in knob_cb button_cb touch_cb app_input_inject; do
     body "$MAINC" "$FN" | grep -qF 'ember_client_idle_input()' || IDLE="$IDLE $FN-feeds-the-idle-clock"
 done
-body "$MAINC" knob_cb | awk '/ember_client_idle_input\(\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
-    IDLE="$IDLE knob_cb-swallows-the-waking-turn-before-any-dispatch"
+body "$MAINC" knob_cb | awk '/ember_client_idle_input\(\) \|\| pr_wake_held\(&s_wake_press\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
+    IDLE="$IDLE knob_cb-swallows-the-waking-turn-and-turns-in-a-waking-press"
 body "$MAINC" app_input_inject | sed -n 3p | grep -qxF '    if (ember_client_idle_input()) return;' ||
     IDLE="$IDLE app_input_inject-swallows-first"
-body "$MAINC" button_cb | awk '/atomic_store\(&s_wake_press, woke\);/ {w = NR} /atomic_store\(&s_wake_press, false\);/ {c = NR} /^    switch \(ev\) \{$/ {s = NR} END {exit !(w && c > w && s > c)}' ||
+body "$MAINC" button_cb | awk '/pr_wake_swallow\(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke\)\) return;/ {w = NR} /^    switch \(ev\) \{$/ {s = NR} END {exit !(w && s > w)}' ||
     IDLE="$IDLE button_cb-swallows-the-whole-waking-press"
-body "$MAINC" touch_cb | awk '/atomic_store\(&s_wake_touch, woke\);/ {w = NR} /atomic_store\(&s_wake_touch, false\);/ {c = NR} /ts_press\(/ {p = NR} END {exit !(w && c > w && p > c)}' ||
-    IDLE="$IDLE touch_cb-swallows-the-whole-waking-touch"
+body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_note_input\(\);$/ {n = NR} /pr_wake_swallow\(&s_wake_touch, / {w = NR} /ts_press\(/ {p = NR} END {exit !(n && w > n && p > w)}' ||
+    IDLE="$IDLE touch_cb-notes-the-input-then-swallows-the-whole-waking-touch"
+[ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
+body "$ECL" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
+    IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
+body "$ECL" fade_step | awk '/atomic_exchange\(&s_lit, -1\)/ {x = NR} /dim_fade_sync\(&s_fade, lit\);/ {y = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /bright_apply\(\);/ {b = NR} END {exit !(x && y > x && p > y && b > p)}' ||
+    IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
 body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
 body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested() || ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake();' &&
@@ -803,7 +808,7 @@ cc $CFLAGS $FPC -I"$W/include" -I"$D" -include "$D/moment_pixel.h" "$W/weather_f
 cc $CFLAGS $FPC -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
 cc $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" "$D/test_ember.c" -o "${OUT}_ember"
-cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$D/test_cfg.c" -o "${OUT}_cfg"
+cc $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$G/press_route.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
 cc $CFLAGS -I"$RT/include" "$RT/knob_rotation.c" "$D/test_rotation.c" -o "${OUT}_rotation"
 cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"

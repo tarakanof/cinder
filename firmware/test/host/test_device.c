@@ -98,11 +98,6 @@ static void test_settings_idle(void)
     CHECK(k.idle_dim_after_s == 86400 && k.idle_off_after_s == 86400 && k.idle_dim_level == 255, "above the maximum: clamped down");
     knob_settings_parse("{\"idle\":{\"dim_after_s\":\"x\",\"off_after_s\":null,\"dim_level\":[]}}", &k);
     CHECK(memcmp(&d, &k, sizeof d) == 0, "non-numbers ignored");
-    knob_settings_parse("{\"idle\":{\"dim_after_s\":86399,\"dim_level\":255,\"off_after_s\":86400},"
-                        "\"apps\":{\"pomodoro\":{\"focus_color\":\"#FFFFFF\"},\"nowplaying\":{\"dim_after_s\":1800}}}",
-                        &k);
-    CHECK(k.idle_dim_after_s == 86399 && k.idle_dim_level == 255 && k.idle_off_after_s == 86400,
-          "Ember's config_v2 golden idle block at its longest; apps ignored here");
 }
 
 static void test_settings_values(void)

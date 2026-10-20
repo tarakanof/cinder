@@ -303,6 +303,24 @@ static void test_idle(void)
     CHECK(dim_fade_step(&f, 6000, &v, &set) == DIM_STEP_MS && set && v == 100, "wake through dim_fade_step");
     dim_fade_set_target(&f, 20);
     CHECK(f.target == 20 && dim_fade_tick(&f, &v) && v < 100, "afterwards the normal fade");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, 153) == 153 && dim_idle_light(DIM_IDLE_DIMMED, 153) == 153, "an input after off or dim lights the panel at the awake level");
+    CHECK(dim_idle_light(DIM_IDLE_AWAKE, 153) == -1, "awake: nothing to write");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, -1) == -1 && dim_idle_light(DIM_IDLE_OFF, 0) == -1, "no known level: nothing to write");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, 300) == 255, "clamped");
+
+    dim_fade_init(&f, 153);
+    dim_fade_set_off(&f, true);
+    dim_fade_tick(&f, &v);
+    dim_fade_sync(&f, 153);
+    dim_fade_set_off(&f, false);
+    CHECK(f.cur == 153 && !dim_fade_tick(&f, &v), "a panel lit by another task: the fade follows and has nothing to write");
+    dim_fade_init(&f, 153);
+    dim_fade_set_target(&f, 40);
+    dim_fade_sync(&f, 153);
+    CHECK(dim_fade_tick(&f, &v) && v < 153 && v > 40, "sync keeps the goal: the fade goes on from the written level: %d", v);
+    dim_fade_set_target(&f, 153);
+    while (dim_fade_tick(&f, &v)) {}
+    CHECK(f.cur == 153, "and reaches the new goal");
 }
 
 static void test_lead(void)
