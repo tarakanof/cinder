@@ -35,6 +35,7 @@ static const char *const COVERED[] = {
     "view_faces.json",         "view_faces_met.json",         "view_faces_polar_dry.json",
     "view_np_cover.json",      "view_np_cover_light.json",    "view_usage.json",
     "view_usage_uncapped.json", "controls_action.json",   "view_req_shown.json",
+    "config_v2.json",          "checkin_reply_config_v2.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -1065,6 +1066,23 @@ static void test_config_custom(void)
     CHECK(n == 3 && order[0] == 1 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
 }
 
+static void test_config_v2(void)
+{
+    static const char *const names[] = {"config_v2.json", "checkin_reply_config_v2.json"};
+    for (int i = 0; i < 2; i++) {
+        dev_checkin_result_t r;
+        if (reply(names[i], &r)) {
+            knob_settings_t ks;
+            CHECK(r.config_version == 2 && r.config && !r.config_too_deep, "%s: v2 config carried within the depth limit",
+                  names[i]);
+            CHECK(r.config && knob_settings_parse(r.config, &ks), "%s: settings parse", names[i]);
+            CHECK(!r.config || strlen(r.config) <= CFG_SETTINGS_MAX, "%s: config fits the %d B store", names[i],
+                  CFG_SETTINGS_MAX);
+        }
+        dev_checkin_result_free(&r);
+    }
+}
+
 static void test_pomodoro_action(void)
 {
     char *j = load("pomodoro_action.json");
@@ -1395,6 +1413,7 @@ int main(int argc, char **argv)
     test_checkin_replies();
     test_config_default();
     test_config_custom();
+    test_config_v2();
     test_pomodoro_action();
     test_view_usage();
     test_controls_action();
