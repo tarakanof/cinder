@@ -7,6 +7,14 @@
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
+static void test_settings_limit(void)
+{
+    CHECK(cfg_settings_fits(0), "empty fits");
+    CHECK(cfg_settings_fits(1024) && cfg_settings_fits(2047), "1024 and 2047 B fit");
+    CHECK(cfg_settings_fits(2048), "2048 B fits");
+    CHECK(!cfg_settings_fits(2049), "2049 B is rejected");
+}
+
 static void test_fields(void)
 {
     cfg_t c;
@@ -275,6 +283,7 @@ static void test_gesture_normal_input(void)
 int main(void)
 {
     test_fields();
+    test_settings_limit();
     test_url();
     test_set();
     test_seed();

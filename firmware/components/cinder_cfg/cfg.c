@@ -179,3 +179,5 @@ void cfg_describe(const cfg_t *cfg, char *out, size_t cap)
              cfg->wifi_pass[0] ? "set" : "none", cfg->ember_url[0] ? cfg->ember_url : "(none)",
              cfg->dev_tok[0] ? "set" : "none", cfg->dev_id[0] ? cfg->dev_id : "(none)");
 }
+
+bool cfg_settings_fits(size_t len) { return len <= CFG_SETTINGS_MAX; }

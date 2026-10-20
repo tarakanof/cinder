@@ -324,7 +324,7 @@ static esp_err_t get_settings_blob(char *buf, size_t cap, uint32_t *ver)
     size_t len = cap;
     err = nvs_get_blob(h, CFG_KEY_SETTINGS, buf, &len);
     if (err == ESP_OK) {
-        if (len >= cap) err = ESP_ERR_NVS_INVALID_LENGTH;
+        if (!cfg_settings_fits(len) || len >= cap) err = ESP_ERR_NVS_INVALID_LENGTH;
         else buf[len] = 0;
     }
     if (err == ESP_OK && ver && nvs_get_u32(h, CFG_KEY_SETTINGS_VER, ver) != ESP_OK) *ver = 0;
@@ -335,7 +335,7 @@ static esp_err_t get_settings_blob(char *buf, size_t cap, uint32_t *ver)
 static esp_err_t set_settings_blob(const char *json, uint32_t ver)
 {
     size_t len = strlen(json);
-    if (len > CFG_SETTINGS_MAX) return ESP_ERR_INVALID_SIZE;
+    if (!cfg_settings_fits(len)) return ESP_ERR_INVALID_SIZE;
     nvs_handle_t h;
     esp_err_t err = nvs_open(CFG_NAMESPACE, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;

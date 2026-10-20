@@ -16,7 +16,7 @@ extern "C" {
 #define CFG_DEV_ID_MAX 32
 #define CFG_TOKEN_MAX 128
 #define CFG_NAME_MAX 32
-#define CFG_SETTINGS_MAX 1024
+#define CFG_SETTINGS_MAX 2048
 
 #define CFG_KEY_SETTINGS "settings"
 #define CFG_KEY_SETTINGS_VER "settings_ver"
@@ -54,6 +54,8 @@ cfg_err_t cfg_set(cfg_t *cfg, const char *key, const char *value);
 
 bool cfg_url_valid(const char *url);
 void cfg_url_normalize(char *url);
+
+bool cfg_settings_fits(size_t len);
 
 bool cfg_provisioned(const cfg_t *cfg);
 
