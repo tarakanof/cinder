@@ -54,6 +54,8 @@ Status: design 2026-10-08; the Temperature face and Rain now (AR2) are built (0.
 - **BLE remote**: vector glyphs on black, the relative step arc on the edge ring: cheap.
 - **Bot music moments**: headphones + notes are small sprites around the eyes; the beat bob moves one box (eyes + cups) at ≤ 30 fps. Built for M13 ([`features.md`](features.md) "Bot music moments"): one box per step (eyes, cups and the moving notes), the bob at 15 fps until the knob measures room for 30, happy eyes; M14 is not built (no cover on the bot page).
 
+**Unfused float maths (#253, Ember#651)**: the weather component and `main/temp_face.c` build with `-ffp-contract=off`. GCC for the ESP32-S3 defaults to `-ffp-contract=fast` and turns `a * b + c` into `madd.s`/`msub.s`, which rounds once instead of twice, so the knob's ring points, label placement, cloud and paint distances drifted from the Ember Settings preview, which ports this maths in plain `Float` (the cast label at 240° landed at y 318 on the device and 319 unfused). The host weather tests compile with the same flag (`FPC` in `test/host/run.sh`, which also fails if either CMake file loses it). Ember's Settings preview ports this maths in Swift `Float`, which never fuses, so the device must not fuse either. Keep the flag when moving weather code into another component or file. `bot_shape.c` and `bot_behavior.c` are `double`, which the ESP32-S3 does in software and never fuses; the pomodoro and now-playing renderers are not ported as maths. Newlib's `sinf`/`cosf` can still differ from the preview's libm in the last ulp.
+
 ## Bot weather moments (v2)
 
 The bot page shows the coding agents' status first; weather only interrupts it briefly.
