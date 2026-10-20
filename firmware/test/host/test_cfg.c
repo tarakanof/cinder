@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "cfg.h"
+#include "press_route.h"
 #include "reset_gesture.h"
 
 static int failures;
@@ -280,8 +281,33 @@ static void test_gesture_normal_input(void)
     CHECK(!rg_release(&g, 20), "page change release not consumed");
 }
 
+static void test_wake_swallow(void)
+{
+    pr_wake_t w = {0};
+    CHECK(!pr_wake_swallow(&w, true, false, false) && !pr_wake_held(&w), "a press on a lit panel is delivered");
+    CHECK(!pr_wake_swallow(&w, false, false, false) && !pr_wake_swallow(&w, false, true, false), "its hold and release too");
+
+    CHECK(pr_wake_swallow(&w, true, false, true) && pr_wake_held(&w), "the press that wakes is swallowed and held");
+    CHECK(pr_wake_held(&w), "a turn while it is down is dropped");
+    CHECK(pr_wake_swallow(&w, false, false, false), "its hold is swallowed");
+    CHECK(pr_wake_swallow(&w, false, false, false), "and the next");
+    CHECK(pr_wake_swallow(&w, false, true, false) && !pr_wake_held(&w), "its release is swallowed and ends the gesture");
+    CHECK(!pr_wake_swallow(&w, true, false, false), "the next press is delivered");
+    CHECK(!pr_wake_swallow(&w, false, true, false), "with its release");
+
+    CHECK(pr_wake_swallow(&w, false, false, true) && !pr_wake_held(&w), "a waking event that is not a start is swallowed alone");
+    CHECK(!pr_wake_swallow(&w, true, false, false), "and the next press is delivered");
+
+    CHECK(pr_wake_swallow(&w, true, false, true), "a waking touch is swallowed");
+    CHECK(pr_wake_swallow(&w, false, false, false) && pr_wake_swallow(&w, false, true, false), "its moves and a lost press end it");
+    CHECK(!pr_wake_swallow(&w, true, false, false), "the next touch is delivered");
+    CHECK(pr_wake_swallow(&w, true, false, true) && pr_wake_swallow(&w, true, false, true) && pr_wake_held(&w),
+          "a second waking start keeps it swallowed");
+}
+
 int main(void)
 {
+    test_wake_swallow();
     test_fields();
     test_settings_limit();
     test_url();

@@ -1078,6 +1078,8 @@ static void test_config_v2(void)
             CHECK(r.config && knob_settings_parse(r.config, &ks), "%s: settings parse", names[i]);
             CHECK(!r.config || strlen(r.config) <= CFG_SETTINGS_MAX, "%s: config fits the %d B store", names[i],
                   CFG_SETTINGS_MAX);
+            CHECK(ks.idle_dim_after_s == 86399 && ks.idle_dim_level == 255 && ks.idle_off_after_s == 86400,
+                  "%s: idle block at its longest: %d %d %d", names[i], ks.idle_dim_after_s, ks.idle_dim_level, ks.idle_off_after_s);
         }
         dev_checkin_result_free(&r);
     }
@@ -1144,7 +1146,7 @@ static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
-static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown"};
+static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim"};
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 

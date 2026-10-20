@@ -57,8 +57,8 @@ static void test_firmware_caps(void)
     const char *pages[PAGES_N];
     for (int i = 0; i < PAGES_N; i++) pages[i] = PAGES[i].id;
     CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "pages"), pages, PAGES_N), "pages in table order");
-    const char *const features[] = {"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals", "wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown"};
-    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), features, 11), "features");
+    const char *const features[] = {"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals", "wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim"};
+    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), features, 12), "features");
     const cJSON *view = cJSON_GetObjectItemCaseSensitive(cj, "view");
     CHECK(cJSON_GetArraySize(view) == 2 && cJSON_GetArrayItem(view, 0)->valueint == 1 &&
               cJSON_GetArrayItem(view, 1)->valueint == 1,

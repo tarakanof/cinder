@@ -308,7 +308,41 @@ static int s_bright_want = -1;
 static atomic_bool s_quiet;
 static atomic_bool s_quiet_dim;
 
-static int fade_floor(void) { return dim_quiet_floor(s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim); }
+static EXT_RAM_BSS_ATTR struct {
+    dim_idle_t clock;
+    dim_idle_rules_t rules;
+} s_idle;
+static portMUX_TYPE s_idle_mux = portMUX_INITIALIZER_UNLOCKED;
+static dim_idle_state_t s_idle_seen;
+static atomic_int s_awake_level = -1;
+static atomic_int s_lit = -1;
+
+static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }
+
+static dim_idle_state_t idle_state(void)
+{
+    int64_t now = idle_ms();
+    bool verifying = ota_client_verifying();
+    taskENTER_CRITICAL(&s_idle_mux);
+    if (verifying) dim_idle_wake(&s_idle.clock, now);
+    dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
+    taskEXIT_CRITICAL(&s_idle_mux);
+    return st;
+}
+
+static void idle_rules_set(void)
+{
+    taskENTER_CRITICAL(&s_idle_mux);
+    s_idle.rules = (dim_idle_rules_t){.dim_after_s = s_ks.idle_dim_after_s,
+                                      .dim_level = s_ks.idle_dim_level,
+                                      .off_after_s = s_ks.idle_off_after_s};
+    taskEXIT_CRITICAL(&s_idle_mux);
+}
+
+static int fade_floor(void)
+{
+    return dim_idle_floor(dim_quiet_floor(s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim), s_idle_seen, &s_idle.rules);
+}
 
 static void set_brightness_target(int level)
 {
@@ -319,9 +353,17 @@ static void set_brightness_target(int level)
 
 static void bright_apply(void)
 {
+    static const char *const NAMES[] = {"awake", "dimmed", "off"};
+    dim_idle_state_t idle = idle_state();
+    if (idle != s_idle_seen) ESP_LOGI(TAG, "idle: %s", NAMES[idle]);
+    s_idle_seen = idle;
     if (s_fade_on) dim_fade_set_floor(&s_fade, fade_floor());
-    if (s_bright_want < 0) return;
-    set_brightness_target(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim));
+    atomic_store(&s_awake_level, s_bright_want < 0 ? -1 : dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim));
+    int level = s_bright_want < 0 ? -1
+                                  : dim_idle_level(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim),
+                                                   idle, &s_idle.rules);
+    if (level > 0) set_brightness_target(level);
+    if (s_fade_on) dim_fade_set_off(&s_fade, idle == DIM_IDLE_OFF);
 }
 
 static void bright_want(int level)
@@ -360,12 +402,19 @@ static void fade_start(void)
         dim_fade_set_floor(&s_fade, fade_floor());
         s_fade_on = true;
         if (s_bright_target >= 0) dim_fade_set_target(&s_fade, s_bright_target);
+        dim_fade_set_off(&s_fade, s_idle_seen == DIM_IDLE_OFF);
     }
 }
 
 static int fade_step(void)
 {
     if (!s_fade_on) return -1;
+    int lit = atomic_exchange(&s_lit, -1);
+    if (lit >= 0) {
+        dim_fade_sync(&s_fade, lit);
+        panel_check_brightness((uint8_t)lit);
+    }
+    if (idle_state() != s_idle_seen) bright_apply();
     uint8_t v;
     bool set;
     int next = dim_fade_step(&s_fade, esp_timer_get_time() / 1000, &v, &set);
@@ -496,6 +545,7 @@ static void settings_changed(int64_t *next_bright_us)
 {
     bool followed = s_ks.follow_ember;
     config_store_settings(&s_ks);
+    idle_rules_set();
     diag_set_level((ks_diag_t)s_ks.diagnostics);
     if (!s_ks.follow_ember) bright_want(s_ks.level);
     else if (!P->vp.legacy) view_brightness();
@@ -1224,6 +1274,7 @@ static void poll_task(void *arg)
         demo_mark_ready();
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (mood != last) {
+            if (mood == BOT_WAITING || mood == BOT_ERROR) ember_client_idle_wake();
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;
         }
@@ -1429,6 +1480,30 @@ unsigned ember_client_beacon_timeouts(void) { return atomic_load(&s_beacon_timeo
 bool ember_client_wifi_started(void) { return atomic_load(&s_wifi_started); }
 
 int ember_client_join_failures(void) { return atomic_load(&s_join_failures); }
+
+static bool idle_touch(bool input)
+{
+    int64_t now = idle_ms();
+    taskENTER_CRITICAL(&s_idle_mux);
+    dim_idle_state_t was = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
+    bool swallow = false;
+    if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now);
+    else dim_idle_wake(&s_idle.clock, now);
+    taskEXIT_CRITICAL(&s_idle_mux);
+    int lit = dim_idle_light(was, atomic_load(&s_awake_level));
+    if (lit >= 0) {
+        panel_check_brightness((uint8_t)lit);
+        atomic_store(&s_lit, lit);
+    }
+    if (was != DIM_IDLE_AWAKE) ember_client_wake();
+    return swallow;
+}
+
+bool ember_client_idle_input(void) { return idle_touch(true); }
+
+void ember_client_idle_wake(void) { (void)idle_touch(false); }
+
+bool ember_client_idle_off(void) { return idle_state() == DIM_IDLE_OFF; }
 
 bool ember_client_quiet(void) { return atomic_load(&s_quiet); }
 

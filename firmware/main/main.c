@@ -204,6 +204,7 @@ static void chase_track(const bot_pose_t *ref, double deg, double orbit, double 
 
 void app_input_inject(int kind, int n)
 {
+    if (ember_client_idle_input()) return;
     switch (kind) {
     case 0: atomic_fetch_add(&s_detents, n); break;
     case 1: atomic_fetch_add(&s_pushes, n); break;
@@ -352,11 +353,14 @@ static const char *const MOOD_NAMES[] = {"idle", "sleepy", "working", "waiting",
 
 static double now_s(void) { return esp_timer_get_time() / 1e6; }
 
+static pr_wake_t s_wake_press, s_wake_touch;
+
 static void knob_cb(void *event)
 {
     knob_event_t ev = (knob_event_t)(intptr_t)event;
     int dir = ev == KNOB_EVENT_CLOCKWISE ? 1 : -1;
     ota_client_note_input();
+    if (ember_client_idle_input() || pr_wake_held(&s_wake_press)) return;
     taskENTER_CRITICAL(&s_rg_mux);
     bool reset_turn = rg_turn(&s_rg, dir, now_s());
     taskEXIT_CRITICAL(&s_rg_mux);
@@ -373,10 +377,14 @@ static void knob_cb(void *event)
     }
 }
 
+
 static void button_cb(void *event)
 {
     ota_client_note_input();
-    switch ((button_event_t)(intptr_t)event) {
+    button_event_t ev = (button_event_t)(intptr_t)event;
+    bool woke = ember_client_idle_input();
+    if (pr_wake_swallow(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke)) return;
+    switch (ev) {
     case BUTTON_PRESS_DOWN:
         taskENTER_CRITICAL(&s_rg_mux);
         rg_press(&s_rg, now_s());
@@ -405,6 +413,9 @@ static void button_cb(void *event)
 static void touch_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
+    bool woke = (code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING) && ember_client_idle_input();
+    if (code == LV_EVENT_PRESSED) ota_client_note_input();
+    if (pr_wake_swallow(&s_wake_touch, code == LV_EVENT_PRESSED, code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST, woke)) return;
     lv_point_t p = {0};
     lv_indev_t *indev = lv_indev_active();
     if (indev) lv_indev_get_point(indev, &p);
@@ -412,7 +423,6 @@ static void touch_cb(lv_event_t *e)
     ts_result_t r = TS_NONE;
     atomic_store(&s_touch_down, code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING);
     if (code == LV_EVENT_PRESSED) {
-        ota_client_note_input();
         atomic_fetch_add(&s_np_wakes, 1);
         bool classify = s_ks_lv->swipe_pages || (pages_current(&s_nav)->flags & PAGE_TOUCH_RAW);
         r = ts_press(&s_touch, p.x, p.y, report, classify);
@@ -1218,6 +1228,23 @@ static void scene_frame(double t)
 
 static atomic_uint s_loop_ticks;
 
+static bool idle_frame(lv_display_t *disp)
+{
+    static bool held;
+    ember_demo_status_t ds;
+    ember_client_demo_status(&ds);
+    if (ota_face_requested() || ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake();
+    bool off = ember_client_idle_off();
+    if (off != held) {
+        held = off;
+        lv_display_enable_invalidation(disp, !off);
+        if (!off) lv_obj_invalidate(lv_screen_active());
+        ESP_LOGI(TAG, "screen %s", off ? "off: rendering paused" : "on: rendering resumed");
+    }
+    if (off) s_last_frame_t = 0;
+    return off;
+}
+
 static void frame_cb(lv_timer_t *timer)
 {
     panel_check_frame();
@@ -1227,6 +1254,7 @@ static void frame_cb(lv_timer_t *timer)
     if (ota_client_render_frozen()) return;
     ota_client_note_loop();
     atomic_fetch_add_explicit(&s_loop_ticks, 1, memory_order_relaxed);
+    if (idle_frame(lv_timer_get_user_data(timer))) return;
     double t = now_s();
     double dt = s_last_frame_t > 0 ? t - s_last_frame_t : 0;
     s_last_frame_t = t;
