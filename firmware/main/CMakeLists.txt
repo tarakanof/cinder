@@ -15,3 +15,5 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
                             "would compile Wi-Fi secrets in. Delete firmware/sdkconfig (docs/workflow.md) to regenerate it.")
     endif()
 endif()
+
+set_source_files_properties(temp_face.c PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
