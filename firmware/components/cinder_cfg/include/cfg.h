@@ -16,7 +16,7 @@ extern "C" {
 #define CFG_DEV_ID_MAX 32
 #define CFG_TOKEN_MAX 128
 #define CFG_NAME_MAX 32
-#define CFG_SETTINGS_MAX 1024
+#define CFG_SETTINGS_MAX 2048
 
 #define CFG_KEY_SETTINGS "settings"
 #define CFG_KEY_SETTINGS_VER "settings_ver"

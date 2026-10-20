@@ -46,7 +46,7 @@ static void test_firmware_caps(void)
     for (int i = 0; i < PAGES_N; i++) CHECK(caps.pages[i] == PAGES[i].id, "page %d from the table", i);
     CHECK(caps.view_min == KNOB_VIEW_V_MIN && caps.view_max == KNOB_VIEW_V_MAX, "view range");
     CHECK(caps.view_bytes == KNOB_VIEW_BUF - 1 && caps.view_bytes == 16383, "view_bytes %u", (unsigned)caps.view_bytes);
-    CHECK(caps.config_bytes == CFG_SETTINGS_MAX && caps.config_bytes == 1024, "config_bytes %u",
+    CHECK(caps.config_bytes == CFG_SETTINGS_MAX && caps.config_bytes == 2048, "config_bytes %u",
           (unsigned)caps.config_bytes);
 
     dev_checkin_t c = {.caps = &caps, .fw = "0.9.42", .config_version = 3};
@@ -65,7 +65,7 @@ static void test_firmware_caps(void)
           "view [1,1]");
     const cJSON *lim = cJSON_GetObjectItemCaseSensitive(cj, "limits");
     CHECK(cJSON_GetObjectItemCaseSensitive(lim, "view_bytes")->valueint == 16383 &&
-              cJSON_GetObjectItemCaseSensitive(lim, "config_bytes")->valueint == 1024 && cJSON_GetArraySize(lim) == 2,
+              cJSON_GetObjectItemCaseSensitive(lim, "config_bytes")->valueint == 2048 && cJSON_GetArraySize(lim) == 2,
           "limits");
     const cJSON *rot = cJSON_GetObjectItemCaseSensitive(cj, "rotations");
     CHECK(cJSON_GetArraySize(rot) == 2 && cJSON_GetArrayItem(rot, 0)->valueint == 0 &&

@@ -964,7 +964,7 @@ static void test_checkin_replies(void)
         CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 4 && !ks.pages[3].on, "diagnostics full, nowplaying off");
         CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
         CHECK(ks.rotation == 0, "rotation 0");
-        CHECK(strlen(r.config) <= CFG_SETTINGS_MAX, "config fits the store");
+        CHECK(CFG_SETTINGS_MAX == 2048 && strlen(r.config) <= CFG_SETTINGS_MAX, "config fits the %d B store", CFG_SETTINGS_MAX);
     }
     dev_checkin_result_free(&r);
 

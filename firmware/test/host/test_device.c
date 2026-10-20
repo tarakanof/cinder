@@ -58,6 +58,21 @@ static void test_settings_quiet(void)
     knob_settings_parse(copy, &b);
     free(copy);
     CHECK(!a.quiet_calm && a.quiet_dim == 7 && memcmp(&a, &b, sizeof a) == 0, "quiet round-trips through the stored text");
+
+    CHECK(CFG_SETTINGS_MAX == 2048, "CFG_SETTINGS_MAX %d", CFG_SETTINGS_MAX);
+    {
+        enum { PAD = CFG_SETTINGS_MAX - 40 };
+        static char pad[PAD + 1], body[CFG_SETTINGS_MAX + 128];
+        memset(pad, 'x', PAD);
+        snprintf(body, sizeof body, "{\"config_version\":4,\"config\":{\"x\":\"%s\",\"quiet\":{\"dim_level\":9}}}", pad);
+        dev_checkin_result_t big;
+        dev_checkin_parse(body, &big);
+        size_t n = big.config ? strlen(big.config) : 0;
+        CHECK(big.ok && n > 1024 && n <= CFG_SETTINGS_MAX, "a %zu B config is kept whole and fits the store", n);
+        knob_settings_t kb;
+        CHECK(big.config && knob_settings_parse(big.config, &kb) && kb.quiet_dim == 9, "a %zu B config parses", n);
+        dev_checkin_result_free(&big);
+    }
 }
 
 static void test_settings_values(void)
