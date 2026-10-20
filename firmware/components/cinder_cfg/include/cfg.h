@@ -55,6 +55,8 @@ cfg_err_t cfg_set(cfg_t *cfg, const char *key, const char *value);
 bool cfg_url_valid(const char *url);
 void cfg_url_normalize(char *url);
 
+bool cfg_settings_fits(size_t len);
+
 bool cfg_provisioned(const cfg_t *cfg);
 
 bool cfg_seed(cfg_t *out, const char *ssid, const char *pass, const char *url, char *rejected, size_t rejected_cap);
