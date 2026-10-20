@@ -75,6 +75,36 @@ static void test_settings_quiet(void)
     }
 }
 
+static void test_settings_idle(void)
+{
+    knob_settings_t d, k;
+    knob_settings_defaults(&d);
+    CHECK(d.idle_dim_after_s == 0 && d.idle_dim_level == KS_IDLE_DIM_DEFAULT && KS_IDLE_DIM_DEFAULT == 20 && d.idle_off_after_s == 0,
+          "defaults: never dim, 20, never off");
+    CHECK(knob_settings_parse("{}", &k) && memcmp(&d, &k, sizeof d) == 0, "absent idle: today's behaviour");
+    CHECK(knob_settings_parse("{\"idle\":true}", &k) && memcmp(&d, &k, sizeof d) == 0, "idle not an object: defaults");
+    CHECK(knob_settings_parse("{\"idle\":{}}", &k) && memcmp(&d, &k, sizeof d) == 0, "empty idle: defaults");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":600,\"dim_level\":40,\"off_after_s\":3600}}", &k);
+    CHECK(k.idle_dim_after_s == 600 && k.idle_dim_level == 40 && k.idle_off_after_s == 3600, "all three");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":300}}", &k);
+    CHECK(k.idle_dim_after_s == 300 && k.idle_dim_level == 20 && k.idle_off_after_s == 0, "dim_after_s alone: the level defaults");
+    knob_settings_parse("{\"idle\":{\"off_after_s\":120}}", &k);
+    CHECK(k.idle_dim_after_s == 0 && k.idle_off_after_s == 120, "off_after_s alone");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":0,\"off_after_s\":0,\"dim_level\":1}}", &k);
+    CHECK(k.idle_dim_after_s == 0 && k.idle_off_after_s == 0 && k.idle_dim_level == 1, "0 is never, dim_level 1 holds");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":5,\"off_after_s\":10,\"dim_level\":0}}", &k);
+    CHECK(k.idle_dim_after_s == 30 && k.idle_off_after_s == 60 && k.idle_dim_level == 1, "below the minimum: clamped up (30, 60, 1)");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":99999,\"off_after_s\":999999,\"dim_level\":999}}", &k);
+    CHECK(k.idle_dim_after_s == 86400 && k.idle_off_after_s == 86400 && k.idle_dim_level == 255, "above the maximum: clamped down");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":\"x\",\"off_after_s\":null,\"dim_level\":[]}}", &k);
+    CHECK(memcmp(&d, &k, sizeof d) == 0, "non-numbers ignored");
+    knob_settings_parse("{\"idle\":{\"dim_after_s\":86399,\"dim_level\":255,\"off_after_s\":86400},"
+                        "\"apps\":{\"pomodoro\":{\"focus_color\":\"#FFFFFF\"},\"nowplaying\":{\"dim_after_s\":1800}}}",
+                        &k);
+    CHECK(k.idle_dim_after_s == 86399 && k.idle_dim_level == 255 && k.idle_off_after_s == 86400,
+          "Ember's config_v2 golden idle block at its longest; apps ignored here");
+}
+
 static void test_settings_values(void)
 {
     knob_settings_t k;
@@ -621,6 +651,7 @@ int main(void)
     test_settings_defaults();
     test_settings_values();
     test_settings_quiet();
+    test_settings_idle();
     test_settings_rotation();
     test_pages();
     test_checkin_body();

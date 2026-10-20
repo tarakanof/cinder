@@ -226,6 +226,85 @@ static void test_quiet_dim(void)
     CHECK(f.cur == 30, "after quiet the floor holds again: %d", f.cur);
 }
 
+static void test_idle(void)
+{
+    const dim_idle_rules_t none = {0, 20, 0}, dim = {600, 40, 0}, both = {600, 40, 1800}, off_only = {0, 20, 60};
+    dim_idle_t s;
+    dim_idle_init(&s, 1000);
+    CHECK(dim_idle_state(&none, &s, 1000 + 90000000LL) == DIM_IDLE_AWAKE, "defaults (0, 20, 0): never idle, however long");
+    CHECK(dim_idle_level(153, DIM_IDLE_AWAKE, &none) == 153 && dim_idle_floor(10, DIM_IDLE_AWAKE, &none) == 10,
+          "defaults leave the level and the floor alone");
+
+    CHECK(dim_idle_state(&dim, &s, 1000 + 599999) == DIM_IDLE_AWAKE, "1 ms before dim_after_s: awake");
+    CHECK(dim_idle_state(&dim, &s, 1000 + 600000) == DIM_IDLE_DIMMED, "at dim_after_s: dimmed");
+    CHECK(dim_idle_state(&dim, &s, 1000 + 86400000LL) == DIM_IDLE_DIMMED, "no off_after_s: dimmed for good");
+    CHECK(dim_idle_state(&both, &s, 1000 + 1799999) == DIM_IDLE_DIMMED, "1 ms before off_after_s: dimmed");
+    CHECK(dim_idle_state(&both, &s, 1000 + 1800000) == DIM_IDLE_OFF, "at off_after_s: off");
+    CHECK(dim_idle_state(&off_only, &s, 1000 + 59999) == DIM_IDLE_AWAKE, "off only: awake until off_after_s");
+    CHECK(dim_idle_state(&off_only, &s, 1000 + 60000) == DIM_IDLE_OFF, "off only: straight to off, no dim step");
+    const dim_idle_rules_t inverted = {600, 40, 300};
+    CHECK(dim_idle_state(&inverted, &s, 1000 + 300000) == DIM_IDLE_OFF, "off_after_s below dim_after_s: off wins");
+    CHECK(dim_idle_state(&both, &s, 500) == DIM_IDLE_AWAKE, "a clock that went back: awake");
+
+    CHECK(dim_idle_level(153, DIM_IDLE_DIMMED, &dim) == 40, "dimmed caps at dim_level");
+    CHECK(dim_idle_level(25, DIM_IDLE_DIMMED, &dim) == 25, "a darker level is kept");
+    CHECK(dim_idle_level(153, DIM_IDLE_OFF, &both) == 0 && dim_idle_level(0, DIM_IDLE_OFF, &both) == 0, "off is 0");
+    CHECK(dim_idle_level(153, DIM_IDLE_AWAKE, &both) == 153, "awake: the level");
+    CHECK(dim_idle_floor(10, DIM_IDLE_DIMMED, &dim) == 10 && dim_idle_floor(60, DIM_IDLE_DIMMED, &dim) == 40,
+          "the idle cap lowers the floor below dim_level, not above");
+    CHECK(dim_idle_floor(60, DIM_IDLE_AWAKE, &dim) == 60, "awake: the floor stays");
+
+    CHECK(dim_idle_level(dim_quiet_level(153, 10, true, 20), DIM_IDLE_DIMMED, &dim) == 20, "quiet cap 20 under idle cap 40: 20");
+    CHECK(dim_idle_level(dim_quiet_level(153, 10, true, 80), DIM_IDLE_DIMMED, &dim) == 40, "quiet cap 80 over idle cap 40: 40");
+    CHECK(dim_idle_level(dim_quiet_level(153, 10, true, 80), DIM_IDLE_AWAKE, &dim) == 80, "quiet alone while awake: 80");
+    CHECK(dim_idle_level(dim_quiet_level(153, 10, true, 20), DIM_IDLE_OFF, &both) == 0, "off beats quiet");
+    CHECK(dim_idle_level(dim_quiet_level(5, 10, false, 20), DIM_IDLE_DIMMED, &dim) == 10, "base under the floor: the floor, under the idle cap");
+    const dim_idle_rules_t under_floor = {600, 4, 0};
+    CHECK(dim_idle_level(dim_quiet_level(153, 10, false, 20), DIM_IDLE_DIMMED, &under_floor) == 4 &&
+              dim_idle_floor(10, DIM_IDLE_DIMMED, &under_floor) == 4,
+          "idle dim_level below the floor holds, like quiet");
+
+    dim_idle_init(&s, 0);
+    CHECK(!dim_idle_input(&s, &both, 1000000), "input while dimmed is delivered");
+    CHECK(dim_idle_state(&both, &s, 1000000 + 599999) == DIM_IDLE_AWAKE && dim_idle_state(&both, &s, 1000000 + 600000) == DIM_IDLE_DIMMED,
+          "an input restarts the clock");
+    CHECK(dim_idle_input(&s, &both, 1000000 + 1800000), "the first input after off is swallowed");
+    CHECK(dim_idle_state(&both, &s, 1000000 + 1800000) == DIM_IDLE_AWAKE, "and it wakes the panel");
+    CHECK(!dim_idle_input(&s, &both, 1000000 + 1800050), "the next input is delivered");
+    CHECK(!dim_idle_input(&s, &both, 1000000 + 1800100), "and the one after");
+    CHECK(dim_idle_input(&s, &off_only, 1000000 + 1800100 + 60000), "swallowed again after the next off");
+    CHECK(!dim_idle_input(&s, &none, 1000000 + 90000000LL), "no rules: input is never swallowed");
+
+    dim_idle_init(&s, 0);
+    dim_idle_wake(&s, 1800000);
+    CHECK(dim_idle_state(&both, &s, 1800000) == DIM_IDLE_AWAKE, "a wake source wakes an off panel (mood, OTA, demo)");
+    CHECK(!dim_idle_input(&s, &both, 1800010), "and swallows nothing: the next input is delivered");
+    CHECK(dim_idle_state(&both, &s, 1800010 + 1799999) == DIM_IDLE_DIMMED && dim_idle_state(&both, &s, 1800010 + 1800000) == DIM_IDLE_OFF,
+          "the input after the wake restarts the clock: off 1800 s after it");
+    dim_idle_wake(&s, 1799000);
+    CHECK(s.last_ms == 1800010, "an older wake does not move the clock back");
+
+    dim_fade_t f;
+    uint8_t v = 0;
+    bool set;
+    dim_fade_init(&f, 153);
+    CHECK(dim_fade_set_off(&f, true), "off starts a fade");
+    CHECK(dim_fade_tick(&f, &v) && v == 0 && f.cur == 0, "off reaches 0 in one step, below the floor: %d", v);
+    CHECK(!dim_fade_tick(&f, &v), "then settled");
+    dim_fade_set_target(&f, 100);
+    CHECK(!dim_fade_tick(&f, &v) && f.cur == 0 && f.target == 100, "a new level while off is kept, not shown");
+    CHECK(dim_fade_set_off(&f, false), "waking starts a fade");
+    CHECK(dim_fade_tick(&f, &v) && v == 100, "wake jumps to the kept level in one step: %d", v);
+    CHECK(!dim_fade_tick(&f, &v), "settled at 100");
+    dim_fade_set_off(&f, true);
+    CHECK(dim_fade_step(&f, 5000, &v, &set) == DIM_STEP_MS && set && v == 0, "off through dim_fade_step");
+    CHECK(!dim_fade_set_off(&f, true), "off again: nothing to do");
+    dim_fade_set_off(&f, false);
+    CHECK(dim_fade_step(&f, 6000, &v, &set) == DIM_STEP_MS && set && v == 100, "wake through dim_fade_step");
+    dim_fade_set_target(&f, 20);
+    CHECK(f.target == 20 && dim_fade_tick(&f, &v) && v < 100, "afterwards the normal fade");
+}
+
 static void test_lead(void)
 {
     char out[EMBER_HOST_MAX + 1];
@@ -447,6 +526,7 @@ int main(void)
     test_label();
     test_dim();
     test_quiet_dim();
+    test_idle();
     if (failures) {
         printf("ember: %d failure(s)\n", failures);
         return 1;

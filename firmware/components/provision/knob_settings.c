@@ -33,6 +33,7 @@ void knob_settings_defaults(knob_settings_t *ks)
     ks->live_interval_s = KS_LIVE_INTERVAL_S_DEFAULT;
     ks->quiet_calm = true;
     ks->quiet_dim = KS_QUIET_DIM_DEFAULT;
+    ks->idle_dim_level = KS_IDLE_DIM_DEFAULT;
 }
 
 static void num(const cJSON *obj, const char *key, int lo, int hi, int *dst)
@@ -141,6 +142,16 @@ bool knob_settings_parse(const char *json, knob_settings_t *ks)
         int dim = ks->quiet_dim;
         num(q, "dim_level", 1, 255, &dim);
         ks->quiet_dim = (uint8_t)dim;
+    }
+    const cJSON *idle = cJSON_GetObjectItemCaseSensitive(root, "idle");
+    if (cJSON_IsObject(idle)) {
+        num(idle, "dim_after_s", 0, KS_IDLE_AFTER_S_MAX, &ks->idle_dim_after_s);
+        if (ks->idle_dim_after_s > 0 && ks->idle_dim_after_s < KS_IDLE_DIM_AFTER_S_MIN) ks->idle_dim_after_s = KS_IDLE_DIM_AFTER_S_MIN;
+        num(idle, "off_after_s", 0, KS_IDLE_AFTER_S_MAX, &ks->idle_off_after_s);
+        if (ks->idle_off_after_s > 0 && ks->idle_off_after_s < KS_IDLE_OFF_AFTER_S_MIN) ks->idle_off_after_s = KS_IDLE_OFF_AFTER_S_MIN;
+        int level = ks->idle_dim_level;
+        num(idle, "dim_level", 1, 255, &level);
+        ks->idle_dim_level = (uint8_t)level;
     }
     cJSON_Delete(root);
     return true;

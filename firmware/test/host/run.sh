@@ -61,6 +61,35 @@ if [ -n "$WIRING" ]; then
     exit 1
 fi
 echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
+IDLE=""
+for FN in knob_cb button_cb touch_cb app_input_inject; do
+    body "$MAINC" "$FN" | grep -qF 'ember_client_idle_input()' || IDLE="$IDLE $FN-feeds-the-idle-clock"
+done
+body "$MAINC" knob_cb | awk '/ember_client_idle_input\(\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
+    IDLE="$IDLE knob_cb-swallows-the-waking-turn-before-any-dispatch"
+body "$MAINC" app_input_inject | sed -n 3p | grep -qxF '    if (ember_client_idle_input()) return;' ||
+    IDLE="$IDLE app_input_inject-swallows-first"
+body "$MAINC" button_cb | awk '/atomic_store\(&s_wake_press, woke\);/ {w = NR} /atomic_store\(&s_wake_press, false\);/ {c = NR} /^    switch \(ev\) \{$/ {s = NR} END {exit !(w && c > w && s > c)}' ||
+    IDLE="$IDLE button_cb-swallows-the-whole-waking-press"
+body "$MAINC" touch_cb | awk '/atomic_store\(&s_wake_touch, woke\);/ {w = NR} /atomic_store\(&s_wake_touch, false\);/ {c = NR} /ts_press\(/ {p = NR} END {exit !(w && c > w && p > c)}' ||
+    IDLE="$IDLE touch_cb-swallows-the-whole-waking-touch"
+body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
+    IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
+body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested() || ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake();' &&
+    body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
+    body "$MAINC" idle_frame | grep -qxF '    if (off) s_last_frame_t = 0;' ||
+    IDLE="$IDLE idle_frame-wakes-for-the-OTA-face-and-demos-and-pauses-invalidation"
+body "$ECL" poll_task | grep -qxF '            if (mood == BOT_WAITING || mood == BOT_ERROR) ember_client_idle_wake();' ||
+    IDLE="$IDLE poll_task-wakes-on-a-mood-change-to-waiting-or-error"
+body "$ECL" bright_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
+    IDLE="$IDLE bright_apply-sets-the-level-then-the-off-flag"
+body "$ECL" fade_step | grep -qxF '    if (idle_state() != s_idle_seen) bright_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
+body "$ECL" idle_state | grep -qF 'if (verifying) dim_idle_wake(' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies"
+if [ -n "$IDLE" ]; then
+    echo "run.sh: FAIL idle wiring:$IDLE" >&2
+    exit 1
+fi
+echo "idle wiring: every input path asks the idle clock first and drops the waking input (the whole press or touch), frame_cb feeds the stall watchdog before pausing for off, the OTA face and demos wake, a mood to waiting or error wakes, an OTA image on trial holds the panel on"
 REFR="$(body "$MAINC" refr_cb)"
 for EV in REFR_START RENDER_START REFR_READY; do
     grep -qxF "    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_$EV, NULL);" "$MAINC" || WIRING="$WIRING refr_cb-on-$EV"

@@ -40,9 +40,16 @@ typedef struct {
     bool quiet_calm;
     uint8_t quiet_dim;
     int rotation;
+    int idle_dim_after_s;
+    uint8_t idle_dim_level;
+    int idle_off_after_s;
 } knob_settings_t;
 
 #define KS_QUIET_DIM_DEFAULT 20
+#define KS_IDLE_DIM_DEFAULT 20
+#define KS_IDLE_DIM_AFTER_S_MIN 30
+#define KS_IDLE_OFF_AFTER_S_MIN 60
+#define KS_IDLE_AFTER_S_MAX 86400
 #define KS_WEATHER_EVERY_MIN_DEFAULT 30
 #define KS_WEATHER_EVERY_MIN_MAX 240
 

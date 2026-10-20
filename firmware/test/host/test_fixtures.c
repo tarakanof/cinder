@@ -1144,7 +1144,7 @@ static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
-static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown"};
+static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim"};
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 

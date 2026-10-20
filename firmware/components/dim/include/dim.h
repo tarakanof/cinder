@@ -19,6 +19,7 @@ typedef struct {
     int step;
     int floor;
     int64_t next_ms;
+    bool off;
 } dim_fade_t;
 
 void dim_fade_init(dim_fade_t *f, int cur);
@@ -32,12 +33,44 @@ bool dim_fade_tick(dim_fade_t *f, uint8_t *out);
 /* dim_fade_tick once per DIM_STEP_MS of now_ms (1 ms early counts: tick rounding); *set when *out is to be written. ms to the next step, -1 settled. */
 int dim_fade_step(dim_fade_t *f, int64_t now_ms, uint8_t *out, bool *set);
 
+/* While off the fade goes to 0 in one step, below the floor; leaving off it jumps back to target in one step. set_target keeps the level for then. */
+bool dim_fade_set_off(dim_fade_t *f, bool off);
+
 bool dim_level_valid(bool present, double level);
 
 /* Quiet caps the level at dim_level, below the floor too (docs/features.md, quiet hours). */
 int dim_quiet_level(int level, int floor, bool quiet, int dim_level);
 
 int dim_quiet_floor(int floor, bool quiet, int dim_level);
+
+/* Idle rules from the knob config (docs/features.md, idle dim and off): 0 disables dim or off; seconds. */
+typedef struct {
+    int dim_after_s;
+    int dim_level;
+    int off_after_s;
+} dim_idle_rules_t;
+
+typedef enum { DIM_IDLE_AWAKE, DIM_IDLE_DIMMED, DIM_IDLE_OFF } dim_idle_state_t;
+
+/* last_ms is the time of the last input or wake source on the caller's clock. Callers serialise access. */
+typedef struct {
+    int64_t last_ms;
+} dim_idle_t;
+
+void dim_idle_init(dim_idle_t *s, int64_t now_ms);
+
+dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms);
+
+/* A wake source that is not input (mood to waiting or error, the OTA face, a demo): restarts the clock, nothing is swallowed. */
+void dim_idle_wake(dim_idle_t *s, int64_t now_ms);
+
+/* An input: true when the panel was off, so the input only wakes it and must not reach a page. Restarts the clock either way. */
+bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms);
+
+/* level is already floored and quiet-capped: the idle cap lowers it below the floor too, 0 while off. */
+int dim_idle_level(int level, dim_idle_state_t st, const dim_idle_rules_t *r);
+
+int dim_idle_floor(int floor, dim_idle_state_t st, const dim_idle_rules_t *r);
 
 #ifdef __cplusplus
 }

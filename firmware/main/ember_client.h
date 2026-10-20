@@ -21,6 +21,13 @@ bool ember_client_mood(bot_mood_t *out);
 
 bool ember_client_quiet(void);
 
+/* Any task. A knob or touch input: true when the panel was off, so the input only wakes it and must be dropped (docs/features.md, idle dim and off). */
+bool ember_client_idle_input(void);
+/* Any task. A wake source that is not input: the mood turning to waiting or error, the OTA face, a demo. */
+void ember_client_idle_wake(void);
+/* Any task. The idle rules have the panel off: the LVGL task skips rendering. */
+bool ember_client_idle_off(void);
+
 bool ember_client_online(void);
 
 /* Any task. link_state word of Ember's link (level and OFFLINE generation), for stamping presses. */
