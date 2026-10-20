@@ -50,6 +50,8 @@ static struct {
     int requests_failed;
     int warns;
     int64_t now_us;
+    bool has_token;
+    int auth_headers;
 } F;
 
 static void server(int status, const char *body, int len)
@@ -80,7 +82,7 @@ void diag_note_request(bool ok, uint32_t ms)
 
 void config_store_token(char *out, size_t cap)
 {
-    if (cap) out[0] = 0;
+    if (cap) snprintf(out, cap, "%s", F.has_token ? "ekd_fake" : "");
 }
 
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *config)
@@ -110,8 +112,8 @@ esp_err_t esp_http_client_set_method(esp_http_client_handle_t client, esp_http_c
 esp_err_t esp_http_client_set_header(esp_http_client_handle_t client, const char *key, const char *value)
 {
     (void)client;
-    (void)key;
     (void)value;
+    if (strcmp(key, "Authorization") == 0) F.auth_headers++;
     return ESP_OK;
 }
 
@@ -253,6 +255,31 @@ static poll_t poll_state(http_conn_t *c, link_level_t level)
     p.status = http_conn_req_opts(c, URL, &o, s_buf, KNOB_VIEW_BUF);
     p.mood = ember_state_answer(level, p.status, p.truncated, s_buf, sess, 32, &host, &p.outcome);
     return p;
+}
+
+static void test_anon(http_conn_t *c)
+{
+    static const char OK[] = "{}";
+    char buf[64];
+    F.has_token = true;
+    static const struct {
+        http_req_opts_t o;
+        int want;
+        const char *what;
+    } C[] = {
+        {{.post_body = "{}"}, 1, "a POST carries the token"},
+        {{.auth = true}, 1, "an auth GET carries the token"},
+        {{0}, 0, "a plain GET carries none"},
+        {{.post_body = "{}", .anon = true}, 0, "an anon POST carries none"},
+        {{.auth = true, .anon = true}, 0, "anon beats auth"},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        server(200, OK, (int)strlen(OK));
+        F.auth_headers = 0;
+        int st = http_conn_req_opts(c, "http://e/v1/devices/claim", &C[i].o, buf, sizeof buf);
+        CHECK(st == 200 && F.auth_headers == C[i].want, "%s (%d Authorization headers, status %d)", C[i].what, F.auth_headers, st);
+    }
+    F.has_token = false;
 }
 
 static void test_fits(http_conn_t *c)
@@ -677,6 +704,7 @@ int main(void)
     for (int chunk = 512; chunk <= 4096; chunk *= 8) {
         F.chunk = chunk;
         http_conn_init(&c, "test");
+        test_anon(&c);
         test_fits(&c);
         test_drained(&c);
         test_past_drain_limit(&c);

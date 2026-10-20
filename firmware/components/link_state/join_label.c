@@ -12,11 +12,23 @@ join_label_t join_label_pick(const join_in_t *in)
     return JOIN_NONE;
 }
 
-void join_label_text(join_label_t l, const char *ssid, char *out, size_t n)
+static bool code_ok(const char *s)
+{
+    if (!s) return false;
+    int i = 0;
+    for (; s[i]; i++)
+        if (i >= 6 || s[i] < '0' || s[i] > '9') return false;
+    return i == 6;
+}
+
+void join_label_text(join_label_t l, const char *detail, char *out, size_t n)
 {
     switch (l) {
-    case JOIN_CANT_JOIN: snprintf(out, n, "Can't join\n%s", ssid); break;
-    case JOIN_NOT_PAIRED: snprintf(out, n, "Not paired"); break;
+    case JOIN_CANT_JOIN: snprintf(out, n, "Can't join\n%s", detail ? detail : ""); break;
+    case JOIN_NOT_PAIRED:
+        if (code_ok(detail)) snprintf(out, n, "Not paired\nCode %.3s %.3s", detail, detail + 3);
+        else snprintf(out, n, "Not paired");
+        break;
     case JOIN_UPDATE_KNOB: snprintf(out, n, "Update knob"); break;
     case JOIN_UPDATE_EMBER: snprintf(out, n, "Update Ember"); break;
     default: snprintf(out, n, "%s", ""); break;

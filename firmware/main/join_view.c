@@ -31,10 +31,10 @@ void join_view_create(void)
     lv_obj_align(s_ssid, LV_ALIGN_BOTTOM_MID, 0, JOIN_VIEW_Y);
 }
 
-void join_view_show(join_label_t l, const char *ssid)
+void join_view_show(join_label_t l, const char *detail)
 {
     char text[64];
-    join_label_text(l, ssid, text, sizeof text);
+    join_label_text(l, detail, text, sizeof text);
     char *nl = strchr(text, '\n');
     if (nl) *nl = 0;
     if (nl && !nl[1]) nl = NULL;

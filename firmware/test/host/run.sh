@@ -563,7 +563,7 @@ body "$MAINC" bot_shift_root | grep -qxF '    wx_shift_xy(&s_bot_shift, &WX_SHIF
     body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_x(s_bot_page, dx, 0);' &&
     body "$MAINC" bot_shift_root | grep -qxF '    lv_obj_set_style_translate_y(s_bot_page, dy, 0);' || ORB="$ORB the-orbit-translates-the-bot-page"
 body "$MAINC" bot_shift_root | grep -qxF '    join_view_shift(dx, dy);' && [ "$(grep -c 'join_view_shift(' "$MAINC")" -eq 1 ] &&
-    body "$MAINC" join_frame | grep -qxF '    join_view_show(show, ssid);' && body "$MAINC" app_main | grep -qxF '    join_view_create();' &&
+    body "$MAINC" join_frame | grep -qxF '    join_view_show(show, detail);' && body "$MAINC" app_main | grep -qxF '    join_view_create();' &&
     ! grep -qE 'lv_[a-z_]+\(s_join' "$MAINC" || ORB="$ORB the-join-view-orbits-with-the-bot-page-and-main-draws-it-only-through-join_view"
 [ "$(grep -c 'bot_shift_root()' "$MAINC")" -eq 1 ] || ORB="$ORB bot_shift_root-only-on-a-step"
 fbody "$MAINC" page_tick | grep -qxF '    page_frame_t f = {.t = t, .dt = dt, .offline = offline};' || ORB="$ORB page_tick-passes-the-frame-dt"
@@ -833,6 +833,7 @@ cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$G/include" -I"$J" "
     "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_device.c" -lm -o "${OUT}_device"
 cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" \
     "$D/test_coredump.c" -lm -o "${OUT}_coredump"
+cc $CFLAGS -I"$V/include" -I"$G/include" -I"$J" "$V/claim.c" "$J/cJSON.c" "$D/test_claim.c" -lm -o "${OUT}_claim"
 cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" \
     "$D/test_ota.c" -lm -o "${OUT}_ota"
 cc $CFLAGS "-DLT_RACE_POINT(t)=lt_race_point(t)" -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
@@ -925,6 +926,7 @@ fi
 "${OUT}_provision" "$D/../vectors"
 "${OUT}_device"
 "${OUT}_coredump"
+"${OUT}_claim"
 "${OUT}_ota" "$D/../vectors"
 "${OUT}_net"
 "${OUT}_view"
@@ -963,7 +965,7 @@ cc $CFLAGS $FPC -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"
 cc $CFLAGS $FPC -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$D/../../components/shown/include" -I"$J" "$K/knob_view.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
     "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_faces.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
-    "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$D/../../components/shown/shown.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
+    "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$G/cfg.c" "$V/claim.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$D/../../components/shown/shown.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
@@ -1003,6 +1005,37 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
     exit 1
 fi
+CCL="$D/../../main/claim_client.c"
+PUC="$D/../../main/provision_usb.c"
+CLAIM=""
+LOGS="$(for F in "$D"/../../main/*.c "$D"/../../components/*/*.c; do
+    awk -v f="${F##*/}" '!on && /ESP_LOG[A-Z]\(/ {on = 1; buf = ""; $0 = substr($0, index($0, "ESP_LOG"))} on {buf = buf " " $0} on && /\);/ {print f ":" buf; on = 0}' "$F"
+done | sed -E 's/"([^"\\]|\\.)*"//g')"
+printf '%s\n' "$LOGS" | grep -q '^claim_client\.c:' || CLAIM="$CLAIM claim_client-logs-scanned"
+LEAK="$(printf '%s\n' "$LOGS" | sed 's/^[^:]*://' | grep -oE '[A-Za-z_][A-Za-z0-9_]*((->|\.)[A-Za-z_][A-Za-z0-9_]*)*' |
+    grep -vxE 'f->key|obs\.code|obs->code' | grep -E '(^|->|\.)(key|claim_key|token|new_token|dev_tok|tok|bearer|rnd|wifi_pass|password|code)$' || true)"
+[ -z "$LEAK" ] || CLAIM="$CLAIM no-key-token-or-code-in-a-log:$(printf '%s' "$LEAK" | tr '\n' ',')"
+[ "$(grep -c 'claim_set_key(' "$CCL")" -eq 1 ] && body "$CCL" open_claim | grep -qxF '        esp_fill_random(rnd, sizeof rnd);' &&
+    body "$CCL" open_claim | grep -qxF '        wipe(rnd, sizeof rnd);' && [ "$(grep -rc 'claim_set_key(' "$D/../../main" | awk -F: '{n += $2} END {print n}')" -eq 1 ] ||
+    CLAIM="$CLAIM the-key-comes-from-esp_fill_random-only-and-the-bytes-are-wiped"
+grep -qxF '        C = heap_caps_calloc(1, sizeof *C, MALLOC_CAP_SPIRAM);' "$CCL" || CLAIM="$CLAIM claim-state-and-key-in-PSRAM"
+! grep -qE 'nvs_|config_store_(save|set_token)' "$CCL" "$V/claim.c" && ! grep 'config_store_pair(' "$CCL" | grep -qE 'key|->c\.' ||
+    CLAIM="$CLAIM the-key-never-reaches-NVS"
+[ "$(grep -c 'http_conn_req_opts(' "$CCL")" -eq 2 ] && [ "$(grep -c '\.anon = true' "$CCL")" -eq 2 ] || CLAIM="$CLAIM claim-requests-carry-no-token"
+body "$CCL" poll_claim | grep -qxF '    if (status > 0) wipe(buf, strnlen(buf, (size_t)cap));' && body "$CCL" poll_claim | grep -qxF '    wipe(&C->ok, sizeof C->ok);' &&
+    body "$CCL" post | grep -qxF '    wipe(C->body, sizeof C->body);' || CLAIM="$CLAIM the-reply-approval-and-body-are-wiped"
+body "$ECL" poll_task | grep -qxF '        if (claim_client_service(s_conn, P->base, online, atomic_load(&s_unauthorized), buf, RESP_MAX)) continue;' &&
+    [ "$(grep -c 'claim_client_service(' "$ECL")" -eq 1 ] || CLAIM="$CLAIM poll_task-runs-the-claim-and-checks-in-at-once"
+body "$ECL" ember_client_idle_input | grep -qxF '    claim_client_input();' || CLAIM="$CLAIM input-wakes-a-waiting-claim"
+body "$PUC" op_set_ember | awk '/^    if \(ok\) claim_client_cancel\(\);$/ {c = NR} /config_store_save\(s_cfg\)/ {s = NR} END {exit !(c && s > c)}' ||
+    CLAIM="$CLAIM usb-set_ember-cancels-the-claim-before-it-saves"
+body "$MAINC" join_frame | grep -qxF '    int code = show == JOIN_NOT_PAIRED ? claim_client_code() : -1;' &&
+    body "$MAINC" join_frame | grep -qxF '    if (show == s_join_shown && code == s_join_code) return;' || CLAIM="$CLAIM join_frame-shows-the-code"
+if [ -n "$CLAIM" ]; then
+    echo "run.sh: FAIL claim wiring:$CLAIM" >&2
+    exit 1
+fi
+echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled"
 cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \

@@ -28,6 +28,8 @@ void config_store_hw_id(char out[13]);
 void config_store_short_id(char out[7]);
 
 esp_err_t config_store_save(const cfg_t *cfg);
+/* LAN pairing: stores dev_id, token and (if valid) name, keeping the rest. ESP_ERR_INVALID_STATE, nothing written, when the token generation or the Ember URL changed since token_gen was read (a USB set_ember or reset won). */
+esp_err_t config_store_pair(uint32_t token_gen, const char *url, const char *dev_id, const char *token, const char *name);
 
 void config_store_settings(knob_settings_t *out);
 uint32_t config_store_settings_gen(void);

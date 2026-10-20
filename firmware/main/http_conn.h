@@ -51,6 +51,8 @@ typedef struct {
     const char *post_body;
     bool idempotent;
     bool auth;
+    /* No Authorization header, not even on a POST: the knob's unauthenticated routes. */
+    bool anon;
     const char *if_none_match;
     http_header_cb on_header;
     void *hdr_ctx;

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "cinder_line.h"
+#include "claim_client.h"
 #include "config_store.h"
 #include "driver/usb_serial_jtag.h"
 #include "driver/usb_serial_jtag_vfs.h"
@@ -269,6 +270,7 @@ static void op_set_ember(const cl_req_t *r)
     bool provisioned = cfg_provisioned(s_cfg);
     bool ok = cfg_set(s_cfg, "ember_url", r->url) == CFG_OK && cfg_set(s_cfg, "dev_id", r->device_id) == CFG_OK &&
               cfg_set(s_cfg, "dev_tok", r->token) == CFG_OK && (!r->name[0] || cfg_set(s_cfg, "name", r->name) == CFG_OK);
+    if (ok) claim_client_cancel();
     esp_err_t err = ok ? config_store_save(s_cfg) : ESP_OK;
     memset(s_cfg, 0, sizeof *s_cfg);
     if (!ok) {

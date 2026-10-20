@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -22,6 +23,7 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static atomic_bool s_has_device, s_has_url;
 static atomic_uint s_token_gen, s_ks_gen;
 static atomic_int s_poll_ms = 2000;
+static SemaphoreHandle_t s_save_mu;
 
 static void publish(const cfg_t *c)
 {
@@ -109,7 +111,7 @@ static esp_err_t erase_token(void)
     return err;
 }
 
-esp_err_t config_store_save(const cfg_t *cfg)
+static esp_err_t save(const cfg_t *cfg)
 {
     taskENTER_CRITICAL(&s_lock);
     bool new_ssid = strcmp(s_cfg->wifi_ssid, cfg->wifi_ssid) != 0;
@@ -134,6 +136,31 @@ esp_err_t config_store_save(const cfg_t *cfg)
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     if (err == ESP_OK) publish(cfg);
+    return err;
+}
+
+esp_err_t config_store_save(const cfg_t *cfg)
+{
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
+    esp_err_t err = save(cfg);
+    xSemaphoreGive(s_save_mu);
+    return err;
+}
+
+esp_err_t config_store_pair(uint32_t token_gen, const char *url, const char *dev_id, const char *token, const char *name)
+{
+    cfg_t *c = heap_caps_malloc(sizeof *c, MALLOC_CAP_SPIRAM);
+    if (!c) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
+    config_store_get(c);
+    esp_err_t err = ESP_OK;
+    if (atomic_load(&s_token_gen) != token_gen || strcmp(c->ember_url, url) != 0) err = ESP_ERR_INVALID_STATE;
+    else if (cfg_set(c, "dev_id", dev_id) != CFG_OK || cfg_set(c, "dev_tok", token) != CFG_OK) err = ESP_ERR_INVALID_ARG;
+    if (err == ESP_OK && name && name[0]) (void)cfg_set(c, "name", name);
+    if (err == ESP_OK) err = save(c);
+    xSemaphoreGive(s_save_mu);
+    memset(c, 0, sizeof *c);
+    free(c);
     return err;
 }
 
@@ -171,10 +198,11 @@ void config_store_init(void)
     }
     ESP_ERROR_CHECK(err);
 
+    s_save_mu = xSemaphoreCreateMutex();
     s_cfg = heap_caps_calloc(1, sizeof *s_cfg, MALLOC_CAP_SPIRAM);
     s_ks = heap_caps_calloc(1, sizeof *s_ks, MALLOC_CAP_SPIRAM);
     cfg_t *cp = heap_caps_calloc(1, sizeof *cp, MALLOC_CAP_SPIRAM);
-    assert(s_cfg && s_ks && cp);
+    assert(s_save_mu && s_cfg && s_ks && cp);
     cfg_t *c = cp;
 #ifdef CONFIG_CINDER_DEV_SEED
     (void)*(volatile const char *)DEV_SEED_MARKER;

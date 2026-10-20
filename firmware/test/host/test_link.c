@@ -250,6 +250,27 @@ static void test_join_label(void)
     }
     for (int l = JOIN_NONE; l <= JOIN_UPDATE_EMBER; l++)
         CHECK(join_glyph_shown(true, (join_label_t)l) == (l != JOIN_CANT_JOIN), "label %d: the glyph hides only under Can't join", l);
+    static const struct {
+        join_label_t l;
+        const char *detail, *text;
+    } D[] = {
+        {JOIN_NOT_PAIRED, "482913", "Not paired\nCode 482 913"},
+        {JOIN_NOT_PAIRED, "000000", "Not paired\nCode 000 000"},
+        {JOIN_NOT_PAIRED, "", "Not paired"},
+        {JOIN_NOT_PAIRED, NULL, "Not paired"},
+        {JOIN_NOT_PAIRED, "48291", "Not paired"},
+        {JOIN_NOT_PAIRED, "4829131", "Not paired"},
+        {JOIN_NOT_PAIRED, "48a913", "Not paired"},
+        {JOIN_CANT_JOIN, "482913", "Can't join\n482913"},
+        {JOIN_UPDATE_KNOB, "482913", "Update knob"},
+        {JOIN_NONE, "482913", ""},
+    };
+    for (size_t i = 0; i < sizeof D / sizeof D[0]; i++) {
+        char text[64] = "x";
+        join_label_text(D[i].l, D[i].detail, text, sizeof text);
+        CHECK(strcmp(text, D[i].text) == 0, "label %d with '%s': \"%s\", want \"%s\"", D[i].l, D[i].detail ? D[i].detail : "(null)", text,
+              D[i].text);
+    }
 }
 
 int main(void)
