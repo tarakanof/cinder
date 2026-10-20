@@ -29,7 +29,7 @@ int wx_face_list_pos(const wx_face_list_t *l, int face);
 int wx_face_list_n(const wx_face_list_t *l);
 /* The list's first face. */
 int wx_face_list_first(const wx_face_list_t *l);
-/* face moved by steps through the list, wrapping both ways; a face outside it steps from the first. */
+/* face moved by steps through the list, wrapping both ways; a face outside it enters at the first face going forward and the last going back. */
 int wx_face_list_step(const wx_face_list_t *l, int face, int steps);
 /* wx_face_list_step through every face. */
 int wx_face_step(int face, int steps);

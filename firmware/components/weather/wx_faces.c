@@ -37,7 +37,8 @@ int wx_face_list_pos(const wx_face_list_t *l, int face)
 int wx_face_list_step(const wx_face_list_t *l, int face, int steps)
 {
     int n = wx_face_list_n(l), pos = wx_face_list_pos(l, face);
-    int k = ((pos < 0 ? 0 : pos) + steps % n) % n;
+    int start = pos >= 0 ? pos : steps > 0 ? -1 : steps < 0 ? n : 0;
+    int k = (start + steps % n) % n;
     return face_at(l, k < 0 ? k + n : k);
 }
 

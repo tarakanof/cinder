@@ -102,7 +102,7 @@ body "$MAINC" settings_frame | grep -qxF '    np_view_set_dim_after(s_ks_lv->np_
 ! grep -q 'wx_paint_face_dots(&bg, t->face, WXF_N)' "$D/../../components/weather/wx_paint.c" || OPTS="$OPTS every-face-paints-the-list-dots"
 ! grep -qE 'COL_FOCUS|COL_BREAK' "$D/../../main/pomo_view.c" || OPTS="$OPTS pomo_view-has-no-fixed-phase-colours"
 ! grep -q 'BURN_IN_S' "$D/../../main/nowplaying_view.c" || OPTS="$OPTS nowplaying_view-has-no-fixed-dim-delay"
-[ "$(grep -c 's_dim_after_s' "$D/../../main/nowplaying_view.c")" -ge 6 ] || OPTS="$OPTS nowplaying_view-uses-the-setting-for-dim-rest-and-return"
+[ "$(grep -c 'dim_after_s()' "$D/../../main/nowplaying_view.c")" -ge 4 ] || OPTS="$OPTS nowplaying_view-uses-the-setting-for-dim-rest-and-return"
 if [ -n "$OPTS" ]; then
     echo "run.sh: FAIL app options wiring:$OPTS" >&2
     exit 1

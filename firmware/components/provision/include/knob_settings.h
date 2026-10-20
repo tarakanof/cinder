@@ -10,7 +10,6 @@ extern "C" {
 #define KS_MAX_PAGES 8
 #define KS_WX_FACES 7
 
-/* wx_faces: wx_face_id_t values (wx_faces.h) in turn order, "temp rain cast wind days sun air" are 0 .. 6. */
 typedef enum { KS_DIAG_OFF, KS_DIAG_BASIC, KS_DIAG_FULL } ks_diag_t;
 #define KS_PAGE_ID_MAX 16
 
@@ -46,6 +45,7 @@ typedef struct {
     uint8_t idle_dim_level;
     int idle_off_after_s;
     uint8_t n_wx_faces;
+    /* wx_face_id_t values (wx_faces.h) in turn order: "temp rain cast wind days sun air" are 0 .. 6. */
     uint8_t wx_faces[KS_WX_FACES];
     uint32_t pomo_focus_rgb;
     uint32_t pomo_break_rgb;

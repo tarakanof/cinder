@@ -55,7 +55,7 @@ static void test_step(void)
           "several detents in one frame");
     CHECK(wx_face_step(WXF_RAIN, 0) == WXF_RAIN, "no detent: same face");
     CHECK(wx_face_step(WXF_TEMP, -2147483647) == WXF_AIR && wx_face_step(WXF_TEMP, 2147483647) == WXF_RAIN, "a huge count does not overflow");
-    CHECK(wx_face_step(7, 1) == WXF_RAIN && wx_face_step(-1, 0) == WXF_TEMP, "a face outside the list steps from the first");
+    CHECK(wx_face_step(7, 1) == WXF_TEMP && wx_face_step(7, -1) == WXF_AIR && wx_face_step(-1, 0) == WXF_TEMP, "a face outside the list enters at the first face going forward, the last going back");
 }
 
 static void test_turn(void)
@@ -385,8 +385,10 @@ static void test_list(void)
     CHECK(wx_face_list_step(&l, WXF_TEMP, 7) == WXF_DAYS && wx_face_list_step(&l, WXF_TEMP, -7) == WXF_SUN &&
               wx_face_list_step(&l, WXF_TEMP, 2147483647) == WXF_DAYS && wx_face_list_step(&l, WXF_SUN, -2147483647) == WXF_DAYS,
           "several detents and huge counts");
-    CHECK(wx_face_list_step(&l, WXF_RAIN, 1) == WXF_TEMP && wx_face_list_step(&l, WXF_AUTO, 0) == WXF_SUN,
-          "a face outside the list steps from its first");
+    CHECK(wx_face_list_step(&l, WXF_RAIN, 1) == WXF_SUN && wx_face_list_step(&l, WXF_RAIN, -1) == WXF_DAYS &&
+              wx_face_list_step(&l, WXF_RAIN, 2) == WXF_TEMP && wx_face_list_step(&l, WXF_RAIN, -2) == WXF_TEMP &&
+              wx_face_list_step(&l, WXF_AUTO, 0) == WXF_SUN,
+          "a face outside the list enters at the first face going forward, the last going back");
     wx_face_list_t one = list_of((const uint8_t[]){WXF_WIND}, 1);
     CHECK(one.n == 1 && wx_face_list_step(&one, WXF_WIND, 1) == WXF_WIND && wx_face_list_step(&one, WXF_TEMP, -3) == WXF_WIND,
           "a one-face list always lands on it");
@@ -400,7 +402,9 @@ static void test_list(void)
     CHECK(wx_faces_turn(&f, WXF_TEMP, WXF_TEMP, 1) && f.pick == WXF_DAYS, "then Next days, skipping the unlisted");
     CHECK(wx_faces_turn(&f, WXF_DAYS, WXF_DAYS, 1) && f.pick == WXF_SUN, "then wraps to Sun");
     wx_faces_open(&f);
-    CHECK(wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, 1) && f.pick == WXF_TEMP, "a turn from an unlisted face on screen steps from the list's first");
+    CHECK(wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, 1) && f.pick == WXF_SUN, "a turn right from an unlisted face on screen lands on the list's first");
+    wx_faces_open(&f);
+    CHECK(wx_faces_turn(&f, WXF_RAIN, WXF_RAIN, -1) && f.pick == WXF_DAYS, "a turn left lands on the list's last");
     f.list = one;
     wx_faces_open(&f);
     CHECK(wx_faces_turn(&f, WXF_WIND, WXF_WIND, 1) == false && f.pick == WXF_WIND, "a one-face list: a turn changes nothing");

@@ -1066,8 +1066,28 @@ static void test_config_custom(void)
     CHECK(n == 3 && order[0] == 1 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
 }
 
+_Static_assert(KS_WX_FACES == WXF_N, "the settings' face list holds one slot per weather face");
+
+static void test_config_v2_face_names(void)
+{
+    static const struct {
+        const char *name;
+        int id;
+    } FACES[] = {{"temp", WXF_TEMP}, {"rain", WXF_RAIN}, {"cast", WXF_CAST}, {"wind", WXF_WIND},
+                 {"days", WXF_DAYS}, {"sun", WXF_SUN},   {"air", WXF_AIR}};
+    for (int i = 0; i < (int)(sizeof FACES / sizeof FACES[0]); i++) {
+        char js[96];
+        knob_settings_t ks;
+        snprintf(js, sizeof js, "{\"apps\":{\"weather\":{\"faces\":[\"%s\"]}}}", FACES[i].name);
+        knob_settings_parse(js, &ks);
+        CHECK(ks.n_wx_faces == 1 && ks.wx_faces[0] == FACES[i].id, "face name %s is wx_face_id_t %d, got %d", FACES[i].name,
+              FACES[i].id, ks.wx_faces[0]);
+    }
+}
+
 static void test_config_v2(void)
 {
+    test_config_v2_face_names();
     static const char *const names[] = {"config_v2.json", "checkin_reply_config_v2.json"};
     for (int i = 0; i < 2; i++) {
         dev_checkin_result_t r;
