@@ -8,6 +8,8 @@
 void np_view_create(lv_obj_t *parent);
 /* Hiding frees every picture buffer. */
 void np_view_show(bool show);
+/* Seconds without input before the faces dim and the controls rest; also the return rule's wait. */
+void np_view_set_dim_after(int seconds);
 void np_view_input(double now);
 void np_view_turn(int detents, double now);
 void np_view_push(double now);

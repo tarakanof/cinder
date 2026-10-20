@@ -736,6 +736,9 @@ static void settings_frame(double t)
     bot_view_set_options(s_ks_lv->source_label, s_ks_lv->working_ring);
     bot_set_ring(&s_bot, s_ks_lv->working_ring);
     bsp_knob_15_md50et_set_rotation(s_ks_lv->rotation);
+    temp_face_set_list(s_ks_lv->wx_faces, s_ks_lv->n_wx_faces);
+    pomo_view_set_colors(s_ks_lv->pomo_focus_rgb, s_ks_lv->pomo_break_rgb);
+    np_view_set_dim_after(s_ks_lv->np_dim_after_s);
     if (s_demo_until > t + s_demo_hold_s) s_demo_until = t + s_demo_hold_s;
 }
 

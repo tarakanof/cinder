@@ -199,9 +199,17 @@ void wx_temp_face(const wx_obs_t *o, const wx_temp_t *shown, int face, wx_temp_t
     }
 }
 
+void wx_temp_listed(const wx_obs_t *o, const wx_temp_t *shown, int face, const wx_face_list_t *list, wx_temp_t *t)
+{
+    wx_temp_face(o, shown, face, t);
+    if ((face < 0 || face >= WXF_N) && wx_face_list_pos(list, t->face) < 0) wx_temp_face(o, shown, wx_face_list_first(list), t);
+    t->dots_n = wx_face_list_n(list);
+    t->dots_k = wx_face_list_pos(list, t->face);
+}
+
 int wx_temp_bake_kind(const wx_temp_t *t, const wx_temp_t *s)
 {
-    if (t->face != s->face) return WX_BAKE_FULL;
+    if (t->face != s->face || t->dots_n != s->dots_n || t->dots_k != s->dots_k) return WX_BAKE_FULL;
     if (t->air.on || s->air.on) return wx_air_same_scene(&t->air, &s->air) ? 0 : WX_BAKE_FULL;
     if (t->sun.on || s->sun.on) return wx_sun_same_scene(&t->sun, &s->sun) ? 0 : WX_BAKE_FULL;
     if (t->days.on || s->days.on) return wx_days_same(&t->days, &s->days) ? 0 : WX_BAKE_FULL;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,11 +14,29 @@ typedef enum { WXF_TEMP, WXF_RAIN, WXF_CAST, WXF_WIND, WXF_DAYS, WXF_SUN, WXF_AI
 #define WXF_DOT_R 206.0f
 #define WXF_DOT_PITCH 16.0f
 
-/* face moved by steps through the list, wrapping both ways. */
+/* The faces a turn steps through, in order (Ember's apps.weather.faces): n 1 .. WXF_N unique wx_face_id_t values; n 0 is
+   every face in wx_face_id_t order. */
+typedef struct {
+    uint8_t n;
+    uint8_t id[WXF_N];
+} wx_face_list_t;
+
+/* The list set to n of the ids (unknown and repeated ids skipped); every face when none is left. */
+void wx_face_list_set(wx_face_list_t *l, const uint8_t *ids, int n);
+/* Position of face in the list, -1 when it is not listed. */
+int wx_face_list_pos(const wx_face_list_t *l, int face);
+/* Faces in the list. */
+int wx_face_list_n(const wx_face_list_t *l);
+/* The list's first face. */
+int wx_face_list_first(const wx_face_list_t *l);
+/* face moved by steps through the list, wrapping both ways; a face outside it enters at the first face going forward and the last going back. */
+int wx_face_list_step(const wx_face_list_t *l, int face, int steps);
+/* wx_face_list_step through every face. */
 int wx_face_step(int face, int steps);
 
 typedef struct {
     int pick; /* WXF_AUTO until the user turns on this page open */
+    wx_face_list_t list;
 } wx_faces_t;
 
 void wx_faces_open(wx_faces_t *f);

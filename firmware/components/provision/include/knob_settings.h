@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 #define KS_MAX_PAGES 8
+#define KS_WX_FACES 7
 
 typedef enum { KS_DIAG_OFF, KS_DIAG_BASIC, KS_DIAG_FULL } ks_diag_t;
 #define KS_PAGE_ID_MAX 16
@@ -43,6 +44,12 @@ typedef struct {
     int idle_dim_after_s;
     uint8_t idle_dim_level;
     int idle_off_after_s;
+    uint8_t n_wx_faces;
+    /* wx_face_id_t values (wx_faces.h) in turn order: "temp rain cast wind days sun air" are 0 .. 6. */
+    uint8_t wx_faces[KS_WX_FACES];
+    uint32_t pomo_focus_rgb;
+    uint32_t pomo_break_rgb;
+    int np_dim_after_s;
 } knob_settings_t;
 
 #define KS_QUIET_DIM_DEFAULT 20
@@ -50,6 +57,11 @@ typedef struct {
 #define KS_IDLE_DIM_AFTER_S_MIN 30
 #define KS_IDLE_OFF_AFTER_S_MIN 60
 #define KS_IDLE_AFTER_S_MAX 86400
+#define KS_POMO_FOCUS_DEFAULT 0xFF6A3D
+#define KS_POMO_BREAK_DEFAULT 0x4FA9FF
+#define KS_NP_DIM_AFTER_S_DEFAULT 180
+#define KS_NP_DIM_AFTER_S_MIN 60
+#define KS_NP_DIM_AFTER_S_MAX 1800
 #define KS_WEATHER_EVERY_MIN_DEFAULT 30
 #define KS_WEATHER_EVERY_MIN_MAX 240
 

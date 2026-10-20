@@ -73,8 +73,10 @@ void wx_paint_marker(wx_img_t *im);
 #define WX_DOT_R 4.0f
 #define WX_DOT_ON 0xFFFFFF
 #define WX_DOT_OFF 0x4A4A4A
-/* n face dots (wx_face_dot_xy), dot face white, the others grey. */
+/* n face dots (wx_face_dot_xy), dot face white, the others grey; none below two. */
 void wx_paint_face_dots(wx_img_t *im, int face, int n);
+/* t's dots: dots_n of them with dots_k lit, or one per face with t->face lit when dots_n is 0; none below two. */
+void wx_paint_temp_dots(wx_img_t *im, const wx_temp_t *t);
 
 /* Cloud i of all on its own, with all's tone and rim fade: one sprite. */
 void wx_cloud_one(const wx_clouds_t *all, int i, wx_clouds_t *one);
