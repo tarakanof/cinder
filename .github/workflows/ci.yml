@@ -77,6 +77,8 @@ jobs:
       - name: Size report
         run: |
           . "$IDF_PATH/export.sh" >/dev/null
+          idf.py size
+          idf.py size-components
           {
             echo "## Firmware size"
             echo
