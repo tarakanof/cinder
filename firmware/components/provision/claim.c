@@ -188,6 +188,7 @@ static int backoff(claim_t *c)
 
 static void ended(claim_t *c, int64_t now_ms)
 {
+    drop_key(c);
     c->ignored++;
     c->id[0] = c->code[0] = 0;
     c->phase = c->ignored >= CLAIM_IGNORED_MAX ? CLAIM_INPUT : CLAIM_OPEN;

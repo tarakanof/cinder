@@ -83,7 +83,7 @@ void claim_want(claim_t *c, bool want, int64_t now_ms);
 void claim_input(claim_t *c, int64_t now_ms);
 /* The request due now, if any; a code past its expiry counts as ignored here. */
 claim_act_t claim_next(claim_t *c, int64_t now_ms);
-/* The key is made when needed and kept in RAM, so a re-post after a lost reply reuses it. */
+/* The key is made when needed and kept in RAM, so a re-post after a lost reply reuses it; a claim that ends (expiry, a poll 404) drops it. */
 bool claim_needs_key(const claim_t *c);
 void claim_set_key(claim_t *c, const uint8_t rnd[CLAIM_KEY_BYTES]);
 /* Retry-After in delta seconds, clamped to 1..CLAIM_RETRY_AFTER_S_MAX; -1 when absent or not a number. */

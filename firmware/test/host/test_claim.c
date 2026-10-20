@@ -226,8 +226,6 @@ static void test_expiry(void)
     char code[CLAIM_CODE_LEN + 1];
     T = 50000;
     start(&c);
-    char key[CLAIM_KEY_LEN + 1];
-    strcpy(key, c.key);
     claim_approved_t a;
     T += 5000;
     CHECK(next(&c) == CLAIM_ACT_POLL, "poll");
@@ -236,25 +234,30 @@ static void test_expiry(void)
     CHECK(claim_code(&c, T, code), "the code shows until the server's expiry");
     T += 1;
     CHECK(!claim_code(&c, T, code), "no code once expired");
-    CHECK(next(&c) == CLAIM_ACT_OPEN && c.ignored == 1 && !claim_needs_key(&c) && strcmp(c.key, key) == 0,
-          "an expired code opens a new claim at once with the same key (ignored %d)", c.ignored);
+    CHECK(next(&c) == CLAIM_ACT_OPEN && c.ignored == 1 && claim_needs_key(&c) && c.key[0] == 0,
+          "an expired code opens a new claim at once with a new key (ignored %d)", c.ignored);
+    claim_set_key(&c, RND);
     claim_opened(&c, 201, REPLY, -1, T);
     T += 600000;
     CHECK(next(&c) == CLAIM_ACT_OPEN && c.ignored == 2, "second ignored code (%d)", c.ignored);
+    claim_set_key(&c, RND);
     claim_opened(&c, 201, REPLY, -1, T);
     T += 600000;
     CHECK(next(&c) == CLAIM_ACT_NONE && c.phase == CLAIM_INPUT && c.ignored == 3, "third: waits for input (phase %d)", c.phase);
     T += 24LL * 3600 * 1000;
     CHECK(next(&c) == CLAIM_ACT_NONE && !claim_code(&c, T, code), "a day later still waiting, no code");
     claim_input(&c, T);
-    CHECK(next(&c) == CLAIM_ACT_OPEN && c.ignored == 0, "input opens a claim at once");
+    CHECK(next(&c) == CLAIM_ACT_OPEN && c.ignored == 0 && claim_needs_key(&c), "input opens a claim at once, with a new key");
+    claim_set_key(&c, RND);
     claim_opened(&c, 201, REPLY, -1, T);
     claim_input(&c, T);
     CHECK(c.phase == CLAIM_SHOW && next(&c) == CLAIM_ACT_NONE, "input while a code shows changes nothing");
     T += 5000;
     CHECK(next(&c) == CLAIM_ACT_POLL, "poll");
-    CHECK(claim_polled(&c, 404, "{\"error\":\"claim not found\"}", -1, T, &a) == CLAIM_POLL_GONE && c.ignored == 1 && next(&c) == CLAIM_ACT_OPEN,
-          "a 404 poll (declined, expired, server restart) opens a new claim, counted as ignored");
+    CHECK(claim_polled(&c, 404, "{\"error\":\"claim not found\"}", -1, T, &a) == CLAIM_POLL_GONE && c.ignored == 1 && next(&c) == CLAIM_ACT_OPEN &&
+              claim_needs_key(&c) && c.key[0] == 0,
+          "a 404 poll (declined, expired, superseded, server restart) opens a new claim at once with a new key, counted as ignored");
+    claim_set_key(&c, RND);
     claim_opened(&c, 201, REPLY, -1, T);
     T += 5000;
     next(&c);
