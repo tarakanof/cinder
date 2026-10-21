@@ -529,6 +529,48 @@ static void test_join_label(lv_display_t *d)
     CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) && a.y2 == H - 1 + JOIN_VIEW_Y &&
               strcmp(lv_label_get_text(line), "Can't join") == 0,
           "join label: 'Can't join' with no SSID alone on the bottom line, no blank SSID line (%d)", (int)a.y2);
+    float code_worst = 0;
+    int code_widest = 0;
+    for (int dgt = -1; dgt <= 9; dgt++) {
+        char code[7], want[16];
+        for (int i = 0; i < 6; i++) code[i] = dgt < 0 ? "482913"[i] : (char)('0' + dgt);
+        code[6] = 0;
+        snprintf(want, sizeof want, "Code %.3s %.3s", code, code + 3);
+        join_view_show(JOIN_NOT_PAIRED, code);
+        lv_area_t a0 = {0}, b0 = {0};
+        for (size_t k = 0; k < sizeof OFF / sizeof OFF[0]; k++) {
+            join_view_shift(OFF[k][0], OFF[k][1]);
+            lv_refr_now(d);
+            lv_area_t a, b;
+            lv_obj_get_coords(line, &a);
+            lv_obj_get_coords(ssid, &b);
+            float r = far_corner(&a) > far_corner(&b) ? far_corner(&a) : far_corner(&b);
+            code_worst = r > code_worst ? r : code_worst;
+            CHECK(r <= 233, "join code '%s' at %+d,%+d: both boxes inside the round panel (%.1f px)", want, OFF[k][0], OFF[k][1], r);
+            if (k) {
+                CHECK(a.x1 == a0.x1 + OFF[k][0] && a.y1 == a0.y1 + OFF[k][1] && b.x1 == b0.x1 + OFF[k][0] && b.y1 == b0.y1 + OFF[k][1],
+                      "join code '%s': both lines follow the orbit to %+d,%+d", want, OFF[k][0], OFF[k][1]);
+                continue;
+            }
+            a0 = a;
+            b0 = b;
+            lv_point_t sz;
+            lv_text_get_size(&sz, want, &lv_font_montserrat_18, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            code_widest = sz.x > code_widest ? sz.x : code_widest;
+            CHECK(join_line_ok(line, &lv_font_montserrat_24) && join_line_ok(ssid, &lv_font_montserrat_18),
+                  "join code '%s': the SSID line's slot, 240 px, 24 over 18", want);
+            CHECK(!lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && !lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN) &&
+                      strcmp(lv_label_get_text(line), "Not paired") == 0 && strcmp(lv_label_get_text(ssid), want) == 0,
+                  "join code: 'Not paired' over '%s' in full (shows '%s')", want, lv_label_get_text(ssid));
+            CHECK(b.y2 == H - 1 + JOIN_VIEW_Y && a.y2 == b.y1 - 1, "join code '%s': code at the bottom (%d), status right above it (%d)", want,
+                  (int)b.y2, (int)a.y2);
+            float half = sqrtf(233.0f * 233.0f - (b.y2 + 1 + 4 - 233.0f) * (b.y2 + 1 + 4 - 233.0f)) - 4;
+            CHECK(sz.x / 2.0f <= half, "join code '%s': the text (%d px) fits the chord at the orbit's lowest corner (%.1f px each side)", want,
+                  (int)sz.x, half);
+        }
+    }
+    printf("join code: widest text %d px, worst corner %.1f px from the centre over the orbit\n", code_widest, code_worst);
+    join_view_shift(0, 0);
     join_view_show(JOIN_NONE, "");
     lv_refr_now(d);
     CHECK(lv_obj_has_flag(line, LV_OBJ_FLAG_HIDDEN) && lv_obj_has_flag(ssid, LV_OBJ_FLAG_HIDDEN), "join label: none hides both");

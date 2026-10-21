@@ -23,8 +23,8 @@ typedef struct {
 } join_in_t;
 
 join_label_t join_label_pick(const join_in_t *in);
-/* Writes the label's text into out (empty for JOIN_NONE); ssid is used only by JOIN_CANT_JOIN. */
-void join_label_text(join_label_t l, const char *ssid, char *out, size_t n);
+/* Writes the label's text into out (empty for JOIN_NONE). detail: the SSID for JOIN_CANT_JOIN, a 6-digit pairing code for JOIN_NOT_PAIRED (anything else shows no code). */
+void join_label_text(join_label_t l, const char *detail, char *out, size_t n);
 bool join_glyph_shown(bool offline, join_label_t l);
 
 #ifdef __cplusplus

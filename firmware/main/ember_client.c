@@ -10,6 +10,7 @@
 
 #include "bsp_knob_15_md50et.h"
 #include "cJSON.h"
+#include "claim_client.h"
 #include "config_store.h"
 #include "coredump_up.h"
 #include "diag.h"
@@ -1291,6 +1292,7 @@ static void poll_task(void *arg)
             else if (online && config_store_has_device() && cd_upload_due(&P->cd, now_ms(), pomo)) coredump_upload(buf);
         }
         ota_service();
+        if (claim_client_service(s_conn, P->base, online, atomic_load(&s_unauthorized), buf, RESP_MAX)) continue;
         if (P->vp.legacy && online && s_ks.follow_ember && esp_timer_get_time() >= next_bright_us) {
             brightness_poll(buf, bright_url);
             next_bright_us = esp_timer_get_time() + (int64_t)DIM_POLL_MS * 1000;
@@ -1499,7 +1501,11 @@ static bool idle_touch(bool input)
     return swallow;
 }
 
-bool ember_client_idle_input(void) { return idle_touch(true); }
+bool ember_client_idle_input(void)
+{
+    claim_client_input();
+    return idle_touch(true);
+}
 
 void ember_client_idle_wake(void) { (void)idle_touch(false); }
 

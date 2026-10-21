@@ -6,6 +6,7 @@
 
 #include "cJSON.h"
 #include "cfg.h"
+#include "claim.h"
 #include "coredump_up.h"
 #include "device_api.h"
 #include "ember_host.h"
@@ -35,7 +36,8 @@ static const char *const COVERED[] = {
     "view_faces.json",         "view_faces_met.json",         "view_faces_polar_dry.json",
     "view_np_cover.json",      "view_np_cover_light.json",    "view_usage.json",
     "view_usage_uncapped.json", "controls_action.json",   "view_req_shown.json",
-    "config_v2.json",          "checkin_reply_config_v2.json",
+    "config_v2.json",          "checkin_reply_config_v2.json", "claim_req.json",
+    "claim_reply.json",        "claim_poll_pending.json",     "claim_poll_approved.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -1162,6 +1164,48 @@ static void test_controls_action(void)
     cJSON_Delete(r);
 }
 
+static void test_claim(void)
+{
+    char *j = load("claim_req.json");
+    cJSON *want = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    const char *hw = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(want, "hw_id"));
+    const char *fw = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(want, "fw"));
+    const char *key = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(want, "claim_key"));
+    char body[CLAIM_BODY_MAX];
+    size_t n = hw && fw && key ? claim_open_body(hw, fw, key, body, sizeof body) : 0;
+    cJSON *got = n ? cJSON_Parse(body) : NULL;
+    CHECK(got && cJSON_Compare(want, got, true), "claim_req: the firmware's open body equals the fixture: %s", n ? body : "(none)");
+    CHECK(key && strlen(key) == CLAIM_KEY_LEN, "claim_req: the key is %d characters like the firmware's", CLAIM_KEY_LEN);
+    char hw_ours[13];
+    uint8_t mac[6] = {0x02, 0x00, 0x5e, 0x10, 0xc0, 0xde};
+    cfg_hw_id(mac, hw_ours);
+    CHECK(hw && strcmp(hw, hw_ours) == 0, "claim_req: hw_id %s is cfg_hw_id's format (%s)", hw ? hw : "", hw_ours);
+    cJSON_Delete(got);
+    cJSON_Delete(want);
+
+    claim_reply_t r;
+    j = load("claim_reply.json");
+    CHECK(j && claim_reply_parse(j, &r) && strcmp(r.claim_id, "c_0123abcd") == 0 && strcmp(r.code, "482913") == 0 && r.expires_in_s == 600 &&
+              r.poll_s == 5,
+          "claim_reply parses");
+    free(j);
+
+    claim_approved_t a;
+    j = load("claim_poll_pending.json");
+    CHECK(j && claim_poll_parse(j, &a) == CLAIM_POLL_PENDING, "claim_poll_pending parses");
+    free(j);
+    j = load("claim_poll_approved.json");
+    CHECK(j && claim_poll_parse(j, &a) == CLAIM_POLL_APPROVED && strcmp(a.device_id, "knob-10c0de") == 0 && strcmp(a.name, "Knob 10C0DE") == 0 &&
+              strncmp(a.token, "ekd_", 4) == 0 && strlen(a.token) <= DEV_TOKEN_MAX,
+          "claim_poll_approved parses, the token fits the checkin's DEV_TOKEN_MAX");
+    cfg_t c = {0};
+    CHECK(cfg_set(&c, "dev_id", a.device_id) == CFG_OK && cfg_set(&c, "dev_tok", a.token) == CFG_OK && cfg_set(&c, "name", a.name) == CFG_OK &&
+              cfg_paired(&c),
+          "claim_poll_approved: the device id, token and name store as set_ember's do");
+    free(j);
+}
+
 static const cJSON *at(const cJSON *o, const char *k) { return cJSON_GetObjectItemCaseSensitive(o, k); }
 static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k)) ? at(o, k)->valuedouble : 0; }
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
@@ -1170,7 +1214,7 @@ static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
-static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim", "wx_face_list", "pomo_colors", "np_dim"};
+static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim", "wx_face_list", "pomo_colors", "np_dim", "lan_pair"};
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
@@ -1443,6 +1487,7 @@ int main(int argc, char **argv)
     test_pomodoro_action();
     test_view_usage();
     test_controls_action();
+    test_claim();
     test_checkin_req_minimal();
     test_view_req_shown();
     test_checkin_req_full();

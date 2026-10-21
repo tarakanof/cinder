@@ -34,6 +34,7 @@
 #include "ember_host.h"
 #include "http_conn.h"
 #include "join_view.h"
+#include "claim_client.h"
 #include "pomo_client.h"
 #include "pomo_view.h"
 #include "nowplaying_client.h"
@@ -88,6 +89,7 @@ static int s_reset_progress_shown = -1;
 
 static bool s_setup;
 static join_label_t s_join_shown;
+static int s_join_code = -1;
 static pages_nav_t s_nav = {.n = 1};
 static uint32_t s_settings_gen;
 static knob_settings_t *s_ks_lv;
@@ -755,11 +757,14 @@ static void join_frame(void)
         .update_ember = ember_client_view_compat() == EMBER_VIEW_UPDATE_EMBER,
     };
     join_label_t show = join_label_pick(&in);
-    if (show == s_join_shown) return;
+    int code = show == JOIN_NOT_PAIRED ? claim_client_code() : -1;
+    if (show == s_join_shown && code == s_join_code) return;
     s_join_shown = show;
-    char ssid[CFG_SSID_MAX + 1] = "";
-    if (show == JOIN_CANT_JOIN) config_store_ssid(ssid, sizeof ssid);
-    join_view_show(show, ssid);
+    s_join_code = code;
+    char detail[CFG_SSID_MAX + 1] = "";
+    if (show == JOIN_CANT_JOIN) config_store_ssid(detail, sizeof detail);
+    else if (code >= 0) snprintf(detail, sizeof detail, "%06d", code);
+    join_view_show(show, detail);
 }
 
 static bool reset_frame(double t)

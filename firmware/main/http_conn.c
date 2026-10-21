@@ -384,7 +384,7 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     const char *post_body = o->post_body;
     bool idempotent = o->idempotent;
     bool has_body = post_body || o->read;
-    bool auth = has_body || o->auth;
+    bool auth = !o->anon && (has_body || o->auth);
     if (o->truncated) *o->truncated = false;
     if (c->on_request) c->on_request();
     atomic_fetch_add(&s_requests, 1);

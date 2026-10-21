@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
@@ -22,6 +23,8 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static atomic_bool s_has_device, s_has_url;
 static atomic_uint s_token_gen, s_ks_gen;
 static atomic_int s_poll_ms = 2000;
+static SemaphoreHandle_t s_save_mu;
+static bool s_erased;
 
 static void publish(const cfg_t *c)
 {
@@ -109,7 +112,7 @@ static esp_err_t erase_token(void)
     return err;
 }
 
-esp_err_t config_store_save(const cfg_t *cfg)
+static esp_err_t save(const cfg_t *cfg)
 {
     taskENTER_CRITICAL(&s_lock);
     bool new_ssid = strcmp(s_cfg->wifi_ssid, cfg->wifi_ssid) != 0;
@@ -135,6 +138,43 @@ esp_err_t config_store_save(const cfg_t *cfg)
     nvs_close(h);
     if (err == ESP_OK) publish(cfg);
     return err;
+}
+
+esp_err_t config_store_update(config_store_edit_t edit, void *ctx)
+{
+    cfg_t *c = heap_caps_malloc(sizeof *c, MALLOC_CAP_SPIRAM);
+    if (!c) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
+    esp_err_t err = ESP_ERR_INVALID_STATE;
+    if (!s_erased) {
+        config_store_get(c);
+        err = edit(c, ctx);
+        if (err == ESP_OK) err = save(c);
+    }
+    xSemaphoreGive(s_save_mu);
+    memset(c, 0, sizeof *c);
+    free(c);
+    return err;
+}
+
+typedef struct {
+    uint32_t token_gen;
+    const char *url, *dev_id, *token, *name;
+} pair_t;
+
+static esp_err_t pair_edit(cfg_t *c, void *ctx)
+{
+    const pair_t *p = ctx;
+    if (atomic_load(&s_token_gen) != p->token_gen || strcmp(c->ember_url, p->url) != 0) return ESP_ERR_INVALID_STATE;
+    if (cfg_set(c, "dev_id", p->dev_id) != CFG_OK || cfg_set(c, "dev_tok", p->token) != CFG_OK) return ESP_ERR_INVALID_ARG;
+    if (p->name && p->name[0]) (void)cfg_set(c, "name", p->name);
+    return ESP_OK;
+}
+
+esp_err_t config_store_pair(uint32_t token_gen, const char *url, const char *dev_id, const char *token, const char *name)
+{
+    pair_t p = {.token_gen = token_gen, .url = url, .dev_id = dev_id, .token = token, .name = name};
+    return config_store_update(pair_edit, &p);
 }
 
 static esp_err_t get_settings_blob(char *buf, size_t cap, uint32_t *ver);
@@ -171,10 +211,11 @@ void config_store_init(void)
     }
     ESP_ERROR_CHECK(err);
 
+    s_save_mu = xSemaphoreCreateMutex();
     s_cfg = heap_caps_calloc(1, sizeof *s_cfg, MALLOC_CAP_SPIRAM);
     s_ks = heap_caps_calloc(1, sizeof *s_ks, MALLOC_CAP_SPIRAM);
     cfg_t *cp = heap_caps_calloc(1, sizeof *cp, MALLOC_CAP_SPIRAM);
-    assert(s_cfg && s_ks && cp);
+    assert(s_save_mu && s_cfg && s_ks && cp);
     cfg_t *c = cp;
 #ifdef CONFIG_CINDER_DEV_SEED
     (void)*(volatile const char *)DEV_SEED_MARKER;
@@ -188,7 +229,7 @@ void config_store_init(void)
             ESP_LOGE(TAG, "dev seed: invalid %s in the build config; not seeded (setup face)", rejected);
         } else {
             if (rejected[0]) ESP_LOGE(TAG, "dev seed: invalid %s in the build config; left empty", rejected);
-            err = config_store_save(c);
+            err = save(c);
             char line[200];
             cfg_describe(c, line, sizeof line);
             if (err == ESP_OK)
@@ -237,16 +278,9 @@ bool config_store_has_device(void) { return atomic_load(&s_has_device); }
 bool config_store_has_ember_url(void) { return atomic_load(&s_has_url); }
 uint32_t config_store_token_gen(void) { return atomic_load(&s_token_gen); }
 
-esp_err_t config_store_set_token(const char *token)
-{
-    cfg_t *c = heap_caps_malloc(sizeof *c, MALLOC_CAP_SPIRAM);
-    if (!c) return ESP_ERR_NO_MEM;
-    config_store_get(c);
-    esp_err_t err = cfg_set(c, "dev_tok", token) == CFG_OK ? config_store_save(c) : ESP_ERR_INVALID_ARG;
-    memset(c, 0, sizeof *c);
-    free(c);
-    return err;
-}
+static esp_err_t token_edit(cfg_t *c, void *ctx) { return cfg_set(c, "dev_tok", ctx) == CFG_OK ? ESP_OK : ESP_ERR_INVALID_ARG; }
+
+esp_err_t config_store_set_token(const char *token) { return config_store_update(token_edit, (void *)token); }
 
 void config_store_settings(knob_settings_t *out)
 {
@@ -381,11 +415,20 @@ esp_err_t config_store_clear_settings(void)
 
 esp_err_t config_store_erase(void)
 {
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
     nvs_handle_t h;
     esp_err_t err = nvs_open(CFG_NAMESPACE, NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
-    err = nvs_erase_all(h);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
+    if (err == ESP_OK) {
+        err = nvs_erase_all(h);
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err == ESP_OK) {
+        s_erased = true;
+        cfg_t *z = heap_caps_calloc(1, sizeof *z, MALLOC_CAP_SPIRAM);
+        if (z) publish(z);
+        free(z);
+    }
+    xSemaphoreGive(s_save_mu);
     return err;
 }
