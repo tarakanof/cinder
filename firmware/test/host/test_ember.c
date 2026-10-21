@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "bot_behavior.h"
 #include "dim.h"
 #include "ember_host.h"
 
