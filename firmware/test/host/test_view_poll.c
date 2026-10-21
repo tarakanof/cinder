@@ -77,7 +77,7 @@ static int64_t s_now = 100000;
 static int req_status;
 static int req_count;
 static bool req_saw_sent;
-static char req_url[512];
+static char req_url[1024];
 static int req_due;
 
 static void on_header(const char *k, const char *v, void *c) { (void)k; (void)v; (void)c; }
