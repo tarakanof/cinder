@@ -284,6 +284,9 @@ static void test_idle(void)
     dim_idle_wake(&s, 1799000);
     CHECK(s.last_ms == 1800010, "an older wake does not move the clock back");
 
+    CHECK(dim_mood_holds(BOT_WORKING) && dim_mood_holds(BOT_WAITING) && dim_mood_holds(BOT_ERROR) && dim_mood_holds(BOT_DONE), "working, waiting, error and done hold the panel awake");
+    CHECK(!dim_mood_holds(BOT_IDLE) && !dim_mood_holds(BOT_SLEEPY) && !dim_mood_holds(-1), "idle, sleepy and no mood let it dim");
+
     dim_fade_t f;
     uint8_t v = 0;
     bool set;
