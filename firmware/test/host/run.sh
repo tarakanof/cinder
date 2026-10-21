@@ -84,11 +84,12 @@ body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested() || ds.playing
     body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
     body "$MAINC" idle_frame | grep -qxF '    if (off) s_last_frame_t = 0;' ||
     IDLE="$IDLE idle_frame-wakes-for-the-OTA-face-and-demos-and-pauses-invalidation"
-body "$ECL" poll_task | grep -qF 'ember_client_idle_wake()' && IDLE="$IDLE poll_task-must-not-wake-on-a-mood-change-idle_state-holds-for-active-moods"
+body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake();' ||
+    IDLE="$IDLE poll_task-wakes-when-the-mood-turns-active"
 body "$ECL" bright_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
     IDLE="$IDLE bright_apply-sets-the-level-then-the-off-flag"
 body "$ECL" fade_step | grep -qxF '    if (idle_state() != s_idle_seen) bright_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
-body "$ECL" idle_state | grep -qF 'if (verifying || dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies"
+body "$ECL" idle_state | grep -qF 'if (verifying || dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
 if [ -n "$IDLE" ]; then
     echo "run.sh: FAIL idle wiring:$IDLE" >&2
     exit 1

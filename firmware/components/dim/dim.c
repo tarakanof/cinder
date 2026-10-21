@@ -1,4 +1,5 @@
 #include "dim.h"
+#include "bot_behavior.h"
 
 void dim_fade_init(dim_fade_t *f, int cur)
 {

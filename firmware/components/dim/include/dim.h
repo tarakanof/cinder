@@ -3,8 +3,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "bot_behavior.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -69,7 +67,7 @@ dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, 
 /* The panel stays awake while the bot is working, waiting, erroring or done; mood is the knob's current one, -1 offline or no data (docs/features.md, idle dim and screen off). */
 bool dim_mood_holds(int mood);
 
-/* A wake source that is not input (the OTA face, the OTA face, a demo): restarts the clock, nothing is swallowed. */
+/* A wake source that is not input (the OTA face, a demo): restarts the clock, nothing is swallowed. */
 void dim_idle_wake(dim_idle_t *s, int64_t now_ms);
 
 /* An input: true when the panel was off, so the input only wakes it and must not reach a page. Restarts the clock either way. */

@@ -1276,6 +1276,7 @@ static void poll_task(void *arg)
         demo_mark_ready();
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (mood != last) {
+            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake();
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;
         }
