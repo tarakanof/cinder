@@ -1400,6 +1400,11 @@ static void test_checkin_req_full(void)
         snprintf(d.tasks[d.n_tasks].name, sizeof d.tasks[0].name, "%s", t->string);
         d.tasks[d.n_tasks++].stack_free = (uint32_t)t->valuedouble;
     }
+    const cJSON *ij = at(dj, "idle");
+    d.has_idle = ij != NULL;
+    d.idle_state = str(ij, "state");
+    d.idle_wake = str(ij, "wake");
+    d.idle_input_age_s = (int)num(ij, "input_age_s");
 
     const cJSON *oj = at(f, "ota"), *lj = at(oj, "last");
     const char *res = str(lj, "result");
