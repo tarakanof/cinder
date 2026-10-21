@@ -836,6 +836,8 @@ cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c
 cc $CFLAGS -I"$V/include" -I"$G/include" -I"$J" "$V/claim.c" "$J/cJSON.c" "$D/test_claim.c" -lm -o "${OUT}_claim"
 cc $CFLAGS -I"$D/claim_client_stubs" -I"$D/idf_stubs" -I"$D/view_stubs" -I"$D/../../main" -I"$V/include" -I"$G/include" -I"$N/include" -I"$O/include" -I"$J" \
     "$D/../../main/claim_client.c" "$V/claim.c" "$J/cJSON.c" "$D/test_claim_client.c" -lm -o "${OUT}_claim_client"
+cc $CFLAGS -DCONFIG_CINDER_EMBER_POLL_MS=2000 -I"$D/config_store_stubs" -I"$D/idf_stubs" -I"$D/view_stubs" -I"$D/../../main" -I"$RT/include" -I"$G/include" -I"$V/include" -I"$J" \
+    "$D/../../main/config_store.c" "$G/cfg.c" "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_config_store.c" -lm -o "${OUT}_config_store"
 cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" \
     "$D/test_ota.c" -lm -o "${OUT}_ota"
 cc $CFLAGS "-DLT_RACE_POINT(t)=lt_race_point(t)" -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
@@ -930,6 +932,7 @@ fi
 "${OUT}_coredump"
 "${OUT}_claim"
 "${OUT}_claim_client"
+"${OUT}_config_store"
 "${OUT}_ota" "$D/../vectors"
 "${OUT}_net"
 "${OUT}_view"

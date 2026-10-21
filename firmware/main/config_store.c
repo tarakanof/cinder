@@ -304,8 +304,13 @@ esp_err_t config_store_apply_settings(const char *json, uint32_t ver)
 {
     knob_settings_t *ks = heap_caps_malloc(sizeof *ks, MALLOC_CAP_SPIRAM);
     if (!ks) return ESP_ERR_NO_MEM;
-    esp_err_t err = knob_settings_parse(json, ks) ? set_settings_blob(json, ver) : ESP_ERR_INVALID_ARG;
-    if (err == ESP_OK) publish_settings(ks, ver);
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
+    esp_err_t err = ESP_ERR_INVALID_STATE;
+    if (!s_erased) {
+        err = knob_settings_parse(json, ks) ? set_settings_blob(json, ver) : ESP_ERR_INVALID_ARG;
+        if (err == ESP_OK) publish_settings(ks, ver);
+    }
+    xSemaphoreGive(s_save_mu);
     free(ks);
     return err;
 }
@@ -392,15 +397,18 @@ int config_store_wifi_channel(void)
 
 void config_store_set_wifi_channel(int channel)
 {
-    if (channel < 1 || channel > 14 || channel == config_store_wifi_channel()) return;
+    if (channel < 1 || channel > 14) return;
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
     nvs_handle_t h;
-    if (nvs_open(CFG_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
-    if (nvs_set_u8(h, KEY_WIFI_CH, (uint8_t)channel) == ESP_OK && nvs_commit(h) == ESP_OK)
-        ESP_LOGI(TAG, "Wi-Fi channel hint -> %d", channel);
-    nvs_close(h);
+    if (!s_erased && channel != config_store_wifi_channel() && nvs_open(CFG_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        if (nvs_set_u8(h, KEY_WIFI_CH, (uint8_t)channel) == ESP_OK && nvs_commit(h) == ESP_OK)
+            ESP_LOGI(TAG, "Wi-Fi channel hint -> %d", channel);
+        nvs_close(h);
+    }
+    xSemaphoreGive(s_save_mu);
 }
 
-esp_err_t config_store_clear_settings(void)
+static esp_err_t clear_settings_blob(void)
 {
     nvs_handle_t h;
     esp_err_t err = nvs_open(CFG_NAMESPACE, NVS_READWRITE, &h);
@@ -410,6 +418,14 @@ esp_err_t config_store_clear_settings(void)
     if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
+    return err;
+}
+
+esp_err_t config_store_clear_settings(void)
+{
+    xSemaphoreTake(s_save_mu, portMAX_DELAY);
+    esp_err_t err = s_erased ? ESP_ERR_INVALID_STATE : clear_settings_blob();
+    xSemaphoreGive(s_save_mu);
     return err;
 }
 
