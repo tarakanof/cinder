@@ -76,7 +76,7 @@ body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_n
 [ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
 body "$ECL" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
-body "$ECL" fade_step | awk '/atomic_exchange\(&s_lit, -1\)/ {x = NR} /dim_fade_sync\(&s_fade, lit\);/ {y = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /bright_apply\(\);/ {b = NR} END {exit !(x && y > x && p > y && b > p)}' ||
+body "$ECL" fade_step | awk '/dim_idle_lit_take\(atomic_exchange\(&s_lit, -1\), idle_state\(\)\)/ {x = NR} /dim_fade_sync\(&s_fade, lit\);/ {y = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /bright_apply\(\);/ {b = NR} END {exit !(x && y > x && p > y && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
 body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"

@@ -74,7 +74,11 @@ bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms);
 int dim_idle_level(int level, dim_idle_state_t st, const dim_idle_rules_t *r);
 
 /* The level a task other than the fade's owner writes to the panel at once when an input or wake ends dim or off; -1 when there is nothing to write. */
-int dim_idle_light(dim_idle_state_t was, int awake_level);
+/* shown is the level the fade owner last published for the panel, -1 unknown: a panel already at or above awake_level is left to the owner's fade down instead of jumping to the end level. */
+int dim_idle_light(dim_idle_state_t was, int awake_level, int shown);
+
+/* The owner's take of the lit mailbox: a level posted before the knob went idle again is dropped (-1), not synced. */
+int dim_idle_lit_take(int lit, dim_idle_state_t now);
 
 int dim_idle_floor(int floor, dim_idle_state_t st, const dim_idle_rules_t *r);
 

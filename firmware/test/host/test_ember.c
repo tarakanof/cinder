@@ -303,10 +303,14 @@ static void test_idle(void)
     CHECK(dim_fade_step(&f, 6000, &v, &set) == DIM_STEP_MS && set && v == 100, "wake through dim_fade_step");
     dim_fade_set_target(&f, 20);
     CHECK(f.target == 20 && dim_fade_tick(&f, &v) && v < 100, "afterwards the normal fade");
-    CHECK(dim_idle_light(DIM_IDLE_OFF, 153) == 153 && dim_idle_light(DIM_IDLE_DIMMED, 153) == 153, "an input after off or dim lights the panel at the awake level");
-    CHECK(dim_idle_light(DIM_IDLE_AWAKE, 153) == -1, "awake: nothing to write");
-    CHECK(dim_idle_light(DIM_IDLE_OFF, -1) == -1 && dim_idle_light(DIM_IDLE_OFF, 0) == -1, "no known level: nothing to write");
-    CHECK(dim_idle_light(DIM_IDLE_OFF, 300) == 255, "clamped");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, 153, 0) == 153 && dim_idle_light(DIM_IDLE_DIMMED, 153, 40) == 153, "an input after off or dim lights the panel at the awake level");
+    CHECK(dim_idle_light(DIM_IDLE_AWAKE, 153, 0) == -1, "awake: nothing to write");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, -1, -1) == -1 && dim_idle_light(DIM_IDLE_OFF, 0, -1) == -1, "no known level: nothing to write");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, 300, -1) == 255, "clamped");
+    CHECK(dim_idle_light(DIM_IDLE_DIMMED, 153, 200) == -1 && dim_idle_light(DIM_IDLE_DIMMED, 153, 153) == -1, "a wake during a fade down leaves the panel to the owner's fade instead of jumping to the end level");
+    CHECK(dim_idle_light(DIM_IDLE_DIMMED, 153, 152) == 153 && dim_idle_light(DIM_IDLE_DIMMED, 153, -1) == 153, "a panel below the awake level, or an unknown one, is lit");
+    CHECK(dim_idle_lit_take(153, DIM_IDLE_AWAKE) == 153 && dim_idle_lit_take(-1, DIM_IDLE_AWAKE) == -1, "a fresh mailbox level is taken");
+    CHECK(dim_idle_lit_take(153, DIM_IDLE_DIMMED) == -1 && dim_idle_lit_take(153, DIM_IDLE_OFF) == -1, "a level posted before the knob went idle again is dropped, not replayed");
 
     dim_fade_init(&f, 153);
     dim_fade_set_off(&f, true);
