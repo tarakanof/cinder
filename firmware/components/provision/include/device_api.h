@@ -71,6 +71,9 @@ typedef struct dev_diag {
     bool has_crash_id;
     uint32_t crash_id, crash_size;
     char crash_elf[OTA_BUILD_HEX + 1];
+    bool has_idle;
+    const char *idle_state, *idle_wake;
+    int idle_input_age_s;
 } dev_diag_t;
 
 #define DEV_RR_SW 3

@@ -6,6 +6,7 @@
 
 #include "bot_behavior.h"
 #include "demo.h"
+#include "dim.h"
 #include "device_api.h"
 #include "ember_host.h"
 #include "link_state.h"
@@ -22,9 +23,9 @@ bool ember_client_mood(bot_mood_t *out);
 bool ember_client_quiet(void);
 
 /* Any task. A knob or touch input: true when the panel was off, so the input only wakes it and must be dropped (docs/features.md, idle dim and off). */
-bool ember_client_idle_input(void);
+bool ember_client_idle_input(dim_wake_t src);
 /* Any task. A wake source that is not input: the mood turning to waiting or error, the OTA face, a demo. */
-void ember_client_idle_wake(void);
+void ember_client_idle_wake(dim_wake_t src);
 /* Any task. The idle rules have the panel off: the LVGL task skips rendering. */
 bool ember_client_idle_off(void);
 

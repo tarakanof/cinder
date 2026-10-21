@@ -55,10 +55,30 @@ typedef struct {
 
 typedef enum { DIM_IDLE_AWAKE, DIM_IDLE_DIMMED, DIM_IDLE_OFF } dim_idle_state_t;
 
-/* last_ms is the time of the last input or wake source on the caller's clock. Callers serialise access. */
+typedef enum {
+    DIM_WAKE_NONE,
+    DIM_WAKE_TOUCH,
+    DIM_WAKE_ENCODER,
+    DIM_WAKE_MOOD,
+    DIM_WAKE_DEMO,
+    DIM_WAKE_OTA_FACE,
+    DIM_WAKE_OTA_TRIAL
+} dim_wake_t;
+
+/* last_ms is the time of the last input or wake source on the caller's clock, wake the source that set it. Callers serialise access. */
 typedef struct {
     int64_t last_ms;
+    dim_wake_t wake;
 } dim_idle_t;
+
+/* Checkin diag.idle.wake: "touch", "encoder", "mood", "demo", "ota_face", "ota_trial", "" for none. */
+const char *dim_wake_name(dim_wake_t w);
+
+/* Checkin diag.idle.state: "awake", "dim", "off". */
+const char *dim_idle_state_name(dim_idle_state_t st);
+
+/* Whole seconds since the clock last restarted, 0 for a clock that went back. */
+int dim_idle_age_s(const dim_idle_t *s, int64_t now_ms);
 
 void dim_idle_init(dim_idle_t *s, int64_t now_ms);
 
@@ -68,10 +88,10 @@ dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, 
 bool dim_mood_holds(int mood);
 
 /* A wake source that is not input (the OTA face, a demo): restarts the clock, nothing is swallowed. */
-void dim_idle_wake(dim_idle_t *s, int64_t now_ms);
+void dim_idle_wake(dim_idle_t *s, int64_t now_ms, dim_wake_t src);
 
 /* An input: true when the panel was off, so the input only wakes it and must not reach a page. Restarts the clock either way. */
-bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms);
+bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, dim_wake_t src);
 
 /* level is already floored and quiet-capped: the idle cap lowers it below the floor too, 0 while off. */
 int dim_idle_level(int level, dim_idle_state_t st, const dim_idle_rules_t *r);

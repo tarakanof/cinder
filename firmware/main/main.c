@@ -206,7 +206,7 @@ static void chase_track(const bot_pose_t *ref, double deg, double orbit, double 
 
 void app_input_inject(int kind, int n)
 {
-    if (ember_client_idle_input()) return;
+    if (ember_client_idle_input(kind == 3 || kind >= 5 ? DIM_WAKE_TOUCH : DIM_WAKE_ENCODER)) return;
     switch (kind) {
     case 0: atomic_fetch_add(&s_detents, n); break;
     case 1: atomic_fetch_add(&s_pushes, n); break;
@@ -362,7 +362,7 @@ static void knob_cb(void *event)
     knob_event_t ev = (knob_event_t)(intptr_t)event;
     int dir = ev == KNOB_EVENT_CLOCKWISE ? 1 : -1;
     ota_client_note_input();
-    if (ember_client_idle_input() || pr_wake_held(&s_wake_press)) return;
+    if (ember_client_idle_input(DIM_WAKE_ENCODER) || pr_wake_held(&s_wake_press)) return;
     taskENTER_CRITICAL(&s_rg_mux);
     bool reset_turn = rg_turn(&s_rg, dir, now_s());
     taskEXIT_CRITICAL(&s_rg_mux);
@@ -384,7 +384,7 @@ static void button_cb(void *event)
 {
     ota_client_note_input();
     button_event_t ev = (button_event_t)(intptr_t)event;
-    bool woke = ember_client_idle_input();
+    bool woke = ember_client_idle_input(DIM_WAKE_ENCODER);
     if (pr_wake_swallow(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke)) return;
     switch (ev) {
     case BUTTON_PRESS_DOWN:
@@ -415,7 +415,7 @@ static void button_cb(void *event)
 static void touch_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
-    bool woke = (code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING) && ember_client_idle_input();
+    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);
     if (code == LV_EVENT_PRESSED) ota_client_note_input();
     if (pr_wake_swallow(&s_wake_touch, code == LV_EVENT_PRESSED, code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST, woke)) return;
     lv_point_t p = {0};
@@ -1241,7 +1241,8 @@ static bool idle_frame(lv_display_t *disp)
     static bool held;
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);
-    if (ota_face_requested() || ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake();
+    if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);
+    if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);
     bool off = ember_client_idle_off();
     if (off != held) {
         held = off;
