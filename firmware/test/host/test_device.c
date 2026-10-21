@@ -625,6 +625,22 @@ static void test_checkin_diag(void)
           "diag minimal, bad reason and task dropped: %s", out);
     CHECK(dev_checkin_body(&c, NULL, out, 120) == 0, "diag that does not fit: 0");
 
+    dev_diag_t idle = {.boots = 1, .has_idle = true, .idle_state = "dim", .idle_wake = "ota_trial", .idle_input_age_s = 612};
+    c.diag = &idle;
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"heap_largest_min\":0,\"idle\":{\"input_age_s\":612,\"state\":\"dim\",\"wake\":\"ota_trial\"}}") != NULL,
+          "diag.idle: %s", out);
+    j = cJSON_Parse(out);
+    const cJSON *ij = cJSON_GetObjectItem(cJSON_GetObjectItem(cJSON_GetObjectItem(j, "diag"), "idle"), "wake");
+    CHECK(cJSON_IsString(ij) && strcmp(ij->valuestring, "ota_trial") == 0, "diag.idle valid JSON");
+    cJSON_Delete(j);
+    idle.idle_wake = "";
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"state\":\"dim\",\"wake\":\"\"}") != NULL, "no wake source yet: empty string: %s", out);
+    idle.idle_wake = "bad\"";
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"idle\"") == NULL, "unsafe idle strings drop the block: %s", out);
+
     CHECK(strcmp(dev_crash_reason_name(4), "panic") == 0 && strcmp(dev_crash_reason_name(5), "int_wdt") == 0 &&
               strcmp(dev_crash_reason_name(6), "task_wdt") == 0 && strcmp(dev_crash_reason_name(7), "wdt") == 0 &&
               strcmp(dev_crash_reason_name(1), "unknown") == 0 && strcmp(dev_crash_reason_name(3), "unknown") == 0 &&

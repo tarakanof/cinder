@@ -63,16 +63,25 @@ fi
 echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
 IDLE=""
 for FN in knob_cb button_cb touch_cb app_input_inject; do
-    body "$MAINC" "$FN" | grep -qF 'ember_client_idle_input()' || IDLE="$IDLE $FN-feeds-the-idle-clock"
+    body "$MAINC" "$FN" | grep -qF 'ember_client_idle_input(' || IDLE="$IDLE $FN-feeds-the-idle-clock"
 done
-body "$MAINC" knob_cb | awk '/ember_client_idle_input\(\) \|\| pr_wake_held\(&s_wake_press\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
+body "$MAINC" knob_cb | awk '/ember_client_idle_input\(DIM_WAKE_ENCODER\) \|\| pr_wake_held\(&s_wake_press\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
     IDLE="$IDLE knob_cb-swallows-the-waking-turn-and-turns-in-a-waking-press"
-body "$MAINC" app_input_inject | sed -n 3p | grep -qxF '    if (ember_client_idle_input()) return;' ||
+body "$MAINC" app_input_inject | sed -n 3p | grep -qxF '    if (ember_client_idle_input(kind == 3 || kind >= 5 ? DIM_WAKE_TOUCH : DIM_WAKE_ENCODER)) return;' ||
     IDLE="$IDLE app_input_inject-swallows-first"
 body "$MAINC" button_cb | awk '/pr_wake_swallow\(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke\)\) return;/ {w = NR} /^    switch \(ev\) \{$/ {s = NR} END {exit !(w && s > w)}' ||
     IDLE="$IDLE button_cb-swallows-the-whole-waking-press"
 body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_note_input\(\);$/ {n = NR} /pr_wake_swallow\(&s_wake_touch, / {w = NR} /ts_press\(/ {p = NR} END {exit !(n && w > n && p > w)}' ||
     IDLE="$IDLE touch_cb-notes-the-input-then-swallows-the-whole-waking-touch"
+body "$MAINC" touch_cb | grep -qxF '    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);' ||
+    IDLE="$IDLE touch_cb-only-a-press-counts-as-idle-input-not-pressing"
+body "$MAINC" touch_cb | grep -qxF '    if (code == LV_EVENT_RELEASED && ember_client_idle_off()) code = LV_EVENT_PRESS_LOST;' ||
+    IDLE="$IDLE touch_cb-cancels-a-release-after-the-panel-went-off"
+body "$ECL" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
+body "$ECL" idle_diag_fill | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
+    IDLE="$IDLE idle_diag_fill-reads-state-age-and-wake-in-one-critical-section"
+body "$ECL" idle_state | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
+    IDLE="$IDLE idle_state-credits-the-mood-hold-to-mood"
 [ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
 body "$ECL" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
@@ -80,16 +89,17 @@ body "$ECL" fade_step | awk '/dim_fade_take\(&s_fade, atomic_exchange\(&s_lit, -
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
 body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
-body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested() || ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake();' &&
+body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);' &&
+    body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);' &&
     body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
     body "$MAINC" idle_frame | grep -qxF '    if (off) s_last_frame_t = 0;' ||
     IDLE="$IDLE idle_frame-wakes-for-the-OTA-face-and-demos-and-pauses-invalidation"
-body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake();' ||
+body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake(DIM_WAKE_MOOD);' ||
     IDLE="$IDLE poll_task-wakes-when-the-mood-turns-active"
 body "$ECL" bright_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
     IDLE="$IDLE bright_apply-sets-the-level-then-the-off-flag"
 body "$ECL" fade_step | grep -qxF '    if (idle_state() != s_idle_seen) bright_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
-body "$ECL" idle_state | grep -qF 'if (verifying || dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
+body "$ECL" idle_state | grep -qF 'if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
 if [ -n "$IDLE" ]; then
     echo "run.sh: FAIL idle wiring:$IDLE" >&2
     exit 1
@@ -939,7 +949,7 @@ fi
 "${OUT}_demo" "$D/fixtures/demo" "$D/fixtures/ember/demo"
 "${OUT}_np"
 cc $CFLAGS -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" \
-    -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
+    -I"$C/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
     "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$C/music_moment.c" "$D/test_np_client.c" \
     -lm -lpthread -o "${OUT}_np_client"
 "${OUT}_np_client"

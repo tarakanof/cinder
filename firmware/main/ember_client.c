@@ -321,14 +321,24 @@ static atomic_int s_panel_level = -1;
 
 static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }
 
+static atomic_int s_wake_logged = DIM_WAKE_NONE;
+
+static void idle_wake_log(dim_wake_t wake)
+{
+    if (atomic_exchange(&s_wake_logged, wake) != (int)wake) ESP_LOGI(TAG, "idle wake source -> %s", dim_wake_name(wake));
+}
+
 static dim_idle_state_t idle_state(void)
 {
     int64_t now = idle_ms();
     bool verifying = ota_client_verifying();
     taskENTER_CRITICAL(&s_idle_mux);
-    if (verifying || dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now);
+    if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);
+    else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);
     dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
+    dim_wake_t wake = s_idle.clock.wake;
     taskEXIT_CRITICAL(&s_idle_mux);
+    idle_wake_log(wake);
     return st;
 }
 
@@ -339,6 +349,21 @@ static void idle_rules_set(void)
                                       .dim_level = s_ks.idle_dim_level,
                                       .off_after_s = s_ks.idle_off_after_s};
     taskEXIT_CRITICAL(&s_idle_mux);
+}
+
+static void idle_diag_fill(dev_diag_t *d)
+{
+    (void)idle_state();
+    int64_t now = idle_ms();
+    taskENTER_CRITICAL(&s_idle_mux);
+    dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
+    int age = dim_idle_age_s(&s_idle.clock, now);
+    dim_wake_t wake = s_idle.clock.wake;
+    taskEXIT_CRITICAL(&s_idle_mux);
+    d->has_idle = true;
+    d->idle_state = dim_idle_state_name(st);
+    d->idle_wake = dim_wake_name(wake);
+    d->idle_input_age_s = age;
 }
 
 static int fade_floor(void)
@@ -799,6 +824,7 @@ static void checkin(char *buf)
     ota_client_report(&orep);
     c.ota = &orep;
     diag_fill(&P->diag);
+    idle_diag_fill(&P->diag);
     dev_stats_t *st = &P->stats;
     bool live = s_sched.live_until_ms > now_ms();
     bool with_stats = diag_due(stats_interval_s() * 1000, s_sched.period_ms, live) && diag_sample(st);
@@ -1276,7 +1302,7 @@ static void poll_task(void *arg)
         demo_mark_ready();
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (mood != last) {
-            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake();
+            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake(DIM_WAKE_MOOD);
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;
         }
@@ -1484,14 +1510,14 @@ bool ember_client_wifi_started(void) { return atomic_load(&s_wifi_started); }
 
 int ember_client_join_failures(void) { return atomic_load(&s_join_failures); }
 
-static bool idle_touch(bool input)
+static bool idle_touch(bool input, dim_wake_t src)
 {
     int64_t now = idle_ms();
     taskENTER_CRITICAL(&s_idle_mux);
     dim_idle_state_t was = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
     bool swallow = false;
-    if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now);
-    else dim_idle_wake(&s_idle.clock, now);
+    if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now, src);
+    else dim_idle_wake(&s_idle.clock, now, src);
     taskEXIT_CRITICAL(&s_idle_mux);
     int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_panel_level));
     if (lit >= 0) {
@@ -1503,13 +1529,13 @@ static bool idle_touch(bool input)
     return swallow;
 }
 
-bool ember_client_idle_input(void)
+bool ember_client_idle_input(dim_wake_t src)
 {
     claim_client_input();
-    return idle_touch(true);
+    return idle_touch(true, src);
 }
 
-void ember_client_idle_wake(void) { (void)idle_touch(false); }
+void ember_client_idle_wake(dim_wake_t src) { (void)idle_touch(false, src); }
 
 bool ember_client_idle_off(void) { return idle_state() == DIM_IDLE_OFF; }
 

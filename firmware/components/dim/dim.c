@@ -94,7 +94,11 @@ int dim_quiet_level(int level, int floor, bool quiet, int dim_level)
 
 int dim_quiet_floor(int floor, bool quiet, int dim_level) { return quiet && dim_level < floor ? dim_level : floor; }
 
-void dim_idle_init(dim_idle_t *s, int64_t now_ms) { s->last_ms = now_ms; }
+void dim_idle_init(dim_idle_t *s, int64_t now_ms)
+{
+    s->last_ms = now_ms;
+    s->wake = DIM_WAKE_NONE;
+}
 
 dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms)
 {
@@ -104,16 +108,35 @@ dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, 
     return DIM_IDLE_AWAKE;
 }
 
-void dim_idle_wake(dim_idle_t *s, int64_t now_ms)
+void dim_idle_wake(dim_idle_t *s, int64_t now_ms, dim_wake_t src)
 {
-    if (now_ms > s->last_ms) s->last_ms = now_ms;
+    if (now_ms < s->last_ms) return;
+    s->last_ms = now_ms;
+    s->wake = src;
 }
 
-bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms)
+bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, dim_wake_t src)
 {
     bool was_off = dim_idle_state(r, s, now_ms) == DIM_IDLE_OFF;
-    dim_idle_wake(s, now_ms);
+    dim_idle_wake(s, now_ms, src);
     return was_off;
+}
+
+const char *dim_wake_name(dim_wake_t w)
+{
+    static const char *const N[] = {"", "touch", "encoder", "mood", "demo", "ota_face", "ota_trial"};
+    return w >= 0 && w < (int)(sizeof N / sizeof N[0]) ? N[w] : "";
+}
+
+const char *dim_idle_state_name(dim_idle_state_t st)
+{
+    return st == DIM_IDLE_OFF ? "off" : st == DIM_IDLE_DIMMED ? "dim" : "awake";
+}
+
+int dim_idle_age_s(const dim_idle_t *s, int64_t now_ms)
+{
+    int64_t age = now_ms - s->last_ms;
+    return age > 0 ? (int)(age / 1000) : 0;
 }
 
 int dim_idle_level(int level, dim_idle_state_t st, const dim_idle_rules_t *r)

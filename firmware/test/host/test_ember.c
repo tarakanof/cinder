@@ -266,24 +266,43 @@ static void test_idle(void)
           "idle dim_level below the floor holds, like quiet");
 
     dim_idle_init(&s, 0);
-    CHECK(!dim_idle_input(&s, &both, 1000000), "input while dimmed is delivered");
+    CHECK(!dim_idle_input(&s, &both, 1000000, DIM_WAKE_TOUCH), "input while dimmed is delivered");
     CHECK(dim_idle_state(&both, &s, 1000000 + 599999) == DIM_IDLE_AWAKE && dim_idle_state(&both, &s, 1000000 + 600000) == DIM_IDLE_DIMMED,
           "an input restarts the clock");
-    CHECK(dim_idle_input(&s, &both, 1000000 + 1800000), "the first input after off is swallowed");
+    CHECK(dim_idle_input(&s, &both, 1000000 + 1800000, DIM_WAKE_TOUCH), "the first input after off is swallowed");
     CHECK(dim_idle_state(&both, &s, 1000000 + 1800000) == DIM_IDLE_AWAKE, "and it wakes the panel");
-    CHECK(!dim_idle_input(&s, &both, 1000000 + 1800050), "the next input is delivered");
-    CHECK(!dim_idle_input(&s, &both, 1000000 + 1800100), "and the one after");
-    CHECK(dim_idle_input(&s, &off_only, 1000000 + 1800100 + 60000), "swallowed again after the next off");
-    CHECK(!dim_idle_input(&s, &none, 1000000 + 90000000LL), "no rules: input is never swallowed");
+    CHECK(!dim_idle_input(&s, &both, 1000000 + 1800050, DIM_WAKE_TOUCH), "the next input is delivered");
+    CHECK(!dim_idle_input(&s, &both, 1000000 + 1800100, DIM_WAKE_TOUCH), "and the one after");
+    CHECK(dim_idle_input(&s, &off_only, 1000000 + 1800100 + 60000, DIM_WAKE_TOUCH), "swallowed again after the next off");
+    CHECK(!dim_idle_input(&s, &none, 1000000 + 90000000LL, DIM_WAKE_TOUCH), "no rules: input is never swallowed");
 
     dim_idle_init(&s, 0);
-    dim_idle_wake(&s, 1800000);
+    dim_idle_wake(&s, 1800000, DIM_WAKE_DEMO);
     CHECK(dim_idle_state(&both, &s, 1800000) == DIM_IDLE_AWAKE, "a wake source wakes an off panel (mood, OTA, demo)");
-    CHECK(!dim_idle_input(&s, &both, 1800010), "and swallows nothing: the next input is delivered");
+    CHECK(!dim_idle_input(&s, &both, 1800010, DIM_WAKE_TOUCH), "and swallows nothing: the next input is delivered");
     CHECK(dim_idle_state(&both, &s, 1800010 + 1799999) == DIM_IDLE_DIMMED && dim_idle_state(&both, &s, 1800010 + 1800000) == DIM_IDLE_OFF,
           "the input after the wake restarts the clock: off 1800 s after it");
-    dim_idle_wake(&s, 1799000);
+    dim_idle_wake(&s, 1799000, DIM_WAKE_MOOD);
     CHECK(s.last_ms == 1800010, "an older wake does not move the clock back");
+    CHECK(s.wake == DIM_WAKE_TOUCH, "and does not take over the source");
+    dim_idle_input(&s, &both, 1900000, DIM_WAKE_TOUCH);
+    dim_idle_wake(&s, 1900000, DIM_WAKE_MOOD);
+    CHECK(s.wake == DIM_WAKE_MOOD, "a hold in the same ms as an input takes the source");
+
+    dim_idle_init(&s, 0);
+    CHECK(s.wake == DIM_WAKE_NONE && strcmp(dim_wake_name(s.wake), "") == 0, "no wake source before any restart");
+    dim_idle_input(&s, &both, 5000, DIM_WAKE_ENCODER);
+    CHECK(s.wake == DIM_WAKE_ENCODER && strcmp(dim_wake_name(s.wake), "encoder") == 0, "an input records its source");
+    dim_idle_wake(&s, 6000, DIM_WAKE_OTA_TRIAL);
+    CHECK(strcmp(dim_wake_name(s.wake), "ota_trial") == 0, "a wake records its source");
+    CHECK(dim_idle_age_s(&s, 6000 + 42999) == 42 && dim_idle_age_s(&s, 100) == 0, "age in whole seconds, 0 for a clock that went back");
+    CHECK(strcmp(dim_wake_name(DIM_WAKE_TOUCH), "touch") == 0 && strcmp(dim_wake_name(DIM_WAKE_MOOD), "mood") == 0 &&
+              strcmp(dim_wake_name(DIM_WAKE_DEMO), "demo") == 0 && strcmp(dim_wake_name(DIM_WAKE_OTA_FACE), "ota_face") == 0 &&
+              strcmp(dim_wake_name((dim_wake_t)99), "") == 0,
+          "wake names");
+    CHECK(strcmp(dim_idle_state_name(DIM_IDLE_AWAKE), "awake") == 0 && strcmp(dim_idle_state_name(DIM_IDLE_DIMMED), "dim") == 0 &&
+              strcmp(dim_idle_state_name(DIM_IDLE_OFF), "off") == 0,
+          "state names");
 
     CHECK(dim_mood_holds(BOT_WORKING) && dim_mood_holds(BOT_WAITING) && dim_mood_holds(BOT_ERROR) && dim_mood_holds(BOT_DONE), "working, waiting, error and done hold the panel awake");
     CHECK(!dim_mood_holds(BOT_IDLE) && !dim_mood_holds(BOT_SLEEPY) && !dim_mood_holds(-1), "idle, sleepy and no mood let it dim");
