@@ -121,23 +121,28 @@ static void session_tick(void)
     }
 }
 
+static esp_err_t name_edit(cfg_t *c, void *ctx) { return cfg_set(c, "name", ctx) == CFG_OK ? ESP_OK : ESP_ERR_INVALID_ARG; }
+
+static esp_err_t wifi_edit(cfg_t *c, void *ctx)
+{
+    const char *const *w = ctx;
+    return cfg_set(c, "wifi_ssid", w[0]) == CFG_OK && cfg_set(c, "wifi_pass", w[1]) == CFG_OK ? ESP_OK : ESP_ERR_INVALID_ARG;
+}
+
 static void improv_wifi(const improv_rpc_t *rpc)
 {
     static char ssid[CFG_SSID_MAX + 1], pass[CFG_PASS_MAX + 1];
     bool ok = improv_rpc_string(rpc, 0, ssid, sizeof ssid) && ssid[0] &&
               improv_rpc_string(rpc, 1, pass, sizeof pass);
-    config_store_get(s_cfg);
-    ok = ok && cfg_set(s_cfg, "wifi_ssid", ssid) == CFG_OK && cfg_set(s_cfg, "wifi_pass", pass) == CFG_OK;
+    const char *const w[] = {ssid, pass};
+    esp_err_t err = ok ? config_store_update(wifi_edit, (void *)w) : ESP_ERR_INVALID_ARG;
     memset(pass, 0, sizeof pass);
-    if (!ok) {
-        memset(s_cfg, 0, sizeof *s_cfg);
+    if (err == ESP_ERR_INVALID_ARG) {
         ESP_LOGW(TAG, "Improv Wi-Fi: invalid SSID or password");
         out_improv_error(IMPROV_ERR_INVALID_RPC);
         out_write(s_out, cl_event_wifi("invalid", s_out, CL_LINE_MAX));
         return;
     }
-    esp_err_t err = config_store_save(s_cfg);
-    memset(s_cfg, 0, sizeof *s_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Improv Wi-Fi: saving failed: %s", esp_err_to_name(err));
         out_improv_error(IMPROV_ERR_UNKNOWN);
@@ -226,10 +231,7 @@ static void handle_improv(const uint8_t *frame, size_t len)
         break;
     case IMPROV_CMD_NAME: {
         char name[CFG_NAME_MAX + 1];
-        config_store_get(s_cfg);
-        bool ok = improv_rpc_string(&rpc, 0, name, sizeof name) && cfg_set(s_cfg, "name", name) == CFG_OK &&
-                  config_store_save(s_cfg) == ESP_OK;
-        memset(s_cfg, 0, sizeof *s_cfg);
+        bool ok = improv_rpc_string(&rpc, 0, name, sizeof name) && config_store_update(name_edit, name) == ESP_OK;
         if (ok) out_result(IMPROV_CMD_NAME, NULL, 0);
         else out_improv_error(IMPROV_ERR_INVALID_RPC);
         break;
@@ -263,17 +265,29 @@ static void op_info(const cl_req_t *r)
     out_write(s_out, cl_reply_info(r->id, &in, s_out, CL_LINE_MAX));
 }
 
+typedef struct {
+    const cl_req_t *r;
+    bool url_changed, provisioned;
+} set_ember_t;
+
+static esp_err_t set_ember_edit(cfg_t *c, void *ctx)
+{
+    set_ember_t *e = ctx;
+    const cl_req_t *r = e->r;
+    e->url_changed = strcmp(c->ember_url, r->url) != 0;
+    e->provisioned = cfg_provisioned(c);
+    bool ok = cfg_set(c, "ember_url", r->url) == CFG_OK && cfg_set(c, "dev_id", r->device_id) == CFG_OK &&
+              cfg_set(c, "dev_tok", r->token) == CFG_OK && (!r->name[0] || cfg_set(c, "name", r->name) == CFG_OK);
+    if (!ok) return ESP_ERR_INVALID_ARG;
+    claim_client_cancel();
+    return ESP_OK;
+}
+
 static void op_set_ember(const cl_req_t *r)
 {
-    config_store_get(s_cfg);
-    bool url_changed = strcmp(s_cfg->ember_url, r->url) != 0;
-    bool provisioned = cfg_provisioned(s_cfg);
-    bool ok = cfg_set(s_cfg, "ember_url", r->url) == CFG_OK && cfg_set(s_cfg, "dev_id", r->device_id) == CFG_OK &&
-              cfg_set(s_cfg, "dev_tok", r->token) == CFG_OK && (!r->name[0] || cfg_set(s_cfg, "name", r->name) == CFG_OK);
-    if (ok) claim_client_cancel();
-    esp_err_t err = ok ? config_store_save(s_cfg) : ESP_OK;
-    memset(s_cfg, 0, sizeof *s_cfg);
-    if (!ok) {
+    set_ember_t e = {.r = r};
+    esp_err_t err = config_store_update(set_ember_edit, &e);
+    if (err == ESP_ERR_INVALID_ARG) {
         reply_err(r, CL_E_BAD_VALUE);
     } else if (err != ESP_OK) {
         ESP_LOGE(TAG, "set_ember: saving failed: %s", esp_err_to_name(err));
@@ -281,7 +295,7 @@ static void op_set_ember(const cl_req_t *r)
     } else {
         ESP_LOGW(TAG, "set_ember: saved url %s, device %s", r->url, r->device_id);
         reply_ok(r);
-        if (url_changed && provisioned) {
+        if (e.url_changed && e.provisioned) {
             ESP_LOGW(TAG, "set_ember: Ember URL changed; rebooting to apply it");
             restart_soon();
         }
@@ -405,6 +419,14 @@ static void op_ota_valid(const cl_req_t *r)
     else reply_err(r, (unsigned)m < sizeof E / sizeof E[0] ? E[m] : CL_E_FAILED);
 }
 
+static esp_err_t reset_edit(cfg_t *c, void *ctx)
+{
+    static const char *const EMBER[] = {"ember_url", "dev_id", "dev_tok"}, *const WIFI[] = {"wifi_ssid", "wifi_pass"};
+    bool ember = *(const cl_scope_t *)ctx == CL_SCOPE_EMBER;
+    for (size_t i = 0; i < (ember ? 3u : 2u); i++) cfg_set(c, ember ? EMBER[i] : WIFI[i], "");
+    return ESP_OK;
+}
+
 static void op_reset(const cl_req_t *r)
 {
     static const char *const NAMES[] = {"factory", "ember", "wifi"};
@@ -412,13 +434,8 @@ static void op_reset(const cl_req_t *r)
     if (r->scope == CL_SCOPE_FACTORY) {
         err = config_store_erase();
     } else {
-        config_store_get(s_cfg);
-        const char *const ember[] = {"ember_url", "dev_id", "dev_tok"}, *const wifi[] = {"wifi_ssid", "wifi_pass"};
-        const char *const *keys = r->scope == CL_SCOPE_EMBER ? ember : wifi;
-        size_t n = r->scope == CL_SCOPE_EMBER ? 3 : 2;
-        for (size_t i = 0; i < n; i++) cfg_set(s_cfg, keys[i], "");
-        err = config_store_save(s_cfg);
-        memset(s_cfg, 0, sizeof *s_cfg);
+        cl_scope_t scope = r->scope;
+        err = config_store_update(reset_edit, &scope);
         if (err == ESP_OK && r->scope == CL_SCOPE_EMBER) err = config_store_clear_settings();
     }
     if (err != ESP_OK) {

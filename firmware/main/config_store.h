@@ -27,7 +27,9 @@ void config_store_token(char *out, size_t cap);
 void config_store_hw_id(char out[13]);
 void config_store_short_id(char out[7]);
 
-esp_err_t config_store_save(const cfg_t *cfg);
+/* Every settings write: edit runs under the save lock on a copy of the current settings; ESP_OK saves the copy, anything else saves nothing. ESP_ERR_INVALID_STATE once config_store_erase succeeded. */
+typedef esp_err_t (*config_store_edit_t)(cfg_t *c, void *ctx);
+esp_err_t config_store_update(config_store_edit_t edit, void *ctx);
 /* LAN pairing: stores dev_id, token and (if valid) name, keeping the rest. ESP_ERR_INVALID_STATE, nothing written, when the token generation or the Ember URL changed since token_gen was read (a USB set_ember or reset won). */
 esp_err_t config_store_pair(uint32_t token_gen, const char *url, const char *dev_id, const char *token, const char *name);
 
@@ -43,5 +45,5 @@ void config_store_set_wifi_channel(int channel);
 
 esp_err_t config_store_clear_settings(void);
 
-/* Wi-Fi driver state and the reboot are the caller's. */
+/* Wi-Fi driver state and the reboot are the caller's. Under the save lock; afterwards the published settings are empty and every update is refused until the reboot. */
 esp_err_t config_store_erase(void);

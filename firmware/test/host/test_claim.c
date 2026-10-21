@@ -302,8 +302,8 @@ static void test_old_server(void)
         claim_probed(&c, 200, VERSION_NEW, T);
         CHECK(next(&c) == CLAIM_ACT_OPEN, "open");
         claim_opened(&c, OLD[i], "", -1, T);
-        CHECK(next(&c) == CLAIM_ACT_NONE && c.phase == CLAIM_WAIT && c.due_ms == T + CLAIM_OLD_SERVER_MS && !c.probed,
-              "claim %d: old server, an hour, then a fresh probe", OLD[i]);
+        CHECK(next(&c) == CLAIM_ACT_NONE && c.phase == CLAIM_WAIT && c.due_ms == T + CLAIM_OLD_SERVER_MS,
+              "claim %d: old server, an hour, then a probe", OLD[i]);
         T += CLAIM_OLD_SERVER_MS;
         CHECK(next(&c) == CLAIM_ACT_PROBE, "claim %d: probe after the hour", OLD[i]);
     }
@@ -396,6 +396,48 @@ static void test_backoff(void)
           "a pending poll with a bad expiry keeps the local one");
 }
 
+static void test_pending_bound(void)
+{
+    claim_t c;
+    char code[CLAIM_CODE_LEN + 1];
+    claim_approved_t a;
+    T = 0;
+    start(&c);
+    int64_t opened_at = T;
+    int polls = 0;
+    while (next(&c) == CLAIM_ACT_NONE || c.phase == CLAIM_SHOW) {
+        if (c.phase != CLAIM_SHOW) break;
+        if (next(&c) == CLAIM_ACT_POLL) {
+            claim_polled(&c, 202, "{\"state\":\"pending\",\"expires_in_s\":600}", -1, T, &a);
+            polls++;
+        }
+        T += 1000;
+        if (T > 2 * 3600 * 1000) break;
+    }
+    CHECK(T <= opened_at + 600000 + 1000 && c.ignored == 1 && !claim_code(&c, T, code),
+          "a server that answers pending 600 every poll cannot stretch the claim past its first deadline (ended at %lld ms after %d polls)",
+          (long long)(T - opened_at), polls);
+}
+
+static void test_poll_backoff_resets(void)
+{
+    claim_t c;
+    claim_approved_t a;
+    T = 0;
+    start(&c);
+    T += 5000;
+    next(&c);
+    claim_polled(&c, 429, "", -1, T, &a);
+    CHECK(c.due_ms == T + CLAIM_BACKOFF_MIN_MS, "first poll 429: 30 s");
+    T = c.due_ms;
+    next(&c);
+    claim_polled(&c, 202, PENDING, -1, T, &a);
+    T = c.due_ms;
+    next(&c);
+    claim_polled(&c, 429, "", -1, T, &a);
+    CHECK(c.due_ms == T + CLAIM_BACKOFF_MIN_MS, "a 429 after a good poll starts the backoff again (%lld ms)", (long long)(c.due_ms - T));
+}
+
 static void test_reset(void)
 {
     claim_t c;
@@ -452,6 +494,19 @@ static void test_token_wiped(void)
     freed_with_token = 0;
     CHECK(claim_polled(&c, 200, APPROVED, -1, T, &a) == CLAIM_POLL_APPROVED && freed_with_token == 0, "claim_polled wipes it too (%d)",
           freed_with_token);
+    static const char *const ODD[] = {
+        "{\"state\":\"weird\",\"token\":\"ekd_TEST-token\"}",
+        "{\"token\":\"ekd_TEST-token\"}",
+        "{\"state\":\"pending\",\"expires_in_s\":60,\"token\":\"ekd_TEST-token\"}",
+        "{\"state\":\"approved\",\"device_id\":\"knob 1\",\"token\":\"ekd_TEST-token\"}",
+        "{\"state\":\"approved\",\"x\":{\"y\":[\"ekd_TEST-token\"]}}",
+        "[\"ekd_TEST-token\"]",
+    };
+    for (size_t i = 0; i < sizeof ODD / sizeof ODD[0]; i++) {
+        freed_with_token = 0;
+        claim_poll_parse(ODD[i], &a);
+        CHECK(freed_with_token == 0, "a token in any state or place is wiped before the free: %s (%d)", ODD[i], freed_with_token);
+    }
     cJSON_InitHooks(NULL);
 }
 
@@ -466,6 +521,8 @@ int main(void)
     test_input_before_three();
     test_old_server();
     test_backoff();
+    test_pending_bound();
+    test_poll_backoff_resets();
     test_reset();
     test_token_wiped();
     if (failures) {

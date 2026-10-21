@@ -36,13 +36,13 @@ typedef enum { CLAIM_POLL_PENDING, CLAIM_POLL_APPROVED, CLAIM_POLL_GONE, CLAIM_P
 typedef struct {
     claim_phase_t phase;
     claim_phase_t after_wait;
-    bool probed;
     bool has_key;
     char key[CLAIM_KEY_LEN + 1];
     char id[CLAIM_ID_MAX + 1];
     char code[CLAIM_CODE_LEN + 1];
     int64_t due_ms;
     int64_t expires_ms;
+    int64_t deadline_ms;
     int poll_ms;
     int ignored;
     int backoff_ms;
@@ -71,7 +71,7 @@ size_t claim_poll_body(const char *claim_id, const char *key, char *out, size_t 
 /* GET /version: true when "features" lists CLAIM_FEATURE. */
 bool claim_server_pairs(const char *json);
 bool claim_reply_parse(const char *json, claim_reply_t *out);
-/* 202 and 200 bodies; *approved filled only for "approved" (the token string inside the parsed tree is wiped). */
+/* 202 and 200 bodies; *approved filled only for "approved". Every string in the parsed tree is wiped before it is freed. */
 claim_poll_t claim_poll_parse(const char *json, claim_approved_t *approved);
 
 void claim_init(claim_t *c);

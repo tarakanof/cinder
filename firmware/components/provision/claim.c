@@ -109,6 +109,14 @@ static bool printable(const char *s, size_t max, bool space)
     return true;
 }
 
+static void wipe_strings(cJSON *n)
+{
+    for (; n; n = n->next) {
+        if (cJSON_IsString(n) && n->valuestring) memset(n->valuestring, 0, strlen(n->valuestring));
+        wipe_strings(n->child);
+    }
+}
+
 static claim_poll_t poll_parse(const char *json, claim_approved_t *a, int *expires_in_s)
 {
     memset(a, 0, sizeof *a);
@@ -121,18 +129,17 @@ static claim_poll_t poll_parse(const char *json, claim_approved_t *a, int *expir
         *expires_in_s = int_in(root, "expires_in_s", 0, CLAIM_EXPIRES_S_MAX + 1, 0);
         if (*expires_in_s > CLAIM_EXPIRES_S_MAX) *expires_in_s = 0;
     } else if (state && strcmp(state, "approved") == 0) {
-        cJSON *tok = cJSON_GetObjectItemCaseSensitive(root, "token");
         const char *id = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "device_id"));
         const char *name = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "name"));
-        const char *t = cJSON_GetStringValue(tok);
+        const char *t = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "token"));
         if (id && t && printable(id, CFG_DEV_ID_MAX, false) && printable(t, CFG_TOKEN_MAX, false)) {
             strcpy(a->device_id, id);
             strcpy(a->token, t);
             if (name && printable(name, CFG_NAME_MAX, true)) strcpy(a->name, name);
             r = CLAIM_POLL_APPROVED;
         }
-        if (t) memset(tok->valuestring, 0, strlen(t));
     }
+    wipe_strings(root);
     cJSON_Delete(root);
     return r;
 }
@@ -229,7 +236,6 @@ void claim_probed(claim_t *c, int status, const char *body, int64_t now_ms)
 {
     if (c->phase != CLAIM_PROBE) return;
     if (status == 200 && claim_server_pairs(body)) {
-        c->probed = true;
         c->backoff_ms = 0;
         c->phase = CLAIM_OPEN;
         c->due_ms = now_ms;
@@ -266,13 +272,12 @@ void claim_opened(claim_t *c, int status, const char *body, int retry_after_s, i
     if ((status == 200 || status == 201) && c->has_key && claim_reply_parse(body, &r)) {
         strcpy(c->id, r.claim_id);
         strcpy(c->code, r.code);
-        c->expires_ms = now_ms + (int64_t)r.expires_in_s * 1000;
+        c->expires_ms = c->deadline_ms = now_ms + (int64_t)r.expires_in_s * 1000;
         c->poll_ms = r.poll_s * 1000;
         c->due_ms = now_ms + c->poll_ms;
         c->backoff_ms = 0;
         c->phase = CLAIM_SHOW;
     } else if (old_server(status)) {
-        c->probed = false;
         wait(c, now_ms, CLAIM_OLD_SERVER_MS, CLAIM_PROBE);
     } else if (status == 409 || status == 429) {
         drop_key(c);
@@ -295,7 +300,11 @@ claim_poll_t claim_polled(claim_t *c, int status, const char *body, int retry_af
     if (status != 200 && status != 202) return CLAIM_POLL_FAILED;
     int expires;
     claim_poll_t r = poll_parse(body, approved, &expires);
-    if (r == CLAIM_POLL_PENDING && expires > 0) c->expires_ms = now_ms + (int64_t)expires * 1000;
+    if (r != CLAIM_POLL_FAILED) c->backoff_ms = 0;
+    if (r == CLAIM_POLL_PENDING && expires > 0) {
+        int64_t at = now_ms + (int64_t)expires * 1000;
+        c->expires_ms = at < c->deadline_ms ? at : c->deadline_ms;
+    }
     if (r != CLAIM_POLL_APPROVED) memset(approved, 0, sizeof *approved);
     return r;
 }

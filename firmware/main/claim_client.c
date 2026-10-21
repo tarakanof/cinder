@@ -112,7 +112,7 @@ static bool poll_claim(http_conn_t *conn, const char *base, char *buf, int cap, 
     if (claim_poll_body(C->c.id, C->c.key, C->body, sizeof C->body)) status = post(conn, base, "/v1/devices/claim/poll", true, buf, cap);
     note(status, "claim poll");
     claim_poll_t r = claim_polled(&C->c, status, status > 0 ? buf : NULL, claim_retry_after_s(C->retry_after), now, &C->ok);
-    if (status > 0) wipe(buf, strnlen(buf, (size_t)cap));
+    wipe(buf, (size_t)cap);
     if (r == CLAIM_POLL_GONE) ESP_LOGI(TAG, "LAN pairing: the claim ended without an approval");
     if (r != CLAIM_POLL_APPROVED) return false;
     esp_err_t err = config_store_pair(C->gen, base, C->ok.device_id, C->ok.token, C->ok.name);
@@ -163,7 +163,9 @@ bool claim_client_service(http_conn_t *conn, const char *base, bool online, bool
     }
     if (!stored) phase_log(was, now);
     char shown[CLAIM_CODE_LEN + 1];
-    atomic_store(&s_code, claim_code(&C->c, now_ms(), shown) ? atoi(shown) : -1);
+    bool up = atomic_load(&s_cancel) == C->cancel && claim_code(&C->c, now_ms(), shown);
+    atomic_store(&s_code, up ? atoi(shown) : -1);
+    if (atomic_load(&s_cancel) != C->cancel) atomic_store(&s_code, -1);
     return stored;
 }
 

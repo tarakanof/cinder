@@ -834,6 +834,8 @@ cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$G/include" -I"$J" "
 cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" \
     "$D/test_coredump.c" -lm -o "${OUT}_coredump"
 cc $CFLAGS -I"$V/include" -I"$G/include" -I"$J" "$V/claim.c" "$J/cJSON.c" "$D/test_claim.c" -lm -o "${OUT}_claim"
+cc $CFLAGS -I"$D/claim_client_stubs" -I"$D/idf_stubs" -I"$D/view_stubs" -I"$D/../../main" -I"$V/include" -I"$G/include" -I"$N/include" -I"$O/include" -I"$J" \
+    "$D/../../main/claim_client.c" "$V/claim.c" "$J/cJSON.c" "$D/test_claim_client.c" -lm -o "${OUT}_claim_client"
 cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" \
     "$D/test_ota.c" -lm -o "${OUT}_ota"
 cc $CFLAGS "-DLT_RACE_POINT(t)=lt_race_point(t)" -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
@@ -927,6 +929,7 @@ fi
 "${OUT}_device"
 "${OUT}_coredump"
 "${OUT}_claim"
+"${OUT}_claim_client"
 "${OUT}_ota" "$D/../vectors"
 "${OUT}_net"
 "${OUT}_view"
@@ -1022,20 +1025,31 @@ grep -qxF '        C = heap_caps_calloc(1, sizeof *C, MALLOC_CAP_SPIRAM);' "$CCL
 ! grep -qE 'nvs_|config_store_(save|set_token)' "$CCL" "$V/claim.c" && ! grep 'config_store_pair(' "$CCL" | grep -qE 'key|->c\.' ||
     CLAIM="$CLAIM the-key-never-reaches-NVS"
 [ "$(grep -c 'http_conn_req_opts(' "$CCL")" -eq 2 ] && [ "$(grep -c '\.anon = true' "$CCL")" -eq 2 ] || CLAIM="$CLAIM claim-requests-carry-no-token"
-body "$CCL" poll_claim | grep -qxF '    if (status > 0) wipe(buf, strnlen(buf, (size_t)cap));' && body "$CCL" poll_claim | grep -qxF '    wipe(&C->ok, sizeof C->ok);' &&
+body "$CCL" poll_claim | grep -qxF '    wipe(buf, (size_t)cap);' && body "$CCL" poll_claim | grep -qxF '    wipe(&C->ok, sizeof C->ok);' &&
     body "$CCL" post | grep -qxF '    wipe(C->body, sizeof C->body);' || CLAIM="$CLAIM the-reply-approval-and-body-are-wiped"
 body "$ECL" poll_task | grep -qxF '        if (claim_client_service(s_conn, P->base, online, atomic_load(&s_unauthorized), buf, RESP_MAX)) continue;' &&
     [ "$(grep -c 'claim_client_service(' "$ECL")" -eq 1 ] || CLAIM="$CLAIM poll_task-runs-the-claim-and-checks-in-at-once"
 body "$ECL" ember_client_idle_input | grep -qxF '    claim_client_input();' || CLAIM="$CLAIM input-wakes-a-waiting-claim"
-body "$PUC" op_set_ember | awk '/^    if \(ok\) claim_client_cancel\(\);$/ {c = NR} /config_store_save\(s_cfg\)/ {s = NR} END {exit !(c && s > c)}' ||
-    CLAIM="$CLAIM usb-set_ember-cancels-the-claim-before-it-saves"
+body "$PUC" set_ember_edit | grep -qxF '    claim_client_cancel();' && body "$PUC" op_set_ember | grep -qxF '    esp_err_t err = config_store_update(set_ember_edit, &e);' ||
+    CLAIM="$CLAIM usb-set_ember-cancels-the-claim-under-the-save-lock"
+CSC="$D/../../main/config_store.c"
+CSH="$D/../../main/config_store.h"
+! grep -q 'config_store_save' "$CSH" "$CSC" && ! grep -rq 'config_store_save' "$D/../../main" &&
+    ! grep -qE 'cfg_set\(s_cfg' "$PUC" && [ "$(grep -c '[^_]save(c);' "$CSC")" -eq 2 ] &&
+    body "$CSC" config_store_update | grep -qxF '    if (!s_erased) {' && body "$CSC" config_store_update | grep -qxF '        if (err == ESP_OK) err = save(c);' &&
+    body "$CSC" config_store_pair | grep -qxF '    return config_store_update(pair_edit, &p);' &&
+    body "$CSC" config_store_set_token | grep -qF 'config_store_update(token_edit, ' || CLAIM="$CLAIM every-settings-write-is-one-locked-update"
+body "$CSC" config_store_erase | sed -n 3p | grep -qxF '    xSemaphoreTake(s_save_mu, portMAX_DELAY);' &&
+    body "$CSC" config_store_erase | grep -qxF '        s_erased = true;' && body "$CSC" config_store_erase | grep -qxF '        if (z) publish(z);' &&
+    body "$CSC" config_store_erase | grep -B1 -xF '    return err;' | head -1 | grep -qxF '    xSemaphoreGive(s_save_mu);' ||
+    CLAIM="$CLAIM factory-erase-under-the-save-lock-clears-the-settings-and-blocks-later-writes"
 body "$MAINC" join_frame | grep -qxF '    int code = show == JOIN_NOT_PAIRED ? claim_client_code() : -1;' &&
     body "$MAINC" join_frame | grep -qxF '    if (show == s_join_shown && code == s_join_code) return;' || CLAIM="$CLAIM join_frame-shows-the-code"
 if [ -n "$CLAIM" ]; then
     echo "run.sh: FAIL claim wiring:$CLAIM" >&2
     exit 1
 fi
-echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label"
+echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label, every settings write one locked update, factory erase blocks later writes"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled"
 cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
