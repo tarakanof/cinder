@@ -27,7 +27,7 @@ void config_store_token(char *out, size_t cap);
 void config_store_hw_id(char out[13]);
 void config_store_short_id(char out[7]);
 
-/* Every settings write: edit runs under the save lock on a copy of the current settings; ESP_OK saves the copy, anything else saves nothing. ESP_ERR_INVALID_STATE once config_store_erase succeeded. */
+/* Every settings write: edit runs under the save lock on a copy of the current settings; ESP_OK saves the copy, anything else saves nothing. ESP_ERR_INVALID_STATE once config_store_erase succeeded: so does every other NVS writer below. */
 typedef esp_err_t (*config_store_edit_t)(cfg_t *c, void *ctx);
 esp_err_t config_store_update(config_store_edit_t edit, void *ctx);
 /* LAN pairing: stores dev_id, token and (if valid) name, keeping the rest. ESP_ERR_INVALID_STATE, nothing written, when the token generation or the Ember URL changed since token_gen was read (a USB set_ember or reset won). */
@@ -39,7 +39,7 @@ uint32_t config_store_settings_version(void);
 int config_store_poll_ms(void);
 esp_err_t config_store_apply_settings(const char *json, uint32_t ver);
 
-/* Setter writes NVS only on change: call from a task, not the event loop. */
+/* Setter writes NVS only on change and not after an erase: call from a task, not the event loop. */
 int config_store_wifi_channel(void);
 void config_store_set_wifi_channel(int channel);
 
