@@ -1011,7 +1011,8 @@ body "$ECL" wait_and_fade | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
 grep -F 'xQueueSendToFront(' "$D/../../main/pomo_client.c" | grep -qF 'ember_client_wake()' ||
     WIRING="$WIRING pomo-requeue-wakes-the-wait"
 body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r.config, r.config_version);' | grep -A2 -xF '        if (err == ESP_OK) {' | grep -qxF '            dev_sched_now(&s_sched, now_ms());' &&
-    [ "$(body "$ECL" checkin | grep -c 'knob settings v.* rejected')" -eq 1 ] ||
+    [ "$(body "$ECL" checkin | grep -c 'knob settings v.* rejected')" -eq 1 ] &&
+    ! body "$ECL" checkin | awk '/knob settings v.* rejected/ {on=1} on' | grep -qF 'dev_sched_now(' ||
     WIRING="$WIRING applied-settings-check-in-at-once"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
