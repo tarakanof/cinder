@@ -317,7 +317,7 @@ static portMUX_TYPE s_idle_mux = portMUX_INITIALIZER_UNLOCKED;
 static dim_idle_state_t s_idle_seen;
 static atomic_int s_awake_level = -1;
 static atomic_int s_lit = -1;
-static atomic_int s_shown = -1;
+static atomic_int s_panel_level = -1;
 
 static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }
 
@@ -421,7 +421,7 @@ static int fade_step(void)
     bool set;
     int next = dim_fade_step(&s_fade, esp_timer_get_time() / 1000, &v, &set);
     if (set) panel_check_brightness(v);
-    atomic_store(&s_shown, s_fade.cur);
+    atomic_store(&s_panel_level, s_fade.cur);
     return next;
 }
 
@@ -1494,10 +1494,10 @@ static bool idle_touch(bool input)
     if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now);
     else dim_idle_wake(&s_idle.clock, now);
     taskEXIT_CRITICAL(&s_idle_mux);
-    int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_shown));
+    int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_panel_level));
     if (lit >= 0) {
         panel_check_brightness((uint8_t)lit);
-        atomic_store(&s_shown, lit);
+        atomic_store(&s_panel_level, lit);
         atomic_store(&s_lit, lit);
     }
     if (was != DIM_IDLE_AWAKE) ember_client_wake();
