@@ -415,6 +415,7 @@ static void button_cb(void *event)
 static void touch_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_RELEASED && ember_client_idle_off()) code = LV_EVENT_PRESS_LOST;
     bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);
     if (code == LV_EVENT_PRESSED) ota_client_note_input();
     if (pr_wake_swallow(&s_wake_touch, code == LV_EVENT_PRESSED, code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST, woke)) return;
@@ -1242,7 +1243,7 @@ static bool idle_frame(lv_display_t *disp)
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);
     if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);
-    if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);
+    else if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);
     bool off = ember_client_idle_off();
     if (off != held) {
         held = off;

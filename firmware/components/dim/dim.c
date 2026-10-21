@@ -110,7 +110,7 @@ dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, 
 
 void dim_idle_wake(dim_idle_t *s, int64_t now_ms, dim_wake_t src)
 {
-    if (now_ms <= s->last_ms) return;
+    if (now_ms < s->last_ms) return;
     s->last_ms = now_ms;
     s->wake = src;
 }

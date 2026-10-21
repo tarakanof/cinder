@@ -285,6 +285,9 @@ static void test_idle(void)
     dim_idle_wake(&s, 1799000, DIM_WAKE_MOOD);
     CHECK(s.last_ms == 1800010, "an older wake does not move the clock back");
     CHECK(s.wake == DIM_WAKE_TOUCH, "and does not take over the source");
+    dim_idle_input(&s, &both, 1900000, DIM_WAKE_TOUCH);
+    dim_idle_wake(&s, 1900000, DIM_WAKE_MOOD);
+    CHECK(s.wake == DIM_WAKE_MOOD, "a hold in the same ms as an input takes the source");
 
     dim_idle_init(&s, 0);
     CHECK(s.wake == DIM_WAKE_NONE && strcmp(dim_wake_name(s.wake), "") == 0, "no wake source before any restart");

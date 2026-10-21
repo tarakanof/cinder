@@ -75,6 +75,11 @@ body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_n
     IDLE="$IDLE touch_cb-notes-the-input-then-swallows-the-whole-waking-touch"
 body "$MAINC" touch_cb | grep -qxF '    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);' ||
     IDLE="$IDLE touch_cb-only-a-press-counts-as-idle-input-not-pressing"
+body "$MAINC" touch_cb | grep -qxF '    if (code == LV_EVENT_RELEASED && ember_client_idle_off()) code = LV_EVENT_PRESS_LOST;' ||
+    IDLE="$IDLE touch_cb-cancels-a-release-after-the-panel-went-off"
+body "$ECL" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
+body "$ECL" idle_diag_fill | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
+    IDLE="$IDLE idle_diag_fill-reads-state-age-and-wake-in-one-critical-section"
 body "$ECL" idle_state | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
     IDLE="$IDLE idle_state-credits-the-mood-hold-to-mood"
 [ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
@@ -85,7 +90,7 @@ body "$ECL" fade_step | awk '/dim_fade_take\(&s_fade, atomic_exchange\(&s_lit, -
 body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
 body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);' &&
-    body "$MAINC" idle_frame | grep -qxF '    if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);' &&
+    body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);' &&
     body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
     body "$MAINC" idle_frame | grep -qxF '    if (off) s_last_frame_t = 0;' ||
     IDLE="$IDLE idle_frame-wakes-for-the-OTA-face-and-demos-and-pauses-invalidation"

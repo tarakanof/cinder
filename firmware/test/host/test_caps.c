@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -153,7 +154,8 @@ static void test_worst_case_body(void)
     dev_diag_t d = {.reset_reason = "pwr_glitch", .boots = UINT32_MAX, .heap_internal_min = UINT32_MAX,
                     .heap_largest_min = UINT32_MAX, .n_tasks = DEV_DIAG_MAX_TASKS, .has_crash = true,
                     .crash_reason = "lvgl_stall", .crash_pc = UINT32_MAX, .has_crash_id = true,
-                    .crash_id = UINT32_MAX, .crash_size = UINT32_MAX};
+                    .crash_id = UINT32_MAX, .crash_size = UINT32_MAX, .has_idle = true, .idle_state = "awake",
+                    .idle_wake = "ota_trial", .idle_input_age_s = INT_MAX};
     for (int i = 0; i < DEV_DIAG_MAX_TASKS; i++) {
         fill(d.tasks[i].name, DEV_TASK_NAME_MAX, (char)('a' + i));
         d.tasks[i].stack_free = UINT32_MAX;

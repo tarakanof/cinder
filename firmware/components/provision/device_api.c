@@ -171,7 +171,7 @@ static void put_diag(const dev_diag_t *d, char *out, size_t cap, size_t *len)
         d->heap_largest_min);
     if (d->has_idle && d->idle_state && d->idle_wake && json_safe(d->idle_state) && json_safe(d->idle_wake))
         put(out, cap, len, ",\"idle\":{\"input_age_s\":%d,\"state\":\"%s\",\"wake\":\"%s\"}",
-            d->idle_input_age_s < 0 ? 0 : d->idle_input_age_s, d->idle_state, d->idle_wake);
+            d->idle_input_age_s, d->idle_state, d->idle_wake);
     if (d->reset_reason && reason_valid(d->reset_reason)) put(out, cap, len, ",\"reset_reason\":\"%s\"", d->reset_reason);
     int n = d->n_tasks > DEV_DIAG_MAX_TASKS ? DEV_DIAG_MAX_TASKS : d->n_tasks;
     const char *sep = "";

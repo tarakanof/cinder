@@ -353,9 +353,10 @@ static void idle_rules_set(void)
 
 static void idle_diag_fill(dev_diag_t *d)
 {
+    (void)idle_state();
     int64_t now = idle_ms();
-    dim_idle_state_t st = idle_state();
     taskENTER_CRITICAL(&s_idle_mux);
+    dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
     int age = dim_idle_age_s(&s_idle.clock, now);
     dim_wake_t wake = s_idle.clock.wake;
     taskEXIT_CRITICAL(&s_idle_mux);
@@ -1517,9 +1518,7 @@ static bool idle_touch(bool input, dim_wake_t src)
     bool swallow = false;
     if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now, src);
     else dim_idle_wake(&s_idle.clock, now, src);
-    dim_wake_t wake = s_idle.clock.wake;
     taskEXIT_CRITICAL(&s_idle_mux);
-    idle_wake_log(wake);
     int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_panel_level));
     if (lit >= 0) {
         panel_check_brightness((uint8_t)lit);
