@@ -985,6 +985,9 @@ SH="$D/../../components/shown"
 cc $CFLAGS -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$SH/shown.c" "$DM/demo.c" \
     "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_shown.c" -lm -o "${OUT}_shown"
 "${OUT}_shown"
+body "$ECL" view_poll > "${OUT}_view_poll.inc"
+cc $CFLAGS -I"$SH/include" -I"$DM/include" -I"$N/include" -I"$J" -DVIEW_POLL_SRC="\"${OUT}_view_poll.inc\"" "$SH/shown.c" "$DM/demo.c" "$N/view_wait.c" "$J/cJSON.c" "$D/test_view_poll.c" -lm -o "${OUT}_view_poll"
+"${OUT}_view_poll"
 TFC="$D/../../main/temp_face.c"
 awk '/^static __attribute__\(\(noinline\)\) void page_tick\(/ {on=1} on {print} on && /^}/ {exit}' "$MAINC" |
     grep -qxF '    ember_client_shown(shown_page(pg->id, usage_view_open()), temp_face_resolved());' || WIRING="$WIRING page_tick-reports-the-shown-page-and-face"
