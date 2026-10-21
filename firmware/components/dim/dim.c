@@ -127,7 +127,16 @@ int dim_idle_floor(int floor, dim_idle_state_t st, const dim_idle_rules_t *r)
     return st == DIM_IDLE_DIMMED && r->dim_level < floor ? r->dim_level : floor;
 }
 
-int dim_idle_light(dim_idle_state_t was, int awake_level)
+int dim_idle_light(dim_idle_state_t was, int awake_level, int shown)
 {
-    return was != DIM_IDLE_AWAKE && awake_level > 0 ? clamp_level(awake_level) : -1;
+    if (was == DIM_IDLE_AWAKE || awake_level <= 0) return -1;
+    if (shown >= awake_level) return -1;
+    return clamp_level(awake_level);
+}
+
+int dim_fade_take(dim_fade_t *f, int lit, dim_idle_state_t now)
+{
+    if (lit < 0) return -1;
+    dim_fade_sync(f, lit);
+    return now == DIM_IDLE_AWAKE ? lit : -1;
 }
