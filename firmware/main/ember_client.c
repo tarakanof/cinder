@@ -411,11 +411,8 @@ static void fade_start(void)
 static int fade_step(void)
 {
     if (!s_fade_on) return -1;
-    int lit = dim_idle_lit_take(atomic_exchange(&s_lit, -1), idle_state());
-    if (lit >= 0) {
-        dim_fade_sync(&s_fade, lit);
-        panel_check_brightness((uint8_t)lit);
-    }
+    int lit = dim_fade_take(&s_fade, atomic_exchange(&s_lit, -1), idle_state());
+    if (lit >= 0) panel_check_brightness((uint8_t)lit);
     if (idle_state() != s_idle_seen) bright_apply();
     uint8_t v;
     bool set;

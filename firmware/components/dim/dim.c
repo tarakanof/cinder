@@ -134,4 +134,9 @@ int dim_idle_light(dim_idle_state_t was, int awake_level, int shown)
     return clamp_level(awake_level);
 }
 
-int dim_idle_lit_take(int lit, dim_idle_state_t now) { return now == DIM_IDLE_AWAKE ? lit : -1; }
+int dim_fade_take(dim_fade_t *f, int lit, dim_idle_state_t now)
+{
+    if (lit < 0) return -1;
+    dim_fade_sync(f, lit);
+    return now == DIM_IDLE_AWAKE ? lit : -1;
+}
