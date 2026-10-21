@@ -88,7 +88,8 @@ static double pomo_client_now(void) { return 0; }
 static bool pomo_client_next_action(int a, pomo_press_t *in) { (void)a; (void)in; return false; }
 static void pomo_client_run_action(pomo_press_t in, http_conn_t *c, char *b, int n) { (void)in; (void)c; (void)b; (void)n; }
 static void pomo_client_log_state(void) {}
-static bool knob_view_conditional(const knob_view_state_t *v) { (void)v; return false; }
+static bool s_conditional;
+static bool knob_view_conditional(const knob_view_state_t *v) { (void)v; return s_conditional; }
 static const char *view_etag_get(const view_etag_t *e) { return e->etag; }
 static void view_etag_clear(view_etag_t *e) { e->etag[0] = 0; }
 static void view_etag_set(view_etag_t *e, const char *s) { (void)e; (void)s; }
@@ -137,6 +138,8 @@ static void run(const char *label, bool plain, int status)
 {
     reset();
     s_plain_poll = plain;
+    s_conditional = true;
+    s_sched.next_ms = s_now + 30000;
     req_status = status;
     shown_note(&s_shown, SHOWN_USAGE, -1, s_now - 1000);
     CHECK(shown_due_ms(&s_shown, s_now) == 0, "%s: the value is due before the poll", label);
@@ -146,6 +149,7 @@ static void run(const char *label, bool plain, int status)
     CHECK(got == status, "%s: view_poll returns the request status (%d)", label, got);
     CHECK(req_count == 1, "%s: exactly one request (%d)", label, req_count);
     CHECK(strstr(req_url, "shown=usage") != NULL, "%s: the request carries the value (%s)", label, req_url);
+    CHECK(plain ? strstr(req_url, "wait=") == NULL : strstr(req_url, "wait=") != NULL, "%s: wait is in the URL on a long-poll only (%s)", label, req_url);
     CHECK(req_saw_sent, "%s: the value is marked sent before the request goes out", label);
     CHECK(req_due == -1, "%s: nothing is due while the request is in flight (%d)", label, req_due);
     CHECK(s_shown.sent, "%s: the value is marked sent after view_poll returns", label);
