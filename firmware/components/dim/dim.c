@@ -1,4 +1,5 @@
 #include "dim.h"
+#include "bot_behavior.h"
 
 void dim_fade_init(dim_fade_t *f, int cur)
 {
@@ -139,4 +140,9 @@ int dim_fade_take(dim_fade_t *f, int lit, dim_idle_state_t now)
     if (lit < 0) return -1;
     dim_fade_sync(f, lit);
     return now == DIM_IDLE_AWAKE ? lit : -1;
+}
+
+bool dim_mood_holds(int mood)
+{
+    return mood == BOT_WORKING || mood == BOT_WAITING || mood == BOT_ERROR || mood == BOT_DONE;
 }

@@ -326,7 +326,7 @@ static dim_idle_state_t idle_state(void)
     int64_t now = idle_ms();
     bool verifying = ota_client_verifying();
     taskENTER_CRITICAL(&s_idle_mux);
-    if (verifying) dim_idle_wake(&s_idle.clock, now);
+    if (verifying || dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now);
     dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
     taskEXIT_CRITICAL(&s_idle_mux);
     return st;
@@ -1276,7 +1276,7 @@ static void poll_task(void *arg)
         demo_mark_ready();
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (mood != last) {
-            if (mood == BOT_WAITING || mood == BOT_ERROR) ember_client_idle_wake();
+            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake();
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;
         }
