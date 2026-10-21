@@ -1,6 +1,5 @@
 #include "claim.h"
 
-#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -118,90 +117,11 @@ static void wipe_strings(cJSON *n)
     }
 }
 
-#define WF_DEPTH 16
-
-static const char *wf_ws(const char *s)
-{
-    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
-    return s;
-}
-
-static const char *wf_string(const char *s)
-{
-    if (*s++ != '"') return NULL;
-    for (; *s != '"'; s++) {
-        unsigned char c = (unsigned char)*s;
-        if (c < 0x20) return NULL;
-        if (c != '\\') continue;
-        s++;
-        if (*s && strchr("\"\\/bfnrt", *s)) continue;
-        if (*s != 'u') return NULL;
-        for (int i = 1; i <= 4; i++)
-            if (!isxdigit((unsigned char)s[i])) return NULL;
-        if ((s[1] == 'd' || s[1] == 'D') && strchr("89abcdefABCDEF", s[2])) return NULL;
-        s += 4;
-    }
-    return s + 1;
-}
-
-static const char *wf_number(const char *s)
-{
-    if (*s == '-') s++;
-    if (*s == '0') s++;
-    else if (*s >= '1' && *s <= '9') while (isdigit((unsigned char)*s)) s++;
-    else return NULL;
-    if (*s == '.') {
-        if (!isdigit((unsigned char)*++s)) return NULL;
-        while (isdigit((unsigned char)*s)) s++;
-    }
-    if (*s == 'e' || *s == 'E') {
-        if (*++s == '+' || *s == '-') s++;
-        if (!isdigit((unsigned char)*s)) return NULL;
-        while (isdigit((unsigned char)*s)) s++;
-    }
-    return s;
-}
-
-static const char *wf_value(const char *s, int depth)
-{
-    s = wf_ws(s);
-    if (*s == '"') return wf_string(s);
-    if (*s == '-' || isdigit((unsigned char)*s)) return wf_number(s);
-    static const char *const LIT[] = {"true", "false", "null"};
-    for (size_t i = 0; i < 3; i++) {
-        size_t n = strlen(LIT[i]);
-        if (strncmp(s, LIT[i], n) == 0) return s + n;
-    }
-    if ((*s != '{' && *s != '[') || depth >= WF_DEPTH) return NULL;
-    char close = *s == '{' ? '}' : ']';
-    bool obj = *s++ == '{';
-    s = wf_ws(s);
-    if (*s == close) return s + 1;
-    for (;;) {
-        s = wf_ws(s);
-        if (obj) {
-            if (!(s = wf_string(s))) return NULL;
-            s = wf_ws(s);
-            if (*s++ != ':') return NULL;
-        }
-        if (!(s = wf_value(s, depth + 1))) return NULL;
-        s = wf_ws(s);
-        if (*s == close) return s + 1;
-        if (*s++ != ',') return NULL;
-    }
-}
-
-static bool json_wellformed(const char *json)
-{
-    const char *e = wf_value(json, 0);
-    return e && *wf_ws(e) == 0;
-}
-
 static claim_poll_t poll_parse(const char *json, claim_approved_t *a, int *expires_in_s)
 {
     memset(a, 0, sizeof *a);
     *expires_in_s = 0;
-    cJSON *root = json && json_wellformed(json) ? cJSON_Parse(json) : NULL;
+    cJSON *root = json ? cJSON_Parse(json) : NULL;
     const char *state = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "state"));
     claim_poll_t r = CLAIM_POLL_FAILED;
     if (state && strcmp(state, "pending") == 0) {

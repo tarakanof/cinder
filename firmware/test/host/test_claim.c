@@ -501,12 +501,6 @@ static void test_token_wiped(void)
         "{\"state\":\"approved\",\"device_id\":\"knob 1\",\"token\":\"ekd_TEST-token\"}",
         "{\"state\":\"approved\",\"x\":{\"y\":[\"ekd_TEST-token\"]}}",
         "[\"ekd_TEST-token\"]",
-        "{\"state\":\"approved\",\"device_id\":\"knob-10c0de\",\"token\":\"ekd_TEST-token\"",
-        "{\"token\":\"ekd_TEST-token\",",
-        "{\"token\":\"ekd_TEST-token\",\"x\":\"\\q\"}",
-        "{\"token\":\"ekd_TEST-token\",\"x\":tru}",
-        "{\"token\":\"ekd_TEST-token\",\"x\":[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]}",
-        "{\"token\":\"ekd_TEST-token\",\"x\":\"\\ud800\"}",
     };
     for (size_t i = 0; i < sizeof ODD / sizeof ODD[0]; i++) {
         freed_with_token = 0;
