@@ -860,8 +860,10 @@ static void checkin(char *buf)
     }
     if (r.ok && r.config && r.config_version != applied) {
         esp_err_t err = config_store_apply_settings(r.config, r.config_version);
-        if (err == ESP_OK) ESP_LOGI(TAG, "knob settings v%" PRIu32 " applied", r.config_version);
-        else ESP_LOGE(TAG, "knob settings v%" PRIu32 " rejected: %s", r.config_version, esp_err_to_name(err));
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "knob settings v%" PRIu32 " applied", r.config_version);
+            dev_sched_now(&s_sched, now_ms());
+        } else ESP_LOGE(TAG, "knob settings v%" PRIu32 " rejected: %s", r.config_version, esp_err_to_name(err));
     }
     dev_checkin_result_free(&r);
 }

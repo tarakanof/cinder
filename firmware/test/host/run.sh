@@ -1010,6 +1010,9 @@ body "$ECL" wait_and_fade | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
     WIRING="$WIRING wait_and_fade-takes-and-waits-through-wake_turn"
 grep -F 'xQueueSendToFront(' "$D/../../main/pomo_client.c" | grep -qF 'ember_client_wake()' ||
     WIRING="$WIRING pomo-requeue-wakes-the-wait"
+body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r.config, r.config_version);' | grep -A2 -xF '        if (err == ESP_OK) {' | grep -qxF '            dev_sched_now(&s_sched, now_ms());' &&
+    [ "$(body "$ECL" checkin | grep -c 'knob settings v.* rejected')" -eq 1 ] ||
+    WIRING="$WIRING applied-settings-check-in-at-once"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
     exit 1
@@ -1056,7 +1059,7 @@ if [ -n "$CLAIM" ]; then
     exit 1
 fi
 echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label, every settings write one locked update, factory erase blocks later writes"
-echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled"
+echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
     "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" \
