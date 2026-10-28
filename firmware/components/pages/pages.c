@@ -12,6 +12,7 @@ const page_desc_t PAGES[PAGES_N] = {
     {"pomodoro", "pomo", 0, page_pomo_show, page_pomo_input, page_pomo_frame},
     {"weather", "weather", PAGE_TURN, page_weather_show, page_weather_input, NULL},
     {"nowplaying", "nowplaying", PAGE_TOUCH_RAW | PAGE_TURN, page_np_show, page_np_input, page_np_frame},
+    {"day", "day", PAGE_TURN, page_day_show, page_day_input, page_day_frame},
 };
 
 int pages_ids(const char **out, int max)

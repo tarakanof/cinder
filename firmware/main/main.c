@@ -35,6 +35,8 @@
 #include "http_conn.h"
 #include "join_view.h"
 #include "claim_client.h"
+#include "day_client.h"
+#include "day_view.h"
 #include "pomo_client.h"
 #include "pomo_view.h"
 #include "nowplaying_client.h"
@@ -108,6 +110,7 @@ static bot_t s_bot;
 static bot_pose_t s_last_pose;
 static bool s_drawn;
 static EXT_RAM_BSS_ATTR bool s_usage_on;
+static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;
 static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;
 static double s_ring_deg;
 static int s_demo_index;
@@ -553,6 +556,7 @@ void page_bot_show(bool on)
 }
 
 void page_pomo_show(bool on) { pomo_view_show(on); }
+void page_day_show(bool on) { day_view_show(on); }
 void page_weather_show(bool on) { temp_face_show(on); }
 
 void page_weather_input(const page_input_t *in, double t)
@@ -668,6 +672,42 @@ void page_pomo_frame(const page_frame_t *f)
     if (snap.disabled) e.has_state = false;
     pomo_view_set_note(pomo_client_note(&snap, f->t));
     pomo_view_update(&e, f->t);
+}
+
+static day_in_t day_now(day_snapshot_t *snap)
+{
+    day_client_get(snap);
+    double now = pomo_client_now();
+    return (day_in_t){.b = snap->has ? &snap->b : NULL, .fed = snap->fed, .age_s = now - snap->fed_at,
+                      .now_min = day_client_now_min(snap, now), .busy = day_client_busy(snap, now)};
+}
+
+static void day_send(const day_act_t *a, int n)
+{
+    for (int i = 0; i < n; i++) day_client_act(&a[i]);
+}
+
+void page_day_input(const page_input_t *in, double t)
+{
+    day_snapshot_t snap;
+    day_in_t di = day_now(&snap);
+    day_act_t a[DAY_ACTS];
+    day_ui_sync(&s_day_ui, &di, t);
+    if (in->detents) day_send(a, day_ui_turn(&s_day_ui, &di, in->detents, t, a));
+    if (in->pushes) day_send(a, day_ui_push(&s_day_ui, &di, t, a));
+    else if (in->longs) day_send(a, day_ui_long(&s_day_ui, &di, t, a));
+}
+
+void page_day_frame(const page_frame_t *f)
+{
+    day_snapshot_t snap;
+    day_in_t di = day_now(&snap);
+    day_act_t a[DAY_ACTS];
+    day_ui_sync(&s_day_ui, &di, f->t);
+    day_send(a, day_ui_tick(&s_day_ui, &di, f->t, a));
+    day_model_t m;
+    day_model(&s_day_ui, &di, f->t, day_client_note(&snap, pomo_client_now()), &m);
+    day_view_update(&m);
 }
 
 void page_np_input(const page_input_t *in, double t)
@@ -1437,6 +1477,7 @@ void app_main(void)
         config_store_ember_url(url, sizeof url);
         if (url[0]) {
             pomo_client_init();
+            day_client_init();
             weather_client_init();
             np_client_init();
             usage_client_init();
@@ -1475,6 +1516,8 @@ void app_main(void)
         moment_view_create(s_bot_page);
         music_view_create(s_bot_page);
         pomo_view_create(scr);
+        day_ui_init(&s_day_ui);
+        day_view_create(scr);
         temp_face_create(scr);
         np_view_create(scr);
         usage_view_create(scr);

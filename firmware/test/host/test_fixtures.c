@@ -1218,28 +1218,33 @@ static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
-static void features_diff(const char *name, const cJSON *want, const cJSON *got)
+static const char *const PAGES_AHEAD[] = {"day"};
+#define N_PAGES_AHEAD ((int)(sizeof PAGES_AHEAD / sizeof PAGES_AHEAD[0]))
+static int pages_ahead_used[N_PAGES_AHEAD];
+
+static void ahead_diff(const char *name, const char *path, const char *list, const char *const *ahead, int n_ahead,
+                       int *used, const cJSON *want, const cJSON *got)
 {
     cJSON *g = cJSON_Duplicate(got, true);
-    for (int i = 0; i < N_FEATURES_AHEAD; i++) {
+    for (int i = 0; i < n_ahead; i++) {
         int sent = 0;
         const cJSON *e;
         cJSON_ArrayForEach(e, want)
         {
-            CHECK(!cJSON_IsString(e) || strcmp(e->valuestring, FEATURES_AHEAD[i]) != 0,
-                  "%s: the fixture has feature %s now, drop it from FEATURES_AHEAD", name, FEATURES_AHEAD[i]);
+            CHECK(!cJSON_IsString(e) || strcmp(e->valuestring, ahead[i]) != 0,
+                  "%s: the fixture has %s now, drop it from %s", name, ahead[i], list);
         }
         for (int k = cJSON_GetArraySize(g) - 1; k >= 0; k--) {
             const char *s = cJSON_GetStringValue(cJSON_GetArrayItem(g, k));
-            if (s && strcmp(s, FEATURES_AHEAD[i]) == 0) {
+            if (s && strcmp(s, ahead[i]) == 0) {
                 cJSON_DeleteItemFromArray(g, k);
                 sent++;
             }
         }
-        CHECK(sent == 1, "%s: the firmware sends %s %d times", name, FEATURES_AHEAD[i], sent);
-        features_ahead_used[i] += sent;
+        CHECK(sent == 1, "%s: the firmware sends %s %d times", name, ahead[i], sent);
+        used[i] += sent;
     }
-    CHECK(cJSON_Compare(want, g, true), "%s: .caps.features differs", name);
+    CHECK(cJSON_Compare(want, g, true), "%s: %s differs", name, path);
     cJSON_Delete(g);
 }
 
@@ -1267,7 +1272,9 @@ static void body_diff(const char *name, const cJSON *want, const cJSON *got, con
         } else if (cJSON_IsObject(e) && cJSON_IsObject(g)) {
             body_diff(name, e, g, p);
         } else if (strcmp(p, ".caps.features") == 0 && cJSON_IsArray(e) && cJSON_IsArray(g)) {
-            features_diff(name, e, g);
+            ahead_diff(name, p, "FEATURES_AHEAD", FEATURES_AHEAD, N_FEATURES_AHEAD, features_ahead_used, e, g);
+        } else if (strcmp(p, ".caps.pages") == 0 && cJSON_IsArray(e) && cJSON_IsArray(g)) {
+            ahead_diff(name, p, "PAGES_AHEAD", PAGES_AHEAD, N_PAGES_AHEAD, pages_ahead_used, e, g);
         } else {
             CHECK(cJSON_Compare(e, g, true), "%s: %s differs", name, p);
         }
@@ -1297,6 +1304,9 @@ static void test_not_yet_sent_used(void)
     for (int i = 0; i < N_FEATURES_AHEAD; i++)
         CHECK(features_ahead_used[i] > 0, "FEATURES_AHEAD %s is in no checkin_req fixture with caps (%d)", FEATURES_AHEAD[i],
               features_ahead_used[i]);
+    for (int i = 0; i < N_PAGES_AHEAD; i++)
+        CHECK(pages_ahead_used[i] > 0, "PAGES_AHEAD %s is in no checkin_req fixture with caps (%d)", PAGES_AHEAD[i],
+              pages_ahead_used[i]);
 }
 
 static void test_view_req_shown(void)
