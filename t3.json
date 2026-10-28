@@ -1,0 +1,28 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {
+      "name": "Link local context",
+      "command": "[ -e AGENTS.local.md ] || [ ! -f \"$T3CODE_PROJECT_ROOT/AGENTS.local.md\" ] || ln -s \"$T3CODE_PROJECT_ROOT/AGENTS.local.md\" AGENTS.local.md",
+      "icon": "configure",
+      "runOnWorktreeCreate": true,
+      "async": false
+    },
+    {
+      "name": "Host tests",
+      "command": "bash -c '. ~/.espressif/tools/activate_idf_v5.5.5.sh >/dev/null; cd firmware && test/host/run.sh'",
+      "icon": "test"
+    },
+    {
+      "name": "Build",
+      "command": "bash -c '. ~/.espressif/tools/activate_idf_v5.5.5.sh >/dev/null; cd firmware && idf.py build && python3 tools/secret_scan.py build/cinder.bin build/cinder.elf'",
+      "icon": "build"
+    },
+    {
+      "name": "Codex review",
+      "command": "codex review --base origin/main",
+      "icon": "lint"
+    }
+  ]
+}
