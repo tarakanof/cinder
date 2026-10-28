@@ -10,6 +10,12 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 
 - Worktrees:
   `git worktree add ~/Github/cinder-wt/<slug> -b <type>/<issue>-<slug> origin/main`.
+- T3 Code: `t3.json` defines the project actions. A new T3 worktree links `AGENTS.local.md`
+  from the main checkout; "Host tests" and "Build" run the steps under Build and test, and
+  "Host tests" first runs `idf.py reconfigure` when `managed_components` is missing, so the
+  LVGL tests are not skipped. Flashing is not an action: it needs the flash lock and the knob.
+  T3 adds the actions only on import (the thread header's action menu → "From t3.json");
+  import again after they change.
 - A feature that needs server support gets a paired Ember issue; the PRs link
   each other. Ember stays backward compatible: the knob decodes non-strictly and
   the server ignores unknown checkin fields, so either side can be deployed first.
