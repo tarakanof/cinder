@@ -73,6 +73,25 @@ static void test_time(void)
           (unsigned)day_scale(DAY_ACCENT, 0.3f));
 }
 
+static void test_offset(void)
+{
+    day_block_t b = fixture("view_day_on.json");
+    int off = -1;
+    long long utc_0120 = 1782000000LL + 80 * 60;
+    CHECK(utc_0120 % 86400 == 80 * 60, "fixture time is 01:20 UTC");
+    CHECK(day_offset_from_block(&b, utc_0120, &off) && off == 60, "on golden at 02:20 local, 01:20 UTC: +60: %d", off);
+    CHECK(day_offset_from_block(&b, utc_0120 + 150, &off) && off == 60, "floored counts round to the 15-min grid: %d", off);
+    CHECK(day_offset_from_block(&b, utc_0120 + 420 * 60, &off) && off == -360, "08:20 UTC: -360: %d", off);
+    CHECK(day_offset_from_block(&b, utc_0120 - 45 * 60, &off) && off == 105, "a 15-min zone: %d", off);
+    day_block_t br = fixture("view_day_break.json");
+    long long utc_1617 = 1782000000LL + (16 * 60 + 17) * 60;
+    CHECK(day_offset_from_block(&br, utc_1617, &off) && off == 0, "a break counts the finished breaks too: %d", off);
+    day_block_t o = fixture("view_day_off.json");
+    CHECK(!day_offset_from_block(&o, utc_0120, &off), "off: no anchor");
+    b.started = DAY_NONE;
+    CHECK(!day_offset_from_block(&b, utc_0120, &off), "no start: no anchor");
+}
+
 static void test_parse(void)
 {
     day_block_t b = fixture("view_day_on_early.json");
@@ -134,7 +153,7 @@ static void test_parse(void)
 
 static day_in_t at_now(const day_block_t *b, int now)
 {
-    return (day_in_t){.b = b, .fed = true, .now_min = now};
+    return (day_in_t){.b = b, .fed = true, .now_min = now, .now_exact = now != DAY_NONE};
 }
 
 static day_face_t face(day_ui_t *ui, const day_in_t *in, double t)
@@ -276,6 +295,30 @@ static void test_on_break_past(void)
     day_ui_turn(&ui, &in, -2, 0, a);
     CHECK(ui.stop == HM(23, 45) && face(&ui, &in, 0) == DAY_FACE_PAST, "late evening, turned to 23:45: past");
     day_ui_init(&ui);
+    in.now_min = HM(10, 15);
+    in.now_exact = false;
+    day_ui_turn(&ui, &in, -40, 0, a);
+    CHECK(ui.stop == HM(14, 0) && face(&ui, &in, 0) == DAY_FACE_ON,
+          "a weather-zone clock does not judge a turned stop past: %d", ui.stop);
+    in.now_exact = true;
+
+    day_ui_init(&ui);
+    in.now_min = HM(15, 42);
+    b.stop_at = HM(18, 0);
+    day_ui_turn(&ui, &in, 1, 0, a);
+    day_ui_tick(&ui, &in, DAY_TURN_DEBOUNCE_S, a);
+    day_ui_turn(&ui, &in, 1, 2, a);
+    day_ui_tick(&ui, &in, 2 + DAY_TURN_DEBOUNCE_S, a);
+    CHECK(ui.stop == HM(18, 30), "two PUTs: 18:15, then 18:30");
+    b.stop_at = HM(18, 15);
+    day_ui_sync(&ui, &in, 3.6);
+    CHECK(ui.stop == HM(18, 30) && ui.stop_base == HM(18, 15) && ui.stop_delta == 15,
+          "the first PUT's view keeps the newer target, rebased: %d base %d delta %d", ui.stop, ui.stop_base, ui.stop_delta);
+    day_ui_turn(&ui, &in, 1, 4, a);
+    CHECK(ui.stop == HM(18, 45), "the next detent goes on from the newer target: %d", ui.stop);
+    b.stop_at = 0;
+
+    day_ui_init(&ui);
     in.now_min = HM(0, 1);
     CHECK(face(&ui, &in, 0) == DAY_FACE_ON, "past the stop by the knob's clock but not by Ember's: on until the view says");
     b.over_min = 1;
@@ -325,6 +368,12 @@ static void test_offer_summary(void)
     CHECK(ui.offer_at == HM(9, 52), "no clock: never after the first reply: %d", ui.offer_at);
     day_ui_turn(&ui, &nc, -1, 4.6, a);
     CHECK(ui.offer_at == HM(9, 50), "no clock: back still works: %d", ui.offer_at);
+    day_in_t wz = in;
+    wz.now_min = HM(11, 0);
+    wz.now_exact = false;
+    day_ui_turn(&ui, &wz, 6, 4.7, a);
+    CHECK(ui.offer_at == HM(9, 52), "a weather-zone clock: still never after the first reply: %d", ui.offer_at);
+    day_ui_turn(&ui, &in, -1, 4.8, a);
     CHECK(day_ui_push(&ui, &in, 5, a) == 1 && act_is(&a[0], DAY_ACT_START, 0, HM(9, 50)),
           "offer: push starts back-dated with the view's stop");
     CHECK(day_ui_long(&ui, &in, 5, a) == 1 && a[0].kind == DAY_ACT_DISMISS, "offer: long push dismisses");
@@ -578,6 +627,7 @@ int main(int argc, char **argv)
     dirs[0] = argv[1];
     dirs[1] = argv[2];
     test_time();
+    test_offset();
     test_parse();
     test_off_set();
     test_on_break_past();

@@ -684,8 +684,10 @@ static day_in_t day_now(day_snapshot_t *snap)
 {
     day_client_get(snap);
     double now = pomo_client_now();
+    bool exact;
+    int now_min = day_client_now_min(snap, now, &exact);
     return (day_in_t){.b = snap->has ? &snap->b : NULL, .fed = snap->fed, .age_s = now - snap->fed_at,
-                      .now_min = day_client_now_min(snap, now), .busy = day_client_busy(snap, now)};
+                      .now_min = now_min, .now_exact = exact, .busy = day_client_busy(snap, now)};
 }
 
 static void day_send(const day_act_t *a, int n)

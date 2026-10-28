@@ -35,7 +35,7 @@ static day_at_t day_at(const day_ui_t *ui, const day_in_t *in)
     int over = b->over_min > 0 ? b->over_min + e : 0;
     if (ui->stop == DAY_NONE || ui->stop == b->stop_at) {
         a.over = over;
-    } else if (over > 0 || (in->now_min != DAY_NONE && b->stop_at != DAY_NONE)) {
+    } else if (over > 0 || (in->now_exact && in->now_min != DAY_NONE && b->stop_at != DAY_NONE)) {
         int d = (over > 0 ? over : -day_fwd(in->now_min, b->stop_at)) - ui->stop_delta;
         a.over = d > 0 ? d : 0;
     }
@@ -67,9 +67,12 @@ void day_ui_sync(day_ui_t *ui, const day_in_t *in, double t)
     if (b->state == DAY_OFF) {
         ui->stop = DAY_NONE;
         ui->stop_dirty = false;
-    } else if (ui->stop != DAY_NONE && !ui->stop_dirty &&
-               (b->stop_at == ui->stop || b->stop_at != ui->stop_base || t - ui->stop_sent_at > DAY_STOP_HOLD_S)) {
-        ui->stop = DAY_NONE;
+    } else if (ui->stop != DAY_NONE) {
+        if (b->stop_at != DAY_NONE && ui->stop_base != DAY_NONE && b->stop_at != ui->stop_base) {
+            ui->stop_delta -= near(b->stop_at - ui->stop_base);
+            ui->stop_base = b->stop_at;
+        }
+        if (!ui->stop_dirty && (b->stop_at == ui->stop || t - ui->stop_sent_at > DAY_STOP_HOLD_S)) ui->stop = DAY_NONE;
     }
 }
 
@@ -126,7 +129,7 @@ int day_ui_turn(day_ui_t *ui, const day_in_t *in, int detents, double t, day_act
     }
     case DAY_FACE_OFFER: {
         int next = day_step(ui->offer_at, detents, DAY_OFFER_STEP);
-        int now = in->now_min != DAY_NONE ? in->now_min : ui->offer_base;
+        int now = in->now_exact && in->now_min != DAY_NONE ? in->now_min : ui->offer_base;
         if (day_fwd(next, now) > HALF_DAY) next = detents > 0 ? now : ui->offer_at;
         ui->offer_at = next;
         break;
