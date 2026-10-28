@@ -5,7 +5,7 @@
 #include "cJSON.h"
 #include "knob_rotation.h"
 
-static const char *const DEFAULT_PAGES[] = {"bot", "pomodoro", "weather"};
+static const char *const DEFAULT_PAGES[] = {"bot", "day", "weather"};
 
 void knob_settings_defaults(knob_settings_t *ks)
 {

@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "bot_behavior.h"
+#include "day.h"
 #include "demo.h"
 #include "np.h"
 #include "pomo.h"
@@ -52,6 +53,9 @@ typedef struct {
     np_info_t np;
 
     usage_block_t usage;
+
+    bool has_day;
+    day_block_t day;
 
     long long diag_live_until;   /* server Unix s; 0 = absent */
 

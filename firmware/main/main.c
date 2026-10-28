@@ -35,6 +35,8 @@
 #include "http_conn.h"
 #include "join_view.h"
 #include "claim_client.h"
+#include "day_client.h"
+#include "day_view.h"
 #include "pomo_client.h"
 #include "pomo_view.h"
 #include "nowplaying_client.h"
@@ -76,7 +78,12 @@ static atomic_int s_page_steps;
 static atomic_int s_swipes;
 static atomic_int s_hswipes;
 static atomic_int s_np_wakes;
+enum { PRESS_OPEN, PRESS_FIRED, PRESS_RELEASED, PRESS_TURNED };
+
 static atomic_bool s_hold_seen;
+static _Atomic long long s_press_at_us;
+static atomic_int s_press_claim;
+static atomic_bool s_press_counting;
 static atomic_bool s_button_down;
 static atomic_bool s_touch_down;
 static atomic_bool s_turned_while_down;
@@ -108,6 +115,7 @@ static bot_t s_bot;
 static bot_pose_t s_last_pose;
 static bool s_drawn;
 static EXT_RAM_BSS_ATTR bool s_usage_on;
+static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;
 static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;
 static double s_ring_deg;
 static int s_demo_index;
@@ -367,10 +375,13 @@ static void knob_cb(void *event)
     bool reset_turn = rg_turn(&s_rg, dir, now_s());
     taskEXIT_CRITICAL(&s_rg_mux);
     switch (pr_turn(reset_turn, atomic_load(&s_button_down))) {
-    case PR_TURN_PAGE:
+    case PR_TURN_PAGE: {
+        int open = PRESS_OPEN;
+        if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;
         atomic_store(&s_turned_while_down, true);
         atomic_fetch_add(&s_page_steps, dir);
         break;
+    }
     case PR_TURN_DETENT:
         atomic_fetch_add(&s_detents, dir);
         break;
@@ -393,6 +404,9 @@ static void button_cb(void *event)
         taskEXIT_CRITICAL(&s_rg_mux);
         atomic_store(&s_hold_seen, false);
         atomic_store(&s_turned_while_down, false);
+        atomic_store(&s_press_at_us, esp_timer_get_time());
+        atomic_store(&s_press_claim, PRESS_OPEN);
+        atomic_store(&s_press_counting, false);
         atomic_store(&s_button_down, true);
         break;
     case BUTTON_LONG_PRESS_HOLD:
@@ -403,7 +417,10 @@ static void button_cb(void *event)
         bool reset_press = rg_release(&s_rg, now_s());
         taskEXIT_CRITICAL(&s_rg_mux);
         atomic_store(&s_button_down, false);
-        pr_press_t press = pr_release(reset_press, atomic_load(&s_turned_while_down), atomic_load(&s_hold_seen));
+        int open = PRESS_OPEN;
+        bool fired = !atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_RELEASED);
+        pr_press_t press = pr_release(reset_press, atomic_load(&s_turned_while_down), atomic_load(&s_hold_seen), fired,
+                                      atomic_load(&s_press_counting));
         if (press != PR_PRESS_NONE) atomic_fetch_add(press == PR_PRESS_LONG ? &s_long_pushes : &s_pushes, 1);
         break;
     }
@@ -411,6 +428,12 @@ static void button_cb(void *event)
         break;
     }
 }
+
+static EXT_RAM_BSS_ATTR lv_obj_t *s_hold_layer, *s_hold_arc, *s_hold_label;
+static EXT_RAM_BSS_ATTR const char *s_hold_text;
+static EXT_RAM_BSS_ATTR int s_hold_pct = -1;
+
+#define HOLD_R 204
 
 static void touch_cb(lv_event_t *e)
 {
@@ -553,6 +576,13 @@ void page_bot_show(bool on)
 }
 
 void page_pomo_show(bool on) { pomo_view_show(on); }
+void page_day_show(bool on)
+{
+    day_view_show(on);
+    day_act_t a[DAY_ACTS];
+    if (!on)
+        for (int i = 0, n = day_ui_leave(&s_day_ui, now_s(), a); i < n; i++) day_client_act(&a[i]);
+}
 void page_weather_show(bool on) { temp_face_show(on); }
 
 void page_weather_input(const page_input_t *in, double t)
@@ -670,6 +700,44 @@ void page_pomo_frame(const page_frame_t *f)
     pomo_view_update(&e, f->t);
 }
 
+static day_in_t day_now(day_snapshot_t *snap)
+{
+    day_client_get(snap);
+    double now = pomo_client_now();
+    bool exact;
+    int now_min = day_client_now_min(snap, now, &exact);
+    return (day_in_t){.b = snap->has ? &snap->b : NULL, .fed = snap->fed, .age_s = now - snap->fed_at,
+                      .now_min = now_min, .now_exact = exact, .busy = day_client_busy(snap, now)};
+}
+
+static void day_send(const day_act_t *a, int n)
+{
+    for (int i = 0; i < n; i++) day_client_act(&a[i]);
+}
+
+void page_day_input(const page_input_t *in, double t)
+{
+    day_snapshot_t snap;
+    day_in_t di = day_now(&snap);
+    day_act_t a[DAY_ACTS];
+    day_ui_sync(&s_day_ui, &di, t);
+    if (in->detents) day_send(a, day_ui_turn(&s_day_ui, &di, in->detents, t, a));
+    if (in->pushes) day_send(a, day_ui_push(&s_day_ui, &di, t, a));
+    else if (in->longs) day_send(a, day_ui_long(&s_day_ui, &di, t, a));
+}
+
+void page_day_frame(const page_frame_t *f)
+{
+    static EXT_RAM_BSS_ATTR day_snapshot_t snap;
+    static EXT_RAM_BSS_ATTR day_model_t m;
+    day_in_t di = day_now(&snap);
+    day_act_t a[DAY_ACTS];
+    day_ui_sync(&s_day_ui, &di, f->t);
+    day_send(a, day_ui_tick(&s_day_ui, &di, f->t, a));
+    day_model(&s_day_ui, &di, f->t, day_client_note(&snap, pomo_client_now()), &m);
+    day_view_update(&m, f->t);
+}
+
 void page_np_input(const page_input_t *in, double t)
 {
     if (in->detents || in->pushes || in->longs || in->touches || in->wakes || in->hswipes) np_view_input(t);
@@ -691,6 +759,36 @@ static void reset_task(void *arg)
     if (err != ESP_OK) ESP_LOGE(TAG, "erase failed: %s", esp_err_to_name(err));
     ember_client_forget_wifi();
     esp_restart();
+}
+
+static void hold_overlay_create(void)
+{
+    s_hold_layer = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_hold_layer);
+    lv_obj_set_size(s_hold_layer, lv_pct(100), lv_pct(100));
+    lv_obj_remove_flag(s_hold_layer, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    s_hold_arc = lv_arc_create(s_hold_layer);
+    lv_obj_set_size(s_hold_arc, 2 * HOLD_R, 2 * HOLD_R);
+    lv_obj_center(s_hold_arc);
+    lv_arc_set_bg_angles(s_hold_arc, 0, 360);
+    lv_arc_set_rotation(s_hold_arc, 270);
+    lv_arc_set_range(s_hold_arc, 0, 100);
+    lv_arc_set_value(s_hold_arc, 0);
+    lv_obj_remove_style(s_hold_arc, NULL, LV_PART_KNOB);
+    lv_obj_remove_flag(s_hold_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_opa(s_hold_arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_hold_arc, 8, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_hold_arc, lv_color_hex(0xF4F4F2), LV_PART_INDICATOR);
+    s_hold_label = lv_label_create(s_hold_layer);
+    lv_obj_set_style_text_font(s_hold_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_hold_label, lv_color_hex(0xF4F4F2), 0);
+    lv_obj_set_style_bg_color(s_hold_label, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(s_hold_label, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(s_hold_label, 12, 0);
+    lv_obj_set_style_pad_ver(s_hold_label, 4, 0);
+    lv_label_set_text_static(s_hold_label, "");
+    lv_obj_align(s_hold_label, LV_ALIGN_TOP_MID, 0, 104);
+    lv_obj_add_flag(s_hold_layer, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void reset_overlay_create(void)
@@ -1037,6 +1135,50 @@ static __attribute__((noinline)) void scene_act(double t, const wx_obs_t *wx, bo
 
 static bool scene_gate(double t, bool input);
 
+static __attribute__((noinline)) const char *page_day_hold_label(void)
+{
+    static EXT_RAM_BSS_ATTR day_snapshot_t snap;
+    day_in_t di = day_now(&snap);
+    return day_hold_label(day_ui_face(&s_day_ui, &di, now_s()));
+}
+
+static const char *hold_label(const page_desc_t *pg)
+{
+    if (pg->frame == page_day_frame) return page_day_hold_label();
+    if (pg->frame != page_pomo_frame) return NULL;
+    pomo_snapshot_t snap;
+    if (!pomo_client_get(&snap)) return NULL;
+    pomo_state_t st = pomo_clock_at(&snap.clock, pomo_client_now());
+    return pomo_action_for(&st, POMO_INPUT_LONG_PUSH) == POMO_ACT_NONE ? NULL : "stop";
+}
+
+static __attribute__((noinline)) void hold_tick(const page_desc_t *pg)
+{
+    bool down = atomic_load(&s_button_down), turned = atomic_load(&s_turned_while_down);
+    bool wake = pr_wake_held(&s_wake_press);
+    long long held = (esp_timer_get_time() - atomic_load(&s_press_at_us)) / 1000;
+    bool fired = atomic_load(&s_press_claim) != PRESS_OPEN;
+    if (!wake && pr_hold_fires(down, turned, fired, held)) {
+        int open = PRESS_OPEN;
+        if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);
+        fired = true;
+    }
+    const char *label = down && !turned && !fired && !wake && held >= PR_COUNTDOWN_MS ? hold_label(pg) : NULL;
+    if (label) atomic_store(&s_press_counting, true);
+    int pct = label ? (int)((held - PR_COUNTDOWN_MS) * 100 / (PR_HOLD_MS - PR_COUNTDOWN_MS)) : -1;
+    if (pct > 100) pct = 100;
+    if (!s_hold_layer || pct == s_hold_pct) return;
+    if (pct < 0) {
+        lv_obj_add_flag(s_hold_layer, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        if (s_hold_pct < 0) lv_obj_remove_flag(s_hold_layer, LV_OBJ_FLAG_HIDDEN);
+        lv_arc_set_value(s_hold_arc, pct);
+        if (label != s_hold_text) lv_label_set_text_static(s_hold_label, label);
+    }
+    s_hold_text = label;
+    s_hold_pct = pct;
+}
+
 static __attribute__((noinline)) void page_tick(double t, double dt)
 {
     const page_desc_t *pg = pages_current(&s_nav);
@@ -1044,6 +1186,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     in.detents = atomic_exchange(&s_detents, 0);
     in.pushes = atomic_exchange(&s_pushes, 0);
     in.touches = ts_tap_counts(atomic_exchange(&s_touches, 0), in.taps);
+    hold_tick(pg);
     in.longs = atomic_exchange(&s_long_pushes, 0);
     in.wakes = atomic_exchange(&s_np_wakes, 0);
     in.hswipes = atomic_exchange(&s_hswipes, 0);
@@ -1437,6 +1580,7 @@ void app_main(void)
         config_store_ember_url(url, sizeof url);
         if (url[0]) {
             pomo_client_init();
+            day_client_init();
             weather_client_init();
             np_client_init();
             usage_client_init();
@@ -1475,6 +1619,8 @@ void app_main(void)
         moment_view_create(s_bot_page);
         music_view_create(s_bot_page);
         pomo_view_create(scr);
+        day_ui_init(&s_day_ui);
+        day_view_create(scr);
         temp_face_create(scr);
         np_view_create(scr);
         usage_view_create(scr);
@@ -1487,6 +1633,7 @@ void app_main(void)
         page_fx_create();
     }
     reset_overlay_create();
+    hold_overlay_create();
     join_view_create();
     gc_init(&s_chase, esp_random());
     wxm_init(&s_wxm);

@@ -6,10 +6,16 @@ pr_turn_t pr_turn(bool reset_turn, bool button_down)
     return button_down ? PR_TURN_PAGE : PR_TURN_DETENT;
 }
 
-pr_press_t pr_release(bool reset_press, bool turned_while_down, bool hold_seen)
+bool pr_hold_fires(bool down, bool turned_while_down, bool fired, long long held_ms)
 {
-    if (reset_press || turned_while_down) return PR_PRESS_NONE;
-    return hold_seen ? PR_PRESS_LONG : PR_PRESS_PUSH;
+    return down && !turned_while_down && !fired && held_ms >= PR_HOLD_MS;
+}
+
+pr_press_t pr_release(bool reset_press, bool turned_while_down, bool hold_seen, bool fired, bool counting)
+{
+    if (reset_press || turned_while_down || fired) return PR_PRESS_NONE;
+    if (hold_seen) return PR_PRESS_LONG;
+    return counting ? PR_PRESS_NONE : PR_PRESS_PUSH;
 }
 
 bool pr_wake_swallow(pr_wake_t *w, bool start, bool end, bool woke)

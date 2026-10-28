@@ -1,0 +1,2 @@
+hand-written: day states Ember's goldens (fixtures/ember/view_day_*.json, v0.76.0) do not cover
+same shape as Ember's: optional keys absent when zero or false, break_min = all breaks while on, the current one on a break

@@ -43,6 +43,7 @@
 #include "nvs.h"
 #include "ota_client.h"
 #include "pomo_client.h"
+#include "day_client.h"
 #include "shown.h"
 #include "wake_turn.h"
 #include "usage_client.h"
@@ -541,6 +542,7 @@ static void wait_and_fade(int ms, char *buf)
         if (left <= 0) return;
         if (ota_client_mark_pending()) return;
         if (buf && demo_moved()) return;
+        if (buf && atomic_load(&s_online) && day_client_pending()) return;
         int due = buf ? shown_due() : -1;
         if (due == 0) return;
         int next = fade_step();
@@ -981,6 +983,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     weather_client_feed(e->has_weather ? &e->weather : NULL, srv_est);
     np_client_feed(e->has_np ? &e->np : NULL, want);
     usage_client_feed(&e->usage, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
+    day_client_feed(e->has_day ? &e->day : NULL, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
     demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));
@@ -998,6 +1001,7 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (!atomic_load(&s_online) || config_store_token_gen() != P->token_gen) return true;
     if (config_store_settings_gen() != s_ks_gen) return true;
     if (np_client_pending()) return true;
+    if (day_client_pending()) return true;
     if (demo_moved()) return true;
     int64_t now = esp_timer_get_time() / 1000;
     taskENTER_CRITICAL(&s_shown_mux);
@@ -1029,6 +1033,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         pomo_client_run_action(in, s_conn, buf, RESP_MAX);
         pomo_client_log_state();
     }
+    day_client_run(s_conn);
     const char *etag = knob_view_conditional(&P->vs) ? view_etag_get(&P->etag) : NULL;
     int wait = s_plain_poll ? 0 : view_wait_s(P->wait_cap, etag != NULL, s_sched.next_ms - now_ms(), P->view_failing);
     const char *url = P->view_url;

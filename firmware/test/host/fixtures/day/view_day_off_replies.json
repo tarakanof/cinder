@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "epoch": 5,
+  "config_version": 3,
+  "quiet": true,
+  "day": {
+    "state": "off",
+    "stop_at": "23:45",
+    "on_min": 0,
+    "break_min": 0,
+    "over_min": 0,
+    "replies_off_last_night": 2,
+    "agents": 1,
+    "utc_offset": 3600
+  },
+  "weather": null
+}

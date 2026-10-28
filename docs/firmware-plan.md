@@ -21,6 +21,7 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 |---|---|---|
 | **Bot** (home) | Ember bot face; mood from the winning session state; in waiting/error the host label (e.g. `M4`) under the face | `GET /state` (`render.source`, else the winning session), port of Ember's bot |
 | **Pomodoro** | arc around the bezel + time left | `GET /v1/pomodoro/state` |
+| **Day** | 24-hour dial: clock in and out, today's stop time; in Pomodoro's place in the default pages (built, `features.md` "Day clock page") | the view's `day` block, `/v1/day/*` |
 | **Media** | volume arc, play/pause icon, BLE link state | BLE HID (below) |
 | **Usage** | 5 h / weekly gauges per Claude or Codex account: screens behind a tap on the bot face, not a page (built, `features.md` "Usage screens") | the view's `usage` block |
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |
@@ -37,7 +38,7 @@ One rule for every page: **push and turn** (hold the knob down while turning) ch
 | Turn | eyes follow the ring | volume up / down (one step per detent) |
 | Push | Pomodoro start / pause / resume | play / pause |
 | Double push | — | next track |
-| Long push | Pomodoro stop | previous track |
+| Long push (fires at 1.5 s of holding, with a ring; #287) | Pomodoro stop | previous track |
 | Push and turn | change page | change page |
 | Swipe up / down (touch, `swipe_pages`) | next / previous page | next / previous page |
 | Hold 10 s, then turn right one full turn (still holding) | factory reset | factory reset |
@@ -46,6 +47,8 @@ One rule for every page: **push and turn** (hold the knob down while turning) ch
 Detent count per turn and double-push timing need tuning on hardware.
 
 The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember instead of BLE: turn = volume (Plex / Apple Music's own level, 2 points per detent), push = play/pause; a tap shows on-screen ⏮ ⏯ ⏭ (the first tap only shows them), swipe left / right = next / previous track; double and long push do nothing there. See `features.md` "Now-playing controls" and "Touch controls on the music page".
+
+The **day** page: push on Off = clock in with the last stop time; turn = today's stop time ±15 min (the start time ±5 min on the offer); push = break / resume; long push = clock out (dismiss the offer); taps are pushes; each face names its controls on its top line. See `features.md` "Day clock page".
 
 The **weather** page: turn = next / previous weather face (it opens on the most relevant one); push does nothing. See `features.md` "Weather face switching".
 

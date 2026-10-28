@@ -88,6 +88,7 @@ static double pomo_client_now(void) { return 0; }
 static bool pomo_client_next_action(int a, pomo_press_t *in) { (void)a; (void)in; return false; }
 static void pomo_client_run_action(pomo_press_t in, http_conn_t *c, char *b, int n) { (void)in; (void)c; (void)b; (void)n; }
 static void pomo_client_log_state(void) {}
+static void day_client_run(http_conn_t *c) { (void)c; }
 static bool s_conditional;
 static bool knob_view_conditional(const knob_view_state_t *v) { (void)v; return s_conditional; }
 static const char *view_etag_get(const view_etag_t *e) { return e->etag; }

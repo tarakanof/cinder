@@ -40,6 +40,7 @@ static void note(const char *what)
 STUB_PAGE(bot, "bot")
 STUB_PAGE(pomo, "pomo")
 STUB_PAGE(np, "np")
+STUB_PAGE(day, "day")
 
 void page_weather_show(bool on) { note(on ? "weather+" : "weather-"); }
 

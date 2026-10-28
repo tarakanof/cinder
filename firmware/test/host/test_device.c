@@ -11,7 +11,7 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 #define SERVER_DEFAULTS \
-    "{\"brightness\":{\"follow_ember\":true,\"level\":153,\"floor\":10,\"startup\":153},\"pages\":[{\"id\":\"bot\",\"on\":true},{\"id\":\"pomodoro\",\"on\":true},{\"id\":\"weather\",\"on\":true}],\"home\":\"bot\",\"poll_ms\":2000,\"bot\":{\"sleepy_after_s\":300,\"demo_hold_s\":20,\"source_label\":true,\"working_ring\":true},\"display\":{\"fast_link\":true}}"
+    "{\"brightness\":{\"follow_ember\":true,\"level\":153,\"floor\":10,\"startup\":153},\"pages\":[{\"id\":\"bot\",\"on\":true},{\"id\":\"day\",\"on\":true},{\"id\":\"weather\",\"on\":true}],\"home\":\"bot\",\"poll_ms\":2000,\"bot\":{\"sleepy_after_s\":300,\"demo_hold_s\":20,\"source_label\":true,\"working_ring\":true},\"display\":{\"fast_link\":true}}"
 
 static const char *const KNOWN[] = {"bot", "pomodoro", "weather"};
 
