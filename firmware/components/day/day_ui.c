@@ -45,14 +45,13 @@ static day_at_t day_at(const day_ui_t *ui, const day_in_t *in)
 void day_ui_init(day_ui_t *ui)
 {
     memset(ui, 0, sizeof *ui);
-    ui->set_stop = ui->stop = ui->offer_base = ui->offer_at = DAY_NONE;
+    ui->stop = ui->offer_base = ui->offer_at = DAY_NONE;
 }
 
 void day_ui_sync(day_ui_t *ui, const day_in_t *in, double t)
 {
     const day_block_t *b = in->b;
     if (!b) return;
-    if (b->state != DAY_OFF || t - ui->set_at > DAY_SET_IDLE_S) ui->set = false;
     if (!b->summary.has || b->state != DAY_OFF) {
         ui->summary_seen = ui->summary_done = false;
     } else if (!ui->summary_seen) {
@@ -87,7 +86,6 @@ day_face_t day_ui_face(const day_ui_t *ui, const day_in_t *in, double t)
     }
     if (b->summary.has && !ui->summary_done && (!ui->summary_seen || t - ui->summary_at < DAY_SUMMARY_S))
         return DAY_FACE_SUMMARY;
-    if (ui->set) return DAY_FACE_SET;
     if (b->offer_start != DAY_NONE) return DAY_FACE_OFFER;
     return DAY_FACE_OFF;
 }
@@ -108,10 +106,6 @@ int day_ui_turn(day_ui_t *ui, const day_in_t *in, int detents, double t, day_act
     (void)out;
     if (!detents) return 0;
     switch (day_ui_face(ui, in, t)) {
-    case DAY_FACE_SET:
-        ui->set_stop = day_step(ui->set_stop, detents, DAY_STOP_STEP);
-        ui->set_at = t;
-        break;
     case DAY_FACE_ON:
     case DAY_FACE_PAST: {
         day_at_t a = day_at(ui, in);
@@ -147,13 +141,7 @@ int day_ui_push(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_AC
     int n = 0;
     switch (day_ui_face(ui, in, t)) {
     case DAY_FACE_OFF:
-        ui->set = true;
-        ui->set_stop = default_stop(b);
-        ui->set_at = t;
-        return 0;
-    case DAY_FACE_SET:
-        ui->set_at = t;
-        out[0] = (day_act_t){.kind = DAY_ACT_START, .stop_at = ui->set_stop, .at = DAY_NONE};
+        out[0] = (day_act_t){.kind = DAY_ACT_START, .stop_at = default_stop(b), .at = DAY_NONE};
         return 1;
     case DAY_FACE_ON:
     case DAY_FACE_PAST:
@@ -180,9 +168,6 @@ int day_ui_long(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_AC
     if (in->busy) return 0;
     int n = 0;
     switch (day_ui_face(ui, in, t)) {
-    case DAY_FACE_SET:
-        ui->set = false;
-        return 0;
     case DAY_FACE_ON:
     case DAY_FACE_PAST:
     case DAY_FACE_BREAK:
@@ -253,27 +238,6 @@ static void panel(day_panel_t *p, const char *val, const char *cap)
 static const char *const TIPS[] = {"stand up and stretch", "get a glass of water", "look out a window",
                                    "walk around the room"};
 
-static void face_set(const day_ui_t *ui, const day_block_t *b, const day_at_t *a, day_model_t *m)
-{
-    char v[16];
-    day_hhmm(ui->set_stop, v, sizeof v);
-    panel(&m->mid, v, "stop at");
-    int r = b->replies_off_last_night;
-    if (r > 0) {
-        snprintf(m->low.val, sizeof m->low.val, "%d %s", r, r == 1 ? "reply" : "replies");
-        snprintf(m->low.cap, sizeof m->low.cap, "off the clock last night");
-    } else if (a->now != DAY_NONE) {
-        length(day_fwd(a->now, ui->set_stop), v, sizeof v);
-        panel(&m->low, v, "planned");
-    }
-    m->marks = true;
-    seg(m, a->now, ui->set_stop, day_scale(DAY_ACCENT, 0.3f));
-    m->dot = a->now;
-    m->dot_rgb = DAY_TEXT;
-    m->tick = ui->set_stop;
-    m->tick_rgb = DAY_ACCENT;
-}
-
 static void turning_panels(const day_at_t *a, day_model_t *m)
 {
     char v[16];
@@ -296,7 +260,7 @@ static void face_on(const day_block_t *b, const day_at_t *a, day_model_t *m)
     hm(a->on, v, sizeof v);
     panel(&m->mid, v, "on the clock");
     if (b->break_hint) {
-        panel(&m->low, "time for a break", "push");
+        panel(&m->low, "time for a break", "");
     } else if (a->stop != DAY_NONE) {
         day_hhmm(a->stop, v, sizeof v);
         panel(&m->low, v, "stop at");
@@ -332,7 +296,8 @@ static void face_past(const day_block_t *b, const day_at_t *a, day_model_t *m)
     char v[16];
     day_hhmm(a->now, v, sizeof v);
     panel(&m->mid, v, "past your stop");
-    panel(&m->low, "long push", "to clock out");
+    day_hhmm(a->stop, v, sizeof v);
+    panel(&m->low, v, "stop at");
     m->marks = true;
     bool before = b->started != DAY_NONE && a->now != DAY_NONE && a->stop != DAY_NONE &&
                   day_fwd(b->started, a->stop) > day_fwd(b->started, a->now);
@@ -354,7 +319,7 @@ static void face_offer(const day_ui_t *ui, const day_at_t *a, day_model_t *m)
     char v[16];
     day_hhmm(ui->offer_at, v, sizeof v);
     panel(&m->mid, v, "start from here?");
-    panel(&m->low, "first reply seen", "push to start");
+    panel(&m->low, "first reply seen", "");
     m->marks = true;
     if (a->now != DAY_NONE && day_fwd(ui->offer_at, a->now) <= HALF_DAY) seg(m, ui->offer_at, a->now, DAY_ACCENT);
     m->dot = ui->offer_at;
@@ -383,13 +348,29 @@ static void face_off(const day_block_t *b, day_model_t *m)
     panel(&m->mid, "off", "");
     m->mid.big = 48;
     m->mid.rgb = DAY_OFF_TEXT;
-    if (b->agents == 0) panel(&m->low, "no agents", "working");
+    int r = b->replies_off_last_night;
+    if (r > 0) {
+        snprintf(m->low.val, sizeof m->low.val, "%d %s", r, r == 1 ? "reply" : "replies");
+        snprintf(m->low.cap, sizeof m->low.cap, "off the clock last night");
+    } else if (b->agents == 0) panel(&m->low, "no agents", "working");
     else if (b->agents > 0) {
         snprintf(m->low.val, sizeof m->low.val, "%d %s", b->agents, b->agents == 1 ? "agent" : "agents");
         snprintf(m->low.cap, sizeof m->low.cap, "working");
     }
     m->off_ring = true;
     m->moon = true;
+}
+
+static const char *hint(day_face_t f)
+{
+    switch (f) {
+    case DAY_FACE_OFF: return "push to start the day";
+    case DAY_FACE_ON:
+    case DAY_FACE_PAST: return "push: break, hold: clock out";
+    case DAY_FACE_BREAK: return "push: back to work, hold: clock out";
+    case DAY_FACE_OFFER: return "push: start, hold: dismiss";
+    default: return "";
+    }
 }
 
 void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *note, day_model_t *m)
@@ -404,7 +385,6 @@ void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *not
         day_at_t a = day_at(ui, in);
         m->turning = (m->face == DAY_FACE_ON || m->face == DAY_FACE_PAST) && ui->stop_dirty;
         switch (m->face) {
-        case DAY_FACE_SET: face_set(ui, in->b, &a, m); break;
         case DAY_FACE_ON: face_on(in->b, &a, m); break;
         case DAY_FACE_BREAK: face_break(in->b, &a, m); break;
         case DAY_FACE_PAST: face_past(in->b, &a, m); break;
@@ -413,6 +393,7 @@ void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *not
         default: face_off(in->b, m); break;
         }
         if (m->turning) turning_panels(&a, m);
+        else snprintf(m->hint, sizeof m->hint, "%s", hint(m->face));
     }
     if (note) {
         memset(&m->low, 0, sizeof m->low);

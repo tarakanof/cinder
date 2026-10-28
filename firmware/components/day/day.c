@@ -150,6 +150,17 @@ int day_act_body(const day_act_t *a, char *buf, size_t n)
 
 const char *day_face_name(day_face_t f)
 {
-    static const char *const NAMES[] = {"wait", "off", "set", "on", "break", "past", "offer", "summary"};
+    static const char *const NAMES[] = {"wait", "off", "on", "break", "past", "offer", "summary"};
     return (unsigned)f < sizeof NAMES / sizeof NAMES[0] ? NAMES[f] : "?";
+}
+
+const char *day_hold_label(day_face_t f)
+{
+    switch (f) {
+    case DAY_FACE_ON:
+    case DAY_FACE_PAST:
+    case DAY_FACE_BREAK: return "clock out";
+    case DAY_FACE_OFFER: return "dismiss";
+    default: return NULL;
+    }
 }

@@ -38,7 +38,7 @@ One rule for every page: **push and turn** (hold the knob down while turning) ch
 | Turn | eyes follow the ring | volume up / down (one step per detent) |
 | Push | Pomodoro start / pause / resume | play / pause |
 | Double push | — | next track |
-| Long push | Pomodoro stop | previous track |
+| Long push (fires at 1.5 s of holding, with a ring; #287) | Pomodoro stop | previous track |
 | Push and turn | change page | change page |
 | Swipe up / down (touch, `swipe_pages`) | next / previous page | next / previous page |
 | Hold 10 s, then turn right one full turn (still holding) | factory reset | factory reset |
@@ -48,7 +48,7 @@ Detent count per turn and double-push timing need tuning on hardware.
 
 The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember instead of BLE: turn = volume (Plex / Apple Music's own level, 2 points per detent), push = play/pause; a tap shows on-screen ⏮ ⏯ ⏭ (the first tap only shows them), swipe left / right = next / previous track; double and long push do nothing there. See `features.md` "Now-playing controls" and "Touch controls on the music page".
 
-The **day** page: turn = today's stop time ±15 min (the start time ±5 min on the offer), push = clock in / break / resume, long push = clock out (or leave Set, dismiss the offer); taps are pushes. See `features.md` "Day clock page".
+The **day** page: push on Off = clock in with the last stop time; turn = today's stop time ±15 min (the start time ±5 min on the offer); push = break / resume; long push = clock out (dismiss the offer); taps are pushes; each face names its controls on its top line. See `features.md` "Day clock page".
 
 The **weather** page: turn = next / previous weather face (it opens on the most relevant one); push does nothing. See `features.md` "Weather face switching".
 

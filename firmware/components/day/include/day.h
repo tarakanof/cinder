@@ -19,7 +19,6 @@ extern "C" {
 
 #define DAY_TURN_DEBOUNCE_S 1.5
 #define DAY_STOP_HOLD_S 5.0
-#define DAY_SET_IDLE_S 60.0
 #define DAY_SUMMARY_S 5.0
 #define DAY_BUSY_S 3.0
 #define DAY_NOTE_S 4.0
@@ -75,7 +74,6 @@ uint32_t day_scale(uint32_t rgb, float k);
 typedef enum {
     DAY_FACE_WAIT,
     DAY_FACE_OFF,
-    DAY_FACE_SET,
     DAY_FACE_ON,
     DAY_FACE_BREAK,
     DAY_FACE_PAST,
@@ -108,6 +106,8 @@ bool day_act_put(day_act_kind_t k);
 /* JSON body; length, or -1 when it does not fit n. */
 int day_act_body(const day_act_t *a, char *buf, size_t n);
 const char *day_face_name(day_face_t f);
+/* What a long push does on face f, for the hold ring; NULL: nothing. */
+const char *day_hold_label(day_face_t f);
 
 typedef struct {
     const day_block_t *b;   /* NULL: no block */
@@ -119,9 +119,6 @@ typedef struct {
 } day_in_t;
 
 typedef struct {
-    bool set;
-    int set_stop;
-    double set_at;
     int stop;               /* the stop time turned on On or Past; DAY_NONE: the view's */
     int stop_base;          /* the view's stop time when the turning began */
     int stop_delta;         /* minutes the turns moved it, signed, from stop_base */
@@ -133,7 +130,7 @@ typedef struct {
 } day_ui_t;
 
 void day_ui_init(day_ui_t *ui);
-/* Every frame, before input: Set closes once the day runs or after DAY_SET_IDLE_S, the offer and summary follow the view. */
+/* Every frame, before input: the offer, the summary and a turned stop time follow the view. */
 void day_ui_sync(day_ui_t *ui, const day_in_t *in, double t);
 day_face_t day_ui_face(const day_ui_t *ui, const day_in_t *in, double t);
 /* Each returns the actions to send, in order, in out (at most DAY_ACTS). */
@@ -165,6 +162,7 @@ typedef struct {
     day_face_t face;
     bool turning;       /* On or Past stop with a turned stop time not yet sent: the drum shows it in the centre */
     day_panel_t top, mid, low;   /* top only while turning */
+    char hint[48];      /* the face's controls, above the panels; empty while turning */
     bool marks;         /* 00 06 12 18 */
     bool off_ring;      /* the thin dark ring of the Off face instead of the track */
     int n_segs;

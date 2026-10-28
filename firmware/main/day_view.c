@@ -24,8 +24,9 @@ LV_FONT_DECLARE(font_face_36);
 #define MARK_W 44
 #define TEXT_W 400
 #define CHECK_Y 151
-#define MOON 92
-#define BITE 76
+#define MOON 80
+#define BITE 66
+#define HINT_Y 118
 
 typedef struct {
     lv_obj_t *o;
@@ -45,7 +46,8 @@ typedef struct {
 } day_text_t;
 
 static lv_obj_t *s_root;
-static EXT_RAM_BSS_ATTR lv_obj_t *s_track, *s_dot, *s_moon, *s_bite, *s_check;
+static EXT_RAM_BSS_ATTR lv_obj_t *s_track, *s_dot, *s_moon, *s_bite, *s_check, *s_hint;
+static EXT_RAM_BSS_ATTR char s_hint_txt[48];
 static EXT_RAM_BSS_ATTR day_text_t s_txt[DAY_DRUM_SLOTS];
 static EXT_RAM_BSS_ATTR day_roll_t s_roll;
 static EXT_RAM_BSS_ATTR lv_obj_t *s_marks[4];
@@ -167,8 +169,8 @@ void day_view_create(lv_obj_t *parent)
 
     s_dot = disc(s_root, DOT, CX, CY - RING_R, DAY_TEXT);
     lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
-    s_moon = disc(s_root, MOON, CX + 10, CY - 77, 0x3A3A3A);
-    s_bite = disc(s_root, BITE, CX + 41, CY - 97, 0x000000);
+    s_moon = disc(s_root, MOON, CX + 10, CY - 63, 0x3A3A3A);
+    s_bite = disc(s_root, BITE, CX + 37, CY - 80, 0x000000);
     lv_obj_add_flag(s_moon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_bite, LV_OBJ_FLAG_HIDDEN);
 
@@ -178,6 +180,9 @@ void day_view_create(lv_obj_t *parent)
     lv_obj_set_pos(s_check, CX - 60, CHECK_Y - lv_font_montserrat_48.line_height / 2);
     lv_obj_add_flag(s_check, LV_OBJ_FLAG_HIDDEN);
 
+    s_hint = text(s_root, &lv_font_montserrat_24, TEXT_W);
+    lv_obj_set_style_text_color(s_hint, lv_color_hex(DAY_NOTE), 0);
+    lv_obj_set_pos(s_hint, CX - TEXT_W / 2, top_for(&lv_font_montserrat_24, HINT_Y));
     for (int i = 0; i < DAY_DRUM_SLOTS; i++) {
         day_text_t *x = &s_txt[i];
         *x = (day_text_t){.val = text(s_root, &font_digits_96, TEXT_W), .cap = text(s_root, &lv_font_montserrat_30, TEXT_W)};
@@ -282,7 +287,11 @@ void day_view_update(const day_model_t *m, double t)
     show(s_moon, m->moon);
     show(s_bite, m->moon);
     show(s_check, m->check);
-    day_slot_t sl[DAY_DRUM_SLOTS];
+    if (!s_drawn || strcmp(m->hint, s_hint_txt) != 0) {
+        snprintf(s_hint_txt, sizeof s_hint_txt, "%s", m->hint);
+        lv_label_set_text(s_hint, s_hint_txt);
+    }
+    static EXT_RAM_BSS_ATTR day_slot_t sl[DAY_DRUM_SLOTS];
     int n = day_roll_slots(&s_roll, m, t, sl);
     for (int i = 0; i < DAY_DRUM_SLOTS; i++) {
         if (i < n) text_set(&s_txt[i], &sl[i]);

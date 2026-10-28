@@ -94,7 +94,7 @@ static void test_parse(void)
     CHECK(b.summary.has && b.summary.on_min == 860 && !b.summary.in_range && b.summary.week_in_range == 0 &&
               b.summary.week_days == 1 && b.agents == 0 && b.started == DAY_NONE,
           "summary");
-    b = fixture("view_day_set_replies.json");
+    b = fixture("view_day_off_replies.json");
     CHECK(b.replies_off_last_night == 2 && b.stop_at == HM(23, 45), "replies");
 
     knob_view_t *v = calloc(1, sizeof *v);
@@ -159,7 +159,7 @@ static bool act_is(const day_act_t *a, day_act_kind_t k, int stop, int at)
     return a->kind == k && a->stop_at == stop && a->at == at;
 }
 
-static void test_off_set(void)
+static void test_off(void)
 {
     day_block_t b = fixture("view_day_off.json");
     day_ui_t ui;
@@ -169,35 +169,23 @@ static void test_off_set(void)
     CHECK(face(&ui, &in, 10) == DAY_FACE_OFF, "off");
     CHECK(day_ui_turn(&ui, &in, 3, 10, a) == 0 && face(&ui, &in, 10) == DAY_FACE_OFF, "off: turn does nothing");
     CHECK(day_ui_long(&ui, &in, 10, a) == 0 && face(&ui, &in, 10) == DAY_FACE_OFF, "off: long push does nothing");
-    CHECK(day_ui_push(&ui, &in, 10, a) == 0 && face(&ui, &in, 10) == DAY_FACE_SET && ui.set_stop == 0,
-          "off: push opens Set at the view's stop time");
-    CHECK(day_ui_turn(&ui, &in, -3, 11, a) == 0 && ui.set_stop == HM(23, 15), "set: turn -3 = 23:15: %d", ui.set_stop);
-    CHECK(day_ui_turn(&ui, &in, 1, 12, a) == 0 && ui.set_stop == HM(23, 30), "set: turn +1");
-    CHECK(day_ui_push(&ui, &in, 13, a) == 1 && act_is(&a[0], DAY_ACT_START, HM(23, 30), DAY_NONE),
-          "set: push starts with the chosen stop");
-    CHECK(face(&ui, &in, 13.2) == DAY_FACE_SET, "Set stays until the view says on");
+    CHECK(day_ui_push(&ui, &in, 10, a) == 1 && act_is(&a[0], DAY_ACT_START, 0, DAY_NONE),
+          "off: one push starts the day with the view's stop time");
+    CHECK(face(&ui, &in, 10.2) == DAY_FACE_OFF, "Off until the view says on");
     day_block_t on = fixture("view_day_on_early.json");
     day_in_t in_on = at_now(&on, HM(15, 42));
-    CHECK(face(&ui, &in_on, 14) == DAY_FACE_ON && !ui.set, "the view's on closes Set");
-    CHECK(face(&ui, &in, 15) == DAY_FACE_OFF, "back off: Off, not Set");
+    CHECK(face(&ui, &in_on, 11) == DAY_FACE_ON, "then On");
 
-    day_ui_init(&ui);
-    day_ui_push(&ui, &in, 100, a);
-    CHECK(day_ui_long(&ui, &in, 101, a) == 0 && face(&ui, &in, 101) == DAY_FACE_OFF, "set: long push goes Off");
-    day_ui_push(&ui, &in, 200, a);
-    day_ui_turn(&ui, &in, 1, 230, a);
-    CHECK(face(&ui, &in, 230 + DAY_SET_IDLE_S - 1) == DAY_FACE_SET, "set: open within the idle time");
-    CHECK(face(&ui, &in, 230 + DAY_SET_IDLE_S + 1) == DAY_FACE_OFF, "set: closes after DAY_SET_IDLE_S without input");
-
-    day_block_t r = fixture("view_day_set_replies.json");
+    day_block_t r = fixture("view_day_off_replies.json");
     day_in_t in_r = at_now(&r, HM(9, 0));
     day_ui_init(&ui);
-    day_ui_push(&ui, &in_r, 1, a);
-    CHECK(ui.set_stop == HM(23, 45), "Set opens at the last stop time used");
+    CHECK(day_ui_push(&ui, &in_r, 1, a) == 1 && act_is(&a[0], DAY_ACT_START, HM(23, 45), DAY_NONE),
+          "the last stop time used");
     b.stop_at = DAY_NONE;
     day_ui_init(&ui);
-    day_ui_push(&ui, &in, 1, a);
-    CHECK(ui.set_stop == 0, "no stop time in the view: 00:00");
+    CHECK(day_ui_push(&ui, &in, 1, a) == 1 && act_is(&a[0], DAY_ACT_START, 0, DAY_NONE), "no stop time in the view: 00:00");
+    in.busy = true;
+    CHECK(day_ui_push(&ui, &in, 2, a) == 0, "busy: the push is dropped");
 }
 
 static void test_on_break_past(void)
@@ -389,7 +377,7 @@ static void test_offer_summary(void)
     day_ui_init(&ui);
     face(&ui, &in_s, 200);
     CHECK(day_ui_push(&ui, &in_s, 201, a) == 0 && face(&ui, &in_s, 201) == DAY_FACE_OFF, "summary: push goes Off");
-    CHECK(day_ui_push(&ui, &in_s, 202, a) == 0 && face(&ui, &in_s, 202) == DAY_FACE_SET, "then a push opens Set");
+    CHECK(day_ui_push(&ui, &in_s, 202, a) == 1 && a[0].kind == DAY_ACT_START, "then a push starts a day");
     day_block_t off = fixture("view_day_off.json");
     day_in_t in_off = at_now(&off, HM(23, 2));
     day_ui_init(&ui);
@@ -452,41 +440,40 @@ static void test_models(void)
     CHECK(m.low.val[0] == 0 && m.low.cap[0] == 0, "no count: %s", m.low.val);
     b.agents = 3;
 
-    day_ui_push(&ui, &in, 0, a);
-    day_model(&ui, &in, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_SET && strcmp(m.mid.val, "00:00") == 0 && strcmp(m.mid.cap, "stop at") == 0 &&
-              strcmp(m.low.val, "13 h 45 min") == 0 && strcmp(m.low.cap, "planned") == 0 && m.marks && m.n_segs == 1 && m.seg[0].from == HM(10, 15) &&
-              m.seg[0].to == 0 && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.3f) && m.tick == 0 &&
-              m.tick_rgb == DAY_ACCENT && m.dot == HM(10, 15),
-          "set face (mockup 1): %s %s %s", m.mid.val, m.mid.cap, m.low.val);
-    in.now_min = HM(23, 15);
-    day_model(&ui, &in, 0, NULL, &m);
-    CHECK(strcmp(m.low.val, "45 min") == 0, "%s", m.low.val);
-    in.now_min = HM(10, 0);
-    day_model(&ui, &in, 0, NULL, &m);
-    CHECK(strcmp(m.low.val, "14 h") == 0, "%s", m.low.val);
-    in.now_min = DAY_NONE;
-    day_model(&ui, &in, 0, NULL, &m);
-    CHECK(m.low.val[0] == 0 && m.n_segs == 0 && m.dot == DAY_NONE && m.tick == 0, "no clock: no length, no head");
+    CHECK(strcmp(m.hint, "push to start the day") == 0, "off hint: %s", m.hint);
 
-    day_block_t r = fixture("view_day_set_replies.json");
+    day_block_t r = fixture("view_day_off_replies.json");
     day_in_t in_r = at_now(&r, HM(10, 15));
     day_ui_init(&ui);
-    day_ui_push(&ui, &in_r, 0, a);
     day_model(&ui, &in_r, 0, NULL, &m);
-    CHECK(strcmp(m.mid.val, "23:45") == 0 && strcmp(m.low.val, "2 replies") == 0 &&
+    CHECK(m.face == DAY_FACE_OFF && strcmp(m.low.val, "2 replies") == 0 &&
               strcmp(m.low.cap, "off the clock last night") == 0,
-          "set face after an off-clock night (mockup 8): %s", m.low.val);
+          "after an off-clock night the Off face says so (mockup 8): %s", m.low.val);
     r.replies_off_last_night = 1;
     day_model(&ui, &in_r, 0, NULL, &m);
     CHECK(strcmp(m.low.val, "1 reply") == 0, "%s", m.low.val);
+
+    day_block_t le = fixture("view_day_on_early.json");
+    day_in_t in_le = at_now(&le, HM(23, 15));
+    static const struct {
+        int detents;
+        const char *len;
+    } LEN[] = {{-1, "30 min"}, {5, "1 h 45 min"}, {5, "3 h"}};
+    day_ui_init(&ui);
+    for (int k = 0; k < 3; k++) {
+        day_ui_turn(&ui, &in_le, LEN[k].detents, k, a);
+        day_model(&ui, &in_le, k, NULL, &m);
+        CHECK(m.turning && strcmp(m.low.val, LEN[k].len) == 0 && strcmp(m.low.cap, "planned") == 0 && !m.hint[0],
+              "turning: what is left, no hint: %s", m.low.val);
+    }
 
     day_block_t on = fixture("view_day_on_early.json");
     day_in_t in_on = at_now(&on, HM(15, 42));
     day_ui_init(&ui);
     day_model(&ui, &in_on, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_ON && strcmp(m.mid.val, "4:53") == 0 && strcmp(m.mid.cap, "on the clock") == 0 &&
-              strcmp(m.low.val, "00:00") == 0 && strcmp(m.low.cap, "stop at") == 0 && !m.turning && m.n_segs == 3 && m.seg[0].from == HM(10, 15) &&
+              strcmp(m.low.val, "00:00") == 0 && strcmp(m.low.cap, "stop at") == 0 && !m.turning &&
+              strcmp(m.hint, "push: break, hold: clock out") == 0 && m.n_segs == 3 && m.seg[0].from == HM(10, 15) &&
               m.seg[0].to == HM(13, 0) && m.seg[0].rgb == DAY_ACCENT && m.seg[1].from == HM(13, 34) &&
               m.seg[1].to == HM(15, 42) && m.seg[1].rgb == DAY_ACCENT && m.seg[2].from == HM(15, 42) &&
               m.seg[2].to == 0 && m.tick == 0 && m.dot == HM(15, 42) && m.dot_rgb == DAY_TEXT && !m.glow,
@@ -497,7 +484,7 @@ static void test_models(void)
     in_on.age_s = 0;
     on.break_hint = true;
     day_model(&ui, &in_on, 0, NULL, &m);
-    CHECK(strcmp(m.low.val, "time for a break") == 0 && strcmp(m.low.cap, "push") == 0, "break hint: %s", m.low.val);
+    CHECK(strcmp(m.low.val, "time for a break") == 0 && !m.low.cap[0], "break hint: %s", m.low.val);
     on.break_hint = false;
     in_on.now_min = DAY_NONE;
     day_model(&ui, &in_on, 0, NULL, &m);
@@ -507,7 +494,8 @@ static void test_models(void)
     day_in_t in_b = at_now(&br, HM(16, 17));
     day_model(&ui, &in_b, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_BREAK && strcmp(m.mid.val, "0:12") == 0 && strcmp(m.mid.cap, "step away") == 0 &&
-              strcmp(m.low.val, "stand up and stretch") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
+              strcmp(m.low.val, "stand up and stretch") == 0 &&
+              strcmp(m.hint, "push: back to work, hold: clock out") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
               m.seg[0].to == HM(14, 0) && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.55f) && m.seg[1].from == HM(14, 35) &&
               m.seg[1].to == HM(16, 5) && m.seg[2].from == HM(16, 5) && m.seg[2].to == HM(16, 17) &&
               m.seg[2].rgb == DAY_BREAK_RGB && m.dot == HM(16, 17) && m.dot_rgb == DAY_BREAK_RGB && m.tick == DAY_NONE,
@@ -525,7 +513,8 @@ static void test_models(void)
     day_in_t in_p = at_now(&p, HM(2, 20));
     day_model(&ui, &in_p, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_PAST && strcmp(m.mid.val, "02:20") == 0 && strcmp(m.mid.cap, "past your stop") == 0 &&
-              strcmp(m.low.val, "long push") == 0 && strcmp(m.low.cap, "to clock out") == 0 && m.n_segs == 2 && m.seg[0].from == HM(12, 0) &&
+              strcmp(m.low.val, "00:00") == 0 && strcmp(m.low.cap, "stop at") == 0 &&
+              strcmp(m.hint, "push: break, hold: clock out") == 0 && m.n_segs == 2 && m.seg[0].from == HM(12, 0) &&
               m.seg[0].to == 0 && m.seg[1].from == 0 && m.seg[1].to == HM(2, 20) &&
               m.seg[1].rgb == day_scale(DAY_ACCENT, 0.4f) && m.tick == 0 && m.tick_rgb == DAY_TEXT &&
               m.dot == HM(2, 20) && m.glow,
@@ -558,7 +547,7 @@ static void test_models(void)
     day_model(&ui, &in_s, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_SUMMARY && m.check && strcmp(m.mid.val, "14:20") == 0 &&
               strcmp(m.mid.cap, "past your stop") == 0 && strcmp(m.low.val, "0 of 1") == 0 &&
-              strcmp(m.low.cap, "day this week") == 0 && !m.marks && m.n_segs == 0 && m.tick == 0 && m.dot == DAY_NONE,
+              strcmp(m.low.cap, "day this week") == 0 && !m.hint[0] && !m.marks && m.n_segs == 0 && m.tick == 0 && m.dot == DAY_NONE,
           "Ember's summary golden: %s %s %s", m.mid.val, m.mid.cap, m.low.val);
     s.summary = (day_summary_t){.has = true, .on_min = 756, .in_range = true, .week_in_range = 4, .week_days = 5};
     s.started = HM(10, 15);
@@ -574,7 +563,8 @@ static void test_models(void)
     day_ui_sync(&ui, &in_o, 0);
     day_model(&ui, &in_o, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_OFFER && strcmp(m.mid.val, "09:52") == 0 && strcmp(m.mid.cap, "start from here?") == 0 &&
-              strcmp(m.low.val, "first reply seen") == 0 && strcmp(m.low.cap, "push to start") == 0 && m.n_segs == 1 && m.seg[0].from == HM(9, 52) &&
+              strcmp(m.low.val, "first reply seen") == 0 && !m.low.cap[0] &&
+              strcmp(m.hint, "push: start, hold: dismiss") == 0 && m.n_segs == 1 && m.seg[0].from == HM(9, 52) &&
               m.seg[0].to == HM(9, 57) && m.dot == HM(9, 52) && m.tick == DAY_NONE,
           "offer face (mockup 7): %s %s %s", m.mid.val, m.mid.cap, m.low.val);
 
@@ -690,6 +680,15 @@ static void test_drum(void)
     CHECK(r.kind == DAY_ROLL_FACE, "On to Past stop without turning: a face roll");
 }
 
+static void test_hold_labels(void)
+{
+    CHECK(strcmp(day_hold_label(DAY_FACE_ON), "clock out") == 0 && strcmp(day_hold_label(DAY_FACE_PAST), "clock out") == 0 &&
+              strcmp(day_hold_label(DAY_FACE_BREAK), "clock out") == 0 && strcmp(day_hold_label(DAY_FACE_OFFER), "dismiss") == 0,
+          "faces with a long push name it");
+    CHECK(!day_hold_label(DAY_FACE_OFF) && !day_hold_label(DAY_FACE_SUMMARY) && !day_hold_label(DAY_FACE_WAIT),
+          "faces without one: no ring");
+}
+
 static void test_actions(void)
 {
     char buf[64];
@@ -730,12 +729,13 @@ int main(int argc, char **argv)
     dirs[1] = argv[2];
     test_time();
     test_parse();
-    test_off_set();
+    test_off();
     test_on_break_past();
     test_offer_summary();
     test_busy_and_wait();
     test_models();
     test_drum();
+    test_hold_labels();
     test_actions();
     if (failures) {
         printf("day: %d failure(s)\n", failures);
