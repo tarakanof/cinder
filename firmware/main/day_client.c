@@ -175,7 +175,7 @@ void day_client_run(http_conn_t *conn)
         strlcat(s_io.url, "/v1/day/", sizeof s_io.url);
         strlcat(s_io.url, path, sizeof s_io.url);
         bool put = day_act_put(q.a.kind);
-        http_req_opts_t o = {.idempotent = put, .auth = true};
+        http_req_opts_t o = {.idempotent = true, .auth = true};
         if (put) {
             o.stream_len = len;
             o.read = put_read;
@@ -220,7 +220,7 @@ const char *day_client_note(const day_snapshot_t *s, double now)
     if (s->status && now - s->status_at < DAY_NOTE_S) {
         switch (s->status) {
         case 401: return "not paired";
-        case 404: return "update Ember";
+        case 404: return "day clock off";
         case 409: return "changed: try again";
         case 429: return "slow down";
         case -1: return "no connection";

@@ -861,7 +861,7 @@ cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I
 cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$H/include" -I"$J" \
     "$K/knob_view.c" "$DY/day.c" "$DY/day_ui.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$J/cJSON.c" \
     "$D/test_day.c" -lm -o "${OUT}_day"
-"${OUT}_day" "$D/fixtures/day"
+"${OUT}_day" "$D/fixtures/ember" "$D/fixtures/day"
 cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
     "$K/knob_view.c" "$DY/day.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" \
     "$D/test_demo.c" -lm -o "${OUT}_demo"

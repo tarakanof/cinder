@@ -21,7 +21,7 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 |---|---|---|
 | **Bot** (home) | Ember bot face; mood from the winning session state; in waiting/error the host label (e.g. `M4`) under the face | `GET /state` (`render.source`, else the winning session), port of Ember's bot |
 | **Pomodoro** | arc around the bezel + time left | `GET /v1/pomodoro/state` |
-| **Day** | 24-hour dial: clock in and out, today's stop time (built, `features.md` "Day clock page") | the view's `day` block, `/v1/day/*` |
+| **Day** | 24-hour dial: clock in and out, today's stop time; in Pomodoro's place in the default pages (built, `features.md` "Day clock page") | the view's `day` block, `/v1/day/*` |
 | **Media** | volume arc, play/pause icon, BLE link state | BLE HID (below) |
 | **Usage** | 5 h / weekly gauges per Claude or Codex account: screens behind a tap on the bot face, not a page (built, `features.md` "Usage screens") | the view's `usage` block |
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |

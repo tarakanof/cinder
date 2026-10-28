@@ -10,7 +10,7 @@
     "break_min": 0,
     "over_min": 0,
     "replies_off_last_night": 2,
-    "agents": 1,
-    "break_hint": false
-  }
+    "agents": 1
+  },
+  "weather": null
 }

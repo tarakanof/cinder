@@ -15,7 +15,7 @@ static int wrap(int m) { return ((m % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
 static int guess_now(const day_block_t *b, int e)
 {
     if (b->state == DAY_ON && b->over_min > 0 && b->stop_at != DAY_NONE) return wrap(b->stop_at + b->over_min + e);
-    if (b->state == DAY_ON && b->started != DAY_NONE) return wrap(b->started + b->on_min + e);
+    if (b->state == DAY_ON && b->started != DAY_NONE) return wrap(b->started + b->on_min + b->break_min + e);
     if (b->state == DAY_BREAK && b->started != DAY_NONE) return wrap(b->started + b->on_min + b->break_min + e);
     return DAY_NONE;
 }

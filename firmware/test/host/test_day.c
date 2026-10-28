@@ -9,13 +9,16 @@
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
-static const char *dir;
+static const char *dirs[2];
 
 static char *load(const char *name)
 {
     char path[1024];
-    snprintf(path, sizeof path, "%s/%s", dir, name);
-    FILE *f = fopen(path, "rb");
+    FILE *f = NULL;
+    for (int i = 0; i < 2 && !f; i++) {
+        snprintf(path, sizeof path, "%s/%s", dirs[i], name);
+        f = fopen(path, "rb");
+    }
     if (!f) {
         failures++;
         printf("FAIL: cannot open %s\n", path);
@@ -72,19 +75,21 @@ static void test_time(void)
 
 static void test_parse(void)
 {
-    day_block_t b = fixture("view_day_on.json");
-    CHECK(b.state == DAY_ON && b.started == HM(10, 15) && b.stop_at == 0 && b.on_min == 293 && b.break_min == 0 &&
+    day_block_t b = fixture("view_day_on_early.json");
+    CHECK(b.state == DAY_ON && b.started == HM(10, 15) && b.stop_at == 0 && b.on_min == 293 && b.break_min == 34 &&
               b.over_min == 0 && b.offer_start == DAY_NONE && b.agents == 2 && !b.break_hint && !b.summary.has,
           "on");
     b = fixture("view_day_break.json");
     CHECK(b.state == DAY_BREAK && b.break_min == 15, "break");
-    b = fixture("view_day_past.json");
-    CHECK(b.state == DAY_ON && b.over_min == 18 && b.break_hint && b.agents == 4, "past");
+    b = fixture("view_day_on.json");
+    CHECK(b.state == DAY_ON && b.started == HM(12, 0) && b.on_min == 860 && b.over_min == 140 && b.break_hint &&
+              b.agents == 0,
+          "Ember's on golden: past the stop");
     b = fixture("view_day_offer.json");
     CHECK(b.state == DAY_OFF && b.offer_start == HM(9, 52) && b.started == DAY_NONE, "offer");
     b = fixture("view_day_summary.json");
-    CHECK(b.summary.has && b.summary.on_min == 756 && b.summary.in_range && b.summary.week_in_range == 4 &&
-              b.summary.week_days == 5 && b.agents == 0,
+    CHECK(b.summary.has && b.summary.on_min == 860 && !b.summary.in_range && b.summary.week_in_range == 0 &&
+              b.summary.week_days == 1 && b.agents == 0 && b.started == DAY_NONE,
           "summary");
     b = fixture("view_day_set_replies.json");
     CHECK(b.replies_off_last_night == 2 && b.stop_at == HM(23, 45), "replies");
@@ -139,7 +144,7 @@ static void test_off_set(void)
     CHECK(day_ui_push(&ui, &in, 13, a) == 1 && act_is(&a[0], DAY_ACT_START, HM(23, 30), DAY_NONE),
           "set: push starts with the chosen stop");
     CHECK(face(&ui, &in, 13.2) == DAY_FACE_SET, "Set stays until the view says on");
-    day_block_t on = fixture("view_day_on.json");
+    day_block_t on = fixture("view_day_on_early.json");
     day_in_t in_on = at_now(&on, HM(15, 42));
     CHECK(face(&ui, &in_on, 14) == DAY_FACE_ON && !ui.set, "the view's on closes Set");
     CHECK(face(&ui, &in, 15) == DAY_FACE_OFF, "back off: Off, not Set");
@@ -165,7 +170,7 @@ static void test_off_set(void)
 
 static void test_on_break_past(void)
 {
-    day_block_t b = fixture("view_day_on.json");
+    day_block_t b = fixture("view_day_on_early.json");
     day_ui_t ui;
     day_ui_init(&ui);
     day_in_t in = at_now(&b, HM(15, 42));
@@ -220,21 +225,23 @@ static void test_on_break_past(void)
     CHECK(day_ui_push(&ui, &in_b, 0, a) == 1 && a[0].kind == DAY_ACT_RESUME, "break: push resumes");
     CHECK(day_ui_long(&ui, &in_b, 0, a) == 1 && a[0].kind == DAY_ACT_STOP, "break: long push clocks out");
 
-    day_block_t p = fixture("view_day_past.json");
-    day_in_t in_p = at_now(&p, HM(0, 18));
+    day_block_t p = fixture("view_day_on.json");
+    day_in_t in_p = at_now(&p, HM(2, 20));
     day_ui_init(&ui);
     CHECK(face(&ui, &in_p, 0) == DAY_FACE_PAST, "past");
     CHECK(day_ui_push(&ui, &in_p, 0, a) == 1 && a[0].kind == DAY_ACT_BREAK, "past: push = break");
     CHECK(day_ui_long(&ui, &in_p, 0, a) == 1 && a[0].kind == DAY_ACT_STOP, "past: long push = clock out");
     day_ui_turn(&ui, &in_p, 2, 1, a);
-    CHECK(ui.stop == HM(0, 30) && face(&ui, &in_p, 1) == DAY_FACE_ON, "turning the stop past now is On again");
+    CHECK(ui.stop == HM(0, 30) && face(&ui, &in_p, 1) == DAY_FACE_PAST, "a stop still before now: past");
+    day_ui_turn(&ui, &in_p, 8, 2, a);
+    CHECK(ui.stop == HM(2, 30) && face(&ui, &in_p, 2) == DAY_FACE_ON, "turning the stop past now is On again");
     day_ui_init(&ui);
     in_p.now_min = DAY_NONE;
     CHECK(face(&ui, &in_p, 0) == DAY_FACE_PAST, "past without a clock: from over_min");
     in_p.age_s = 125;
     day_model_t pm;
     day_model(&ui, &in_p, 0, NULL, &pm);
-    CHECK(strcmp(pm.hero, "00:20") == 0, "the clock time runs on from the view: %s", pm.hero);
+    CHECK(strcmp(pm.hero, "02:22") == 0, "the clock time runs on from the view: %s", pm.hero);
 
     day_ui_init(&ui);
     in.now_min = HM(23, 59);
@@ -295,7 +302,7 @@ static void test_offer_summary(void)
 
 static void test_busy_and_wait(void)
 {
-    day_block_t b = fixture("view_day_on.json");
+    day_block_t b = fixture("view_day_on_early.json");
     day_ui_t ui;
     day_ui_init(&ui);
     day_in_t in = at_now(&b, HM(15, 42));
@@ -333,7 +340,7 @@ static void test_models(void)
     day_ui_init(&ui);
     day_model(&ui, &in, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_OFF && strcmp(m.hero, "off") == 0 && !m.hero_digits && m.hero_rgb == DAY_OFF_TEXT &&
-              strcmp(m.line2, "3 agents working") == 0 && m.moon && m.off_ring && !m.marks && m.n_segs == 0 &&
+              strcmp(m.line2, "2 agents working") == 0 && m.moon && m.off_ring && !m.marks && m.n_segs == 0 &&
               m.tick == DAY_NONE && m.dot == DAY_NONE,
           "off face: %s / %s", m.hero, m.line2);
     b.agents = 1;
@@ -375,7 +382,7 @@ static void test_models(void)
     day_model(&ui, &in_r, 0, NULL, &m);
     CHECK(strcmp(m.line3, "1 reply off the clock last night") == 0, "%s", m.line3);
 
-    day_block_t on = fixture("view_day_on.json");
+    day_block_t on = fixture("view_day_on_early.json");
     day_in_t in_on = at_now(&on, HM(15, 42));
     day_ui_init(&ui);
     day_model(&ui, &in_on, 0, NULL, &m);
@@ -394,7 +401,7 @@ static void test_models(void)
     on.break_hint = false;
     in_on.now_min = DAY_NONE;
     day_model(&ui, &in_on, 0, NULL, &m);
-    CHECK(m.dot == HM(15, 8) && m.seg[0].to == HM(15, 8), "no clock: the head from start + on time: %d", m.dot);
+    CHECK(m.dot == HM(15, 42) && m.seg[0].to == HM(15, 42), "no clock: the head from start + on + break time: %d", m.dot);
 
     day_block_t br = fixture("view_day_break.json");
     day_in_t in_b = at_now(&br, HM(15, 57));
@@ -409,30 +416,31 @@ static void test_models(void)
     day_model(&ui, &in_b, 0, NULL, &m);
     CHECK(strcmp(m.hero, "0:16") == 0, "the break count runs on: %s", m.hero);
 
-    day_block_t p = fixture("view_day_past.json");
-    day_in_t in_p = at_now(&p, HM(0, 18));
+    day_block_t p = fixture("view_day_on.json");
+    day_in_t in_p = at_now(&p, HM(2, 20));
     day_model(&ui, &in_p, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_PAST && strcmp(m.hero, "00:18") == 0 && strcmp(m.line2, "past your stop") == 0 &&
-              strcmp(m.line3, "long push to end") == 0 && m.n_segs == 2 && m.seg[0].from == HM(10, 15) &&
-              m.seg[0].to == 0 && m.seg[1].from == 0 && m.seg[1].to == HM(0, 18) &&
+    CHECK(m.face == DAY_FACE_PAST && strcmp(m.hero, "02:20") == 0 && strcmp(m.line2, "past your stop") == 0 &&
+              strcmp(m.line3, "long push to end") == 0 && m.n_segs == 2 && m.seg[0].from == HM(12, 0) &&
+              m.seg[0].to == 0 && m.seg[1].from == 0 && m.seg[1].to == HM(2, 20) &&
               m.seg[1].rgb == day_scale(DAY_ACCENT, 0.4f) && m.tick == 0 && m.tick_rgb == DAY_TEXT &&
-              m.dot == HM(0, 18) && m.glow,
+              m.dot == HM(2, 20) && m.glow,
           "past face (mockup 4): %s %s %s", m.hero, m.line2, m.line3);
 
     day_block_t s = fixture("view_day_summary.json");
     day_in_t in_s = at_now(&s, HM(23, 1));
     day_ui_init(&ui);
     day_model(&ui, &in_s, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_SUMMARY && m.check && strcmp(m.hero, "12:36") == 0 && strcmp(m.line2, "in range") == 0 &&
-              strcmp(m.line3, "4 of 5 days this week") == 0 && m.line3_rgb == DAY_TEXT && !m.marks && m.n_segs == 1 &&
-              m.seg[0].from == HM(10, 15) && m.seg[0].to == HM(23, 1) && m.tick == 0 && m.dot == DAY_NONE,
-          "summary face (mockup 5): %s %s %s", m.hero, m.line2, m.line3);
-    s.summary.in_range = false;
-    s.summary.week_days = 1;
-    s.summary.week_in_range = 0;
+    CHECK(m.face == DAY_FACE_SUMMARY && m.check && strcmp(m.hero, "14:20") == 0 &&
+              strcmp(m.line2, "past your stop") == 0 && strcmp(m.line3, "0 of 1 day this week") == 0 &&
+              m.line3_rgb == DAY_TEXT && !m.marks && m.n_segs == 0 && m.tick == 0 && m.dot == DAY_NONE,
+          "Ember's summary golden: %s %s %s", m.hero, m.line2, m.line3);
+    s.summary = (day_summary_t){.has = true, .on_min = 756, .in_range = true, .week_in_range = 4, .week_days = 5};
+    s.started = HM(10, 15);
     day_model(&ui, &in_s, 0, NULL, &m);
-    CHECK(strcmp(m.line2, "past your stop") == 0 && strcmp(m.line3, "0 of 1 day this week") == 0, "%s / %s", m.line2,
-          m.line3);
+    CHECK(strcmp(m.hero, "12:36") == 0 && strcmp(m.line2, "in range") == 0 &&
+              strcmp(m.line3, "4 of 5 days this week") == 0 && m.n_segs == 1 && m.seg[0].from == HM(10, 15) &&
+              m.seg[0].to == HM(23, 1),
+          "summary face (mockup 5): %s / %s / %s", m.hero, m.line2, m.line3);
 
     day_block_t o = fixture("view_day_offer.json");
     day_in_t in_o = at_now(&o, HM(9, 57));
@@ -480,11 +488,12 @@ static void test_actions(void)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <fixture dir>\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s <Ember fixture dir> <day fixture dir>\n", argv[0]);
         return 2;
     }
-    dir = argv[1];
+    dirs[0] = argv[1];
+    dirs[1] = argv[2];
     test_time();
     test_parse();
     test_off_set();

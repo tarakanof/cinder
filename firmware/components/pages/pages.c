@@ -9,10 +9,10 @@ _Static_assert(PAGE_TAP_ZONES == TS_ZONES, "page_input_t.taps is indexed by ts_z
 
 const page_desc_t PAGES[PAGES_N] = {
     {"bot", "mood", PAGE_TOUCH_RAW | PAGE_TURN | PAGE_GLINT, page_bot_show, page_bot_input, page_bot_frame},
-    {"pomodoro", "pomo", 0, page_pomo_show, page_pomo_input, page_pomo_frame},
+    {"day", "day", PAGE_TURN, page_day_show, page_day_input, page_day_frame},
     {"weather", "weather", PAGE_TURN, page_weather_show, page_weather_input, NULL},
     {"nowplaying", "nowplaying", PAGE_TOUCH_RAW | PAGE_TURN, page_np_show, page_np_input, page_np_frame},
-    {"day", "day", PAGE_TURN, page_day_show, page_day_input, page_day_frame},
+    {"pomodoro", "pomo", 0, page_pomo_show, page_pomo_input, page_pomo_frame},
 };
 
 int pages_ids(const char **out, int max)

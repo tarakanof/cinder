@@ -26,6 +26,8 @@ static int failures;
 
 static const char *dir;
 
+#define HHMM(h, m) ((h) * 60 + (m))
+
 static const char *const COVERED[] = {
     "view_full.json",          "view_minimal.json",           "view_nowplaying_none.json",
     "view_single_host_paused.json", "checkin_req_full.json", "checkin_req_minimal.json",
@@ -38,6 +40,8 @@ static const char *const COVERED[] = {
     "view_usage_uncapped.json", "controls_action.json",   "view_req_shown.json",
     "config_v2.json",          "checkin_reply_config_v2.json", "claim_req.json",
     "claim_reply.json",        "claim_poll_pending.json",     "claim_poll_approved.json",
+    "view_day_off.json",       "view_day_on.json",            "view_day_summary.json",
+    "day_action.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -964,7 +968,9 @@ static void test_checkin_replies(void)
         CHECK(r.config_version == 2 && r.config && !r.config_too_deep, "stale: config included");
         knob_settings_t ks;
         CHECK(knob_settings_parse(r.config, &ks), "config parses");
-        CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 4 && !ks.pages[3].on, "diagnostics full, nowplaying off");
+        CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 5 && strcmp(ks.pages[1].id, "day") == 0 && !ks.pages[3].on &&
+                  strcmp(ks.pages[4].id, "pomodoro") == 0 && !ks.pages[4].on,
+              "diagnostics full, day on, nowplaying and pomodoro off");
         CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
         CHECK(ks.rotation == 0, "rotation 0");
         CHECK(CFG_SETTINGS_MAX == 2048 && strlen(r.config) <= CFG_SETTINGS_MAX, "config fits the %d B store", CFG_SETTINGS_MAX);
@@ -1024,7 +1030,10 @@ static void test_config_default(void)
     if (!config("config_default.json", &ver, &ks)) return;
     CHECK(ver == 1, "version");
     CHECK(ks.follow_ember && ks.level == 153 && ks.floor == 10 && ks.startup == 153, "brightness");
-    CHECK(ks.n_pages == 4 && strcmp(ks.pages[3].id, "nowplaying") == 0 && !ks.pages[3].on, "nowplaying off");
+    CHECK(ks.n_pages == 5 && strcmp(ks.pages[1].id, "day") == 0 && ks.pages[1].on &&
+              strcmp(ks.pages[3].id, "nowplaying") == 0 && !ks.pages[3].on && strcmp(ks.pages[4].id, "pomodoro") == 0 &&
+              !ks.pages[4].on,
+          "day in pomodoro's place, nowplaying and pomodoro off");
     CHECK(strcmp(ks.home, "bot") == 0 && ks.poll_ms == 2000, "home, poll");
     CHECK(ks.sleepy_after_s == 300 && ks.demo_hold_s == 20 && ks.source_label && ks.working_ring, "bot");
     CHECK(ks.diagnostics == KS_DIAG_OFF && ks.stats_interval_s == 60 && ks.live_interval_s == 5, "diagnostics");
@@ -1051,8 +1060,9 @@ static void test_config_custom(void)
     CHECK(ver == 2, "version");
     CHECK(!ks.follow_ember && ks.level == 200 && ks.floor == 20 && ks.startup == 120, "brightness %d/%d/%d", ks.level,
           ks.floor, ks.startup);
-    CHECK(ks.n_pages == 5, "pages %d", ks.n_pages);
+    CHECK(ks.n_pages == 6, "pages %d", ks.n_pages);
     CHECK(strcmp(ks.pages[4].id, "future-page") == 0 && !ks.pages[4].on, "unknown page id kept");
+    CHECK(strcmp(ks.pages[5].id, "day") == 0 && !ks.pages[5].on, "a stored config gains day off at the end");
     CHECK(strcmp(ks.pages[0].id, "pomodoro") == 0 && strcmp(ks.pages[3].id, "weather") == 0 && !ks.pages[3].on,
           "page order and weather off");
     CHECK(strcmp(ks.home, "pomodoro") == 0 && ks.poll_ms == 3000, "home %s poll %d", ks.home, ks.poll_ms);
@@ -1065,7 +1075,7 @@ static void test_config_custom(void)
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
     int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
-    CHECK(n == 3 && order[0] == 1 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
+    CHECK(n == 3 && order[0] == 4 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
 }
 
 _Static_assert(KS_WX_FACES == WXF_N, "the settings' face list holds one slot per weather face");
@@ -1153,6 +1163,33 @@ static void test_view_usage(void)
     CHECK(un.usage.n == 0 && !usage_hint(&un.usage, 0) && usage_highest(&un.usage) == -1, "no block: no accounts");
 }
 
+static void test_day(void)
+{
+    knob_view_t v;
+    const day_block_t *b = &v.day;
+    if (view("view_day_off.json", &v))
+        CHECK(v.has_day && b->state == DAY_OFF && b->stop_at == 0 && b->started == DAY_NONE && b->agents == 2 &&
+                  b->offer_start == DAY_NONE && b->replies_off_last_night == 0 && !b->break_hint && !b->summary.has &&
+                  !v.has_pomo,
+              "view_day_off: off, Set opens at 00:00, 2 agents");
+    if (view("view_day_on.json", &v))
+        CHECK(v.has_day && b->state == DAY_ON && b->started == HHMM(12, 0) && b->stop_at == 0 && b->on_min == 860 &&
+                  b->break_min == 0 && b->over_min == 140 && b->agents == 0 && b->break_hint,
+              "view_day_on: on past the stop with the break hint");
+    if (view("view_day_summary.json", &v))
+        CHECK(v.has_day && v.quiet && b->state == DAY_OFF && b->summary.has && b->summary.on_min == 860 &&
+                  !b->summary.in_range && b->summary.week_in_range == 0 && b->summary.week_days == 1,
+              "view_day_summary: the summary after clock-out, quiet");
+    char *j = load("day_action.json");
+    cJSON *r = j ? cJSON_Parse(j) : NULL;
+    free(j);
+    day_block_t a;
+    CHECK(day_parse(r, &a) && a.state == DAY_ON && a.started == HHMM(12, 0) && a.stop_at == 0 && a.on_min == 0 &&
+              a.agents == 2,
+          "day_action: the action reply is the block");
+    cJSON_Delete(r);
+}
+
 static void test_controls_action(void)
 {
     char *j = load("controls_action.json");
@@ -1222,8 +1259,21 @@ static const char *const PAGES_AHEAD[] = {"day"};
 #define N_PAGES_AHEAD ((int)(sizeof PAGES_AHEAD / sizeof PAGES_AHEAD[0]))
 static int pages_ahead_used[N_PAGES_AHEAD];
 
+static bool same_set(const cJSON *a, const cJSON *b)
+{
+    if (cJSON_GetArraySize(a) != cJSON_GetArraySize(b)) return false;
+    const cJSON *e, *f;
+    cJSON_ArrayForEach(e, a)
+    {
+        bool found = false;
+        cJSON_ArrayForEach(f, b) found = found || cJSON_Compare(e, f, true);
+        if (!found) return false;
+    }
+    return true;
+}
+
 static void ahead_diff(const char *name, const char *path, const char *list, const char *const *ahead, int n_ahead,
-                       int *used, const cJSON *want, const cJSON *got)
+                       int *used, bool as_set, const cJSON *want, const cJSON *got)
 {
     cJSON *g = cJSON_Duplicate(got, true);
     for (int i = 0; i < n_ahead; i++) {
@@ -1244,7 +1294,7 @@ static void ahead_diff(const char *name, const char *path, const char *list, con
         CHECK(sent == 1, "%s: the firmware sends %s %d times", name, ahead[i], sent);
         used[i] += sent;
     }
-    CHECK(cJSON_Compare(want, g, true), "%s: %s differs", name, path);
+    CHECK(as_set ? same_set(want, g) : cJSON_Compare(want, g, true), "%s: %s differs", name, path);
     cJSON_Delete(g);
 }
 
@@ -1272,9 +1322,9 @@ static void body_diff(const char *name, const cJSON *want, const cJSON *got, con
         } else if (cJSON_IsObject(e) && cJSON_IsObject(g)) {
             body_diff(name, e, g, p);
         } else if (strcmp(p, ".caps.features") == 0 && cJSON_IsArray(e) && cJSON_IsArray(g)) {
-            ahead_diff(name, p, "FEATURES_AHEAD", FEATURES_AHEAD, N_FEATURES_AHEAD, features_ahead_used, e, g);
+            ahead_diff(name, p, "FEATURES_AHEAD", FEATURES_AHEAD, N_FEATURES_AHEAD, features_ahead_used, false, e, g);
         } else if (strcmp(p, ".caps.pages") == 0 && cJSON_IsArray(e) && cJSON_IsArray(g)) {
-            ahead_diff(name, p, "PAGES_AHEAD", PAGES_AHEAD, N_PAGES_AHEAD, pages_ahead_used, e, g);
+            ahead_diff(name, p, "PAGES_AHEAD", PAGES_AHEAD, N_PAGES_AHEAD, pages_ahead_used, true, e, g);
         } else {
             CHECK(cJSON_Compare(e, g, true), "%s: %s differs", name, p);
         }
@@ -1502,6 +1552,7 @@ int main(int argc, char **argv)
     test_pomodoro_action();
     test_view_usage();
     test_controls_action();
+    test_day();
     test_claim();
     test_checkin_req_minimal();
     test_view_req_shown();

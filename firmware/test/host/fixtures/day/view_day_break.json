@@ -9,8 +9,7 @@
     "on_min": 293,
     "break_min": 15,
     "over_min": 0,
-    "replies_off_last_night": 0,
-    "agents": 2,
-    "break_hint": false
-  }
+    "agents": 2
+  },
+  "weather": null
 }
