@@ -196,13 +196,19 @@ int day_ui_tick(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_AC
     return flush_stop(ui, t, out);
 }
 
+int day_ui_leave(day_ui_t *ui, double t, day_act_t out[DAY_ACTS]) { return flush_stop(ui, t, out); }
+
 static void seg(day_model_t *m, int from, int to, uint32_t rgb)
 {
     if (from == DAY_NONE || to == DAY_NONE || from == to || m->n_segs == DAY_SEGS) return;
     m->seg[m->n_segs++] = (day_seg_t){.from = from, .to = to, .rgb = rgb};
 }
 
-static void hm(int min, char *buf, size_t n) { snprintf(buf, n, "%d:%02d", min / 60, min % 60); }
+static void hm(int min, char *buf, size_t n)
+{
+    unsigned m = min < 0 ? 0 : min > 5999 ? 5999 : (unsigned)min;
+    snprintf(buf, n, "%u:%02u", m / 60, m % 60);
+}
 
 static void length(int min, char *buf, size_t n)
 {

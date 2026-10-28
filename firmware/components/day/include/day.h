@@ -132,6 +132,8 @@ int day_ui_push(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_AC
 int day_ui_long(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_ACTS]);
 /* The turned stop time once DAY_TURN_DEBOUNCE_S has passed since the last detent. */
 int day_ui_tick(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_ACTS]);
+/* The page hides: the turned stop time goes now, not when the page shows again. */
+int day_ui_leave(day_ui_t *ui, double t, day_act_t out[DAY_ACTS]);
 
 #define DAY_SEGS 2
 
@@ -143,12 +145,12 @@ typedef struct {
 
 typedef struct {
     day_face_t face;
-    char hero[8];
+    char hero[16];
     bool hero_digits;   /* the 96 px digit font; else the 48 px text font */
     uint32_t hero_rgb;
-    char line2[24];
+    char line2[40];
     uint32_t line2_rgb;
-    char line3[48];
+    char line3[64];
     uint32_t line3_rgb;
     bool marks;         /* 00 06 12 18 */
     bool off_ring;      /* the thin dark ring of the Off face instead of the track */
