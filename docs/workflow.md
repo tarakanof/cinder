@@ -37,6 +37,9 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   fails when a caps body does not carry it exactly once or no caps fixture is checked, and
   fails once the fixture has it (then remove
   the entry in the sync commit).
+- **New page ids.** A page the firmware's table has before Ember's goldens do (`view_full.json`, `config_default.json`,
+  `checkin_req_caps.json`) goes in `PAGES_AHEAD[]` in `test_pages.c` and `test_fixtures.c` (`day` since #283); both fail once
+  a golden has it, then remove the entry in the sync commit.
 - Feature and fix PRs leave `PROJECT_VER` in `firmware/CMakeLists.txt` alone. A
   separate release PR (`chore(release): X.Y.Z`) bumps it once for everything merged
   since the last release (patch for fixes and small features), then `release.sh X.Y.Z`
