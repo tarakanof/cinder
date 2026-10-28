@@ -369,7 +369,7 @@ static const char *hint(day_face_t f)
     case DAY_FACE_OFF: return "push to start the day";
     case DAY_FACE_ON:
     case DAY_FACE_PAST: return "push: break, hold: clock out";
-    case DAY_FACE_BREAK: return "push: back to work, hold: clock out";
+    case DAY_FACE_BREAK: return "push: resume, hold: clock out";
     case DAY_FACE_OFFER: return "push: start, hold: dismiss";
     default: return "";
     }

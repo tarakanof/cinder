@@ -499,7 +499,7 @@ static void test_models(void)
     day_model(&ui, &in_b, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_BREAK && strcmp(m.mid.val, "0:12") == 0 && strcmp(m.mid.cap, "step away") == 0 &&
               strcmp(m.low.val, "stand up and stretch") == 0 &&
-              strcmp(m.hint, "push: back to work, hold: clock out") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
+              strcmp(m.hint, "push: resume, hold: clock out") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
               m.seg[0].to == HM(14, 0) && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.55f) && m.seg[1].from == HM(14, 35) &&
               m.seg[1].to == HM(16, 5) && m.seg[2].from == HM(16, 5) && m.seg[2].to == HM(16, 17) &&
               m.seg[2].rgb == DAY_BREAK_RGB && m.dot == HM(16, 17) && m.dot_rgb == DAY_BREAK_RGB && m.tick == DAY_NONE,
