@@ -83,6 +83,7 @@ enum { PRESS_OPEN, PRESS_FIRED, PRESS_RELEASED, PRESS_TURNED };
 static atomic_bool s_hold_seen;
 static _Atomic long long s_press_at_us;
 static atomic_int s_press_claim;
+static atomic_bool s_press_counting;
 static atomic_bool s_button_down;
 static atomic_bool s_touch_down;
 static atomic_bool s_turned_while_down;
@@ -405,6 +406,7 @@ static void button_cb(void *event)
         atomic_store(&s_turned_while_down, false);
         atomic_store(&s_press_at_us, esp_timer_get_time());
         atomic_store(&s_press_claim, PRESS_OPEN);
+        atomic_store(&s_press_counting, false);
         atomic_store(&s_button_down, true);
         break;
     case BUTTON_LONG_PRESS_HOLD:
@@ -417,7 +419,8 @@ static void button_cb(void *event)
         atomic_store(&s_button_down, false);
         int open = PRESS_OPEN;
         bool fired = !atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_RELEASED);
-        pr_press_t press = pr_release(reset_press, atomic_load(&s_turned_while_down), atomic_load(&s_hold_seen), fired);
+        pr_press_t press = pr_release(reset_press, atomic_load(&s_turned_while_down), atomic_load(&s_hold_seen), fired,
+                                      atomic_load(&s_press_counting));
         if (press != PR_PRESS_NONE) atomic_fetch_add(press == PR_PRESS_LONG ? &s_long_pushes : &s_pushes, 1);
         break;
     }
@@ -430,7 +433,6 @@ static EXT_RAM_BSS_ATTR lv_obj_t *s_hold_layer, *s_hold_arc, *s_hold_label;
 static EXT_RAM_BSS_ATTR const char *s_hold_text;
 static EXT_RAM_BSS_ATTR int s_hold_pct = -1;
 
-#define HOLD_SHOW_MS 250
 #define HOLD_R 204
 
 static void touch_cb(lv_event_t *e)
@@ -1161,8 +1163,9 @@ static __attribute__((noinline)) void hold_tick(const page_desc_t *pg)
         if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);
         fired = true;
     }
-    const char *label = down && !turned && !fired && !wake && held >= HOLD_SHOW_MS ? hold_label(pg) : NULL;
-    int pct = label ? (int)(held * 100 / PR_HOLD_MS) : -1;
+    const char *label = down && !turned && !fired && !wake && held >= PR_COUNTDOWN_MS ? hold_label(pg) : NULL;
+    if (label) atomic_store(&s_press_counting, true);
+    int pct = label ? (int)((held - PR_COUNTDOWN_MS) * 100 / (PR_HOLD_MS - PR_COUNTDOWN_MS)) : -1;
     if (pct > 100) pct = 100;
     if (!s_hold_layer || pct == s_hold_pct) return;
     if (pct < 0) {

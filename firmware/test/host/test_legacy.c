@@ -159,18 +159,24 @@ static void test_press_route(void)
     CHECK(pr_turn(false, true) == PR_TURN_PAGE, "held turn pages");
     CHECK(pr_turn(false, false) == PR_TURN_DETENT, "free turn is a detent");
 
-    CHECK(pr_release(false, false, false, false) == PR_PRESS_PUSH, "short press");
-    CHECK(pr_release(false, false, true, false) == PR_PRESS_LONG, "long press");
-    CHECK(pr_release(false, true, false, false) == PR_PRESS_NONE, "page turn spends the press");
-    CHECK(pr_release(false, true, true, false) == PR_PRESS_NONE, "hold then turn is a page change, not a long push");
-    CHECK(pr_release(false, false, true, true) == PR_PRESS_NONE && pr_release(false, false, false, true) == PR_PRESS_NONE,
+    CHECK(pr_release(false, false, false, false, false) == PR_PRESS_PUSH, "short press");
+    CHECK(pr_release(false, false, true, false, false) == PR_PRESS_LONG, "long press");
+    CHECK(pr_release(false, true, false, false, false) == PR_PRESS_NONE, "page turn spends the press");
+    CHECK(pr_release(false, true, true, false, false) == PR_PRESS_NONE, "hold then turn is a page change, not a long push");
+    CHECK(pr_release(false, false, true, true, false) == PR_PRESS_NONE && pr_release(false, false, false, true, false) == PR_PRESS_NONE,
           "a press that fired while held is spent on release");
+    CHECK(pr_release(false, false, false, false, true) == PR_PRESS_NONE,
+          "let go while the hold ring counted: cancelled, not a push");
+    CHECK(pr_release(false, false, true, false, true) == PR_PRESS_LONG,
+          "the ring counted to the end but the frame missed it: the hold still counts");
+    CHECK(pr_release(false, false, false, true, true) == PR_PRESS_NONE, "fired while held: spent");
+    CHECK(PR_COUNTDOWN_MS < PR_HOLD_MS, "the countdown starts before the long push");
     CHECK(pr_hold_fires(true, false, false, PR_HOLD_MS), "held 1.5 s without a turn: fires");
     CHECK(!pr_hold_fires(true, false, false, PR_HOLD_MS - 1), "not before");
     CHECK(!pr_hold_fires(true, false, true, PR_HOLD_MS + 500), "once");
     CHECK(!pr_hold_fires(true, true, false, PR_HOLD_MS + 500), "a turn while down made it a page change");
     CHECK(!pr_hold_fires(false, false, false, PR_HOLD_MS + 500), "released: nothing");
-    CHECK(pr_release(true, false, false, false) == PR_PRESS_NONE && pr_release(true, false, true, false) == PR_PRESS_NONE,
+    CHECK(pr_release(true, false, false, false, false) == PR_PRESS_NONE && pr_release(true, false, true, false, false) == PR_PRESS_NONE,
           "reset gesture press");
 }
 

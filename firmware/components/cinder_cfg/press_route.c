@@ -11,10 +11,11 @@ bool pr_hold_fires(bool down, bool turned_while_down, bool fired, long long held
     return down && !turned_while_down && !fired && held_ms >= PR_HOLD_MS;
 }
 
-pr_press_t pr_release(bool reset_press, bool turned_while_down, bool hold_seen, bool fired)
+pr_press_t pr_release(bool reset_press, bool turned_while_down, bool hold_seen, bool fired, bool counting)
 {
     if (reset_press || turned_while_down || fired) return PR_PRESS_NONE;
-    return hold_seen ? PR_PRESS_LONG : PR_PRESS_PUSH;
+    if (hold_seen) return PR_PRESS_LONG;
+    return counting ? PR_PRESS_NONE : PR_PRESS_PUSH;
 }
 
 bool pr_wake_swallow(pr_wake_t *w, bool start, bool end, bool woke)
