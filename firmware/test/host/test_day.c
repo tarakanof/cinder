@@ -178,6 +178,13 @@ static void test_on_break_past(void)
     CHECK(day_ui_tick(&ui, &in, 2 + DAY_TURN_DEBOUNCE_S, a) == 1 && act_is(&a[0], DAY_ACT_STOP_AT, HM(23, 45), DAY_NONE),
           "one PUT with the last value");
     CHECK(day_ui_tick(&ui, &in, 10, a) == 0, "sent once");
+    CHECK(day_ui_leave(&ui, 10, a) == 0, "nothing pending: leaving sends nothing");
+    day_ui_turn(&ui, &in, 1, 11, a);
+    CHECK(day_ui_leave(&ui, 11.2, a) == 1 && act_is(&a[0], DAY_ACT_STOP_AT, 0, DAY_NONE),
+          "leaving the page inside the debounce sends the turned stop at once");
+    CHECK(day_ui_tick(&ui, &in, 20, a) == 0, "and not again when the page shows");
+    day_ui_turn(&ui, &in, -1, 3, a);
+    day_ui_tick(&ui, &in, 3 + DAY_TURN_DEBOUNCE_S, a);
     day_model_t m;
     day_ui_sync(&ui, &in, 4);
     day_model(&ui, &in, 4, NULL, &m);

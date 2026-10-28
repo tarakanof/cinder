@@ -556,7 +556,13 @@ void page_bot_show(bool on)
 }
 
 void page_pomo_show(bool on) { pomo_view_show(on); }
-void page_day_show(bool on) { day_view_show(on); }
+void page_day_show(bool on)
+{
+    day_view_show(on);
+    day_act_t a[DAY_ACTS];
+    if (!on)
+        for (int i = 0, n = day_ui_leave(&s_day_ui, now_s(), a); i < n; i++) day_client_act(&a[i]);
+}
 void page_weather_show(bool on) { temp_face_show(on); }
 
 void page_weather_input(const page_input_t *in, double t)
