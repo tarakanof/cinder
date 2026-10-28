@@ -210,6 +210,20 @@ static void seg(day_model_t *m, int from, int to, uint32_t rgb)
     m->seg[m->n_segs++] = (day_seg_t){.from = from, .to = to, .rgb = rgb};
 }
 
+static void worked(day_model_t *m, const day_block_t *b, int from, int to, uint32_t rgb)
+{
+    if (from == DAY_NONE || to == DAY_NONE) return;
+    int o = b->started != DAY_NONE ? b->started : from;
+    int cur = day_fwd(o, from), hi = day_fwd(o, to);
+    for (int i = 0; i < b->n_breaks; i++) {
+        int bs = day_fwd(o, b->breaks[i][0]), be = day_fwd(o, b->breaks[i][1]);
+        if (be < bs || be <= cur || bs >= hi) continue;
+        if (bs > cur) seg(m, wrap(o + cur), wrap(o + bs), rgb);
+        cur = be;
+    }
+    if (cur < hi) seg(m, wrap(o + cur), wrap(o + hi), rgb);
+}
+
 static void hm(int min, char *buf, size_t n)
 {
     unsigned m = min < 0 ? 0 : min > 5999 ? 5999 : (unsigned)min;
@@ -250,7 +264,7 @@ static void face_on(const day_block_t *b, const day_at_t *a, day_model_t *m)
         snprintf(m->line3, sizeof m->line3, "until %s", stop);
     }
     m->marks = true;
-    seg(m, b->started, a->now, DAY_ACCENT);
+    worked(m, b, b->started, a->now, DAY_ACCENT);
     seg(m, a->now, a->stop, day_scale(DAY_ACCENT, 0.3f));
     m->tick = a->stop;
     m->tick_rgb = DAY_ACCENT;
@@ -267,7 +281,7 @@ static void face_break(const day_block_t *b, const day_at_t *a, day_model_t *m)
     if (a->now != DAY_NONE) {
         int from = wrap(a->now - a->brk);
         if (b->started != DAY_NONE && day_fwd(b->started, from) <= day_fwd(b->started, a->now))
-            seg(m, b->started, from, day_scale(DAY_ACCENT, 0.55f));
+            worked(m, b, b->started, from, day_scale(DAY_ACCENT, 0.55f));
         seg(m, from, a->now, DAY_BREAK_RGB);
     }
     m->dot = a->now;
@@ -280,8 +294,14 @@ static void face_past(const day_block_t *b, const day_at_t *a, day_model_t *m)
     snprintf(m->line2, sizeof m->line2, "past your stop");
     snprintf(m->line3, sizeof m->line3, "long push to end");
     m->marks = true;
-    seg(m, b->started, a->stop, DAY_ACCENT);
-    seg(m, a->stop, a->now, day_scale(DAY_ACCENT, 0.4f));
+    bool before = b->started != DAY_NONE && a->now != DAY_NONE && a->stop != DAY_NONE &&
+                  day_fwd(b->started, a->stop) > day_fwd(b->started, a->now);
+    if (before) {
+        worked(m, b, b->started, a->now, day_scale(DAY_ACCENT, 0.4f));
+    } else {
+        worked(m, b, b->started, a->stop, DAY_ACCENT);
+        worked(m, b, a->stop, a->now, day_scale(DAY_ACCENT, 0.4f));
+    }
     m->tick = a->stop;
     m->tick_rgb = DAY_TEXT;
     m->dot = a->now;

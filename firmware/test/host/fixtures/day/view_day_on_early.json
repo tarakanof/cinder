@@ -9,6 +9,12 @@
     "on_min": 293,
     "break_min": 34,
     "over_min": 0,
+    "breaks": [
+      [
+        "13:00",
+        "13:34"
+      ]
+    ],
     "agents": 2
   },
   "weather": null

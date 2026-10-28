@@ -14,6 +14,7 @@ extern "C" {
 #define DAY_STOP_STEP 15
 #define DAY_OFFER_STEP 5
 #define DAY_COUNT_MAX 100000
+#define DAY_BREAKS 16
 
 #define DAY_TURN_DEBOUNCE_S 1.5
 #define DAY_STOP_HOLD_S 5.0
@@ -48,6 +49,8 @@ typedef struct {
     int replies_off_last_night;
     int agents;
     bool break_hint;
+    int n_breaks;
+    int breaks[DAY_BREAKS][2];   /* finished breaks, start and end, oldest first */
     day_summary_t summary;
 } day_block_t;
 
@@ -135,7 +138,7 @@ int day_ui_tick(day_ui_t *ui, const day_in_t *in, double t, day_act_t out[DAY_AC
 /* The page hides: the turned stop time goes now, not when the page shows again. */
 int day_ui_leave(day_ui_t *ui, double t, day_act_t out[DAY_ACTS]);
 
-#define DAY_SEGS 2
+#define DAY_SEGS (DAY_BREAKS + 4)
 
 /* An arc from one time of day to another, clockwise; to < from crosses midnight. */
 typedef struct {

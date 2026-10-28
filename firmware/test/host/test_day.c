@@ -79,8 +79,11 @@ static void test_parse(void)
     CHECK(b.state == DAY_ON && b.started == HM(10, 15) && b.stop_at == 0 && b.on_min == 293 && b.break_min == 34 &&
               b.over_min == 0 && b.offer_start == DAY_NONE && b.agents == 2 && !b.break_hint && !b.summary.has,
           "on");
+    CHECK(b.n_breaks == 1 && b.breaks[0][0] == HM(13, 0) && b.breaks[0][1] == HM(13, 34), "on: one finished break");
     b = fixture("view_day_break.json");
-    CHECK(b.state == DAY_BREAK && b.break_min == 15, "break");
+    CHECK(b.state == DAY_BREAK && b.started == HM(12, 0) && b.on_min == 210 && b.break_min == 12 && b.n_breaks == 1 &&
+              b.breaks[0][0] == HM(14, 0) && b.breaks[0][1] == HM(14, 35),
+          "Ember's break golden: on a second break, the first in breaks");
     b = fixture("view_day_on.json");
     CHECK(b.state == DAY_ON && b.started == HM(12, 0) && b.on_min == 860 && b.over_min == 140 && b.break_hint &&
               b.agents == 0,
@@ -109,6 +112,24 @@ static void test_parse(void)
           "bad fields read as absent, counts clamp: %d %d %d", b.started, b.over_min, b.agents);
     cJSON_Delete(o);
     CHECK(!day_parse(NULL, &b) && b.stop_at == DAY_NONE && b.offer_start == DAY_NONE, "not an object: times absent");
+
+    o = cJSON_Parse("{\"state\":\"on\",\"breaks\":[[\"13:00\",\"13:30\"],[\"14:00\"],[\"15:00\",\"25:00\"],\"x\","
+                    "[1,2],[\"16:00\",\"16:10\",\"x\"],[\"17:00\",\"17:05\"]]}");
+    CHECK(day_parse(o, &b) && b.n_breaks == 2 && b.breaks[0][0] == HM(13, 0) && b.breaks[1][1] == HM(17, 5),
+          "only well-formed HH:MM pairs count: %d", b.n_breaks);
+    cJSON_Delete(o);
+    o = cJSON_Parse("{\"state\":\"on\",\"breaks\":{\"a\":[\"13:00\",\"13:30\"]}}");
+    CHECK(day_parse(o, &b) && b.n_breaks == 0, "breaks not an array: none");
+    cJSON_Delete(o);
+    char big[2048];
+    int n = snprintf(big, sizeof big, "{\"state\":\"on\",\"breaks\":[");
+    for (int i = 0; i < DAY_BREAKS + 3; i++)
+        n += snprintf(big + n, sizeof big - (size_t)n, "%s[\"%02d:00\",\"%02d:05\"]", i ? "," : "", i, i);
+    snprintf(big + n, sizeof big - (size_t)n, "]}");
+    o = cJSON_Parse(big);
+    CHECK(day_parse(o, &b) && b.n_breaks == DAY_BREAKS && b.breaks[DAY_BREAKS - 1][0] == HM(DAY_BREAKS - 1, 0),
+          "at most DAY_BREAKS kept: %d", b.n_breaks);
+    cJSON_Delete(o);
 }
 
 static day_in_t at_now(const day_block_t *b, int now)
@@ -412,10 +433,11 @@ static void test_models(void)
     day_ui_init(&ui);
     day_model(&ui, &in_on, 0, NULL, &m);
     CHECK(m.face == DAY_FACE_ON && strcmp(m.hero, "4:53") == 0 && strcmp(m.line2, "on the clock") == 0 &&
-              strcmp(m.line3, "until 00:00") == 0 && m.n_segs == 2 && m.seg[0].from == HM(10, 15) &&
-              m.seg[0].to == HM(15, 42) && m.seg[0].rgb == DAY_ACCENT && m.seg[1].from == HM(15, 42) &&
-              m.seg[1].to == 0 && m.tick == 0 && m.dot == HM(15, 42) && m.dot_rgb == DAY_TEXT && !m.glow,
-          "on face (mockup 2): %s %s %s", m.hero, m.line2, m.line3);
+              strcmp(m.line3, "until 00:00") == 0 && m.n_segs == 3 && m.seg[0].from == HM(10, 15) &&
+              m.seg[0].to == HM(13, 0) && m.seg[0].rgb == DAY_ACCENT && m.seg[1].from == HM(13, 34) &&
+              m.seg[1].to == HM(15, 42) && m.seg[1].rgb == DAY_ACCENT && m.seg[2].from == HM(15, 42) &&
+              m.seg[2].to == 0 && m.tick == 0 && m.dot == HM(15, 42) && m.dot_rgb == DAY_TEXT && !m.glow,
+          "on face (mockup 2), the break a gap: %s %s %s, %d segs", m.hero, m.line2, m.line3, m.n_segs);
     in_on.age_s = 125;
     day_model(&ui, &in_on, 0, NULL, &m);
     CHECK(strcmp(m.hero, "4:55") == 0, "the count runs on between views: %s", m.hero);
@@ -426,20 +448,24 @@ static void test_models(void)
     on.break_hint = false;
     in_on.now_min = DAY_NONE;
     day_model(&ui, &in_on, 0, NULL, &m);
-    CHECK(m.dot == HM(15, 42) && m.seg[0].to == HM(15, 42), "no clock: the head from start + on + break time: %d", m.dot);
+    CHECK(m.dot == HM(15, 42) && m.seg[1].to == HM(15, 42), "no clock: the head from start + on + break time: %d", m.dot);
 
     day_block_t br = fixture("view_day_break.json");
-    day_in_t in_b = at_now(&br, HM(15, 57));
+    day_in_t in_b = at_now(&br, HM(16, 17));
     day_model(&ui, &in_b, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_BREAK && strcmp(m.hero, "0:15") == 0 && strcmp(m.line2, "break") == 0 &&
-              strcmp(m.line3, "look far away") == 0 && m.n_segs == 2 && m.seg[0].from == HM(10, 15) &&
-              m.seg[0].to == HM(15, 42) && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.55f) && m.seg[1].from == HM(15, 42) &&
-              m.seg[1].to == HM(15, 57) && m.seg[1].rgb == DAY_BREAK_RGB && m.dot == HM(15, 57) &&
-              m.dot_rgb == DAY_BREAK_RGB && m.tick == DAY_NONE,
-          "break face (mockup 3): %s %s %s", m.hero, m.line2, m.line3);
+    CHECK(m.face == DAY_FACE_BREAK && strcmp(m.hero, "0:12") == 0 && strcmp(m.line2, "break") == 0 &&
+              strcmp(m.line3, "look far away") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
+              m.seg[0].to == HM(14, 0) && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.55f) && m.seg[1].from == HM(14, 35) &&
+              m.seg[1].to == HM(16, 5) && m.seg[2].from == HM(16, 5) && m.seg[2].to == HM(16, 17) &&
+              m.seg[2].rgb == DAY_BREAK_RGB && m.dot == HM(16, 17) && m.dot_rgb == DAY_BREAK_RGB && m.tick == DAY_NONE,
+          "break face (mockup 3), the earlier break a gap: %s %s %s, %d segs", m.hero, m.line2, m.line3, m.n_segs);
+    in_b.now_min = DAY_NONE;
+    day_model(&ui, &in_b, 0, NULL, &m);
+    CHECK(m.dot == HM(15, 42), "no clock on a break: the guess misses the earlier break: %d", m.dot);
+    in_b.now_min = HM(16, 17);
     in_b.age_s = 61;
     day_model(&ui, &in_b, 0, NULL, &m);
-    CHECK(strcmp(m.hero, "0:16") == 0, "the break count runs on: %s", m.hero);
+    CHECK(strcmp(m.hero, "0:13") == 0, "the break count runs on: %s", m.hero);
 
     day_block_t p = fixture("view_day_on.json");
     day_in_t in_p = at_now(&p, HM(2, 20));
@@ -450,6 +476,27 @@ static void test_models(void)
               m.seg[1].rgb == day_scale(DAY_ACCENT, 0.4f) && m.tick == 0 && m.tick_rgb == DAY_TEXT &&
               m.dot == HM(2, 20) && m.glow,
           "past face (mockup 4): %s %s %s", m.hero, m.line2, m.line3);
+    day_block_t pb = p;
+    pb.n_breaks = 2;
+    pb.breaks[0][0] = HM(13, 0);
+    pb.breaks[0][1] = HM(14, 0);
+    pb.breaks[1][0] = HM(23, 50);
+    pb.breaks[1][1] = HM(0, 10);
+    day_in_t in_pb = at_now(&pb, HM(2, 20));
+    day_model(&ui, &in_pb, 0, NULL, &m);
+    CHECK(m.n_segs == 3 && m.seg[0].from == HM(12, 0) && m.seg[0].to == HM(13, 0) && m.seg[1].from == HM(14, 0) &&
+              m.seg[1].to == HM(23, 50) && m.seg[1].rgb == DAY_ACCENT && m.seg[2].from == HM(0, 10) &&
+              m.seg[2].to == HM(2, 20) && m.seg[2].rgb == day_scale(DAY_ACCENT, 0.4f),
+          "past with breaks, one across the stop: gaps in both arcs: %d segs", m.n_segs);
+    day_block_t pe = p;
+    pe.started = HM(0, 10);
+    pe.on_min = 5;
+    pe.over_min = 15;
+    day_in_t in_pe = at_now(&pe, HM(0, 15));
+    day_model(&ui, &in_pe, 0, NULL, &m);
+    CHECK(m.face == DAY_FACE_PAST && m.n_segs == 1 && m.seg[0].from == HM(0, 10) && m.seg[0].to == HM(0, 15) &&
+              m.seg[0].rgb == day_scale(DAY_ACCENT, 0.4f),
+          "a stop before the clock-in: all of it overtime, no arc around the dial: %d segs", m.n_segs);
 
     day_block_t s = fixture("view_day_summary.json");
     day_in_t in_s = at_now(&s, HM(23, 1));

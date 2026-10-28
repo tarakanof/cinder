@@ -80,6 +80,20 @@ bool day_parse(const cJSON *o, day_block_t *out)
     out->replies_off_last_night = count(o, "replies_off_last_night", 0);
     out->agents = count(o, "agents", DAY_NONE);
     out->break_hint = cJSON_IsTrue(item(o, "break_hint"));
+    const cJSON *br = item(o, "breaks"), *e;
+    if (cJSON_IsArray(br)) {
+        cJSON_ArrayForEach(e, br)
+        {
+            if (out->n_breaks == DAY_BREAKS) break;
+            const cJSON *s = cJSON_GetArrayItem(e, 0), *f = cJSON_GetArrayItem(e, 1);
+            int a = cJSON_IsArray(e) && cJSON_GetArraySize(e) == 2 && cJSON_IsString(s) ? day_hhmm_parse(s->valuestring) : DAY_NONE;
+            int z = a != DAY_NONE && cJSON_IsString(f) ? day_hhmm_parse(f->valuestring) : DAY_NONE;
+            if (z == DAY_NONE) continue;
+            out->breaks[out->n_breaks][0] = a;
+            out->breaks[out->n_breaks][1] = z;
+            out->n_breaks++;
+        }
+    }
     const cJSON *sm = item(o, "summary");
     if (cJSON_IsObject(sm)) {
         out->summary.has = true;

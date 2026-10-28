@@ -3,6 +3,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "esp_attr.h"
+
 LV_FONT_DECLARE(font_digits_96);
 
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
@@ -38,11 +40,12 @@ static const day_bases_t BASES = {262, 306, 352};
 static const day_bases_t BASES_SUMMARY = {282, 326, 372};
 static const day_bases_t BASES_OFF = {282, 330, 376};
 
-static lv_obj_t *s_root, *s_track, *s_dot, *s_moon, *s_bite, *s_check, *s_hero, *s_line2, *s_line3;
-static lv_obj_t *s_marks[4];
-static day_arc_t s_seg[DAY_SEGS], s_tick;
-static day_model_t s_m;
-static bool s_drawn;
+static lv_obj_t *s_root;
+static EXT_RAM_BSS_ATTR lv_obj_t *s_track, *s_dot, *s_moon, *s_bite, *s_check, *s_hero, *s_line2, *s_line3;
+static EXT_RAM_BSS_ATTR lv_obj_t *s_marks[4];
+static EXT_RAM_BSS_ATTR day_arc_t s_seg[DAY_SEGS], s_tick;
+static EXT_RAM_BSS_ATTR day_model_t s_m;
+static EXT_RAM_BSS_ATTR bool s_drawn;
 
 static lv_obj_t *plain(lv_obj_t *parent)
 {

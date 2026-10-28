@@ -41,7 +41,7 @@ static const char *const COVERED[] = {
     "config_v2.json",          "checkin_reply_config_v2.json", "claim_req.json",
     "claim_reply.json",        "claim_poll_pending.json",     "claim_poll_approved.json",
     "view_day_off.json",       "view_day_on.json",            "view_day_summary.json",
-    "day_action.json",
+    "day_action.json",         "view_day_break.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -1180,6 +1180,11 @@ static void test_day(void)
         CHECK(v.has_day && v.quiet && b->state == DAY_OFF && b->summary.has && b->summary.on_min == 860 &&
                   !b->summary.in_range && b->summary.week_in_range == 0 && b->summary.week_days == 1,
               "view_day_summary: the summary after clock-out, quiet");
+    if (view("view_day_break.json", &v))
+        CHECK(v.has_day && b->state == DAY_BREAK && b->break_min == 12 && b->n_breaks == 1 && b->breaks[0][0] == HHMM(14, 0) &&
+                  b->breaks[0][1] == HHMM(14, 35),
+              "view_day_break: the running break in break_min, the finished one in breaks");
+    if (view("view_day_on.json", &v)) CHECK(v.day.n_breaks == 0, "view_day_on: no breaks key, none");
     char *j = load("day_action.json");
     cJSON *r = j ? cJSON_Parse(j) : NULL;
     free(j);
