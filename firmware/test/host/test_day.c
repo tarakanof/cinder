@@ -466,6 +466,10 @@ static void test_models(void)
         CHECK(m.turning && strcmp(m.low.val, LEN[k].len) == 0 && strcmp(m.low.cap, "planned") == 0 && !m.hint[0],
               "turning: what is left, no hint: %s", m.low.val);
     }
+    in_le.now_min = DAY_NONE;
+    day_ui_turn(&ui, &in_le, -1, 4, a);
+    day_model(&ui, &in_le, 4, NULL, &m);
+    CHECK(m.turning && !m.low.val[0], "no clock: no planned length from the guessed head: %s", m.low.val);
 
     day_block_t on = fixture("view_day_on_early.json");
     day_in_t in_on = at_now(&on, HM(15, 42));

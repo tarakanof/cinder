@@ -240,7 +240,7 @@ static void panel(day_panel_t *p, const char *val, const char *cap)
 static const char *const TIPS[] = {"stand up and stretch", "get a glass of water", "look out a window",
                                    "walk around the room"};
 
-static void turning_panels(const day_at_t *a, day_model_t *m)
+static void turning_panels(const day_at_t *a, bool clock, day_model_t *m)
 {
     char v[16];
     m->top = m->mid;
@@ -250,7 +250,7 @@ static void turning_panels(const day_at_t *a, day_model_t *m)
     if (a->over > 0) {
         length(a->over, v, sizeof v);
         panel(&m->low, v, "over");
-    } else if (a->now != DAY_NONE && a->stop != DAY_NONE) {
+    } else if (clock && a->stop != DAY_NONE) {
         length(day_fwd(a->now, a->stop), v, sizeof v);
         panel(&m->low, v, "planned");
     }
@@ -394,7 +394,7 @@ void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *not
         case DAY_FACE_SUMMARY: face_summary(in->b, &a, m); break;
         default: face_off(in->b, m); break;
         }
-        if (m->turning) turning_panels(&a, m);
+        if (m->turning) turning_panels(&a, in->now_min != DAY_NONE, m);
         else snprintf(m->hint, sizeof m->hint, "%s", hint(m->face));
     }
     if (note) {
