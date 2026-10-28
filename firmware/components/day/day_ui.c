@@ -238,18 +238,34 @@ static void hm(int min, char *buf, size_t n)
 
 static void length(int min, char *buf, size_t n)
 {
-    if (min < 60) snprintf(buf, n, "%d min", min);
-    else if (min % 60 == 0) snprintf(buf, n, "%d h", min / 60);
-    else snprintf(buf, n, "%d h %02d", min / 60, min % 60);
+    unsigned m = min < 0 ? 0 : min > 5999 ? 5999 : (unsigned)min;
+    if (m < 60) snprintf(buf, n, "%u min", m);
+    else if (m % 60 == 0) snprintf(buf, n, "%u h", m / 60);
+    else snprintf(buf, n, "%u h %u min", m / 60, m % 60);
 }
+
+static void panel(day_panel_t *p, const char *val, const char *cap)
+{
+    snprintf(p->val, sizeof p->val, "%s", val);
+    snprintf(p->cap, sizeof p->cap, "%s", cap);
+}
+
+static const char *const TIPS[] = {"stand up and stretch", "get a glass of water", "look out a window",
+                                   "walk around the room"};
 
 static void face_set(const day_ui_t *ui, const day_block_t *b, const day_at_t *a, day_model_t *m)
 {
-    day_hhmm(ui->set_stop, m->hero, sizeof m->hero);
-    snprintf(m->line2, sizeof m->line2, "stop at");
+    char v[16];
+    day_hhmm(ui->set_stop, v, sizeof v);
+    panel(&m->mid, v, "stop at");
     int r = b->replies_off_last_night;
-    if (r > 0) snprintf(m->line3, sizeof m->line3, "%d %s off the clock last night", r, r == 1 ? "reply" : "replies");
-    else if (a->now != DAY_NONE) length(day_fwd(a->now, ui->set_stop), m->line3, sizeof m->line3);
+    if (r > 0) {
+        snprintf(m->low.val, sizeof m->low.val, "%d %s", r, r == 1 ? "reply" : "replies");
+        snprintf(m->low.cap, sizeof m->low.cap, "off the clock last night");
+    } else if (a->now != DAY_NONE) {
+        length(day_fwd(a->now, ui->set_stop), v, sizeof v);
+        panel(&m->low, v, "planned");
+    }
     m->marks = true;
     seg(m, a->now, ui->set_stop, day_scale(DAY_ACCENT, 0.3f));
     m->dot = a->now;
@@ -258,31 +274,48 @@ static void face_set(const day_ui_t *ui, const day_block_t *b, const day_at_t *a
     m->tick_rgb = DAY_ACCENT;
 }
 
+static void turning_panels(const day_at_t *a, day_model_t *m)
+{
+    char v[16];
+    m->top = m->mid;
+    day_hhmm(a->stop, v, sizeof v);
+    panel(&m->mid, v, "stop at");
+    memset(&m->low, 0, sizeof m->low);
+    if (a->over > 0) {
+        length(a->over, v, sizeof v);
+        panel(&m->low, v, "over");
+    } else if (a->now != DAY_NONE && a->stop != DAY_NONE) {
+        length(day_fwd(a->now, a->stop), v, sizeof v);
+        panel(&m->low, v, "planned");
+    }
+}
+
 static void face_on(const day_block_t *b, const day_at_t *a, day_model_t *m)
 {
-    hm(a->on, m->hero, sizeof m->hero);
-    snprintf(m->line2, sizeof m->line2, "on the clock");
+    char v[16];
+    hm(a->on, v, sizeof v);
+    panel(&m->mid, v, "on the clock");
     if (b->break_hint) {
-        snprintf(m->line3, sizeof m->line3, "time for a break");
+        panel(&m->low, "time for a break", "push");
     } else if (a->stop != DAY_NONE) {
-        char stop[8];
-        day_hhmm(a->stop, stop, sizeof stop);
-        snprintf(m->line3, sizeof m->line3, "until %s", stop);
+        day_hhmm(a->stop, v, sizeof v);
+        panel(&m->low, v, "stop at");
     }
     m->marks = true;
     worked(m, b, b->started, a->now, DAY_ACCENT);
     seg(m, a->now, a->stop, day_scale(DAY_ACCENT, 0.3f));
     m->tick = a->stop;
-    m->tick_rgb = DAY_ACCENT;
+    m->tick_rgb = m->turning ? DAY_TEXT : DAY_ACCENT;
     m->dot = a->now;
     m->dot_rgb = DAY_TEXT;
 }
 
 static void face_break(const day_block_t *b, const day_at_t *a, day_model_t *m)
 {
-    hm(a->brk, m->hero, sizeof m->hero);
-    snprintf(m->line2, sizeof m->line2, "break");
-    snprintf(m->line3, sizeof m->line3, "look far away");
+    char v[16];
+    hm(a->brk, v, sizeof v);
+    panel(&m->mid, v, "step away");
+    panel(&m->low, TIPS[(a->brk < 0 ? 0 : a->brk) % (int)(sizeof TIPS / sizeof TIPS[0])], "");
     m->marks = true;
     if (a->now != DAY_NONE) {
         int from = wrap(a->now - a->brk);
@@ -296,9 +329,10 @@ static void face_break(const day_block_t *b, const day_at_t *a, day_model_t *m)
 
 static void face_past(const day_block_t *b, const day_at_t *a, day_model_t *m)
 {
-    day_hhmm(a->now, m->hero, sizeof m->hero);
-    snprintf(m->line2, sizeof m->line2, "past your stop");
-    snprintf(m->line3, sizeof m->line3, "long push to end");
+    char v[16];
+    day_hhmm(a->now, v, sizeof v);
+    panel(&m->mid, v, "past your stop");
+    panel(&m->low, "long push", "to clock out");
     m->marks = true;
     bool before = b->started != DAY_NONE && a->now != DAY_NONE && a->stop != DAY_NONE &&
                   day_fwd(b->started, a->stop) > day_fwd(b->started, a->now);
@@ -317,9 +351,10 @@ static void face_past(const day_block_t *b, const day_at_t *a, day_model_t *m)
 
 static void face_offer(const day_ui_t *ui, const day_at_t *a, day_model_t *m)
 {
-    day_hhmm(ui->offer_at, m->hero, sizeof m->hero);
-    snprintf(m->line2, sizeof m->line2, "start from here?");
-    snprintf(m->line3, sizeof m->line3, "first reply seen");
+    char v[16];
+    day_hhmm(ui->offer_at, v, sizeof v);
+    panel(&m->mid, v, "start from here?");
+    panel(&m->low, "first reply seen", "push to start");
     m->marks = true;
     if (a->now != DAY_NONE && day_fwd(ui->offer_at, a->now) <= HALF_DAY) seg(m, ui->offer_at, a->now, DAY_ACCENT);
     m->dot = ui->offer_at;
@@ -329,12 +364,13 @@ static void face_offer(const day_ui_t *ui, const day_at_t *a, day_model_t *m)
 static void face_summary(const day_block_t *b, const day_at_t *a, day_model_t *m)
 {
     const day_summary_t *s = &b->summary;
-    hm(s->on_min, m->hero, sizeof m->hero);
-    snprintf(m->line2, sizeof m->line2, "%s", s->in_range ? "in range" : "past your stop");
-    if (s->week_days > 0)
-        snprintf(m->line3, sizeof m->line3, "%d of %d %s this week", s->week_in_range, s->week_days,
-                 s->week_days == 1 ? "day" : "days");
-    m->line3_rgb = DAY_TEXT;
+    char v[16];
+    hm(s->on_min, v, sizeof v);
+    panel(&m->mid, v, s->in_range ? "in range" : "past your stop");
+    if (s->week_days > 0) {
+        snprintf(m->low.val, sizeof m->low.val, "%d of %d", s->week_in_range, s->week_days);
+        snprintf(m->low.cap, sizeof m->low.cap, "%s this week", s->week_days == 1 ? "day" : "days");
+    }
     m->check = true;
     int end = a->now != DAY_NONE ? a->now : b->started != DAY_NONE ? wrap(b->started + s->on_min) : DAY_NONE;
     seg(m, b->started, end, DAY_ACCENT);
@@ -344,13 +380,14 @@ static void face_summary(const day_block_t *b, const day_at_t *a, day_model_t *m
 
 static void face_off(const day_block_t *b, day_model_t *m)
 {
-    snprintf(m->hero, sizeof m->hero, "off");
-    m->hero_digits = false;
-    m->hero_rgb = DAY_OFF_TEXT;
-    if (b->agents == 0) snprintf(m->line2, sizeof m->line2, "no agents working");
-    else if (b->agents > 0)
-        snprintf(m->line2, sizeof m->line2, "%d %s working", b->agents, b->agents == 1 ? "agent" : "agents");
-    m->line2_rgb = DAY_DIM;
+    panel(&m->mid, "off", "");
+    m->mid.big = 48;
+    m->mid.rgb = DAY_OFF_TEXT;
+    if (b->agents == 0) panel(&m->low, "no agents", "working");
+    else if (b->agents > 0) {
+        snprintf(m->low.val, sizeof m->low.val, "%d %s", b->agents, b->agents == 1 ? "agent" : "agents");
+        snprintf(m->low.cap, sizeof m->low.cap, "working");
+    }
     m->off_ring = true;
     m->moon = true;
 }
@@ -359,17 +396,13 @@ void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *not
 {
     memset(m, 0, sizeof *m);
     m->tick = m->dot = DAY_NONE;
-    m->hero_digits = true;
-    m->hero_rgb = DAY_TEXT;
-    m->line2_rgb = DAY_NOTE;
-    m->line3_rgb = DAY_DIM;
     m->face = day_ui_face(ui, in, t);
     if (m->face == DAY_FACE_WAIT) {
-        snprintf(m->hero, sizeof m->hero, "--:--");
-        m->hero_rgb = DAY_DIM;
-        snprintf(m->line2, sizeof m->line2, "%s", in->fed ? "day clock off" : "connecting");
+        panel(&m->mid, "--:--", in->fed ? "day clock off" : "connecting");
+        m->mid.rgb = DAY_DIM;
     } else {
         day_at_t a = day_at(ui, in);
+        m->turning = (m->face == DAY_FACE_ON || m->face == DAY_FACE_PAST) && ui->stop_dirty;
         switch (m->face) {
         case DAY_FACE_SET: face_set(ui, in->b, &a, m); break;
         case DAY_FACE_ON: face_on(in->b, &a, m); break;
@@ -379,9 +412,11 @@ void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *not
         case DAY_FACE_SUMMARY: face_summary(in->b, &a, m); break;
         default: face_off(in->b, m); break;
         }
+        if (m->turning) turning_panels(&a, m);
     }
     if (note) {
-        snprintf(m->line3, sizeof m->line3, "%s", note);
-        m->line3_rgb = DAY_NOTE;
+        memset(&m->low, 0, sizeof m->low);
+        snprintf(m->low.val, sizeof m->low.val, "%s", note);
+        m->low.rgb = DAY_NOTE;
     }
 }

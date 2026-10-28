@@ -1,11 +1,13 @@
 #include "day_view.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_attr.h"
 
 LV_FONT_DECLARE(font_digits_96);
+LV_FONT_DECLARE(font_face_36);
 
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
 #define SCREEN_H 466
@@ -18,9 +20,9 @@ LV_FONT_DECLARE(font_digits_96);
 #define TICK_W 28
 #define DOT 16
 #define GLOW 24
-#define MARK_R 186
-#define TEXT_W 360
-#define LINE3_W 340
+#define MARK_R 184
+#define MARK_W 44
+#define TEXT_W 400
 #define CHECK_Y 151
 #define MOON 92
 #define BITE 76
@@ -33,15 +35,19 @@ typedef struct {
 } day_arc_t;
 
 typedef struct {
-    int hero, line2, line3;
-} day_bases_t;
-
-static const day_bases_t BASES = {262, 306, 352};
-static const day_bases_t BASES_SUMMARY = {282, 326, 372};
-static const day_bases_t BASES_OFF = {282, 330, 376};
+    lv_obj_t *val, *cap;
+    char vtxt[32], ctxt[40];
+    const lv_font_t *vf, *cf;
+    int vy, cy;
+    uint32_t rgb;
+    uint8_t opa;
+    bool on;
+} day_text_t;
 
 static lv_obj_t *s_root;
-static EXT_RAM_BSS_ATTR lv_obj_t *s_track, *s_dot, *s_moon, *s_bite, *s_check, *s_hero, *s_line2, *s_line3;
+static EXT_RAM_BSS_ATTR lv_obj_t *s_track, *s_dot, *s_moon, *s_bite, *s_check;
+static EXT_RAM_BSS_ATTR day_text_t s_txt[DAY_DRUM_SLOTS];
+static EXT_RAM_BSS_ATTR day_roll_t s_roll;
 static EXT_RAM_BSS_ATTR lv_obj_t *s_marks[4];
 static EXT_RAM_BSS_ATTR day_arc_t s_seg[DAY_SEGS], s_tick;
 static EXT_RAM_BSS_ATTR day_model_t s_m;
@@ -95,9 +101,15 @@ static lv_obj_t *text(lv_obj_t *parent, const lv_font_t *f, int w)
 
 static int top_for(const lv_font_t *f, int base) { return base - (f->line_height - f->base_line); }
 
-static void place(lv_obj_t *l, int w, int base)
+static const lv_font_t *font_px(int px)
 {
-    lv_obj_set_pos(l, CX - w / 2, top_for(lv_obj_get_style_text_font(l, 0), base));
+    switch (px) {
+    case 24: return &lv_font_montserrat_24;
+    case 30: return &lv_font_montserrat_30;
+    case 36: return &font_face_36;
+    case 48: return &lv_font_montserrat_48;
+    default: return &font_digits_96;
+    }
 }
 
 static int deg(int min) { return ((min + 2) / 4 + 90) % 360; }
@@ -143,11 +155,11 @@ void day_view_create(lv_obj_t *parent)
 
     static const char *const MARKS[4] = {"12", "18", "00", "06"};
     for (int i = 0; i < 4; i++) {
-        s_marks[i] = text(s_root, &lv_font_montserrat_18, 40);
+        s_marks[i] = text(s_root, &lv_font_montserrat_24, MARK_W);
         lv_label_set_text_static(s_marks[i], MARKS[i]);
         lv_obj_set_style_text_color(s_marks[i], lv_color_hex(DAY_MARK), 0);
         int dx = i == 1 ? MARK_R : i == 3 ? -MARK_R : 0, dy = i == 0 ? -MARK_R : i == 2 ? MARK_R : 0;
-        lv_obj_set_pos(s_marks[i], CX + dx - 20, CY + dy - lv_font_montserrat_18.line_height / 2);
+        lv_obj_set_pos(s_marks[i], CX + dx - MARK_W / 2, CY + dy - lv_font_montserrat_24.line_height / 2);
         lv_obj_add_flag(s_marks[i], LV_OBJ_FLAG_HIDDEN);
     }
     for (int i = 0; i < DAY_SEGS; i++) s_seg[i] = (day_arc_t){.o = arc(s_root, RING_R + RING_W / 2, RING_W, true), .a0 = -1};
@@ -155,8 +167,8 @@ void day_view_create(lv_obj_t *parent)
 
     s_dot = disc(s_root, DOT, CX, CY - RING_R, DAY_TEXT);
     lv_obj_add_flag(s_dot, LV_OBJ_FLAG_HIDDEN);
-    s_moon = disc(s_root, MOON, CX + 10, CY - 67, DAY_MARK);
-    s_bite = disc(s_root, BITE, CX + 41, CY - 87, 0x000000);
+    s_moon = disc(s_root, MOON, CX + 10, CY - 77, 0x3A3A3A);
+    s_bite = disc(s_root, BITE, CX + 41, CY - 97, 0x000000);
     lv_obj_add_flag(s_moon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_bite, LV_OBJ_FLAG_HIDDEN);
 
@@ -166,10 +178,12 @@ void day_view_create(lv_obj_t *parent)
     lv_obj_set_pos(s_check, CX - 60, CHECK_Y - lv_font_montserrat_48.line_height / 2);
     lv_obj_add_flag(s_check, LV_OBJ_FLAG_HIDDEN);
 
-    s_hero = text(s_root, &font_digits_96, TEXT_W);
-    s_line2 = text(s_root, &lv_font_montserrat_24, TEXT_W);
-    s_line3 = text(s_root, &lv_font_montserrat_24, LINE3_W);
-    lv_label_set_long_mode(s_line3, LV_LABEL_LONG_MODE_WRAP);
+    for (int i = 0; i < DAY_DRUM_SLOTS; i++) {
+        day_text_t *x = &s_txt[i];
+        *x = (day_text_t){.val = text(s_root, &font_digits_96, TEXT_W), .cap = text(s_root, &lv_font_montserrat_30, TEXT_W)};
+        lv_obj_add_flag(x->val, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(x->cap, LV_OBJ_FLAG_HIDDEN);
+    }
     s_drawn = false;
 }
 
@@ -180,19 +194,55 @@ void day_view_show(bool on)
     if (on) s_drawn = false;
 }
 
-static void set_text(lv_obj_t *l, const char *now, const char *was, uint32_t rgb, uint32_t was_rgb)
+static void line_set(lv_obj_t *l, char *shown, size_t cap, const char *txt, const lv_font_t **font,
+                     const lv_font_t *f, int *y, int base, bool restyle)
 {
-    if (!s_drawn || strcmp(now, was) != 0) lv_label_set_text(l, now);
-    if (!s_drawn || rgb != was_rgb) lv_obj_set_style_text_color(l, lv_color_hex(rgb), 0);
+    if (restyle || strcmp(shown, txt) != 0) {
+        snprintf(shown, cap, "%s", txt);
+        lv_label_set_text(l, shown);
+    }
+    if (restyle || *font != f) {
+        *font = f;
+        lv_obj_set_style_text_font(l, f, 0);
+    }
+    int top = top_for(f, base);
+    if (restyle || *y != top) {
+        *y = top;
+        lv_obj_set_pos(l, CX - TEXT_W / 2, top);
+    }
 }
 
-static void layout(const day_model_t *m)
+static void text_hide(day_text_t *x)
 {
-    const day_bases_t *b = m->face == DAY_FACE_SUMMARY ? &BASES_SUMMARY : m->face == DAY_FACE_OFF ? &BASES_OFF : &BASES;
-    lv_obj_set_style_text_font(s_hero, m->hero_digits ? &font_digits_96 : &lv_font_montserrat_48, 0);
-    place(s_hero, TEXT_W, b->hero);
-    place(s_line2, TEXT_W, b->line2);
-    place(s_line3, LINE3_W, b->line3);
+    if (!x->on) return;
+    show(x->val, false);
+    show(x->cap, false);
+    x->on = false;
+}
+
+static void text_set(day_text_t *x, const day_slot_t *sl)
+{
+    day_pose_t q;
+    day_panel_pose(&sl->p, sl->u, sl->fade, &q);
+    if (q.opa == 0) {
+        text_hide(x);
+        return;
+    }
+    bool restyle = !x->on;
+    line_set(x->val, x->vtxt, sizeof x->vtxt, sl->p.val, &x->vf, font_px(q.val_px), &x->vy, q.val_y, restyle);
+    line_set(x->cap, x->ctxt, sizeof x->ctxt, sl->p.cap, &x->cf, font_px(q.cap_px), &x->cy, q.cap_y, restyle);
+    if (restyle || q.rgb != x->rgb || q.opa != x->opa) {
+        x->rgb = q.rgb;
+        x->opa = q.opa;
+        for (int k = 0; k < 2; k++) {
+            lv_obj_t *l = k ? x->cap : x->val;
+            lv_obj_set_style_text_color(l, lv_color_hex(q.rgb), 0);
+            lv_obj_set_style_text_opa(l, q.opa, 0);
+        }
+    }
+    show(x->val, true);
+    show(x->cap, sl->p.cap[0] != 0);
+    x->on = true;
 }
 
 static void dot_set(const day_model_t *m)
@@ -209,10 +259,10 @@ static void dot_set(const day_model_t *m)
     lv_obj_set_style_shadow_opa(s_dot, LV_OPA_70, 0);
 }
 
-void day_view_update(const day_model_t *m)
+void day_view_update(const day_model_t *m, double t)
 {
     if (!s_root) return;
-    if (!s_drawn || m->face != s_m.face || m->hero_digits != s_m.hero_digits) layout(m);
+    day_roll_start(&s_roll, &s_m, m, !s_drawn, t);
     if (!s_drawn || m->off_ring != s_m.off_ring) {
         int w = m->off_ring ? OFF_RING_W : RING_W;
         lv_obj_set_size(s_track, 2 * (RING_R + w / 2), 2 * (RING_R + w / 2));
@@ -232,9 +282,12 @@ void day_view_update(const day_model_t *m)
     show(s_moon, m->moon);
     show(s_bite, m->moon);
     show(s_check, m->check);
-    set_text(s_hero, m->hero, s_m.hero, m->hero_rgb, s_m.hero_rgb);
-    set_text(s_line2, m->line2, s_m.line2, m->line2_rgb, s_m.line2_rgb);
-    set_text(s_line3, m->line3, s_m.line3, m->line3_rgb, s_m.line3_rgb);
+    day_slot_t sl[DAY_DRUM_SLOTS];
+    int n = day_roll_slots(&s_roll, m, t, sl);
+    for (int i = 0; i < DAY_DRUM_SLOTS; i++) {
+        if (i < n) text_set(&s_txt[i], &sl[i]);
+        else text_hide(&s_txt[i]);
+    }
     s_m = *m;
     s_drawn = true;
 }

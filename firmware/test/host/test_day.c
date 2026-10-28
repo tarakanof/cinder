@@ -225,8 +225,8 @@ static void test_on_break_past(void)
     day_model_t m;
     day_ui_sync(&ui, &in, 4);
     day_model(&ui, &in, 4, NULL, &m);
-    CHECK(strcmp(m.line3, "until 23:45") == 0 && m.tick == HM(23, 45), "the turned stop shows until the view has it: %s",
-          m.line3);
+    CHECK(strcmp(m.low.val, "23:45") == 0 && m.tick == HM(23, 45) && !m.turning,
+          "sent: the drum rolled back, the turned stop shows until the view has it: %s", m.low.val);
     day_ui_sync(&ui, &in, 4 + DAY_TURN_DEBOUNCE_S + DAY_STOP_HOLD_S);
     CHECK(ui.stop == DAY_NONE, "the view's stop again after DAY_STOP_HOLD_S");
     day_ui_turn(&ui, &in, -1, 20, a);
@@ -273,7 +273,7 @@ static void test_on_break_past(void)
     in_p.age_s = 125;
     day_model_t pm;
     day_model(&ui, &in_p, 0, NULL, &pm);
-    CHECK(strcmp(pm.hero, "02:22") == 0, "the clock time runs on from the view: %s", pm.hero);
+    CHECK(strcmp(pm.mid.val, "02:22") == 0, "the clock time runs on from the view: %s", pm.mid.val);
 
     day_ui_init(&ui);
     in.now_min = HM(10, 15);
@@ -416,10 +416,10 @@ static void test_busy_and_wait(void)
           "no block: nothing");
     day_model_t m;
     day_model(&ui, &none, 0, NULL, &m);
-    CHECK(strcmp(m.line2, "connecting") == 0 && strcmp(m.hero, "--:--") == 0, "before a view: %s", m.line2);
+    CHECK(strcmp(m.mid.cap, "connecting") == 0 && strcmp(m.mid.val, "--:--") == 0, "before a view: %s", m.mid.cap);
     none.fed = true;
     day_model(&ui, &none, 0, NULL, &m);
-    CHECK(strcmp(m.line2, "day clock off") == 0, "a view without the block: %s", m.line2);
+    CHECK(strcmp(m.mid.cap, "day clock off") == 0, "a view without the block: %s", m.mid.cap);
     day_ui_init(&ui);
     day_ui_turn(&ui, &in, 1, 0, a);
     day_block_t off = fixture("view_day_off.json");
@@ -437,66 +437,67 @@ static void test_models(void)
     day_in_t in = at_now(&b, HM(10, 15));
     day_ui_init(&ui);
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_OFF && strcmp(m.hero, "off") == 0 && !m.hero_digits && m.hero_rgb == DAY_OFF_TEXT &&
-              strcmp(m.line2, "2 agents working") == 0 && m.moon && m.off_ring && !m.marks && m.n_segs == 0 &&
+    CHECK(m.face == DAY_FACE_OFF && strcmp(m.mid.val, "off") == 0 && m.mid.big == 48 && m.mid.rgb == DAY_OFF_TEXT &&
+              strcmp(m.low.val, "2 agents") == 0 && strcmp(m.low.cap, "working") == 0 && m.moon && m.off_ring && !m.marks && m.n_segs == 0 &&
               m.tick == DAY_NONE && m.dot == DAY_NONE,
-          "off face: %s / %s", m.hero, m.line2);
+          "off face: %s / %s", m.mid.val, m.low.val);
     b.agents = 1;
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(strcmp(m.line2, "1 agent working") == 0, "%s", m.line2);
+    CHECK(strcmp(m.low.val, "1 agent") == 0, "%s", m.low.val);
     b.agents = 0;
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(strcmp(m.line2, "no agents working") == 0, "%s", m.line2);
+    CHECK(strcmp(m.low.val, "no agents") == 0, "%s", m.low.val);
     b.agents = DAY_NONE;
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(m.line2[0] == 0, "no count: %s", m.line2);
+    CHECK(m.low.val[0] == 0 && m.low.cap[0] == 0, "no count: %s", m.low.val);
     b.agents = 3;
 
     day_ui_push(&ui, &in, 0, a);
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_SET && strcmp(m.hero, "00:00") == 0 && m.hero_digits && strcmp(m.line2, "stop at") == 0 &&
-              strcmp(m.line3, "13 h 45") == 0 && m.marks && m.n_segs == 1 && m.seg[0].from == HM(10, 15) &&
+    CHECK(m.face == DAY_FACE_SET && strcmp(m.mid.val, "00:00") == 0 && strcmp(m.mid.cap, "stop at") == 0 &&
+              strcmp(m.low.val, "13 h 45 min") == 0 && strcmp(m.low.cap, "planned") == 0 && m.marks && m.n_segs == 1 && m.seg[0].from == HM(10, 15) &&
               m.seg[0].to == 0 && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.3f) && m.tick == 0 &&
               m.tick_rgb == DAY_ACCENT && m.dot == HM(10, 15),
-          "set face (mockup 1): %s %s %s", m.hero, m.line2, m.line3);
+          "set face (mockup 1): %s %s %s", m.mid.val, m.mid.cap, m.low.val);
     in.now_min = HM(23, 15);
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(strcmp(m.line3, "45 min") == 0, "%s", m.line3);
+    CHECK(strcmp(m.low.val, "45 min") == 0, "%s", m.low.val);
     in.now_min = HM(10, 0);
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(strcmp(m.line3, "14 h") == 0, "%s", m.line3);
+    CHECK(strcmp(m.low.val, "14 h") == 0, "%s", m.low.val);
     in.now_min = DAY_NONE;
     day_model(&ui, &in, 0, NULL, &m);
-    CHECK(m.line3[0] == 0 && m.n_segs == 0 && m.dot == DAY_NONE && m.tick == 0, "no clock: no length, no head");
+    CHECK(m.low.val[0] == 0 && m.n_segs == 0 && m.dot == DAY_NONE && m.tick == 0, "no clock: no length, no head");
 
     day_block_t r = fixture("view_day_set_replies.json");
     day_in_t in_r = at_now(&r, HM(10, 15));
     day_ui_init(&ui);
     day_ui_push(&ui, &in_r, 0, a);
     day_model(&ui, &in_r, 0, NULL, &m);
-    CHECK(strcmp(m.hero, "23:45") == 0 && strcmp(m.line3, "2 replies off the clock last night") == 0,
-          "set face after an off-clock night (mockup 8): %s", m.line3);
+    CHECK(strcmp(m.mid.val, "23:45") == 0 && strcmp(m.low.val, "2 replies") == 0 &&
+              strcmp(m.low.cap, "off the clock last night") == 0,
+          "set face after an off-clock night (mockup 8): %s", m.low.val);
     r.replies_off_last_night = 1;
     day_model(&ui, &in_r, 0, NULL, &m);
-    CHECK(strcmp(m.line3, "1 reply off the clock last night") == 0, "%s", m.line3);
+    CHECK(strcmp(m.low.val, "1 reply") == 0, "%s", m.low.val);
 
     day_block_t on = fixture("view_day_on_early.json");
     day_in_t in_on = at_now(&on, HM(15, 42));
     day_ui_init(&ui);
     day_model(&ui, &in_on, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_ON && strcmp(m.hero, "4:53") == 0 && strcmp(m.line2, "on the clock") == 0 &&
-              strcmp(m.line3, "until 00:00") == 0 && m.n_segs == 3 && m.seg[0].from == HM(10, 15) &&
+    CHECK(m.face == DAY_FACE_ON && strcmp(m.mid.val, "4:53") == 0 && strcmp(m.mid.cap, "on the clock") == 0 &&
+              strcmp(m.low.val, "00:00") == 0 && strcmp(m.low.cap, "stop at") == 0 && !m.turning && m.n_segs == 3 && m.seg[0].from == HM(10, 15) &&
               m.seg[0].to == HM(13, 0) && m.seg[0].rgb == DAY_ACCENT && m.seg[1].from == HM(13, 34) &&
               m.seg[1].to == HM(15, 42) && m.seg[1].rgb == DAY_ACCENT && m.seg[2].from == HM(15, 42) &&
               m.seg[2].to == 0 && m.tick == 0 && m.dot == HM(15, 42) && m.dot_rgb == DAY_TEXT && !m.glow,
-          "on face (mockup 2), the break a gap: %s %s %s, %d segs", m.hero, m.line2, m.line3, m.n_segs);
+          "on face (mockup 2), the break a gap: %s %s %s, %d segs", m.mid.val, m.mid.cap, m.low.val, m.n_segs);
     in_on.age_s = 125;
     day_model(&ui, &in_on, 0, NULL, &m);
-    CHECK(strcmp(m.hero, "4:55") == 0, "the count runs on between views: %s", m.hero);
+    CHECK(strcmp(m.mid.val, "4:55") == 0, "the count runs on between views: %s", m.mid.val);
     in_on.age_s = 0;
     on.break_hint = true;
     day_model(&ui, &in_on, 0, NULL, &m);
-    CHECK(strcmp(m.line3, "time for a break") == 0, "break hint: %s", m.line3);
+    CHECK(strcmp(m.low.val, "time for a break") == 0 && strcmp(m.low.cap, "push") == 0, "break hint: %s", m.low.val);
     on.break_hint = false;
     in_on.now_min = DAY_NONE;
     day_model(&ui, &in_on, 0, NULL, &m);
@@ -505,29 +506,30 @@ static void test_models(void)
     day_block_t br = fixture("view_day_break.json");
     day_in_t in_b = at_now(&br, HM(16, 17));
     day_model(&ui, &in_b, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_BREAK && strcmp(m.hero, "0:12") == 0 && strcmp(m.line2, "break") == 0 &&
-              strcmp(m.line3, "look far away") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
+    CHECK(m.face == DAY_FACE_BREAK && strcmp(m.mid.val, "0:12") == 0 && strcmp(m.mid.cap, "step away") == 0 &&
+              strcmp(m.low.val, "stand up and stretch") == 0 && m.n_segs == 3 && m.seg[0].from == HM(12, 0) &&
               m.seg[0].to == HM(14, 0) && m.seg[0].rgb == day_scale(DAY_ACCENT, 0.55f) && m.seg[1].from == HM(14, 35) &&
               m.seg[1].to == HM(16, 5) && m.seg[2].from == HM(16, 5) && m.seg[2].to == HM(16, 17) &&
               m.seg[2].rgb == DAY_BREAK_RGB && m.dot == HM(16, 17) && m.dot_rgb == DAY_BREAK_RGB && m.tick == DAY_NONE,
-          "break face (mockup 3), the earlier break a gap: %s %s %s, %d segs", m.hero, m.line2, m.line3, m.n_segs);
+          "break face (mockup 3), the earlier break a gap: %s %s %s, %d segs", m.mid.val, m.mid.cap, m.low.val, m.n_segs);
     in_b.now_min = DAY_NONE;
     day_model(&ui, &in_b, 0, NULL, &m);
     CHECK(m.dot == HM(15, 42), "no clock on a break: the guess misses the earlier break: %d", m.dot);
     in_b.now_min = HM(16, 17);
     in_b.age_s = 61;
     day_model(&ui, &in_b, 0, NULL, &m);
-    CHECK(strcmp(m.hero, "0:13") == 0, "the break count runs on: %s", m.hero);
+    CHECK(strcmp(m.mid.val, "0:13") == 0 && strcmp(m.low.val, "get a glass of water") == 0,
+          "the break count runs on, the action changes each minute: %s / %s", m.mid.val, m.low.val);
 
     day_block_t p = fixture("view_day_on.json");
     day_in_t in_p = at_now(&p, HM(2, 20));
     day_model(&ui, &in_p, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_PAST && strcmp(m.hero, "02:20") == 0 && strcmp(m.line2, "past your stop") == 0 &&
-              strcmp(m.line3, "long push to end") == 0 && m.n_segs == 2 && m.seg[0].from == HM(12, 0) &&
+    CHECK(m.face == DAY_FACE_PAST && strcmp(m.mid.val, "02:20") == 0 && strcmp(m.mid.cap, "past your stop") == 0 &&
+              strcmp(m.low.val, "long push") == 0 && strcmp(m.low.cap, "to clock out") == 0 && m.n_segs == 2 && m.seg[0].from == HM(12, 0) &&
               m.seg[0].to == 0 && m.seg[1].from == 0 && m.seg[1].to == HM(2, 20) &&
               m.seg[1].rgb == day_scale(DAY_ACCENT, 0.4f) && m.tick == 0 && m.tick_rgb == DAY_TEXT &&
               m.dot == HM(2, 20) && m.glow,
-          "past face (mockup 4): %s %s %s", m.hero, m.line2, m.line3);
+          "past face (mockup 4): %s %s %s", m.mid.val, m.mid.cap, m.low.val);
     day_block_t pb = p;
     pb.n_breaks = 2;
     pb.breaks[0][0] = HM(13, 0);
@@ -554,30 +556,138 @@ static void test_models(void)
     day_in_t in_s = at_now(&s, HM(23, 1));
     day_ui_init(&ui);
     day_model(&ui, &in_s, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_SUMMARY && m.check && strcmp(m.hero, "14:20") == 0 &&
-              strcmp(m.line2, "past your stop") == 0 && strcmp(m.line3, "0 of 1 day this week") == 0 &&
-              m.line3_rgb == DAY_TEXT && !m.marks && m.n_segs == 0 && m.tick == 0 && m.dot == DAY_NONE,
-          "Ember's summary golden: %s %s %s", m.hero, m.line2, m.line3);
+    CHECK(m.face == DAY_FACE_SUMMARY && m.check && strcmp(m.mid.val, "14:20") == 0 &&
+              strcmp(m.mid.cap, "past your stop") == 0 && strcmp(m.low.val, "0 of 1") == 0 &&
+              strcmp(m.low.cap, "day this week") == 0 && !m.marks && m.n_segs == 0 && m.tick == 0 && m.dot == DAY_NONE,
+          "Ember's summary golden: %s %s %s", m.mid.val, m.mid.cap, m.low.val);
     s.summary = (day_summary_t){.has = true, .on_min = 756, .in_range = true, .week_in_range = 4, .week_days = 5};
     s.started = HM(10, 15);
     day_model(&ui, &in_s, 0, NULL, &m);
-    CHECK(strcmp(m.hero, "12:36") == 0 && strcmp(m.line2, "in range") == 0 &&
-              strcmp(m.line3, "4 of 5 days this week") == 0 && m.n_segs == 1 && m.seg[0].from == HM(10, 15) &&
+    CHECK(strcmp(m.mid.val, "12:36") == 0 && strcmp(m.mid.cap, "in range") == 0 && strcmp(m.low.val, "4 of 5") == 0 &&
+              strcmp(m.low.cap, "days this week") == 0 && m.n_segs == 1 && m.seg[0].from == HM(10, 15) &&
               m.seg[0].to == HM(23, 1),
-          "summary face (mockup 5): %s / %s / %s", m.hero, m.line2, m.line3);
+          "summary face (mockup 5): %s / %s / %s", m.mid.val, m.mid.cap, m.low.val);
 
     day_block_t o = fixture("view_day_offer.json");
     day_in_t in_o = at_now(&o, HM(9, 57));
     day_ui_init(&ui);
     day_ui_sync(&ui, &in_o, 0);
     day_model(&ui, &in_o, 0, NULL, &m);
-    CHECK(m.face == DAY_FACE_OFFER && strcmp(m.hero, "09:52") == 0 && strcmp(m.line2, "start from here?") == 0 &&
-              strcmp(m.line3, "first reply seen") == 0 && m.n_segs == 1 && m.seg[0].from == HM(9, 52) &&
+    CHECK(m.face == DAY_FACE_OFFER && strcmp(m.mid.val, "09:52") == 0 && strcmp(m.mid.cap, "start from here?") == 0 &&
+              strcmp(m.low.val, "first reply seen") == 0 && strcmp(m.low.cap, "push to start") == 0 && m.n_segs == 1 && m.seg[0].from == HM(9, 52) &&
               m.seg[0].to == HM(9, 57) && m.dot == HM(9, 52) && m.tick == DAY_NONE,
-          "offer face (mockup 7): %s %s %s", m.hero, m.line2, m.line3);
+          "offer face (mockup 7): %s %s %s", m.mid.val, m.mid.cap, m.low.val);
 
     day_model(&ui, &in_o, 0, "offline: not sent", &m);
-    CHECK(strcmp(m.line3, "offline: not sent") == 0 && m.line3_rgb == DAY_NOTE, "a note replaces the third line");
+    CHECK(strcmp(m.low.val, "offline: not sent") == 0 && m.low.cap[0] == 0 && m.low.rgb == DAY_NOTE,
+          "a note replaces the low panel");
+}
+
+static void test_drum(void)
+{
+    day_panel_t on = {.val = "4:53", .cap = "on the clock"}, off = {.val = "off", .big = 48, .rgb = DAY_OFF_TEXT};
+    day_pose_t q;
+    day_panel_pose(&on, 0, 1, &q);
+    CHECK(q.val_px == 96 && q.cap_px == 30 && q.val_y == DAY_DRUM_Y && q.cap_y == DAY_DRUM_Y + 44 && q.rgb == DAY_TEXT &&
+              q.opa == 255,
+          "centre: 96 over 30, white: %d %d %d %d %06X %d", q.val_px, q.cap_px, q.val_y, q.cap_y, (unsigned)q.rgb, q.opa);
+    day_panel_pose(&on, 1, 1, &q);
+    CHECK(q.val_px == 30 && q.cap_px == 24 && q.val_y == DAY_DRUM_Y + DAY_DRUM_SLOT && q.cap_y == q.val_y + 28 &&
+              q.rgb == DAY_FAR && q.opa == 255,
+          "below: 30 over 24, grey, full: %d %d %d %d %06X %d", q.val_px, q.cap_px, q.val_y, q.cap_y, (unsigned)q.rgb, q.opa);
+    day_panel_pose(&on, -1, 1, &q);
+    CHECK(q.val_y == DAY_DRUM_Y - DAY_DRUM_SLOT && q.opa == 140, "above: mirrored, dimmer (far side): %d %d", q.val_y, q.opa);
+    day_panel_pose(&on, 2, 1, &q);
+    CHECK(q.opa == 0, "two slots away: gone: %d", q.opa);
+    day_panel_pose(&on, 1.3f, 1, &q);
+    CHECK(q.opa > 0 && q.opa < 255 && q.val_px == 30, "rolling past the slot: fading: %d", q.opa);
+    day_panel_pose(&on, 0.5f, 1, &q);
+    CHECK(q.val_px == 48 && q.cap_px == 24, "half way: digits snap to a compiled size (63 -> 48): %d %d", q.val_px, q.cap_px);
+    day_panel_pose(&on, 0.25f, 1, &q);
+    CHECK(q.val_px == 96 || q.val_px == 48, "a quarter: snapped: %d", q.val_px);
+    day_panel_pose(&on, 0.9f, 1, &q);
+    CHECK(q.val_px == 36, "near the slot: the 36 px digit subset: %d", q.val_px);
+    day_panel_pose(&on, 0, 0.5f, &q);
+    CHECK(q.opa == 128, "fade scales opacity: %d", q.opa);
+    day_panel_pose(&off, 0, 1, &q);
+    CHECK(q.val_px == 48 && q.cap_y == DAY_DRUM_Y + 36 && q.rgb == DAY_OFF_TEXT, "a word at 48 keeps its colour: %d %06X",
+          q.val_px, (unsigned)q.rgb);
+    day_panel_pose(&off, 0.5f, 1, &q);
+    CHECK(q.val_px == 30 || q.val_px == 48, "words snap to 24 30 48: %d", q.val_px);
+    day_panel_t tip = {.val = "stand up and stretch"};
+    day_panel_pose(&tip, 1, 1, &q);
+    CHECK(q.val_px == 30, "a sentence below: 30: %d", q.val_px);
+
+    day_block_t b = fixture("view_day_on_early.json");
+    day_ui_t ui;
+    day_ui_init(&ui);
+    day_in_t in = at_now(&b, HM(15, 42));
+    day_act_t a[DAY_ACTS];
+    day_model_t m0, m1, m2;
+    day_model(&ui, &in, 0, NULL, &m0);
+    day_ui_turn(&ui, &in, -2, 1, a);
+    day_model(&ui, &in, 1, NULL, &m1);
+    CHECK(m1.turning && strcmp(m1.top.val, "4:53") == 0 && strcmp(m1.mid.val, "23:30") == 0 &&
+              strcmp(m1.mid.cap, "stop at") == 0 && strcmp(m1.low.val, "7 h 48 min") == 0 &&
+              strcmp(m1.low.cap, "planned") == 0 && m1.tick_rgb == DAY_TEXT,
+          "turning: the time on the clock above, the stop in the centre, what is left below: %s / %s / %s", m1.top.val,
+          m1.mid.val, m1.low.val);
+    day_ui_tick(&ui, &in, 1 + DAY_TURN_DEBOUNCE_S, a);
+    day_model(&ui, &in, 3, NULL, &m2);
+    CHECK(!m2.turning && strcmp(m2.mid.val, "4:53") == 0 && strcmp(m2.low.val, "23:30") == 0,
+          "sent: back to the time on the clock, the new stop below");
+
+    day_roll_t r;
+    memset(&r, 0, sizeof r);
+    day_slot_t sl[DAY_DRUM_SLOTS];
+    day_roll_start(&r, &m0, &m1, true, 1);
+    CHECK(r.kind == DAY_ROLL_NONE, "first frame: no roll");
+    day_roll_start(&r, &m0, &m1, false, 1);
+    CHECK(r.kind == DAY_ROLL_TURN, "the first detent rolls up");
+    int n = day_roll_slots(&r, &m1, 1, sl);
+    CHECK(n == 3 && sl[0].u == 0 && strcmp(sl[0].p.val, "4:53") == 0 && sl[1].u == 1 && strcmp(sl[1].p.val, "23:30") == 0 &&
+              sl[2].u == 2,
+          "at the start the drum is where it was: %d", n);
+    n = day_roll_slots(&r, &m1, 1 + DAY_ROLL_S / 2, sl);
+    CHECK(n == 3 && sl[1].u > 0 && sl[1].u < 0.5f && r.kind == DAY_ROLL_TURN, "half way, eased: the stop nearly in: %f",
+          sl[1].u);
+    n = day_roll_slots(&r, &m1, 1 + DAY_ROLL_S, sl);
+    CHECK(n == 3 && sl[0].u == -1 && sl[1].u == 0 && sl[2].u == 1 && r.kind == DAY_ROLL_NONE,
+          "done: top, centre, below, roll over");
+    day_roll_start(&r, &m1, &m1, false, 2);
+    CHECK(r.kind == DAY_ROLL_NONE, "another detent: no new roll, the values change in place");
+    day_roll_start(&r, &m1, &m2, false, 3);
+    n = day_roll_slots(&r, &m2, 3, sl);
+    CHECK(r.kind == DAY_ROLL_BACK && n == 3 && sl[0].u == -1 && strcmp(sl[0].p.val, "4:53") == 0 && sl[1].u == 0 &&
+              strcmp(sl[1].p.val, "23:30") == 0 && sl[2].u == 1 && strcmp(sl[2].p.val, "7 h 48 min") == 0,
+          "rolling back starts from the turning layout");
+    n = day_roll_slots(&r, &m2, 3 + DAY_ROLL_S, sl);
+    CHECK(n == 2 && sl[0].u == 0 && sl[1].u == 1, "and ends on the On layout: %d", n);
+
+    day_block_t br = fixture("view_day_break.json");
+    day_in_t in_b = at_now(&br, HM(16, 17));
+    day_model_t mb;
+    day_model(&ui, &in_b, 4, NULL, &mb);
+    day_roll_start(&r, &m2, &mb, false, 4);
+    CHECK(r.kind == DAY_ROLL_FACE, "a face change rolls");
+    n = day_roll_slots(&r, &mb, 4, sl);
+    CHECK(n == 4 && sl[0].fade == 1 && strcmp(sl[2].p.val, "0:12") == 0 && sl[2].fade <= 0,
+          "start: the old face, the new one hidden: %d", n);
+    n = day_roll_slots(&r, &mb, 4 + DAY_ROLL_S * 0.3, sl);
+    day_pose_t old_low, new_mid;
+    day_panel_pose(&sl[1].p, sl[1].u, sl[1].fade, &old_low);
+    day_panel_pose(&sl[2].p, sl[2].u, sl[2].fade, &new_mid);
+    CHECK(old_low.opa == 0 && new_mid.opa > 0, "the old low panel is gone before the new one shows: %d %d", old_low.opa,
+          new_mid.opa);
+    n = day_roll_slots(&r, &mb, 4 + DAY_ROLL_S, sl);
+    CHECK(n == 2 && strcmp(sl[0].p.val, "0:12") == 0 && sl[0].u == 0 && r.kind == DAY_ROLL_NONE, "done: the break face");
+    day_model_t mt = m1, mp = m1;
+    mp.face = DAY_FACE_PAST;
+    day_roll_start(&r, &mt, &mp, false, 5);
+    CHECK(r.kind == DAY_ROLL_NONE, "turning across now (On to Past stop): no roll");
+    mt.turning = false;
+    day_roll_start(&r, &mt, &mp, false, 5);
+    CHECK(r.kind == DAY_ROLL_FACE, "On to Past stop without turning: a face roll");
 }
 
 static void test_actions(void)
@@ -625,6 +735,7 @@ int main(int argc, char **argv)
     test_offer_summary();
     test_busy_and_wait();
     test_models();
+    test_drum();
     test_actions();
     if (failures) {
         printf("day: %d failure(s)\n", failures);

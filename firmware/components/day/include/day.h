@@ -32,7 +32,8 @@ extern "C" {
 #define DAY_OFF_TEXT 0x8A8A8A
 #define DAY_TRACK 0x1E1E1E
 #define DAY_OFF_RING 0x141414
-#define DAY_MARK 0x3A3A3A
+#define DAY_MARK 0x6A6A6A
+#define DAY_FAR 0xA8A8A8
 
 typedef enum { DAY_OFF, DAY_ON, DAY_BREAK } day_state_t;
 
@@ -152,15 +153,18 @@ typedef struct {
     uint32_t rgb;
 } day_seg_t;
 
+/* A value over its caption: one panel on the text drum. */
+typedef struct {
+    char val[32];
+    char cap[40];
+    uint8_t big;        /* value size in the centre slot: 96, or 48 for a word ("off"); 0 = 96 */
+    uint32_t rgb;       /* 0: the drum's white, greying with distance */
+} day_panel_t;
+
 typedef struct {
     day_face_t face;
-    char hero[16];
-    bool hero_digits;   /* the 96 px digit font; else the 48 px text font */
-    uint32_t hero_rgb;
-    char line2[40];
-    uint32_t line2_rgb;
-    char line3[64];
-    uint32_t line3_rgb;
+    bool turning;       /* On or Past stop with a turned stop time not yet sent: the drum shows it in the centre */
+    day_panel_t top, mid, low;   /* top only while turning */
     bool marks;         /* 00 06 12 18 */
     bool off_ring;      /* the thin dark ring of the Off face instead of the track */
     int n_segs;
@@ -172,8 +176,46 @@ typedef struct {
     bool glow, moon, check;
 } day_model_t;
 
-/* note (offline, an action's error) replaces the third line; NULL none. */
+/* note (offline, an action's error) replaces the low panel; NULL none. */
 void day_model(const day_ui_t *ui, const day_in_t *in, double t, const char *note, day_model_t *out);
+
+/* The text drum: panels sit on a vertical drum seen from the front. Slot u = 0 is the centre (value 96 px over a
+   30 px caption), u = +1 the slot below and u = -1 the one above (30 / 24 px, greyer; above also dimmer). */
+#define DAY_DRUM_Y 255          /* value baseline in the centre slot, px */
+#define DAY_DRUM_SLOT 105       /* value baseline of slot +1 below the centre, px */
+#define DAY_DRUM_DEG 60.0f      /* drum angle between slots */
+#define DAY_ROLL_S 0.6
+#define DAY_DRUM_SLOTS 5
+
+typedef struct {
+    int val_px, cap_px;         /* a compiled size: values 30 36 48 96 (digits) or 24 30 48 (words), captions 24 30 */
+    int val_y, cap_y;           /* baselines, px from the top of the 466 frame */
+    uint32_t rgb;
+    uint8_t opa;
+} day_pose_t;
+
+/* u: slot position (fractional while rolling); fade: extra opacity 0-1. */
+void day_panel_pose(const day_panel_t *p, float u, float fade, day_pose_t *out);
+
+typedef enum { DAY_ROLL_NONE, DAY_ROLL_TURN, DAY_ROLL_BACK, DAY_ROLL_FACE } day_roll_kind_t;
+
+typedef struct {
+    day_roll_kind_t kind;
+    double t0;
+    day_panel_t top, mid, low;  /* the model the roll leaves */
+    bool had_top;
+} day_roll_t;
+
+typedef struct {
+    day_panel_t p;
+    float u, fade;
+} day_slot_t;
+
+/* Starts the roll from prev to next, if their faces differ (On and Past stop count as one while turning) or the turn
+   starts or ends; else leaves r as it is. first: nothing was drawn yet, so no roll. */
+void day_roll_start(day_roll_t *r, const day_model_t *prev, const day_model_t *next, bool first, double t);
+/* The panels to draw at t for model m, at most DAY_DRUM_SLOTS; ends the roll after DAY_ROLL_S. */
+int day_roll_slots(day_roll_t *r, const day_model_t *m, double t, day_slot_t out[DAY_DRUM_SLOTS]);
 
 #ifdef __cplusplus
 }

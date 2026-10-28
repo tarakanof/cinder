@@ -859,7 +859,7 @@ cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I
     "$D/test_view.c" -lm \
     -o "${OUT}_view"
 cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$H/include" -I"$J" \
-    "$K/knob_view.c" "$DY/day.c" "$DY/day_ui.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$J/cJSON.c" \
+    "$K/knob_view.c" "$DY/day.c" "$DY/day_ui.c" "$DY/day_drum.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$NP/np.c" "$J/cJSON.c" \
     "$D/test_day.c" -lm -o "${OUT}_day"
 "${OUT}_day" "$D/fixtures/ember" "$D/fixtures/day"
 cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \

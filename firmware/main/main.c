@@ -715,7 +715,7 @@ void page_day_frame(const page_frame_t *f)
     day_send(a, day_ui_tick(&s_day_ui, &di, f->t, a));
     day_model_t m;
     day_model(&s_day_ui, &di, f->t, day_client_note(&snap, pomo_client_now()), &m);
-    day_view_update(&m);
+    day_view_update(&m, f->t);
 }
 
 void page_np_input(const page_input_t *in, double t)
