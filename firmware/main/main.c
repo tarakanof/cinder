@@ -78,7 +78,7 @@ static atomic_int s_page_steps;
 static atomic_int s_swipes;
 static atomic_int s_hswipes;
 static atomic_int s_np_wakes;
-enum { PRESS_OPEN, PRESS_FIRED, PRESS_RELEASED };
+enum { PRESS_OPEN, PRESS_FIRED, PRESS_RELEASED, PRESS_TURNED };
 
 static atomic_bool s_hold_seen;
 static _Atomic long long s_press_at_us;
@@ -374,10 +374,13 @@ static void knob_cb(void *event)
     bool reset_turn = rg_turn(&s_rg, dir, now_s());
     taskEXIT_CRITICAL(&s_rg_mux);
     switch (pr_turn(reset_turn, atomic_load(&s_button_down))) {
-    case PR_TURN_PAGE:
+    case PR_TURN_PAGE: {
+        int open = PRESS_OPEN;
+        if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;
         atomic_store(&s_turned_while_down, true);
         atomic_fetch_add(&s_page_steps, dir);
         break;
+    }
     case PR_TURN_DETENT:
         atomic_fetch_add(&s_detents, dir);
         break;

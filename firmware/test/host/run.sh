@@ -100,6 +100,10 @@ body "$ECL" bright_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) se
     IDLE="$IDLE bright_apply-sets-the-level-then-the-off-flag"
 body "$ECL" fade_step | grep -qxF '    if (idle_state() != s_idle_seen) bright_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
 body "$ECL" idle_state | grep -qF 'if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
+body "$MAINC" knob_cb | grep -qF 'if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;' ||
+    IDLE="$IDLE knob_cb-a-held-turn-claims-the-press-before-paging"
+grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$MAINC" ||
+    IDLE="$IDLE hold_tick-fires-only-on-an-open-claim"
 if [ -n "$IDLE" ]; then
     echo "run.sh: FAIL idle wiring:$IDLE" >&2
     exit 1
