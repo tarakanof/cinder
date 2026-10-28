@@ -1,0 +1,2 @@
+hand-written from the work-tracking spec ("Knob view" under "Server"), not synced from Ember
+replace with Ember's device goldens (tarakanof/Ember#729) via sync-ember-fixtures.sh, then delete this directory

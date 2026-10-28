@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "epoch": 6,
+  "config_version": 3,
+  "day": {
+    "state": "on",
+    "started": "10:15",
+    "stop_at": "00:00",
+    "on_min": 293,
+    "break_min": 0,
+    "over_min": 0,
+    "replies_off_last_night": 0,
+    "agents": 2,
+    "break_hint": false
+  }
+}
