@@ -118,6 +118,8 @@ typedef struct {
     int set_stop;
     double set_at;
     int stop;               /* the stop time turned on On or Past; DAY_NONE: the view's */
+    int stop_base;          /* the view's stop time when the turning began */
+    int stop_delta;         /* minutes the turns moved it, signed, from stop_base */
     bool stop_dirty;        /* turned, not sent */
     double stop_turn_at, stop_sent_at;
     int offer_base, offer_at;

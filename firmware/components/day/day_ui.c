@@ -35,11 +35,8 @@ static day_at_t day_at(const day_ui_t *ui, const day_in_t *in)
     int over = b->over_min > 0 ? b->over_min + e : 0;
     if (ui->stop == DAY_NONE || ui->stop == b->stop_at) {
         a.over = over;
-    } else if (in->now_min != DAY_NONE) {
-        int d = near(in->now_min - ui->stop);
-        a.over = d > 0 ? d : 0;
-    } else if (over > 0 && b->stop_at != DAY_NONE) {
-        int d = over + near(b->stop_at - ui->stop);
+    } else if (over > 0 || (in->now_min != DAY_NONE && b->stop_at != DAY_NONE)) {
+        int d = (over > 0 ? over : -day_fwd(in->now_min, b->stop_at)) - ui->stop_delta;
         a.over = d > 0 ? d : 0;
     }
     return a;
@@ -71,7 +68,7 @@ void day_ui_sync(day_ui_t *ui, const day_in_t *in, double t)
         ui->stop = DAY_NONE;
         ui->stop_dirty = false;
     } else if (ui->stop != DAY_NONE && !ui->stop_dirty &&
-               (b->stop_at == ui->stop || t - ui->stop_sent_at > DAY_STOP_HOLD_S)) {
+               (b->stop_at == ui->stop || b->stop_at != ui->stop_base || t - ui->stop_sent_at > DAY_STOP_HOLD_S)) {
         ui->stop = DAY_NONE;
     }
 }
@@ -116,7 +113,13 @@ int day_ui_turn(day_ui_t *ui, const day_in_t *in, int detents, double t, day_act
     case DAY_FACE_PAST: {
         day_at_t a = day_at(ui, in);
         int base = a.stop != DAY_NONE ? a.stop : a.now != DAY_NONE ? a.now : 0;
-        ui->stop = day_step(base, detents, DAY_STOP_STEP);
+        if (ui->stop == DAY_NONE) {
+            ui->stop_base = in->b->stop_at;
+            ui->stop_delta = 0;
+        }
+        int next = day_step(base, detents, DAY_STOP_STEP);
+        ui->stop_delta += near(next - base);
+        ui->stop = next;
         ui->stop_dirty = true;
         ui->stop_turn_at = t;
         break;

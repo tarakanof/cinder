@@ -265,6 +265,17 @@ static void test_on_break_past(void)
     CHECK(strcmp(pm.hero, "02:22") == 0, "the clock time runs on from the view: %s", pm.hero);
 
     day_ui_init(&ui);
+    in.now_min = HM(10, 15);
+    day_ui_turn(&ui, &in, -1, 0, a);
+    CHECK(ui.stop == HM(23, 45) && face(&ui, &in, 0) == DAY_FACE_ON,
+          "in the morning, a stop turned from 00:00 to 23:45 is still ahead, not last night");
+    day_ui_turn(&ui, &in, 1, 0, a);
+    day_ui_turn(&ui, &in, 1, 0, a);
+    CHECK(ui.stop == HM(0, 15) && face(&ui, &in, 0) == DAY_FACE_ON, "and turned past midnight: ahead too");
+    in.now_min = HM(23, 50);
+    day_ui_turn(&ui, &in, -2, 0, a);
+    CHECK(ui.stop == HM(23, 45) && face(&ui, &in, 0) == DAY_FACE_PAST, "late evening, turned to 23:45: past");
+    day_ui_init(&ui);
     in.now_min = HM(0, 1);
     CHECK(face(&ui, &in, 0) == DAY_FACE_ON, "past the stop by the knob's clock but not by Ember's: on until the view says");
     b.over_min = 1;
