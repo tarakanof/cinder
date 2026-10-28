@@ -73,37 +73,6 @@ static void test_time(void)
           (unsigned)day_scale(DAY_ACCENT, 0.3f));
 }
 
-static void test_offset(void)
-{
-    day_block_t b = fixture("view_day_on.json");
-    int off = -1;
-    long long utc_0120 = 1782000000LL + 80 * 60;
-    CHECK(utc_0120 % 86400 == 80 * 60, "fixture time is 01:20 UTC");
-    CHECK(day_offset_from_block(&b, utc_0120, &off) && off == 60, "on golden at 02:20 local, 01:20 UTC: +60: %d", off);
-    CHECK(day_offset_from_block(&b, utc_0120 + 150, &off) && off == 60, "floored counts round to the 15-min grid: %d", off);
-    CHECK(day_offset_from_block(&b, utc_0120 + 420 * 60, &off) && off == -360, "08:20 UTC: -360: %d", off);
-    CHECK(day_offset_from_block(&b, utc_0120 - 45 * 60, &off) && off == 105, "a 15-min zone: %d", off);
-    day_block_t br = fixture("view_day_break.json");
-    long long utc_1617 = 1782000000LL + (16 * 60 + 17) * 60;
-    CHECK(day_offset_from_block(&br, utc_1617, &off) && off == 0, "a break counts the finished breaks too: %d", off);
-    day_block_t full = br;
-    full.n_breaks = DAY_BREAKS;
-    for (int i = 0; i < DAY_BREAKS; i++) {
-        full.breaks[i][0] = HM(12, 10) + i * 12;
-        full.breaks[i][1] = full.breaks[i][0] + 10;
-    }
-    off = 99;
-    CHECK(!day_offset_from_block(&full, utc_1617, &off) && off == 99,
-          "on a break with Ember's 16-break cap reached: the history may be cut, no sample");
-    full.state = DAY_ON;
-    full.break_min = 17 * 10;
-    CHECK(day_offset_from_block(&full, utc_0120, &off), "on: break_min is the full total, a sample");
-    day_block_t o = fixture("view_day_off.json");
-    CHECK(!day_offset_from_block(&o, utc_0120, &off), "off: no anchor");
-    b.started = DAY_NONE;
-    CHECK(!day_offset_from_block(&b, utc_0120, &off), "no start: no anchor");
-}
-
 static void test_parse(void)
 {
     day_block_t b = fixture("view_day_on_early.json");
@@ -117,7 +86,7 @@ static void test_parse(void)
           "Ember's break golden: on a second break, the first in breaks");
     b = fixture("view_day_on.json");
     CHECK(b.state == DAY_ON && b.started == HM(12, 0) && b.on_min == 860 && b.over_min == 140 && b.break_hint &&
-              b.agents == 0,
+              b.agents == 0 && b.has_utc_offset && b.utc_offset == 0,
           "Ember's on golden: past the stop");
     b = fixture("view_day_offer.json");
     CHECK(b.state == DAY_OFF && b.offer_start == HM(9, 52) && b.started == DAY_NONE, "offer");
@@ -143,6 +112,17 @@ static void test_parse(void)
           "bad fields read as absent, counts clamp: %d %d %d", b.started, b.over_min, b.agents);
     cJSON_Delete(o);
     CHECK(!day_parse(NULL, &b) && b.stop_at == DAY_NONE && b.offer_start == DAY_NONE, "not an object: times absent");
+
+    o = cJSON_Parse("{\"state\":\"off\",\"utc_offset\":-12600}");
+    CHECK(day_parse(o, &b) && b.has_utc_offset && b.utc_offset == -12600, "utc_offset in seconds: %d", b.utc_offset);
+    cJSON_Delete(o);
+    const char *bad_off[] = {"{\"state\":\"off\",\"utc_offset\":\"3600\"}", "{\"state\":\"off\",\"utc_offset\":3600.5}",
+                             "{\"state\":\"off\",\"utc_offset\":64801}", "{\"state\":\"off\"}", NULL};
+    for (int i = 0; bad_off[i]; i++) {
+        o = cJSON_Parse(bad_off[i]);
+        CHECK(day_parse(o, &b) && !b.has_utc_offset, "no zone from %s", bad_off[i]);
+        cJSON_Delete(o);
+    }
 
     o = cJSON_Parse("{\"state\":\"on\",\"breaks\":[[\"13:00\",\"13:30\"],[\"14:00\"],[\"15:00\",\"25:00\"],\"x\","
                     "[1,2],[\"16:00\",\"16:10\",\"x\"],[\"17:00\",\"17:05\"]]}");
@@ -639,7 +619,6 @@ int main(int argc, char **argv)
     dirs[0] = argv[1];
     dirs[1] = argv[2];
     test_time();
-    test_offset();
     test_parse();
     test_off_set();
     test_on_break_past();

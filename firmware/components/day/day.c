@@ -53,19 +53,6 @@ int day_step(int m, int steps, int step)
     return wrap(m + steps * step);
 }
 
-bool day_offset_from_block(const day_block_t *b, long long utc_s, int *offset_min)
-{
-    if ((b->state != DAY_ON && b->state != DAY_BREAK) || b->started == DAY_NONE || utc_s <= 0) return false;
-    if (b->state == DAY_BREAK && b->n_breaks >= DAY_BREAKS) return false;
-    long long local = (long long)b->started + b->on_min + b->break_min;
-    if (b->state == DAY_BREAK)
-        for (int i = 0; i < b->n_breaks; i++) local += day_fwd(b->breaks[i][0], b->breaks[i][1]);
-    int d = (int)((((local - utc_s / 60) % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES);
-    if (d >= DAY_MINUTES / 2) d -= DAY_MINUTES;
-    *offset_min = d >= 0 ? (d + 7) / 15 * 15 : -((7 - d) / 15 * 15);
-    return true;
-}
-
 uint32_t day_scale(uint32_t rgb, float k)
 {
     uint32_t out = 0;
@@ -93,6 +80,12 @@ bool day_parse(const cJSON *o, day_block_t *out)
     out->replies_off_last_night = count(o, "replies_off_last_night", 0);
     out->agents = count(o, "agents", DAY_NONE);
     out->break_hint = cJSON_IsTrue(item(o, "break_hint"));
+    const cJSON *uo = item(o, "utc_offset");
+    if (cJSON_IsNumber(uo) && uo->valuedouble >= -DAY_UTC_OFFSET_MAX && uo->valuedouble <= DAY_UTC_OFFSET_MAX &&
+        uo->valuedouble == (int)uo->valuedouble) {
+        out->has_utc_offset = true;
+        out->utc_offset = (int)uo->valuedouble;
+    }
     const cJSON *br = item(o, "breaks"), *e;
     if (cJSON_IsArray(br)) {
         cJSON_ArrayForEach(e, br)

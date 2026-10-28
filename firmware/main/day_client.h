@@ -16,8 +16,6 @@ typedef struct {
     bool have_srv, has_utc_offset;
     double srv_offset;     /* server Unix s = pomo_client_now() + srv_offset */
     int utc_offset;        /* s, the weather location's */
-    bool has_day_offset;
-    int day_offset_min;    /* Ember's day-clock zone, learned from a running day's block */
     unsigned gen;          /* applied views */
     int queued;
     bool sending;
@@ -38,7 +36,7 @@ bool day_client_pending(void);
 void day_client_run(http_conn_t *conn);
 /* Any task; drops actions older than DAY_ACT_TTL_S. */
 void day_client_get(day_snapshot_t *out);
-/* now: pomo_client_now(). exact: from Ember's day-clock zone; else the weather zone, for display only. */
+/* now: pomo_client_now(). exact: in the day block's zone (utc_offset); else the weather zone, for display only. */
 int day_client_now_min(const day_snapshot_t *s, double now, bool *exact);
 bool day_client_busy(const day_snapshot_t *s, double now);
 const char *day_client_note(const day_snapshot_t *s, double now);

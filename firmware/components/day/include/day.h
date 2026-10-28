@@ -15,6 +15,7 @@ extern "C" {
 #define DAY_OFFER_STEP 5
 #define DAY_COUNT_MAX 100000
 #define DAY_BREAKS 16
+#define DAY_UTC_OFFSET_MAX (18 * 3600)
 
 #define DAY_TURN_DEBOUNCE_S 1.5
 #define DAY_STOP_HOLD_S 5.0
@@ -51,6 +52,8 @@ typedef struct {
     bool break_hint;
     int n_breaks;
     int breaks[DAY_BREAKS][2];   /* finished breaks, start and end, oldest first */
+    bool has_utc_offset;
+    int utc_offset;              /* s, the day clock's zone at the answer's time: the zone of every HH:MM here */
     day_summary_t summary;
 } day_block_t;
 
@@ -65,10 +68,6 @@ void day_hhmm(int min, char *buf, size_t n);
 int day_fwd(int a, int b);
 /* m moved by steps on a grid of step minutes, wrapping at midnight; an off-grid m snaps to the grid in the turn's direction first. */
 int day_step(int m, int steps, int step);
-/* Ember's day-clock UTC offset in minutes, a multiple of 15, from an on or break block seen at Unix utc_s
-   (started + on_min + breaks is Ember-local now, each floored to the minute). False without such a block, and on a
-   break with DAY_BREAKS finished breaks (Ember sends only the latest, so the history may be cut). */
-bool day_offset_from_block(const day_block_t *b, long long utc_s, int *offset_min);
 /* rgb with each channel times k, rounded. */
 uint32_t day_scale(uint32_t rgb, float k);
 
@@ -114,7 +113,7 @@ typedef struct {
     bool fed;               /* a view came; with b NULL, Ember sent no day block */
     double age_s;           /* since the block came */
     int now_min;            /* local time; DAY_NONE when the knob does not know it */
-    bool now_exact;         /* now_min is in Ember's day-clock zone (else the weather's: display only) */
+    bool now_exact;         /* now_min is in the day clock's zone (else the weather's: display only) */
     bool busy;              /* an action is on its way or not yet in a view */
 } day_in_t;
 

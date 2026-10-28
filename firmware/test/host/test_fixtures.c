@@ -1184,7 +1184,9 @@ static void test_day(void)
         CHECK(v.has_day && b->state == DAY_BREAK && b->break_min == 12 && b->n_breaks == 1 && b->breaks[0][0] == HHMM(14, 0) &&
                   b->breaks[0][1] == HHMM(14, 35),
               "view_day_break: the running break in break_min, the finished one in breaks");
-    if (view("view_day_on.json", &v)) CHECK(v.day.n_breaks == 0, "view_day_on: no breaks key, none");
+    if (view("view_day_on.json", &v))
+        CHECK(v.day.n_breaks == 0 && v.day.has_utc_offset && v.day.utc_offset == 0,
+              "view_day_on: no breaks; utc_offset 0 (the goldens run in UTC)");
     char *j = load("day_action.json");
     cJSON *r = j ? cJSON_Parse(j) : NULL;
     free(j);

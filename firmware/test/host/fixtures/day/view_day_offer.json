@@ -10,7 +10,8 @@
     "break_min": 0,
     "over_min": 0,
     "offer_start": "09:52",
-    "agents": 1
+    "agents": 1,
+    "utc_offset": 3600
   },
   "weather": null
 }

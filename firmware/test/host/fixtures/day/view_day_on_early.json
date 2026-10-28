@@ -15,7 +15,8 @@
         "13:34"
       ]
     ],
-    "agents": 2
+    "agents": 2,
+    "utc_offset": 3600
   },
   "weather": null
 }

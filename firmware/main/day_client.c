@@ -56,11 +56,6 @@ void day_client_feed(const day_block_t *b, bool has_utc_offset, int utc_offset)
     s_snap.srv_offset = srv;
     s_snap.has_utc_offset = has_utc_offset;
     s_snap.utc_offset = has_utc_offset ? utc_offset : 0;
-    int off;
-    if (b && have_srv && day_offset_from_block(b, (long long)floor(now + srv), &off)) {
-        s_snap.has_day_offset = true;
-        s_snap.day_offset_min = off;
-    }
     s_snap.gen++;
     taskEXIT_CRITICAL(&s_lock);
 }
@@ -209,10 +204,10 @@ void day_client_get(day_snapshot_t *out)
 
 int day_client_now_min(const day_snapshot_t *s, double now, bool *exact)
 {
-    *exact = s->have_srv && s->has_day_offset;
-    if (!s->have_srv || (!s->has_day_offset && !s->has_utc_offset)) return DAY_NONE;
-    long long m = (long long)floor((now + s->srv_offset) / 60.0) +
-                  (s->has_day_offset ? s->day_offset_min : s->utc_offset / 60);
+    bool day_zone = s->has && s->b.has_utc_offset;
+    *exact = s->have_srv && day_zone;
+    if (!s->have_srv || (!day_zone && !s->has_utc_offset)) return DAY_NONE;
+    long long m = (long long)floor((now + s->srv_offset + (day_zone ? s->b.utc_offset : s->utc_offset)) / 60.0);
     return (int)(((m % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES);
 }
 
