@@ -86,6 +86,18 @@ static void test_offset(void)
     day_block_t br = fixture("view_day_break.json");
     long long utc_1617 = 1782000000LL + (16 * 60 + 17) * 60;
     CHECK(day_offset_from_block(&br, utc_1617, &off) && off == 0, "a break counts the finished breaks too: %d", off);
+    day_block_t full = br;
+    full.n_breaks = DAY_BREAKS;
+    for (int i = 0; i < DAY_BREAKS; i++) {
+        full.breaks[i][0] = HM(12, 10) + i * 12;
+        full.breaks[i][1] = full.breaks[i][0] + 10;
+    }
+    off = 99;
+    CHECK(!day_offset_from_block(&full, utc_1617, &off) && off == 99,
+          "on a break with Ember's 16-break cap reached: the history may be cut, no sample");
+    full.state = DAY_ON;
+    full.break_min = 17 * 10;
+    CHECK(day_offset_from_block(&full, utc_0120, &off), "on: break_min is the full total, a sample");
     day_block_t o = fixture("view_day_off.json");
     CHECK(!day_offset_from_block(&o, utc_0120, &off), "off: no anchor");
     b.started = DAY_NONE;

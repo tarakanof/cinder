@@ -56,6 +56,7 @@ int day_step(int m, int steps, int step)
 bool day_offset_from_block(const day_block_t *b, long long utc_s, int *offset_min)
 {
     if ((b->state != DAY_ON && b->state != DAY_BREAK) || b->started == DAY_NONE || utc_s <= 0) return false;
+    if (b->state == DAY_BREAK && b->n_breaks >= DAY_BREAKS) return false;
     long long local = (long long)b->started + b->on_min + b->break_min;
     if (b->state == DAY_BREAK)
         for (int i = 0; i < b->n_breaks; i++) local += day_fwd(b->breaks[i][0], b->breaks[i][1]);

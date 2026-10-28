@@ -66,7 +66,8 @@ int day_fwd(int a, int b);
 /* m moved by steps on a grid of step minutes, wrapping at midnight; an off-grid m snaps to the grid in the turn's direction first. */
 int day_step(int m, int steps, int step);
 /* Ember's day-clock UTC offset in minutes, a multiple of 15, from an on or break block seen at Unix utc_s
-   (started + on_min + breaks is Ember-local now, each floored to the minute). False without such a block. */
+   (started + on_min + breaks is Ember-local now, each floored to the minute). False without such a block, and on a
+   break with DAY_BREAKS finished breaks (Ember sends only the latest, so the history may be cut). */
 bool day_offset_from_block(const day_block_t *b, long long utc_s, int *offset_min);
 /* rgb with each channel times k, rounded. */
 uint32_t day_scale(uint32_t rgb, float k);
