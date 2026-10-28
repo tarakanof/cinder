@@ -244,12 +244,31 @@ static void test_on_break_past(void)
     CHECK(strcmp(pm.hero, "02:22") == 0, "the clock time runs on from the view: %s", pm.hero);
 
     day_ui_init(&ui);
-    in.now_min = HM(23, 59);
-    CHECK(face(&ui, &in, 0) == DAY_FACE_ON, "a minute before the stop: on");
     in.now_min = HM(0, 1);
-    CHECK(face(&ui, &in, 0) == DAY_FACE_PAST, "a minute after, across midnight: past");
-    in.now_min = HM(10, 20);
-    CHECK(face(&ui, &in, 0) == DAY_FACE_ON, "just after the start, the stop is ahead: on");
+    CHECK(face(&ui, &in, 0) == DAY_FACE_ON, "past the stop by the knob's clock but not by Ember's: on until the view says");
+    b.over_min = 1;
+    CHECK(face(&ui, &in, 0) == DAY_FACE_PAST, "Ember's over_min decides: past");
+    b.over_min = 0;
+
+    day_block_t early = b;
+    early.started = HM(0, 10);
+    early.stop_at = 0;
+    early.on_min = 5;
+    early.over_min = 15;
+    day_in_t in_e = at_now(&early, HM(0, 15));
+    day_ui_init(&ui);
+    CHECK(face(&ui, &in_e, 0) == DAY_FACE_PAST, "a stop before the clock-in in Ember's workday: Ember's overtime stands");
+    day_ui_turn(&ui, &in_e, -1, 1, a);
+    CHECK(ui.stop == HM(23, 45) && face(&ui, &in_e, 1) == DAY_FACE_PAST, "a stop turned earlier: still past");
+    day_ui_turn(&ui, &in_e, 2, 2, a);
+    CHECK(ui.stop == HM(0, 15) && face(&ui, &in_e, 2) == DAY_FACE_ON, "a stop turned to now: on");
+    in_e.now_min = DAY_NONE;
+    day_ui_init(&ui);
+    day_ui_turn(&ui, &in_e, 2, 3, a);
+    CHECK(ui.stop == HM(0, 30) && face(&ui, &in_e, 3) == DAY_FACE_ON, "no clock: Ember's overtime less the turn: on");
+    day_ui_init(&ui);
+    day_ui_turn(&ui, &in_e, -1, 4, a);
+    CHECK(face(&ui, &in_e, 4) == DAY_FACE_PAST, "no clock: an earlier stop adds to Ember's overtime");
 }
 
 static void test_offer_summary(void)
@@ -268,6 +287,12 @@ static void test_offer_summary(void)
     CHECK(ui.offer_at == HM(9, 50), "back: %d", ui.offer_at);
     day_ui_turn(&ui, &in, -200, 4, a);
     CHECK(ui.offer_at == HM(9, 50), "not more than 12 h back: %d", ui.offer_at);
+    day_in_t nc = in;
+    nc.now_min = DAY_NONE;
+    day_ui_turn(&ui, &nc, 3, 4.5, a);
+    CHECK(ui.offer_at == HM(9, 52), "no clock: never after the first reply: %d", ui.offer_at);
+    day_ui_turn(&ui, &nc, -1, 4.6, a);
+    CHECK(ui.offer_at == HM(9, 50), "no clock: back still works: %d", ui.offer_at);
     CHECK(day_ui_push(&ui, &in, 5, a) == 1 && act_is(&a[0], DAY_ACT_START, 0, HM(9, 50)),
           "offer: push starts back-dated with the view's stop");
     CHECK(day_ui_long(&ui, &in, 5, a) == 1 && a[0].kind == DAY_ACT_DISMISS, "offer: long push dismisses");

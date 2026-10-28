@@ -12,6 +12,8 @@ typedef struct {
 
 static int wrap(int m) { return ((m % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES; }
 
+static int near(int d) { return wrap(d + HALF_DAY) - HALF_DAY; }
+
 static int guess_now(const day_block_t *b, int e)
 {
     if (b->state == DAY_ON && b->over_min > 0 && b->stop_at != DAY_NONE) return wrap(b->stop_at + b->over_min + e);
@@ -30,11 +32,15 @@ static day_at_t day_at(const day_ui_t *ui, const day_in_t *in)
     if (b->state == DAY_BREAK) a.brk += e;
     if (a.now == DAY_NONE) a.now = guess_now(b, e);
     if (b->state != DAY_ON) return a;
-    if (a.now != DAY_NONE && b->started != DAY_NONE && a.stop != DAY_NONE) {
-        int d = day_fwd(b->started, a.now) - day_fwd(b->started, a.stop);
+    int over = b->over_min > 0 ? b->over_min + e : 0;
+    if (ui->stop == DAY_NONE || ui->stop == b->stop_at) {
+        a.over = over;
+    } else if (in->now_min != DAY_NONE) {
+        int d = near(in->now_min - ui->stop);
         a.over = d > 0 ? d : 0;
-    } else if (b->over_min > 0) {
-        a.over = b->over_min + e;
+    } else if (over > 0 && b->stop_at != DAY_NONE) {
+        int d = over + near(b->stop_at - ui->stop);
+        a.over = d > 0 ? d : 0;
     }
     return a;
 }
@@ -117,8 +123,8 @@ int day_ui_turn(day_ui_t *ui, const day_in_t *in, int detents, double t, day_act
     }
     case DAY_FACE_OFFER: {
         int next = day_step(ui->offer_at, detents, DAY_OFFER_STEP);
-        int now = day_at(ui, in).now;
-        if (now != DAY_NONE && day_fwd(next, now) > HALF_DAY) next = detents > 0 ? now : ui->offer_at;
+        int now = in->now_min != DAY_NONE ? in->now_min : ui->offer_base;
+        if (day_fwd(next, now) > HALF_DAY) next = detents > 0 ? now : ui->offer_at;
         ui->offer_at = next;
         break;
     }
