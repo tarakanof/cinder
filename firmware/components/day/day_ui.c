@@ -18,8 +18,10 @@ static int guess_now(const day_block_t *b, int e)
 {
     if (b->state == DAY_ON && b->over_min > 0 && b->stop_at != DAY_NONE) return wrap(b->stop_at + b->over_min + e);
     if (b->state == DAY_ON && b->started != DAY_NONE) return wrap(b->started + b->on_min + b->break_min + e);
-    if (b->state == DAY_BREAK && b->started != DAY_NONE) return wrap(b->started + b->on_min + b->break_min + e);
-    return DAY_NONE;
+    if (b->state != DAY_BREAK || b->started == DAY_NONE) return DAY_NONE;
+    int done = 0;
+    for (int i = 0; i < b->n_breaks; i++) done += day_fwd(b->breaks[i][0], b->breaks[i][1]);
+    return wrap(b->started + b->on_min + done + b->break_min + e);
 }
 
 static day_at_t day_at(const day_ui_t *ui, const day_in_t *in)

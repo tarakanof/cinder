@@ -502,7 +502,7 @@ static void test_models(void)
           "break face (mockup 3), the earlier break a gap: %s %s %s, %d segs", m.mid.val, m.mid.cap, m.low.val, m.n_segs);
     in_b.now_min = DAY_NONE;
     day_model(&ui, &in_b, 0, NULL, &m);
-    CHECK(m.dot == HM(15, 42), "no clock on a break: the guess misses the earlier break: %d", m.dot);
+    CHECK(m.dot == HM(16, 17), "no clock on a break: the guess counts the finished breaks: %d", m.dot);
     in_b.now_min = HM(16, 17);
     in_b.age_s = 61;
     day_model(&ui, &in_b, 0, NULL, &m);
