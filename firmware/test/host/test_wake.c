@@ -245,7 +245,7 @@ static int plain_wait(int ms)
         int due = shown_wait_ms(&S.shown, S.now, true);
         if (due == 0) break;
         int item;
-        if (wake_turn(&OPS, wake_slice_ms(left, due, -1, false), &item)) break;
+        if (wake_turn(&OPS, wake_slice_ms(left, due, false), &item)) break;
         CHECK(turns < 100, "no spin");
         if (turns >= 100) break;
     }
@@ -288,12 +288,11 @@ static void test_latency(void)
 
 static void test_slice(void)
 {
-    CHECK(wake_slice_ms(5000, -1, -1, false) == WAKE_SLICE_MAX_MS, "1 s slices");
-    CHECK(wake_slice_ms(400, -1, -1, false) == 400, "the time left");
-    CHECK(wake_slice_ms(5000, 120, -1, false) == 120, "the debounce left");
-    CHECK(wake_slice_ms(5000, 120, 30, false) == 30, "the next fade step");
-    CHECK(wake_slice_ms(5000, -1, -1, true) == WAKE_SLICE_NP_MS, "now playing");
-    CHECK(wake_slice_ms(5000, 0, -1, false) == WAKE_SLICE_MAX_MS, "due 0 is the caller's poll, not a cut");
+    CHECK(wake_slice_ms(5000, -1, false) == WAKE_SLICE_MAX_MS, "1 s slices");
+    CHECK(wake_slice_ms(400, -1, false) == 400, "the time left");
+    CHECK(wake_slice_ms(5000, 120, false) == 120, "the debounce left");
+    CHECK(wake_slice_ms(5000, -1, true) == WAKE_SLICE_NP_MS, "now playing");
+    CHECK(wake_slice_ms(5000, 0, false) == WAKE_SLICE_MAX_MS, "due 0 is the caller's poll, not a cut");
 }
 
 int main(void)

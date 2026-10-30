@@ -20,8 +20,8 @@ typedef struct {
 /* One turn of a wait between plain polls: true when an item was taken. Never blocks past ms; returns early on a wake. */
 bool wake_turn(const wake_ops_t *o, int ms, void *item);
 
-/* left_ms cut to due_ms (> 0), WAKE_SLICE_MAX_MS, fade_ms (>= 0) and WAKE_SLICE_NP_MS while now playing shows. */
-int wake_slice_ms(int left_ms, int due_ms, int fade_ms, bool np_visible);
+/* left_ms cut to due_ms (> 0), WAKE_SLICE_MAX_MS and WAKE_SLICE_NP_MS while now playing shows. */
+int wake_slice_ms(int left_ms, int due_ms, bool np_visible);
 
 #ifdef __cplusplus
 }

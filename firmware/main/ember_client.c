@@ -15,12 +15,12 @@
 #include "coredump_up.h"
 #include "diag.h"
 #include "dim.h"
+#include "dim_ctl.h"
 #include "ember_host.h"
 #include "ember_legacy.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "http_conn.h"
-#include "panel_check.h"
 #include "wifi_backoff.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -303,103 +303,7 @@ static poll_ctx_t *P;
 #define s_ks (P->ks)
 static uint32_t s_ks_gen;
 
-static atomic_int s_dim_start = -1;
-static dim_fade_t s_fade;
-static bool s_fade_on;
-static int s_bright_target = -1;
-static int s_bright_want = -1;
 static atomic_bool s_quiet;
-static atomic_bool s_quiet_dim;
-
-static EXT_RAM_BSS_ATTR struct {
-    dim_idle_t clock;
-    dim_idle_rules_t rules;
-} s_idle;
-static portMUX_TYPE s_idle_mux = portMUX_INITIALIZER_UNLOCKED;
-static dim_idle_state_t s_idle_seen;
-static atomic_int s_awake_level = -1;
-static atomic_int s_lit = -1;
-static atomic_int s_panel_level = -1;
-
-static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }
-
-static atomic_int s_wake_logged = DIM_WAKE_NONE;
-
-static void idle_wake_log(dim_wake_t wake)
-{
-    if (atomic_exchange(&s_wake_logged, wake) != (int)wake) ESP_LOGI(TAG, "idle wake source -> %s", dim_wake_name(wake));
-}
-
-static dim_idle_state_t idle_state(void)
-{
-    int64_t now = idle_ms();
-    bool verifying = ota_client_verifying();
-    taskENTER_CRITICAL(&s_idle_mux);
-    if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);
-    else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);
-    dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
-    dim_wake_t wake = s_idle.clock.wake;
-    taskEXIT_CRITICAL(&s_idle_mux);
-    idle_wake_log(wake);
-    return st;
-}
-
-static void idle_rules_set(void)
-{
-    taskENTER_CRITICAL(&s_idle_mux);
-    s_idle.rules = (dim_idle_rules_t){.dim_after_s = s_ks.idle_dim_after_s,
-                                      .dim_level = s_ks.idle_dim_level,
-                                      .off_after_s = s_ks.idle_off_after_s};
-    taskEXIT_CRITICAL(&s_idle_mux);
-}
-
-static void idle_diag_fill(dev_diag_t *d)
-{
-    (void)idle_state();
-    int64_t now = idle_ms();
-    taskENTER_CRITICAL(&s_idle_mux);
-    dim_idle_state_t st = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
-    int age = dim_idle_age_s(&s_idle.clock, now);
-    dim_wake_t wake = s_idle.clock.wake;
-    taskEXIT_CRITICAL(&s_idle_mux);
-    d->has_idle = true;
-    d->idle_state = dim_idle_state_name(st);
-    d->idle_wake = dim_wake_name(wake);
-    d->idle_input_age_s = age;
-}
-
-static int fade_floor(void)
-{
-    return dim_idle_floor(dim_quiet_floor(s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim), s_idle_seen, &s_idle.rules);
-}
-
-static void set_brightness_target(int level)
-{
-    if (level != s_bright_target) ESP_LOGI(TAG, "brightness -> %d", level);
-    s_bright_target = level;
-    if (s_fade_on) dim_fade_set_target(&s_fade, level);
-}
-
-static void bright_apply(void)
-{
-    static const char *const NAMES[] = {"awake", "dimmed", "off"};
-    dim_idle_state_t idle = idle_state();
-    if (idle != s_idle_seen) ESP_LOGI(TAG, "idle: %s", NAMES[idle]);
-    s_idle_seen = idle;
-    if (s_fade_on) dim_fade_set_floor(&s_fade, fade_floor());
-    atomic_store(&s_awake_level, s_bright_want < 0 ? -1 : dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim));
-    int level = s_bright_want < 0 ? -1
-                                  : dim_idle_level(dim_quiet_level(s_bright_want, s_ks.floor, atomic_load(&s_quiet_dim), s_ks.quiet_dim),
-                                                   idle, &s_idle.rules);
-    if (level > 0) set_brightness_target(level);
-    if (s_fade_on) dim_fade_set_off(&s_fade, idle == DIM_IDLE_OFF);
-}
-
-static void bright_want(int level)
-{
-    s_bright_want = level;
-    bright_apply();
-}
 
 static void set_quiet(bool quiet)
 {
@@ -421,32 +325,7 @@ static void brightness_poll(char *buf, const char *url)
         if (status != 200) ESP_LOGW(TAG, "brightness: HTTP %d, keeping the current level", status);
         last_status = status;
     }
-    if (level >= 0) bright_want(level);
-}
-
-static void fade_start(void)
-{
-    if (!s_fade_on && atomic_load(&s_dim_start) >= 0) {
-        dim_fade_init(&s_fade, atomic_load(&s_dim_start));
-        dim_fade_set_floor(&s_fade, fade_floor());
-        s_fade_on = true;
-        if (s_bright_target >= 0) dim_fade_set_target(&s_fade, s_bright_target);
-        dim_fade_set_off(&s_fade, s_idle_seen == DIM_IDLE_OFF);
-    }
-}
-
-static int fade_step(void)
-{
-    if (!s_fade_on) return -1;
-    int lit = dim_fade_take(&s_fade, atomic_exchange(&s_lit, -1), idle_state());
-    if (lit >= 0) panel_check_brightness((uint8_t)lit);
-    if (idle_state() != s_idle_seen) bright_apply();
-    uint8_t v;
-    bool set;
-    int next = dim_fade_step(&s_fade, esp_timer_get_time() / 1000, &v, &set);
-    if (set) panel_check_brightness(v);
-    atomic_store(&s_panel_level, s_fade.cur);
-    return next;
+    if (level >= 0) dim_ctl_want(level);
 }
 
 #define EMBER_HANG_MS 90000
@@ -533,9 +412,8 @@ static int wake_wait(void *ctx, int ms)
 
 static const wake_ops_t WAKE_OPS = {.take = wake_take, .wait = wake_wait};
 
-static void wait_and_fade(int ms, char *buf)
+static void loop_wait(int ms, char *buf)
 {
-    fade_start();
     TickType_t end = xTaskGetTickCount() + pdMS_TO_TICKS(ms);
     for (;;) {
         alive();
@@ -546,11 +424,10 @@ static void wait_and_fade(int ms, char *buf)
         if (buf && atomic_load(&s_online) && day_client_pending()) return;
         int due = buf ? shown_due() : -1;
         if (due == 0) return;
-        int next = fade_step();
         bool np = buf && np_client_visible();
         if (np && atomic_load(&s_online) && np_client_cmds_pending()) np_client_run_controls(s_conn, P->base);
         if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);
-        int wait = wake_slice_ms((int)pdTICKS_TO_MS(left), due, next, np);
+        int wait = wake_slice_ms((int)pdTICKS_TO_MS(left), due, np);
         if (!buf) {
             vTaskDelay(pdMS_TO_TICKS(wait));
             continue;
@@ -567,19 +444,19 @@ static void wait_and_fade(int ms, char *buf)
 static void view_brightness(void)
 {
     if (!s_ks.follow_ember || P->vp.legacy || !P->vs.have_view || !P->vs.view.has_brightness) return;
-    bright_want(P->vs.view.level);
+    dim_ctl_want(P->vs.view.level);
 }
 
 static void settings_changed(int64_t *next_bright_us)
 {
     bool followed = s_ks.follow_ember;
     config_store_settings(&s_ks);
-    idle_rules_set();
+    dim_ctl_settings(&s_ks);
     diag_set_level((ks_diag_t)s_ks.diagnostics);
-    if (!s_ks.follow_ember) bright_want(s_ks.level);
+    if (!s_ks.follow_ember) dim_ctl_want(s_ks.level);
     else if (!P->vp.legacy) view_brightness();
     else if (!followed) *next_bright_us = 0;
-    bright_apply();
+    dim_ctl_apply();
 }
 
 static void poll_settings(int64_t *next_bright_us)
@@ -831,7 +708,7 @@ static void checkin(char *buf)
     ota_client_report(&orep);
     c.ota = &orep;
     diag_fill(&P->diag);
-    idle_diag_fill(&P->diag);
+    dim_ctl_diag(&P->diag);
     dev_stats_t *st = &P->stats;
     bool live = s_sched.live_until_ms > now_ms();
     bool with_stats = diag_due(stats_interval_s() * 1000, s_sched.period_ms, live) && diag_sample(st);
@@ -991,17 +868,16 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     day_client_feed(e->has_day ? &e->day : NULL, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
     demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
-    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));
+    dim_ctl_quiet(demo_quiet_dim(playing, atomic_load(&s_quiet)));
     view_brightness();
-    bright_apply();
+    dim_ctl_apply();
 }
 
 static bool longpoll_idle(void *ctx, int *next_slice_ms)
 {
     (void)ctx;
     alive();
-    int next = fade_step();
-    *next_slice_ms = next >= 0 && next < 1000 ? next : 1000;
+    *next_slice_ms = WAKE_SLICE_MAX_MS;
     if (ota_client_mark_pending()) return true;
     if (!atomic_load(&s_online) || config_store_token_gen() != P->token_gen) return true;
     if (config_store_settings_gen() != s_ks_gen) return true;
@@ -1057,7 +933,6 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
     taskENTER_CRITICAL(&s_shown_mux);
     shown_sent(&s_shown, sv);
     taskEXIT_CRITICAL(&s_shown_mux);
-    if (wait > 0) fade_start();
     bool truncated = false;
     const http_req_opts_t o = {
         .idempotent = true,
@@ -1311,10 +1186,11 @@ static void poll_task(void *arg)
             taskEXIT_CRITICAL(&s_host_mux);
         }
         atomic_store(&s_mood, mood);
+        dim_ctl_mood(mood);
         demo_mark_ready();
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
         if (mood != last) {
-            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake(DIM_WAKE_MOOD);
+            if (dim_mood_holds(mood) && !dim_mood_holds(last)) dim_ctl_wake(DIM_WAKE_MOOD);
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");
             last = mood;
         }
@@ -1339,11 +1215,11 @@ static void poll_task(void *arg)
         pomo_client_legacy(P->vp.legacy);
         weather_client_legacy(P->vp.legacy);
         if (P->vp.legacy) {
-            wait_and_fade(s_ks.poll_ms, NULL);
+            loop_wait(s_ks.poll_ms, NULL);
         } else if (P->rearm_ms >= 0 && P->waited) {
-            if (P->rearm_ms > 0) wait_and_fade(P->rearm_ms, buf);
+            if (P->rearm_ms > 0) loop_wait(P->rearm_ms, buf);
         } else {
-            wait_and_fade(pomo_client_view_poll_ms(s_ks.poll_ms), buf);
+            loop_wait(pomo_client_view_poll_ms(s_ks.poll_ms), buf);
         }
     }
 }
@@ -1531,34 +1407,11 @@ bool ember_client_wifi_started(void) { return atomic_load(&s_wifi_started); }
 
 int ember_client_join_failures(void) { return atomic_load(&s_join_failures); }
 
-static bool idle_touch(bool input, dim_wake_t src)
-{
-    int64_t now = idle_ms();
-    taskENTER_CRITICAL(&s_idle_mux);
-    dim_idle_state_t was = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
-    bool swallow = false;
-    if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now, src);
-    else dim_idle_wake(&s_idle.clock, now, src);
-    taskEXIT_CRITICAL(&s_idle_mux);
-    int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_panel_level));
-    if (lit >= 0) {
-        panel_check_brightness((uint8_t)lit);
-        atomic_store(&s_panel_level, lit);
-        atomic_store(&s_lit, lit);
-    }
-    if (was != DIM_IDLE_AWAKE) ember_client_wake();
-    return swallow;
-}
-
 bool ember_client_idle_input(dim_wake_t src)
 {
     claim_client_input();
-    return idle_touch(true, src);
+    return dim_ctl_input(src);
 }
-
-void ember_client_idle_wake(dim_wake_t src) { (void)idle_touch(false, src); }
-
-bool ember_client_idle_off(void) { return idle_state() == DIM_IDLE_OFF; }
 
 bool ember_client_quiet(void) { return atomic_load(&s_quiet); }
 
@@ -1576,5 +1429,3 @@ void ember_client_host(ember_host_info_t *out)
     *out = s_host;
     taskEXIT_CRITICAL(&s_host_mux);
 }
-
-void ember_client_dim_enable(uint8_t current_level) { atomic_store(&s_dim_start, current_level); }

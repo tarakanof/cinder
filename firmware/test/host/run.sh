@@ -25,6 +25,7 @@ OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cinder_test.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 OUT="$OUT_DIR/t"
 ECL="$D/../../main/ember_client.c"
+DIMC="$D/../../main/dim_ctl.c"
 OTA_CALLS=$(grep -c 'ota_client_checkin_done(' "$ECL" || true)
 OTA_BAD=$(grep 'ota_client_checkin_done(' "$ECL" | grep -vc 'ota_client_checkin_done(step\.ota_status, ' || true)
 if [ "$OTA_CALLS" -eq 0 ] || [ "$OTA_BAD" -ne 0 ]; then
@@ -76,31 +77,44 @@ body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_n
     IDLE="$IDLE touch_cb-notes-the-input-then-swallows-the-whole-waking-touch"
 body "$MAINC" touch_cb | grep -qxF '    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);' ||
     IDLE="$IDLE touch_cb-only-a-press-counts-as-idle-input-not-pressing"
-body "$MAINC" touch_cb | grep -qxF '    if (code == LV_EVENT_RELEASED && ember_client_idle_off()) code = LV_EVENT_PRESS_LOST;' ||
+body "$MAINC" touch_cb | grep -qxF '    if (code == LV_EVENT_RELEASED && dim_ctl_off()) code = LV_EVENT_PRESS_LOST;' ||
     IDLE="$IDLE touch_cb-cancels-a-release-after-the-panel-went-off"
-body "$ECL" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
-body "$ECL" idle_diag_fill | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
-    IDLE="$IDLE idle_diag_fill-reads-state-age-and-wake-in-one-critical-section"
-body "$ECL" idle_state | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
-    IDLE="$IDLE idle_state-credits-the-mood-hold-to-mood"
+body "$DIMC" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
+body "$DIMC" dim_ctl_diag | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
+    IDLE="$IDLE dim_ctl_diag-reads-state-age-and-wake-in-one-critical-section"
+body "$DIMC" idle_locked | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
+    IDLE="$IDLE idle_locked-credits-the-mood-hold-to-mood"
 [ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
-body "$ECL" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
+body "$DIMC" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
-body "$ECL" fade_step | awk '/dim_fade_take\(&s_fade, atomic_exchange\(&s_lit, -1\), idle_state\(\)\)/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /bright_apply\(\);/ {b = NR} END {exit !(x && p > x && b > p)}' ||
+body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_read\(&wake\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
+! body "$DIMC" fade_step | grep -qE 'idle_state\(\)|idle_wake_log|ESP_LOG' || IDLE="$IDLE fade_step-must-not-log-at-input-rate-on-the-frame-path"
 body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
-body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);' &&
-    body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);' &&
+body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) dim_ctl_wake(DIM_WAKE_OTA_FACE);' &&
+    body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || s_scene_on) dim_ctl_wake(DIM_WAKE_DEMO);' &&
     body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
     body "$MAINC" idle_frame | grep -qxF '    if (off) s_last_frame_t = 0;' ||
     IDLE="$IDLE idle_frame-wakes-for-the-OTA-face-and-demos-and-pauses-invalidation"
-body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake(DIM_WAKE_MOOD);' ||
+body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) dim_ctl_wake(DIM_WAKE_MOOD);' ||
     IDLE="$IDLE poll_task-wakes-when-the-mood-turns-active"
-body "$ECL" bright_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
-    IDLE="$IDLE bright_apply-sets-the-level-then-the-off-flag"
-body "$ECL" fade_step | grep -qxF '    if (idle_state() != s_idle_seen) bright_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
-body "$ECL" idle_state | grep -qF 'if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
+body "$DIMC" dim_ctl_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
+    IDLE="$IDLE dim_ctl_apply-sets-the-level-then-the-off-flag"
+body "$DIMC" fade_step | grep -qxF '    bool moved = idle != s_idle_seen;' && body "$DIMC" fade_step | grep -qxF '    if (moved) dim_ctl_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
+body "$DIMC" idle_locked | grep -qF 'if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);' || IDLE="$IDLE idle_locked-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
+body "$MAINC" frame_cb | awk '/^    dim_ctl_frame\(\);$/ {d = NR} /^    panel_check_frame\(\);$/ {p = NR} /^    if \(ota_client_render_frozen\(\)\) return;$/ {r = NR} /^    if \(idle_frame\(/ {i = NR} END {exit !(d && p > d && r > p && i > r)}' ||
+    IDLE="$IDLE frame_cb-steps-the-dimmer-before-the-panel-write-and-every-early-return"
+body "$DIMC" fade_start | grep -qxF '    if (s_idle.ready) {' || IDLE="$IDLE fade_start-waits-for-the-first-settings"
+! grep -qE 'fade_step|fade_start|dim_fade_|panel_check_brightness|s_lit|s_idle\b' "$ECL" || IDLE="$IDLE the-network-loop-no-longer-steps-the-fade"
+awk '/taskENTER_CRITICAL/ {l = 1} /taskEXIT_CRITICAL/ {l = 0} l && /ESP_LOG|panel_check_brightness|alloc\(|ember_client_wake/ {bad = 1} END {exit bad}' "$DIMC" || IDLE="$IDLE dim_ctl-no-log-allocation-or-panel-write-under-the-lock"
+for FN in idle_locked fade_floor set_brightness_target; do
+    HELPER=$(body "$DIMC" "$FN")
+    { [ -n "$HELPER" ] && ! printf '%s\n' "$HELPER" | grep -qE 'ESP_LOG|panel_check_brightness|alloc\(|ember_client_wake'; } ||
+        IDLE="$IDLE $FN-runs-under-the-lock-so-no-log-allocation-or-panel-write"
+done
+grep -qxF 'static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }' "$DIMC" &&
+    grep -qxF 'bool ota_client_verifying(void) { return atomic_load(&s_verifying); }' "$OCL" || IDLE="$IDLE idle_ms-and-ota_client_verifying-stay-plain-reads-under-the-lock"
 body "$MAINC" knob_cb | grep -qF 'if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;' ||
     IDLE="$IDLE knob_cb-a-held-turn-claims-the-press-before-paging"
 grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$MAINC" ||
@@ -739,8 +753,8 @@ done
     'P->demo_gen=gen;np_client_drop_demo();demo_flags(false,false);return;' ] || WIRING="$WIRING demo_sync-early-return-drops-the-demo-np-block-and-clears-the-demo-flags"
 printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /(^|[^a-z_.>])on[ \t]*([-+*\/%&|^]|<<|>>)?=([^=]|$)/ {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
     /\(!on \|\| !bot_page\)/ && !u {u = NR} END {exit !(k && n == 1 && o == k + 1 && u > o)}' || WIRING="$WIRING music_tick-ignores-a-demo-np-block"
-[ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
-    body "$ECL" apply_view | grep -qxF '    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
+[ "$(grep -c 'dim_ctl_quiet(' "$ECL")" -eq 1 ] &&
+    body "$ECL" apply_view | grep -qxF '    dim_ctl_quiet(demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
     WIRING="$WIRING quiet-dim-only-in-apply_view"
 [ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 3 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
@@ -1035,8 +1049,8 @@ awk '/^static __attribute__\(\(noinline\)\) void page_tick\(/ {on=1} on {print} 
 grep -qxF 'int temp_face_resolved(void) { return s_root && s_job.visible ? s_face : -1; }' "$TFC" || WIRING="$WIRING temp_face_resolved-is-the-resolved-face"
 body "$ECL" longpoll_idle | grep -qxF '    bool settled = shown_idle(&s_shown, now, next_slice_ms);' && body "$ECL" longpoll_idle | grep -qxF '    if (settled) return true;' ||
     WIRING="$WIRING longpoll_idle-ends-on-a-settled-shown-change"
-body "$ECL" wait_and_fade | grep -qxF '        if (due == 0) return;' && body "$ECL" shown_due | grep -qxF '    bool online = atomic_load(&s_online);' &&
-    body "$ECL" shown_due | grep -qxF '    int due = shown_wait_ms(&s_shown, now, online);' || WIRING="$WIRING wait_and_fade-ends-on-a-settled-shown-change-only-online"
+body "$ECL" loop_wait | grep -qxF '        if (due == 0) return;' && body "$ECL" shown_due | grep -qxF '    bool online = atomic_load(&s_online);' &&
+    body "$ECL" shown_due | grep -qxF '    int due = shown_wait_ms(&s_shown, now, online);' || WIRING="$WIRING loop_wait-ends-on-a-settled-shown-change-only-online"
 body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, sizeof P->shown_q, &sv)) P->shown_q[0] = 0;' &&
     body "$ECL" view_poll | grep -A1 -xF '    taskENTER_CRITICAL(&s_shown_mux);' | grep -qxF '    shown_sent(&s_shown, sv);' &&
     ! body "$ECL" view_poll | grep -qF 'url == P->wait_url &&' &&
@@ -1044,11 +1058,11 @@ body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, si
     body "$ECL" view_poll | grep -qxF '        if (shown_poll_url(P->wait_url, sizeof P->wait_url, P->view_url, &wait, P->demo_q, P->shown_q)) url = P->wait_url;' ||
     WIRING="$WIRING view_poll-sends-shown"
 body "$ECL" ember_client_shown | grep -qxF '    if (changed) ember_client_wake();' || WIRING="$WIRING ember_client_shown-wakes-the-long-poll"
-body "$ECL" wait_and_fade | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
-    body "$ECL" wait_and_fade | grep -qF 'wake_slice_ms(' &&
-    ! body "$ECL" wait_and_fade | grep -qE 'pomo_client_next_action|http_conn_wake_wait' &&
+body "$ECL" loop_wait | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
+    body "$ECL" loop_wait | grep -qF 'wake_slice_ms(' &&
+    ! body "$ECL" loop_wait | grep -qE 'pomo_client_next_action|http_conn_wake_wait' &&
     body "$ECL" wake_take | grep -qF 'pomo_client_next_action(' && body "$ECL" wake_wait | grep -qF 'http_conn_wake_wait(' ||
-    WIRING="$WIRING wait_and_fade-takes-and-waits-through-wake_turn"
+    WIRING="$WIRING loop_wait-takes-and-waits-through-wake_turn"
 grep -F 'xQueueSendToFront(' "$D/../../main/pomo_client.c" | grep -qF 'ember_client_wake()' ||
     WIRING="$WIRING pomo-requeue-wakes-the-wait"
 body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r.config, r.config_version);' | grep -A2 -xF '        if (err == ESP_OK) {' | grep -qxF '            dev_sched_now(&s_sched, now_ms());' &&
@@ -1056,7 +1070,7 @@ body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r
     ! body "$ECL" checkin | awk '/knob settings v.* rejected/ {on=1} on' | grep -qF 'dev_sched_now(' ||
     WIRING="$WIRING applied-settings-check-in-at-once"
 body "$ECL" longpoll_idle | grep -qxF '    if (controls_client_pending()) return true;' || WIRING="$WIRING a-gesture-ends-the-long-poll"
-body "$ECL" wait_and_fade | grep -qxF '        if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);' ||
+body "$ECL" loop_wait | grep -qxF '        if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);' ||
     WIRING="$WIRING a-gesture-ends-the-plain-poll-wait"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
@@ -1105,7 +1119,7 @@ if [ -n "$CLAIM" ]; then
 fi
 echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label, every settings write one locked update, factory erase blocks later writes"
 echo "controls wiring: a queued gesture ends the long-poll and the plain-poll wait"
-echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
+echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and loop_wait (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
     "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$DY/day.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" \
