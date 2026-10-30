@@ -105,6 +105,8 @@ done
 grep -qxF 'static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }' "$DIMC" &&
     grep -qxF 'bool ota_client_verifying(void) { return atomic_load(&s_verifying); }' "$OCL" || IDLE="$IDLE idle_ms-and-ota_client_verifying-stay-plain-reads-under-the-lock"
 [ "$(grep -c 'atomic_compare_exchange_strong(&s_press_claim, ' "$IRC")" -eq 3 ] || IDLE="$IDLE every-press-claim-is-a-compare-exchange"
+grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$IRC" ||
+    IDLE="$IDLE hold-fires-only-on-an-open-claim"
 if [ -n "$IDLE" ]; then
     echo "run.sh: FAIL idle wiring:$IDLE" >&2
     exit 1

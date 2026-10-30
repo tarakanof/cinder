@@ -171,9 +171,9 @@ static void test_turn_while_down(void)
     CHECK(input_route_held(), "the button is held");
     turn(1);
     turn(1);
-    turn(-1);
+    turn(1);
     expect(0, 0, 0, 0, 0, 0, "a turn while down is no detent");
-    expect_steps(1, 0, "turns while down page, every one of them");
+    expect_steps(3, 0, "turns while down page, every one of them");
     advance_ms(PR_HOLD_MS + 100);
     long long held;
     expect(0, 0, 0, 0, 0, 0, "a turned press never fires the long push");
@@ -302,6 +302,7 @@ static void test_wake_press(void)
     button(BUTTON_LONG_PRESS_HOLD);
     button(BUTTON_PRESS_UP);
     expect_nothing("the release of a waking press is nothing");
+    CHECK(note_calls == 4, "a waking press still notes its down, the turn, hold and up for the OTA gate: %d", note_calls);
     int progress;
     advance_ms(RESET_HOLD_MS);
     CHECK(input_route_reset_tick(clock_s(), &progress) == RG_IDLE, "a waking press does not start the reset");
