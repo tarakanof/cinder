@@ -1690,6 +1690,23 @@ Music faces step 1 (`face-design.md` "Music faces", canvases M1, M2, M3, M7, M10
   - burn-in: M15 paused for hours (the label and tonearm do not drift);
   - how the vinyl's grooves, sheen and #FFB547 ring look on the panel; Ember's `nowplaying.*` demo scenes.
 
+## Music faces measured on the knob (#293, 0.9.112, 2026-10-30)
+
+Measured over USB (`snapshot.py`, `input.py page` only) and Ember's full diagnostics (`POST /v1/devices/{id}/stats/live`, `GET /v1/devices/{id}/stats?range=1h`, checkin `diag`; reads, plus live mode). Apple Music on the maintainer's Mac, the Now playing page, a cover face throughout (no M15 or vinyl face was shown: both tracks had covers). Ember's stats points are 6 s apart in live mode and 60 s otherwise, so a skip is averaged into its point and no per-step ms exists. The maintainer skipped (1, then 3 quick), paused/resumed and put a 2:26 track on repeat-one; the knob's controls and volume were not driven.
+
+| # | Item | Result | Method, sample |
+|---|---|---|---|
+| 1 | Repeat-one restart inside the 5 s head window | **Fails**: Ember's anchored position was 5.4 s and 5.6 s into the lap when the restart first showed (2 laps, `GET /v1/nowplaying/state`, position + `position_at` against the clock), so it never lands in `NP_RESTART_HEAD_MS`; snapshots 6-9 s into both laps show the clean cover, no text | 2 laps, 4 snapshots each |
+| 2 | Fade step and reveal ms | Not measurable with the current tools: the step is not in the stats or a CINDER1 op, only a serial log | follow-up: a per-view render timing field in the stats |
+| 3 | * M15 label step ms at 4 fps, CPU per core | Not measured (M15 never shown, no timing field). Cover face playing, steady: core 0 13.3-14.3 %, core 1 5.9-8.0 % (9 points, 6-60 s) | |
+| 4 | * Internal RAM and PSRAM across a track change and 3 quick skips | Internal min free 39,828 B and largest block 31,744 B unchanged by the skips (since-boot minimums, so the session cannot lower them unseen); free 67.2-67.4 KB. PSRAM free 1.34 MB flat, min 460,836 B unchanged, largest block 0.66-1.21 MB. **Pass** against the OTA health floors (27 KB / 15 KB); M8 and M15 were not isolated at 6 s resolution | 11 points, 00:24:58-00:34:12 UTC |
+| 5 | * LVGL stack high-water after a track change | 4,960 B free (5,632 B at boot, before any music), on a cover face, not M15; **pass** against the 1,024 B health floor. `stack_walk.py` did not run (no ELF and `nm` here) | checkin `diag.stack_free.lvgl`, 1 read |
+| 6 | M8 step, `np_v15_render`, curved text, arrival ring box ms | Not measurable with the current tools (as 2) | |
+| 7 | Cover fetch + decode ms; hide/show memory; areas/s | Fetch + decode: not measurable (serial log only). Playing steady: 1.0-1.2 areas/s, 1 fps, frame 2.5-3.0 ms avg, 3-6 ms max. Points holding a skip or the page show: 2.6 areas/s, frame avg 18.2 ms, max 130 ms (one point, a 60 s average); other skip points 93-96 ms max. Paused, turning and a mode switch: not measured (the maintainer's Mac is not driven; no volume turns). Hide/show cycles: not measured | |
+| 8 | Ember art latency after a skip | Not measurable (no timestamp for the art fetch); Apple Music only, Plex and Spotify not measured | |
+
+Follow-ups: a per-view timing field in the stats (items 2, 3, 6, 7); the repeat-one restart reaching the knob after the head window (item 1).
+
 ## Cover face: text fades to a clean cover (#196)
 
 User decision (2026-10-15): the dark strip under the title, artist and time hid about the bottom half of the cover. The info now shows only when it is useful. Cover face only, knob only; Ember is unchanged.
