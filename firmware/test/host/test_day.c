@@ -596,9 +596,17 @@ static void test_drum(void)
     day_panel_pose(&on, 1.3f, 1, &q);
     CHECK(q.opa > 0 && q.opa < 255 && q.val_px == 30, "rolling past the slot: fading: %d", q.opa);
     day_panel_pose(&on, 0.5f, 1, &q);
-    CHECK(q.val_px == 48 && q.cap_px == 24, "half way: digits snap to a compiled size (63 -> 48): %d %d", q.val_px, q.cap_px);
+    CHECK(q.val_px == 60 && q.cap_px == 24, "half way: digits snap to a compiled size (63 -> 60): %d %d", q.val_px, q.cap_px);
     day_panel_pose(&on, 0.25f, 1, &q);
-    CHECK(q.val_px == 96 || q.val_px == 48, "a quarter: snapped: %d", q.val_px);
+    CHECK(q.val_px == 78, "a quarter: snapped (79.5 -> 78): %d", q.val_px);
+    {
+        static const float us[] = {0.0f, 0.1f, 0.25f, 0.4f, 0.5f, 0.6f, 0.75f, 0.85f, 0.95f, 1.0f};
+        static const int want[] = {96, 96, 78, 78, 60, 60, 48, 36, 36, 30};
+        for (size_t i = 0; i < sizeof us / sizeof us[0]; i++) {
+            day_panel_pose(&on, us[i], 1, &q);
+            CHECK(q.val_px == want[i], "growing number at u=%.2f: %d, want %d", us[i], q.val_px, want[i]);
+        }
+    }
     day_panel_pose(&on, 0.9f, 1, &q);
     CHECK(q.val_px == 36, "near the slot: the 36 px digit subset: %d", q.val_px);
     day_panel_pose(&on, 0, 0.5f, &q);
