@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Usage: python3 firmware/tools/gen_face_fonts.py [TTF]  (rewrites main/font_face_36.c and main/font_digits_96.c)
+"""Usage: python3 firmware/tools/gen_face_fonts.py [TTF]  (rewrites main/font_face_36.c and main/font_digits_{60,78,96}.c)
 Subset fonts for the weather and music faces (docs/face-design.md "Fonts"): gauge end labels at 36 px and
-the big values at 96 px. Montserrat Medium (the weight of LVGL's built-in Montserrat fonts):
+the big values at 96 px, and the day drum's 60 and 78 px digit steps. Montserrat Medium (the weight of LVGL's built-in Montserrat fonts):
 Copyright 2011 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat),
 SIL Open Font License 1.1 (main/OFL.txt).
 """
@@ -18,6 +18,8 @@ DEFAULT_TTF = os.path.join(FW, "managed_components/lvgl__lvgl/scripts/built_in_f
 
 FONTS = [
     ("font_face_36", 36, " %+-.0123456789:h°−", 40, 7, -3, 2),
+    ("font_digits_60", 60, " -0123456789:", 67, 12, -5, 3),
+    ("font_digits_78", 78, " -0123456789:", 87, 15, -6, 4),
     ("font_digits_96", 96, " %+-0123456789:°½−", 107, 19, -8, 5),
 ]
 

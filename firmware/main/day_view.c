@@ -6,6 +6,8 @@
 
 #include "esp_attr.h"
 
+LV_FONT_DECLARE(font_digits_60);
+LV_FONT_DECLARE(font_digits_78);
 LV_FONT_DECLARE(font_digits_96);
 LV_FONT_DECLARE(font_face_36);
 
@@ -110,6 +112,8 @@ static const lv_font_t *font_px(int px)
     case 30: return &lv_font_montserrat_30;
     case 36: return &font_face_36;
     case 48: return &lv_font_montserrat_48;
+    case 60: return &font_digits_60;
+    case 78: return &font_digits_78;
     default: return &font_digits_96;
     }
 }

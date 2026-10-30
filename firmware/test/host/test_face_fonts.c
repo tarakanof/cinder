@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "font_digits_60.c"
+#include "font_digits_78.c"
 #include "font_digits_96.c"
 #include "font_face_36.c"
 #include "lvgl.h"
@@ -30,6 +32,8 @@ static const uint32_t FACE_36[] = {' ', '%', '+', '-', '.', '0', '1', '2', '3', 
                                    ':', 'h', 0xb0, 0x2212};
 static const uint32_t DIGITS_96[] = {' ', '%', '+', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':',
                                      0xb0, 0xbd, 0x2212};
+
+static const uint32_t DRUM_DIGITS[] = {' ', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':'};
 
 static void check_glyph(const lv_font_t *f, const char *name, uint32_t cp)
 {
@@ -87,7 +91,19 @@ static void test_glyphs(void)
     for (size_t i = 0; i < sizeof FACE_36 / sizeof FACE_36[0]; i++) check_glyph(&font_face_36, "36", FACE_36[i]);
     for (size_t i = 0; i < sizeof DIGITS_96 / sizeof DIGITS_96[0]; i++)
         check_glyph(&font_digits_96, "96", DIGITS_96[i]);
+    for (size_t i = 0; i < sizeof DRUM_DIGITS / sizeof DRUM_DIGITS[0]; i++) {
+        check_glyph(&font_digits_60, "60", DRUM_DIGITS[i]);
+        check_glyph(&font_digits_78, "78", DRUM_DIGITS[i]);
+    }
     lv_font_glyph_dsc_t g;
+    CHECK(!lv_font_get_glyph_dsc(&font_digits_60, &g, '%', 0) && !lv_font_get_glyph_dsc(&font_digits_60, &g, 0xb0, 0),
+          "60: only the drum digits");
+    CHECK(!lv_font_get_glyph_dsc(&font_digits_78, &g, '%', 0) && !lv_font_get_glyph_dsc(&font_digits_78, &g, 0xb0, 0),
+          "78: only the drum digits");
+    CHECK(font_digits_60.line_height == 67 && font_digits_60.base_line == 12, "60: line box %d/%d",
+          (int)font_digits_60.line_height, (int)font_digits_60.base_line);
+    CHECK(font_digits_78.line_height == 87 && font_digits_78.base_line == 15, "78: line box %d/%d",
+          (int)font_digits_78.line_height, (int)font_digits_78.base_line);
     CHECK(!lv_font_get_glyph_dsc(&font_face_36, &g, 'x', 0), "36: only the subset");
     CHECK(!lv_font_get_glyph_dsc(&font_digits_96, &g, 'h', 0), "96: only the subset");
 }
@@ -95,6 +111,8 @@ static void test_glyphs(void)
 static void test_packing(void)
 {
     check_packed(&font_face_36, "36", sizeof font_face_36_bitmap);
+    check_packed(&font_digits_60, "60", sizeof font_digits_60_bitmap);
+    check_packed(&font_digits_78, "78", sizeof font_digits_78_bitmap);
     check_packed(&font_digits_96, "96", sizeof font_digits_96_bitmap);
 }
 

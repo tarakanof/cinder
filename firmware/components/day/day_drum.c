@@ -3,7 +3,7 @@
 
 #include "day.h"
 
-static const int DIGIT_PX[] = {30, 36, 48, 96};
+static const int DIGIT_PX[] = {30, 36, 48, 60, 78, 96};
 static const int WORD_PX[] = {24, 30, 48};
 static const int CAP_PX[] = {24, 30};
 
@@ -44,7 +44,7 @@ void day_panel_pose(const day_panel_t *p, float u, float fade, day_pose_t *out)
     int big = p->big ? p->big : 96;
     float gap0 = big == 48 ? 36.0f : 44.0f;
     out->val_y = DAY_DRUM_Y + (int)lroundf((float)DAY_DRUM_SLOT / sinf(th) * sinf(a * th));
-    out->val_px = digits_only(p->val) ? snap((float)big + (30.0f - (float)big) * dd, DIGIT_PX, 4)
+    out->val_px = digits_only(p->val) ? snap((float)big + (30.0f - (float)big) * dd, DIGIT_PX, 6)
                                       : snap((float)big + (30.0f - (float)big) * dd, WORD_PX, 3);
     out->cap_px = snap(30.0f - 6.0f * dd, CAP_PX, 2);
     out->cap_y = out->val_y + (int)lroundf(gap0 + (28.0f - gap0) * dd);
