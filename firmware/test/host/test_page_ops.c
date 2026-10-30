@@ -135,7 +135,7 @@ const char *pomo_client_note(const pomo_snapshot_t *snap, double now)
 }
 void pomo_view_show(bool show) { note("pomo_show%d", show); }
 void pomo_view_set_note(const char *n) { note("set_%s", n); }
-void pomo_view_update(const pomo_est_t *e, double now) { note("update%d@%g", e->has_state, now); }
+void pomo_view_update(const pomo_est_t *e, double now) { note("update%d%d@%g", e->has_state, e->offline, now); }
 
 static ctl_state_t s_ctl;
 void controls_client_send(ctl_gesture_t g, int steps) { note("send%d:%d", (int)g, steps); }
@@ -191,6 +191,7 @@ static void test_page_go(lv_obj_t *wipe)
     CHECK(wipe->invalid == 2, "the wipe invalidates the rows it moved over");
     CHECK(drawn(wipe) > 0, "and draws on");
     int forward_y1 = s_last_y1;
+    CHECK(forward_y1 < 100, "a forward step wipes from the top, y1 %d", forward_y1);
     page_fx_frame(10.1);
     CHECK(wipe->invalid == 2, "no move, no invalidate");
 
@@ -211,7 +212,7 @@ static void test_page_go(lv_obj_t *wipe)
     page_go(&nav, -1, 50);
     CHECK(wipe->invalid == inv + 1, "back wipes too");
     page_fx_frame(50.1);
-    CHECK(drawn(wipe) > 0 && s_last_y1 != forward_y1, "from the other edge");
+    CHECK(drawn(wipe) > 0 && s_last_y1 > 100, "back wipes from the bottom, y1 %d", s_last_y1);
     nav.n = 2;
     dots_refresh(&nav);
     CHECK(!top_with(3, 3) && top_with(2, 3), "a new page list rebuilds the dots");
@@ -320,16 +321,25 @@ static void test_pomo_page(void)
     page_pomo_show(true);
     page_pomo_input(&(page_input_t){.pushes = 2, .longs = 1, .detents = 3}, 0);
     CHECK(LOGGED("pomo_show1 push push long "), "pushes, then long pushes; a turn does nothing: %s", s_log);
+    s_log[0] = 0;
+    page_pomo_input(&(page_input_t){.longs = 2}, 0);
+    CHECK(LOGGED("long long "), "each long push goes: %s", s_log);
 
     s_log[0] = 0;
     s_pomo.disabled = false;
+    s_pomo.online = true;
     page_pomo_frame(&(page_frame_t){.t = 7});
-    CHECK(LOGGED("set_note update1@7 "), "the note first, then the estimate: %s", s_log);
+    CHECK(LOGGED("set_note update10@7 "), "the note first, then the estimate, online: %s", s_log);
+    s_log[0] = 0;
+    s_pomo.online = false;
+    page_pomo_frame(&(page_frame_t){.t = 7.5});
+    CHECK(LOGGED("set_note update11@7.5 "), "an offline snapshot estimates offline: %s", s_log);
     s_log[0] = 0;
     s_pomo.disabled = true;
     page_pomo_frame(&(page_frame_t){.t = 8});
-    CHECK(LOGGED("set_note update0@8 "), "Ember's Pomodoro off: no state: %s", s_log);
+    CHECK(LOGGED("set_note update01@8 "), "Ember's Pomodoro off: no state: %s", s_log);
     s_pomo.disabled = false;
+    s_pomo.online = true;
 }
 
 static void test_controls_page(void)
@@ -342,6 +352,15 @@ static void test_controls_page(void)
     s_log[0] = 0;
     page_controls_input(&(page_input_t){.detents = -1, .pushes = 2, .longs = 1}, 100);
     CHECK(LOGGED("send2:2 send0:0 send0:0 send1:0 "), "the turn goes before the pushes, then the long push: %s", s_log);
+
+    s_log[0] = 0;
+    page_controls_input(&(page_input_t){.detents = 2}, 100);
+    page_controls_input(&(page_input_t){.longs = 1}, 100);
+    CHECK(LOGGED("send2:2 send1:0 "), "a long push alone flushes the turn first: %s", s_log);
+
+    s_log[0] = 0;
+    page_controls_input(&(page_input_t){.longs = 2}, 100);
+    CHECK(LOGGED("send1:0 send1:0 "), "each long push goes: %s", s_log);
 
     s_log[0] = 0;
     page_controls_input(&(page_input_t){.detents = 2}, 100.01);
@@ -382,6 +401,12 @@ static void test_np_page(void)
     page_np_input(&(page_input_t){.touches = 1}, 3);
     page_np_input(&(page_input_t){.longs = 1}, 3);
     CHECK(LOGGED("input@3 input@3 input@3 "), "a wake, a touch and a long push only note the input: %s", s_log);
+
+    s_log[0] = 0;
+    page_np_input(&(page_input_t){.hswipes = 2}, 3);
+    page_np_input(&(page_input_t){.detents = -2}, 3);
+    page_np_input(&(page_input_t){.pushes = 1}, 3);
+    CHECK(LOGGED("input@3 skip2@3 input@3 turn-2@3 input@3 push@3 "), "a swipe, a turn and a push each note the input: %s", s_log);
 
     s_log[0] = 0;
     page_np_frame(&(page_frame_t){.t = 4});

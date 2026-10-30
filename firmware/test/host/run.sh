@@ -771,8 +771,10 @@ body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^ 
 PFC="$D/../../main/page_fx.c"
 OVC="$D/../../main/overlays.c"
 grep -qxF 'static EXT_RAM_BSS_ATTR double s_wipe_t0, s_dots_until;' "$PFC" && grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_hold_layer, *s_hold_arc, *s_hold_label;' "$OVC" &&
-    grep -qxF 'static EXT_RAM_BSS_ATTR const char *s_hold_text;' "$OVC" && grep -qxF 'static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;' "$D/../../main/day_view.c" &&
-    grep -qxF 'static EXT_RAM_BSS_ATTR ctl_batch_t s_ctl_batch;' "$D/../../main/controls_page.c" || WIRING="$WIRING moved-page-state-stays-in-PSRAM"
+    grep -qxF 'static EXT_RAM_BSS_ATTR const char *s_hold_text;' "$OVC" && grep -qxF 'static EXT_RAM_BSS_ATTR int s_hold_pct = -1;' "$OVC" &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;' "$D/../../main/day_view.c" && grep -qxF '    static EXT_RAM_BSS_ATTR day_snapshot_t snap;' "$D/../../main/day_view.c" &&
+    grep -qxF '    static EXT_RAM_BSS_ATTR day_model_t m;' "$D/../../main/day_view.c" && grep -qxF 'static EXT_RAM_BSS_ATTR ctl_batch_t s_ctl_batch;' "$D/../../main/controls_page.c" &&
+    grep -qxF '    static EXT_RAM_BSS_ATTR ctl_state_t st;' "$D/../../main/controls_page.c" || WIRING="$WIRING moved-page-state-stays-in-PSRAM"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1

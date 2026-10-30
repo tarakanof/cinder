@@ -188,7 +188,6 @@ static void join_frame(void)
     join_view_show(show, detail);
 }
 
-
 static bool reset_frame(double t)
 {
     int progress;
@@ -285,7 +284,6 @@ void page_bot_frame(const page_frame_t *f)
     music_view_frame(t);
     moment_view_frame(t);
 }
-
 
 static __attribute__((noinline)) void page_tick(double t, double dt)
 {
