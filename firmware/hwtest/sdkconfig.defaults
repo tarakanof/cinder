@@ -1,0 +1,6 @@
+# Layered over ../sdkconfig.defaults (CMakeLists.txt). Same partition table as the app, so
+# app-flash writes ota_0 and leaves NVS, ota_1 and the core dump alone.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="../partitions.csv"
+# A test-image crash must not leave a core dump for the app to upload to Ember.
+CONFIG_ESP_COREDUMP_ENABLE_TO_NONE=y
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=n

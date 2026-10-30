@@ -1,0 +1,48 @@
+menu "J2 header: room sensors and speaker"
+
+    config CINDER_J2_I2C_SDA
+        int "I2C SDA GPIO (-1: no sensor bus)"
+        range -1 48
+        default 44
+
+    config CINDER_J2_I2C_SCL
+        int "I2C SCL GPIO"
+        range -1 48
+        default 43
+
+    config CINDER_J2_I2S_BCLK
+        int "MAX98357A BCLK GPIO (-1: no speaker)"
+        range -1 48
+        default -1
+
+    config CINDER_J2_I2S_LRC
+        int "MAX98357A LRC GPIO"
+        range -1 48
+        default -1
+
+    config CINDER_J2_I2S_DIN
+        int "MAX98357A DIN GPIO"
+        range -1 48
+        default -1
+
+    config CINDER_J2_PCF_ADDR
+        hex "PCF8574 address (0: find one)"
+        range 0x00 0x3F
+        default 0x00
+
+    config CINDER_J2_RADAR_BIT
+        int "PCF8574 pin wired to the LD2410 OUT"
+        range 0 7
+        default 0
+
+    config CINDER_J2_RADAR_RX
+        int "GPIO wired to the LD2410 TX for its UART reports (-1: none)"
+        range -1 48
+        default -1
+
+    config CINDER_J2_PRESENCE_OFF_MS
+        int "Presence hold after the radar OUT drops, ms"
+        range 0 600000
+        default 0
+
+endmenu

@@ -59,6 +59,10 @@ jobs:
           key: idf-components-${{ hashFiles('firmware/dependencies.lock') }}
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
+          path: firmware/hwtest/managed_components
+          key: idf-components-hwtest-${{ hashFiles('firmware/hwtest/dependencies.lock') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
           path: .ccache
           key: ccache-${{ hashFiles('firmware/dependencies.lock', 'firmware/sdkconfig.defaults') }}-${{ github.sha }}
           restore-keys: |
@@ -86,3 +90,8 @@ jobs:
             cat "$RUNNER_TEMP/size.txt"
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
+      - name: Build the J2 hardware test image (never published)
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache" CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          idf.py -C hwtest -B build-hwtest build
