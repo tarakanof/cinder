@@ -200,7 +200,7 @@ if [ -n "$WIRING" ]; then
 fi
 echo "checkin area window wiring: attached before the ember task; window stamp with reset and sample time with read, each in one s_refr_mux section; inv fields only inside the full block"
 WXC="$D/../../main/weather_client.c"
-body "$WXC" weather_client_get | awk '/xSemaphoreTake\(s_lock/ {lock=1} /xSemaphoreGive\(s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
+body "$WXC" weather_client_get | awk '/taskENTER_CRITICAL\(&s_lock/ {lock=1} /taskEXIT_CRITICAL\(&s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
     WIRING="$WIRING weather_client_get-reads-the-timer-under-the-lock"
 body "$WXC" poll_task | grep -qxF '    static EXT_RAM_BSS_ATTR wx_obs_t obs;' || WIRING="$WIRING legacy-weather-obs-in-PSRAM"
 if [ -n "$WIRING" ]; then
