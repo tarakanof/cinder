@@ -1,6 +1,5 @@
 #include "weather_client.h"
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
