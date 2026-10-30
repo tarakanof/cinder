@@ -589,6 +589,10 @@ body "$NCV" buf_free | awk '/lv_image_set_src\(s_img, NULL\);/ {s = NR} /^    bu
     CNV="$CNV cover-face-drops-the-image-source-before-the-give"
 body "$NVC" free_pictures | awk '/lv_image_set_src\(s_face, NULL\);/ {s = NR} /^    face_buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
     CNV="$CNV legacy-face-drops-the-image-source-before-the-give"
+body "$NCV" set_buf | awk '/^    lv_image_set_src\(s_img, &M->img_dsc\);$/ {s = NR} /^    if \(b != s_buf\) buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV cover-face-repoints-the-image-before-it-drops-the-old-buffer"
+body "$NVC" set_face_buf | awk '/^    lv_image_set_src\(s_face, &s_face_dsc\);$/ {s = NR} /^    if \(buf != s_face_buf\) face_buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV legacy-face-repoints-the-image-before-it-drops-the-old-buffer"
 if [ -n "$CNV" ]; then
     echo "run.sh: FAIL page canvas wiring:$CNV" >&2
     exit 1
@@ -953,6 +957,9 @@ if [ -d "$LV" ]; then
     cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
         -I"$NP/include" -I"$PCV/include" -I"$J" "$PCV/page_canvas.c" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" \
         "$NP/np.c" "$J/cJSON.c" "$D/test_usage_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_usage_view"
+    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$PCV/include" \
+        "$PCV/page_canvas.c" "$D/../../main/pomo_view.c" "$P/pomo.c" "$P/pomo_ring.c" "$C/bot_raster.c" "$LS/link_state.c" "$D/test_pomo_view.c" \
+        "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_pomo_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$CT/include" "$D/../../main/controls_view.c" "$D/test_controls_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_controls_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
         "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
@@ -1021,6 +1028,7 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_np_view" ${NP_VIEW_SHOTS:+"$NP_VIEW_SHOTS"}
     "${OUT}_music_view" ${MUSIC_VIEW_SHOTS:+"$MUSIC_VIEW_SHOTS"}
     "${OUT}_usage_view" ${USAGE_VIEW_SHOTS:+"$USAGE_VIEW_SHOTS"}
+    "${OUT}_pomo_view"
     "${OUT}_controls_view" ${CONTROLS_VIEW_SHOTS:+"$CONTROLS_VIEW_SHOTS"}
 else
     echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing, music moment and usage view tests: $LV missing; run idf.py reconfigure once" >&2

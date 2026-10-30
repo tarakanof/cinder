@@ -14,7 +14,8 @@ typedef enum {
     PAGE_CANVAS_NP,
 } page_canvas_owner_t;
 
-/* All calls on the LVGL task. A buffer under PAGE_CANVAS_BYTES is refused: every take then returns NULL. */
+/* Every call is on the LVGL task, except page_canvas_init and the first pages_show, which run in app_main
+   under the LVGL lock before the LVGL timer runs. A buffer under PAGE_CANVAS_BYTES is refused: every take then returns NULL. */
 void page_canvas_init(void *buf, size_t size);
 /* NULL while another owner holds it. Pixels are the last owner's: clear or repaint before they show. */
 void *page_canvas_take(page_canvas_owner_t owner);

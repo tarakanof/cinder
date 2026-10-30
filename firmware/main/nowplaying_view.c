@@ -358,10 +358,10 @@ void np_view_show(bool show)
 
 static void set_face_buf(uint16_t *buf)
 {
-    if (buf != s_face_buf) face_buf_drop();
-    s_face_buf = buf;
     s_face_dsc.data = (const uint8_t *)buf;
     lv_image_set_src(s_face, &s_face_dsc);
+    if (buf != s_face_buf) face_buf_drop();
+    s_face_buf = buf;
     s_ring_valid = false;
 }
 

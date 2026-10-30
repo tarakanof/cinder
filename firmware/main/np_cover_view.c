@@ -311,11 +311,11 @@ bool npc_has_cover(void) { return s_has_cover || s_no_cover; }
 
 static void set_buf(uint16_t *b)
 {
-    if (b != s_buf) buf_drop();
-    s_buf = b;
     M->img_dsc.data = (const uint8_t *)b;
     lv_image_set_src(s_img, &M->img_dsc);
     lv_obj_invalidate(s_img);
+    if (b != s_buf) buf_drop();
+    s_buf = b;
     s_ring_on = false;
 }
 
