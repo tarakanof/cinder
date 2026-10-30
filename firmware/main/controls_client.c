@@ -137,9 +137,10 @@ void controls_client_run(http_conn_t *conn, const char *base)
     int64_t start = now_ms(), last_ms = 0;
     bool last_turn = false;
     for (;;) {
+        int64_t now = now_ms();
+        if (now - start >= BURST_MAX_MS) return;
         if (!take(&q)) {
-            int64_t now = now_ms();
-            if (!last_turn || now - last_ms >= BURST_LINGER_MS || now - start >= BURST_MAX_MS) return;
+            if (!last_turn || now - last_ms >= BURST_LINGER_MS) return;
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }

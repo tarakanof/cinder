@@ -31,7 +31,8 @@ static const char *s_retry_after;
 static req_t s_reqs[MAX_REQS];
 static int s_n;
 static int64_t s_next_turn_ms;
-static int s_turn_every_ms, s_turns_left;
+static int s_turn_every_ms, s_turns_left, s_http_ms = 5;
+static bool s_turn_during_http;
 static http_conn_t s_conn;
 
 int64_t esp_timer_get_time(void) { return s_us; }
@@ -69,7 +70,8 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     r->idempotent = o->idempotent;
     r->anon = o->anon;
     r->at_ms = s_us / 1000;
-    s_us += 5000;
+    s_us += s_http_ms * 1000LL;
+    if (s_turn_during_http) controls_client_send(CTL_TURN, 1);
     if (s_retry_after && o->on_header) o->on_header("retry-after", s_retry_after, o->hdr_ctx);
     if (o->on_header) o->on_header("Content-Length", "2", o->hdr_ctx);
     if (s_status < 0) return -1;
@@ -167,6 +169,19 @@ static void test_burst_bounded(void)
     CHECK(s_n >= 19, "and sends meanwhile: %d", s_n);
     s_turns_left = 0;
     run();
+
+    reset();
+    t0 = s_us;
+    s_http_ms = 300;
+    s_turn_during_http = true;
+    controls_client_send(CTL_TURN, 1);
+    run();
+    CHECK(s_us - t0 < 5500000 && s_n < MAX_REQS, "a slow link never empties the queue, and the run still ends: %lld ms, %d requests", (long long)((s_us - t0) / 1000), s_n);
+    CHECK(controls_client_pending(), "what is left stays queued for the next run");
+    s_http_ms = 5;
+    s_turn_during_http = false;
+    run();
+    CHECK(!controls_client_pending(), "and goes out then");
 }
 
 static void test_gate(void)
