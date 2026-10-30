@@ -105,13 +105,18 @@ def guided_probe(k):
     found = {}
     for g in gpios:
         while True:
-            k.call({"op": "probe", "gpio": g})
+            if not k.call({"op": "probe", "gpio": g}).get("ok"):
+                print("  GPIO%d refused the probe (in use as the radar RX); skipped" % g)
+                a = "skip"
+                break
             a = input("GPIO%-2d is high. Which J2 pin reads ~3.3 V? " % g).strip().lower()
             if a == "r":
                 continue
             break
         if a == "q":
             break
+        if a == "skip":
+            continue
         if a in J2_SIGNAL_PINS:
             found[g] = a
         elif a != "n":
