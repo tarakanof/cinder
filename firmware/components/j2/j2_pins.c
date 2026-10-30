@@ -48,6 +48,8 @@ bool j2_pins_valid(const j2_pins_t *p)
         for (int k = 0; k < i; k++)
             if (bus[i] >= 0 && bus[i] == bus[k]) return false;
     }
+    for (int i = 0; i < 5; i++)
+        if (p->radar_rx >= 0 && p->radar_rx == bus[i]) return false;
     return unset_or_allowed(p->radar_rx) && p->radar_bit >= 0 && p->radar_bit < 8;
 }
 

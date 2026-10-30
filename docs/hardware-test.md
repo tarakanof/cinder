@@ -54,7 +54,7 @@ The screen shows one of two views:
 | `scan` | I2C addresses on the bus, with the chip each one probably is |
 | `room [start\|stop]` | The room snapshot; start or stop the sensor task |
 | `watch -s N [--json]` | One snapshot per second for N s |
-| `pins --sda --scl --bclk --lrc --din --radar_rx --radar_bit --pcf` | Set pins for this boot (only probe GPIOs or -1, I2C and I2S pins distinct); restarts the sensor task |
+| `pins --sda --scl --bclk --lrc --din --radar_rx --radar_bit --pcf` | Set pins for this boot (only probe GPIOs or -1, I2C, I2S and radar pins distinct); restarts the sensor task |
 | `tone --hz --ms --vol` | Sine on the MAX98357A at 16 kHz; `vol` is % of half scale (default 20). The screen stays on ROOM, and the reply counts presence flips during the tone |
 | `radar --ms` | LD2410 UART reports for ms (needs `--radar_rx`) |
 | `raw '<json>'` | Any request |
