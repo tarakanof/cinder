@@ -29,6 +29,8 @@ LV_FONT_DECLARE(font_digits_96);
 #define NUM_DY (-69)
 #define VOL_ICON_DY (-134)
 #define OFFLINE_DY NUM_DY
+#define AGE_DY 22
+#define OFFLINE_TEXT_DY (-9)
 #define PAUSE_DY (-65)
 #define PAUSE_PX 104
 #define PAUSE_BAR_W 13
@@ -60,6 +62,7 @@ typedef struct {
     char time[40];
     char idle[32];
     char badge[24];
+    char age[16];
     char num[8];
     char shown[NP_COVERV_MAX + 1];
     char work[4 * NP_TEXT_MAX + 8];
@@ -95,7 +98,7 @@ typedef struct {
 static npc_mem_t *M;
 
 static lv_obj_t *s_img, *s_vinyl, *s_shade, *s_scrim, *s_avatar, *s_title, *s_artist, *s_time, *s_idle;
-static lv_obj_t *s_pause, *s_vol_icon, *s_num, *s_badge, *s_badge_lbl;
+static lv_obj_t *s_pause, *s_vol_icon, *s_num, *s_badge, *s_badge_lbl, *s_age_lbl;
 static uint16_t *s_buf;
 static uint8_t *s_avatar_buf, *s_grey_buf;
 static uint16_t *s_vinyl_buf;
@@ -227,6 +230,14 @@ void npc_build(lv_obj_t *root)
 
     s_badge = npc_round(root, 0);
     s_badge_lbl = lv_obj_get_child(s_badge, 0);
+    s_age_lbl = lv_label_create(s_badge);
+    lv_obj_set_style_text_font(s_age_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_age_lbl, lv_color_hex(COL_SUB), 0);
+    lv_obj_set_style_text_align(s_age_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_remove_flag(s_age_lbl, LV_OBJ_FLAG_CLICKABLE);
+    lv_label_set_text_static(s_age_lbl, "");
+    lv_obj_align(s_age_lbl, LV_ALIGN_CENTER, 0, AGE_DY);
+    lv_obj_add_flag(s_age_lbl, LV_OBJ_FLAG_HIDDEN);
 
     s_state = -1;
     s_sec = -1;
@@ -236,7 +247,7 @@ void npc_build(lv_obj_t *root)
     s_dx = s_dy = 0;
     s_ring_on = false;
     s_avatar_grey = -1;
-    M->title[0] = M->artist[0] = M->time[0] = M->idle[0] = M->badge[0] = M->num[0] = 0;
+    M->title[0] = M->artist[0] = M->time[0] = M->idle[0] = M->badge[0] = M->num[0] = M->age[0] = 0;
     M->arc_title[0] = M->arc_artist[0] = 0;
     M->chg = CHG_NONE;
     M->sweeping = M->shown_live = false;
@@ -277,7 +288,7 @@ void npc_destroy(void)
     heap_caps_free(s_grey_buf);
     s_avatar_buf = s_grey_buf = NULL;
     s_img = s_vinyl = s_shade = s_scrim = s_avatar = s_title = s_artist = s_time = s_idle = NULL;
-    s_pause = s_vol_icon = s_num = s_badge = s_badge_lbl = NULL;
+    s_pause = s_vol_icon = s_num = s_badge = s_badge_lbl = s_age_lbl = NULL;
     if (M) M->info = NULL;
     s_state = -1;
 }
@@ -510,7 +521,10 @@ static void hide_overlays(void)
     show(s_badge, false);
     show(s_shade, false);
     show(s_scrim, false);
-    M->badge[0] = M->num[0] = 0;
+    M->badge[0] = M->num[0] = M->age[0] = 0;
+    lv_label_set_text_static(s_age_lbl, M->age);
+    show(s_age_lbl, false);
+    lv_obj_align(s_badge_lbl, LV_ALIGN_CENTER, 0, 0);
     s_shade_opa = 0;
     s_scrim_opa = 0;
 }
@@ -576,6 +590,7 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
         show(s_vol_icon, number);
     }
     const char *b = "";
+    const char *age = "";
     int dy = 0;
     const lv_font_t *font = &lv_font_montserrat_18;
     if (f->badge == NPC_BADGE_ICON && f->badge_text) {
@@ -586,6 +601,7 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
     } else if (look->offline_badge) {
         b = "Ember\noffline";
         dy = OFFLINE_DY;
+        if (f->offline_age) age = f->offline_age;
     }
     int y = TS_CTL_Y + dy - TS_CTL_PX / 2;
     if (lv_obj_get_style_y(s_badge, 0) != y) lv_obj_set_y(s_badge, y);
@@ -594,6 +610,12 @@ static void badge_update(const npc_frame_t *f, const np_face_look_t *look)
         lv_obj_set_style_text_font(s_badge_lbl, font, 0);
         lv_label_set_text_static(s_badge_lbl, M->badge);
         show(s_badge, M->badge[0] != 0);
+    }
+    if (strcmp(age, M->age) != 0) {
+        strlcpy(M->age, age, sizeof M->age);
+        lv_label_set_text_static(s_age_lbl, M->age);
+        show(s_age_lbl, M->age[0] != 0);
+        lv_obj_align(s_badge_lbl, LV_ALIGN_CENTER, 0, M->age[0] ? OFFLINE_TEXT_DY : 0);
     }
     show(s_pause, look->pause_icon && !M->badge[0] && !number && !f->controls);
     show(s_avatar, s_avatar_buf != NULL && (!M->badge[0] || dy) && !f->controls);

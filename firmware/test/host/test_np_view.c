@@ -231,7 +231,7 @@ static void frames(lv_display_t *d, int n)
 {
     for (int i = 0; i < n; i++) {
         s_now_us += 100000;
-        np_view_update(s_now_us / 1e6, false);
+        np_view_update(s_now_us / 1e6, false, "");
         refresh(d);
     }
 }
@@ -866,7 +866,7 @@ static void test_page(lv_display_t *d, lv_obj_t *scr)
     int spin = 0, spin_max = 0;
     for (int i = 0; i < 60; i++) {
         s_now_us += 1000000 / 60;
-        np_view_update(s_now_us / 1e6, false);
+        np_view_update(s_now_us / 1e6, false, "");
         refresh(d);
         spin += s_areas;
         spin_px += s_px;
@@ -1932,7 +1932,7 @@ static void test_text_fade_review(lv_display_t *d, lv_obj_t *scr)
     np.state = NP_PLAYING;
     publish_now(&np);
     s_now_us += 500000;
-    np_view_update(s_now_us / 1e6, false);
+    np_view_update(s_now_us / 1e6, false, "");
     refresh(d);
     CHECK(title_ink() > 300, "a resumed frame 500 ms late: still full, the fade starts from it");
     fade_t late = fade_watch(d, 0.6, false);
@@ -1958,7 +1958,7 @@ static void test_text_fade_review(lv_display_t *d, lv_obj_t *scr)
     int seen[256] = {0}, prev = 255, cut = 0, n = 0;
     for (int i = 0; i < 90; i++) {
         s_now_us += 16667;
-        np_view_update(s_now_us / 1e6, false);
+        np_view_update(s_now_us / 1e6, false, "");
         refresh(d);
         int o = text_opa(scr, "Slow Cover");
         if (o >= 0 && o < 256) seen[o] = 1;

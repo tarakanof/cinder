@@ -601,13 +601,16 @@ static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
 static char *s_buf;
 static EXT_RAM_BSS_ATTR link_state_t s_ls;
 static atomic_uint s_link_word;
+static _Atomic int64_t s_ok_ms;
 
 static void link_note(link_outcome_t o)
 {
     int64_t t = now_ms();
     link_level_t was = s_ls.level;
     int64_t off_ms = link_state_offline_ms(&s_ls, t);
-    if (!link_state_note(&s_ls, o, t)) return;
+    bool changed = link_state_note(&s_ls, o, t);
+    if (o == LINK_OK) atomic_store(&s_ok_ms, link_state_ok_ms(&s_ls));
+    if (!changed) return;
     atomic_store(&s_link_word, link_state_word(&s_ls));
     const char *now = link_level_name(s_ls.level);
     if (was == LINK_OFFLINE) ESP_LOGI(TAG, "link: %s after %lld s offline", now, (long long)(off_ms / 1000));
@@ -1392,6 +1395,15 @@ bool ember_client_offline(void)
     bool demo = demo_playing(&s_demo) && s_demo.cur.offline;
     taskEXIT_CRITICAL(&s_demo_mux);
     return demo || (atomic_load(&s_link) != EMBER_LINK_OFF && link_word_offline(atomic_load(&s_link_word)));
+}
+
+int ember_client_age_text(char *buf, size_t n)
+{
+    taskENTER_CRITICAL(&s_demo_mux);
+    bool demo = demo_playing(&s_demo) && s_demo.cur.offline;
+    taskEXIT_CRITICAL(&s_demo_mux);
+    int64_t t = now_ms();
+    return link_age_text(demo ? t - 300000 : atomic_load(&s_ok_ms), t, buf, n);
 }
 
 void ember_client_demo_status(ember_demo_status_t *out)

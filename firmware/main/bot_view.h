@@ -24,6 +24,8 @@ void bot_view_set_options(bool source_label, bool working_ring);
 void bot_view_set_hint(bool on);
 /* LVGL task only: the link glyph under the face. */
 void bot_view_set_offline(bool on);
+/* LVGL task only: how old Ember's last answer is, under the link glyph. Shown only while the glyph is; "" or NULL hides it. */
+void bot_view_set_age(const char *age);
 /* t in seconds; LVGL task only. Returns true when it invalidated a step. */
 bool bot_view_tick(double t, bool defer);
 /* LVGL task only: a demo's chase shows the glint in any mood with the round outline, working ring setting or not. */

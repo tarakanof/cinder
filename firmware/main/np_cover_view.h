@@ -22,6 +22,8 @@ typedef struct {
     int vol;
     npc_badge_t badge;
     const char *badge_text;
+    /* "5 min ago" under the offline badge; NULL or "" for none. */
+    const char *offline_age;
     bool dim;
     bool controls;
     int dx, dy;
