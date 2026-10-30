@@ -320,6 +320,7 @@ void np_view_show(bool show)
         s_idle_drift = 0;
         s_idle_drift_t = s_show_t;
         s_mode = MODE_UNSET;
+        s_age_on = false;
         s_gen--;
         s_last_input = esp_timer_get_time() / 1e6;
         s_dimmed = false;
