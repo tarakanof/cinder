@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <inttypes.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -10,12 +9,9 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "diag.h"
-#include "diag_refr.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "iot_button.h"
-#include "iot_knob.h"
 #include "lvgl.h"
 #include "cJSON.h"
 
@@ -27,14 +23,15 @@
 #include "orbit_table.h"
 #include "panel_check.h"
 #include "esp_random.h"
-#include "display/lv_display_private.h"
 #include "config_store.h"
 #include "dim.h"
 #include "dim_ctl.h"
 #include "ember_client.h"
 #include "ember_host.h"
 #include "http_conn.h"
+#include "input_route.h"
 #include "join_view.h"
+#include "link_task.h"
 #include "claim_client.h"
 #include "controls_client.h"
 #include "controls_view.h"
@@ -51,9 +48,9 @@
 #include "pages.h"
 #include "press_route.h"
 #include "provision_usb.h"
-#include "refr_stats.h"
 #include "screen_snap.h"
 #include "reset_gesture.h"
+#include "stats_task.h"
 #include "touch_swipe.h"
 #include "weather_client.h"
 #include "temp_face.h"
@@ -70,30 +67,8 @@
 
 static const char *TAG = "cinder";
 
-/* The iot_knob "left" event fires on a clockwise turn (docs/llm.md). */
-#define KNOB_EVENT_CLOCKWISE KNOB_LEFT
 #define DEGREES_PER_DETENT 15.0
 
-static atomic_int s_detents;
-static atomic_int s_pushes;
-static atomic_uint s_touches;
-static atomic_int s_long_pushes;
-static atomic_int s_page_steps;
-static atomic_int s_swipes;
-static atomic_int s_hswipes;
-static atomic_int s_np_wakes;
-enum { PRESS_OPEN, PRESS_FIRED, PRESS_RELEASED, PRESS_TURNED };
-
-static atomic_bool s_hold_seen;
-static _Atomic long long s_press_at_us;
-static atomic_int s_press_claim;
-static atomic_bool s_press_counting;
-static atomic_bool s_button_down;
-static atomic_bool s_touch_down;
-static atomic_bool s_turned_while_down;
-
-static reset_gesture_t s_rg;
-static portMUX_TYPE s_rg_mux = portMUX_INITIALIZER_UNLOCKED;
 static lv_obj_t *s_reset_layer, *s_reset_arc, *s_reset_label;
 static rg_state_t s_reset_shown = RG_IDLE;
 static int s_reset_progress_shown = -1;
@@ -106,7 +81,6 @@ static uint32_t s_settings_gen;
 static knob_settings_t *s_ks_lv;
 static lv_obj_t *s_bot_page;
 static double s_last_frame_t;
-static EXT_RAM_BSS_ATTR ts_touch_t s_touch;
 #define SCREEN_W 472
 #define DOT_PX 8
 #define DOT_PITCH 16
@@ -126,8 +100,6 @@ static double s_ring_deg;
 static int s_demo_index;
 static double s_demo_until;
 static double s_demo_hold_s = 20.0;
-#define LINK_FALLBACK 1
-#define LINK_CHECK_WAIT_MS 1000
 #define CHASE_LEAD_DEG 15.0
 /* Chase gaze reach is tuned against tearing without TE; the eye rate is CINDER1 chase fps (docs/features.md, chase tearing, chase near the ring). */
 #define CHASE_GAZE 0.6
@@ -197,7 +169,7 @@ static void orbit_task(void *arg)
     for (;;) vTaskSuspend(NULL);
 }
 
-static void orbit_reap(void)
+void orbit_reap(void)
 {
     if (!s_orbit_task || !atomic_load(&s_orbit_done)) return;
     vTaskDeleteWithCaps(s_orbit_task);
@@ -217,261 +189,19 @@ static void chase_track(const bot_pose_t *ref, double deg, double orbit, double 
     bot_track(&s_bot, cos(a) * m, -sin(a) * m, t);
 }
 
-void app_input_inject(int kind, int n)
-{
-    if (ember_client_idle_input(kind == 3 || kind >= 5 ? DIM_WAKE_TOUCH : DIM_WAKE_ENCODER)) return;
-    switch (kind) {
-    case 0: atomic_fetch_add(&s_detents, n); break;
-    case 1: atomic_fetch_add(&s_pushes, n); break;
-    case 2: atomic_fetch_add(&s_long_pushes, n); break;
-    case 3: atomic_fetch_add(&s_touches, ts_tap_word(TS_ZONE_NONE, n)); break;
-    case 4: atomic_fetch_add(&s_page_steps, n); break;
-    case 5: atomic_fetch_add(&s_swipes, n); break;
-    case 6: atomic_fetch_add(&s_swipes, -n); break;
-    case 7: atomic_fetch_add(&s_hswipes, n); break;
-    case 8: atomic_fetch_add(&s_hswipes, -n); break;
-    case 9:
-    case 10:
-    case 11:
-        atomic_fetch_add(&s_touches, ts_tap_word((ts_zone_t)(TS_ZONE_PREV + kind - 9), n));
-        break;
-    default: break;
-    }
-}
-
 static double s_pose_drawn_at;
-static int s_frames;
-static double s_fps_since;
-static volatile bot_mood_t s_cur_mood;
-
-static int64_t s_refr_start_us;
-static int s_refr_count;
-static int64_t s_refr_total_us, s_refr_max_us;
-static int s_frame_kind;
-static refr_stats_t s_refr;
-static portMUX_TYPE s_refr_mux = portMUX_INITIALIZER_UNLOCKED;
-static EXT_RAM_BSS_ATTR refr_area_t s_refr_areas[LV_INV_BUF_SIZE];
-
-static void refr_cb(lv_event_t *e)
-{
-    int64_t now = esp_timer_get_time();
-    lv_display_t *disp = lv_event_get_current_target(e);
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_REFR_START) {
-        s_refr_start_us = now;
-        refr_stats_begin(&s_refr, s_frame_kind);
-        s_frame_kind = 0;
-        return;
-    }
-    if (code == LV_EVENT_RENDER_START) {
-        int n = disp->inv_p > LV_INV_BUF_SIZE ? LV_INV_BUF_SIZE : (int)disp->inv_p;
-        for (int i = 0; i < n; i++)
-            s_refr_areas[i] = (refr_area_t){disp->inv_areas[i].x1, disp->inv_areas[i].y1, disp->inv_areas[i].x2,
-                                            disp->inv_areas[i].y2};
-        refr_stats_render(&s_refr, s_refr_areas, disp->inv_area_joined, n);
-        return;
-    }
-    int64_t d = now - s_refr_start_us;
-    taskENTER_CRITICAL(&s_refr_mux);
-    bool drew = refr_stats_end(&s_refr, d);
-    s_refr_count++;
-    s_refr_total_us += d;
-    if (d > s_refr_max_us) s_refr_max_us = d;
-    taskEXIT_CRITICAL(&s_refr_mux);
-    if (drew) ota_client_note_frame();
-    diag_note_frame(d);
-}
-
-static void link_reboot(const char *why)
-{
-    ESP_LOGE(TAG, "display link: %s", why);
-    vTaskDelay(pdMS_TO_TICKS(200));
-}
-
-static bool link_confirm_fail(int seed)
-{
-    int fails = 0;
-    for (int k = 0; k < 3; k++) {
-        uint8_t raw[32];
-        int bad = panel_check_run(seed + 1000 + k, raw, LINK_CHECK_WAIT_MS);
-        ESP_LOGW(TAG, "link recheck %d: %d (level %02X wrote %02X read %02X)", k, bad, raw[0], raw[1], raw[2]);
-        fails += bad > 0;
-    }
-    return fails >= 2;
-}
-
-static ota_reboot_gate_t s_reboot_gate;
-
-static void link_reboot_run(ota_reboot_kind_t k)
-{
-    if (k == OTA_REBOOT_FALLBACK) bsp_knob_15_md50et_qspi_fallback_reboot();
-    else if (k == OTA_REBOOT_RESTART) esp_restart();
-}
-
-static void link_reboot_request(ota_reboot_kind_t k, const char *why)
-{
-    link_reboot(why);
-    ota_reboot_kind_t now = ota_reboot_request(&s_reboot_gate, k, ota_client_verifying());
-    if (now == OTA_REBOOT_NONE) ESP_LOGW(TAG, "display link: reboot held until the new firmware is marked valid");
-    link_reboot_run(now);
-}
-
-static void link_task(void *arg)
-{
-    (void)arg;
-    static EXT_RAM_BSS_ATTR knob_settings_t ks;
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    int fast = bsp_knob_15_md50et_qspi_hz() > 40 * 1000 * 1000;
-    if (bsp_knob_15_md50et_qspi_fallback_active()) ESP_LOGW(TAG, "display link: 40 MHz (fallback after a failed check)");
-    for (int i = 0; i < 5; i++) {
-        uint8_t raw[32];
-        int bad = panel_check_run(i, raw, LINK_CHECK_WAIT_MS);
-        ESP_LOGW(TAG, "link check %d at %d MHz: %d bad | %02X %02X %02X %02X %02X %02X %02X %02X", i,
-                 bsp_knob_15_md50et_qspi_hz() / 1000000, bad, raw[0], raw[1], raw[2], raw[3], raw[4], raw[5],
-                 raw[6], raw[7]);
-        if (bad < 0) continue;
-        bool failed = bad > 0 && link_confirm_fail(i);
-        ota_client_note_link(ota_link_result(failed, fast));
-        if (failed && fast && LINK_FALLBACK) {
-            link_reboot_request(OTA_REBOOT_FALLBACK, "check failed at boot: rebooting at 40 MHz");
-        }
-    }
-    uint32_t runs = 0, fails = 0, errs = 0;
-    int streak = 0;
-    for (int seed = 100;; seed++) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        link_reboot_run(ota_reboot_release(&s_reboot_gate, ota_client_verifying()));
-        config_store_settings(&ks);
-        bool want = ks.fast_link && !bsp_knob_15_md50et_qspi_fallback_active();
-        if (want != (bool)fast && s_reboot_gate.held == OTA_REBOOT_NONE)
-            link_reboot_request(OTA_REBOOT_RESTART,
-                                want ? "fast link turned on: rebooting at 80 MHz" : "fast link turned off: rebooting at 40 MHz");
-        int bad = panel_check_run(seed, NULL, LINK_CHECK_WAIT_MS);
-        runs++;
-        if (bad < 0) errs++;
-        else if (bad > 0) fails++;
-        if (bad > 0 && !link_confirm_fail(seed)) bad = 0;
-        streak = bad > 0 ? streak + 1 : 0;
-        if (bad >= 0) ota_client_note_link(ota_link_result(streak >= 2, fast));
-        if (streak >= 2 && fast && LINK_FALLBACK) {
-            link_reboot_request(OTA_REBOOT_FALLBACK, "two checks failed: rebooting at 40 MHz");
-            streak = 0;
-        }
-        if (bad != 0 || runs % 12 == 0)
-            ESP_LOGW(TAG, "link soak: %" PRIu32 " runs, %" PRIu32 " mismatches, %" PRIu32 " errors (%d MHz)", runs, fails,
-                     errs, bsp_knob_15_md50et_qspi_hz() / 1000000);
-    }
-}
+static atomic_int s_frames;
+static atomic_int s_cur_mood;
 
 static const bot_mood_t DEMO_MOODS[] = {BOT_IDLE, BOT_WORKING, BOT_WAITING, BOT_DONE, BOT_ERROR};
-static const char *const MOOD_NAMES[] = {"idle", "sleepy", "working", "waiting", "error", "done"};
 
 static double now_s(void) { return esp_timer_get_time() / 1e6; }
-
-static pr_wake_t s_wake_press, s_wake_touch;
-
-static void knob_cb(void *event)
-{
-    knob_event_t ev = (knob_event_t)(intptr_t)event;
-    int dir = ev == KNOB_EVENT_CLOCKWISE ? 1 : -1;
-    ota_client_note_input();
-    if (ember_client_idle_input(DIM_WAKE_ENCODER) || pr_wake_held(&s_wake_press)) return;
-    taskENTER_CRITICAL(&s_rg_mux);
-    bool reset_turn = rg_turn(&s_rg, dir, now_s());
-    taskEXIT_CRITICAL(&s_rg_mux);
-    switch (pr_turn(reset_turn, atomic_load(&s_button_down))) {
-    case PR_TURN_PAGE: {
-        int open = PRESS_OPEN;
-        if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;
-        atomic_store(&s_turned_while_down, true);
-        atomic_fetch_add(&s_page_steps, dir);
-        break;
-    }
-    case PR_TURN_DETENT:
-        atomic_fetch_add(&s_detents, dir);
-        break;
-    default:
-        break;
-    }
-}
-
-
-static void button_cb(void *event)
-{
-    ota_client_note_input();
-    button_event_t ev = (button_event_t)(intptr_t)event;
-    bool woke = ember_client_idle_input(DIM_WAKE_ENCODER);
-    if (pr_wake_swallow(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke)) return;
-    switch (ev) {
-    case BUTTON_PRESS_DOWN:
-        taskENTER_CRITICAL(&s_rg_mux);
-        rg_press(&s_rg, now_s());
-        taskEXIT_CRITICAL(&s_rg_mux);
-        atomic_store(&s_hold_seen, false);
-        atomic_store(&s_turned_while_down, false);
-        atomic_store(&s_press_at_us, esp_timer_get_time());
-        atomic_store(&s_press_claim, PRESS_OPEN);
-        atomic_store(&s_press_counting, false);
-        atomic_store(&s_button_down, true);
-        break;
-    case BUTTON_LONG_PRESS_HOLD:
-        atomic_store(&s_hold_seen, true);
-        break;
-    case BUTTON_PRESS_UP: {
-        taskENTER_CRITICAL(&s_rg_mux);
-        bool reset_press = rg_release(&s_rg, now_s());
-        taskEXIT_CRITICAL(&s_rg_mux);
-        atomic_store(&s_button_down, false);
-        int open = PRESS_OPEN;
-        bool fired = !atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_RELEASED);
-        pr_press_t press = pr_release(reset_press, atomic_load(&s_turned_while_down), atomic_load(&s_hold_seen), fired,
-                                      atomic_load(&s_press_counting));
-        if (press != PR_PRESS_NONE) atomic_fetch_add(press == PR_PRESS_LONG ? &s_long_pushes : &s_pushes, 1);
-        break;
-    }
-    default:
-        break;
-    }
-}
 
 static EXT_RAM_BSS_ATTR lv_obj_t *s_hold_layer, *s_hold_arc, *s_hold_label;
 static EXT_RAM_BSS_ATTR const char *s_hold_text;
 static EXT_RAM_BSS_ATTR int s_hold_pct = -1;
 
 #define HOLD_R 204
-
-static void touch_cb(lv_event_t *e)
-{
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_RELEASED && dim_ctl_off()) code = LV_EVENT_PRESS_LOST;
-    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);
-    if (code == LV_EVENT_PRESSED) ota_client_note_input();
-    if (pr_wake_swallow(&s_wake_touch, code == LV_EVENT_PRESSED, code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST, woke)) return;
-    lv_point_t p = {0};
-    lv_indev_t *indev = lv_indev_active();
-    if (indev) lv_indev_get_point(indev, &p);
-    double now = now_s(), report = bsp_knob_15_md50et_touch_report_us() / 1e6;
-    ts_result_t r = TS_NONE;
-    atomic_store(&s_touch_down, code == LV_EVENT_PRESSED || code == LV_EVENT_PRESSING);
-    if (code == LV_EVENT_PRESSED) {
-        atomic_fetch_add(&s_np_wakes, 1);
-        bool classify = s_ks_lv->swipe_pages || (pages_current(&s_nav)->flags & PAGE_TOUCH_RAW);
-        r = ts_press(&s_touch, p.x, p.y, report, classify);
-    } else if (code == LV_EVENT_PRESSING) {
-        ts_move(&s_touch, p.x, p.y, report, now);
-    } else if (code == LV_EVENT_RELEASED) {
-        r = ts_release(&s_touch, p.x, p.y, report, now);
-    } else {
-        ts_cancel(&s_touch);
-    }
-    if (r == TS_TAP) {
-        atomic_fetch_add(&s_touches, ts_tap_word(ts_tap_zone(s_touch.x0, s_touch.y0), 1));
-    } else if (r == TS_LEFT || r == TS_RIGHT) {
-        atomic_fetch_add(&s_hswipes, r == TS_LEFT ? 1 : -1);
-    } else if (r != TS_NONE) {
-        atomic_fetch_add(&s_swipes, r == TS_NEXT ? 1 : -1);
-    }
-}
 
 static void wipe_rect(lv_layer_t *layer, const lv_draw_rect_dsc_t *d, int a, int b)
 {
@@ -618,18 +348,6 @@ static void pages_pause(void)
     s_reset_shown = RG_IDLE;
 }
 
-static void drop_inputs(void)
-{
-    atomic_store(&s_page_steps, 0);
-    atomic_store(&s_swipes, 0);
-    atomic_store(&s_hswipes, 0);
-    atomic_store(&s_np_wakes, 0);
-    atomic_store(&s_detents, 0);
-    atomic_store(&s_pushes, 0);
-    atomic_store(&s_touches, 0);
-    atomic_store(&s_long_pushes, 0);
-}
-
 static void moment_unact(double t)
 {
     if (s_acting && s_bot.mood != s_moment_mood) bot_act_drop(&s_bot, t);
@@ -663,10 +381,8 @@ static bool ota_frame(void)
             music_unact(now_s());
         }
         temp_face_hold(true);
-        taskENTER_CRITICAL(&s_rg_mux);
-        rg_init(&s_rg);
-        taskEXIT_CRITICAL(&s_rg_mux);
-        drop_inputs();
+        input_route_reset_clear();
+        input_route_drop();
         return true;
     }
     if (s_ota_paused) {
@@ -904,10 +620,8 @@ static void join_frame(void)
 
 static bool reset_frame(double t)
 {
-    taskENTER_CRITICAL(&s_rg_mux);
-    rg_state_t st = rg_tick(&s_rg, t);
-    int progress = s_rg.progress;
-    taskEXIT_CRITICAL(&s_rg_mux);
+    int progress;
+    rg_state_t st = input_route_reset_tick(t, &progress);
     if (st != s_reset_shown) {
         if (st == RG_IDLE) {
             lv_obj_add_flag(s_reset_layer, LV_OBJ_FLAG_HIDDEN);
@@ -1007,11 +721,11 @@ void page_bot_frame(const page_frame_t *f)
         bot_view_update(p, t);
         s_last_pose = *p;
         s_drawn = true;
-        s_frames++;
-        s_frame_kind |= 1;
+        atomic_fetch_add(&s_frames, 1);
+        stats_note_frame_kind(1);
     }
     bot_view_set_hint(usage_view_hint());
-    if (bot_view_tick(t, pose && !chase->chasing)) s_frame_kind |= 2;
+    if (bot_view_tick(t, pose && !chase->chasing)) stats_note_frame_kind(2);
     bot_view_label_fx(chase->label_opa, chase->shift_x, chase->shift_y);
     music_view_frame(t);
     moment_view_frame(t);
@@ -1192,19 +906,10 @@ static const char *hold_label(const page_desc_t *pg)
     return pomo_action_for(&st, POMO_INPUT_LONG_PUSH) == POMO_ACT_NONE ? NULL : "stop";
 }
 
-static __attribute__((noinline)) void hold_tick(const page_desc_t *pg)
+static __attribute__((noinline)) void hold_tick(const page_desc_t *pg, long long held)
 {
-    bool down = atomic_load(&s_button_down), turned = atomic_load(&s_turned_while_down);
-    bool wake = pr_wake_held(&s_wake_press);
-    long long held = (esp_timer_get_time() - atomic_load(&s_press_at_us)) / 1000;
-    bool fired = atomic_load(&s_press_claim) != PRESS_OPEN;
-    if (!wake && pr_hold_fires(down, turned, fired, held)) {
-        int open = PRESS_OPEN;
-        if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);
-        fired = true;
-    }
-    const char *label = down && !turned && !fired && !wake && held >= PR_COUNTDOWN_MS ? hold_label(pg) : NULL;
-    if (label) atomic_store(&s_press_counting, true);
+    const char *label = held >= 0 ? hold_label(pg) : NULL;
+    if (label) input_route_hold_counting();
     int pct = label ? (int)((held - PR_COUNTDOWN_MS) * 100 / (PR_HOLD_MS - PR_COUNTDOWN_MS)) : -1;
     if (pct > 100) pct = 100;
     if (!s_hold_layer || pct == s_hold_pct) return;
@@ -1223,13 +928,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
 {
     const page_desc_t *pg = pages_current(&s_nav);
     page_input_t in;
-    in.detents = atomic_exchange(&s_detents, 0);
-    in.pushes = atomic_exchange(&s_pushes, 0);
-    in.touches = ts_tap_counts(atomic_exchange(&s_touches, 0), in.taps);
-    hold_tick(pg);
-    in.longs = atomic_exchange(&s_long_pushes, 0);
-    in.wakes = atomic_exchange(&s_np_wakes, 0);
-    in.hswipes = atomic_exchange(&s_hswipes, 0);
+    hold_tick(pg, input_route_take(&in));
     usage_view_poll();
 
     bool offline = ember_client_offline();
@@ -1295,7 +994,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_view_rim_pose(&f.pose, t);
     f.pose.eye_dy -= music_view_eye_px(t) / bot_view_radius_px();
     f.pose.orbit = chase->chasing ? chase->orbit : 0;
-    s_cur_mood = f.pose.mood;
+    atomic_store(&s_cur_mood, f.pose.mood);
     pages_frame(&s_nav, &f);
 }
 
@@ -1306,19 +1005,13 @@ static int page_index(const char *id)
     return 0;
 }
 
-static bool inputs_pending(void)
-{
-    return atomic_load(&s_detents) || atomic_load(&s_pushes) || atomic_load(&s_touches) || atomic_load(&s_long_pushes) ||
-           atomic_load(&s_page_steps) || atomic_load(&s_swipes) || atomic_load(&s_hswipes) || atomic_load(&s_np_wakes);
-}
-
 static bool scene_gate(double t, bool input)
 {
     ember_demo_status_t st;
     ember_client_demo_status(&st);
     demo_gate_in_t in = {.playing = st.playing || s_scene_on || s_scene_resume_at > 0,
                          .input = input,
-                         .held = atomic_load(&s_button_down) || atomic_load(&s_touch_down),
+                         .held = input_route_held(),
                          .view_on = st.view_on};
     demo_gate_act_t a = demo_gate(&s_scene_gate, &in, t);
     if (a == DEMO_GATE_END) {
@@ -1401,7 +1094,7 @@ static void scene_start(const demo_block_t *b, double t)
 
 static void scene_frame(double t)
 {
-    if (scene_gate(t, inputs_pending())) drop_inputs();
+    if (scene_gate(t, input_route_pending())) input_route_drop();
     bool timed = ember_client_demo_tick(t);
     ember_demo_status_t st;
     ember_client_demo_status(&st);
@@ -1417,8 +1110,6 @@ static void scene_frame(double t)
     }
     if (s_scene_resume_at > 0 && t >= s_scene_resume_at) scene_resume(t);
 }
-
-static atomic_uint s_loop_ticks;
 
 static bool idle_frame(lv_display_t *disp)
 {
@@ -1447,7 +1138,7 @@ static void frame_cb(lv_timer_t *timer)
     render_freeze(lv_timer_get_user_data(timer));
     if (ota_client_render_frozen()) return;
     ota_client_note_loop();
-    atomic_fetch_add_explicit(&s_loop_ticks, 1, memory_order_relaxed);
+    stats_note_loop();
     if (idle_frame(lv_timer_get_user_data(timer))) return;
     double t = now_s();
     double dt = s_last_frame_t > 0 ? t - s_last_frame_t : 0;
@@ -1456,14 +1147,14 @@ static void frame_cb(lv_timer_t *timer)
     screen_snap_frame();
     if (!s_setup && ota_frame()) return;
     if (reset_frame(t) || s_setup) {
-        drop_inputs();
+        input_route_drop();
         return;
     }
 
     settings_frame(t);
     scene_frame(t);
-    int steps = atomic_exchange(&s_page_steps, 0);
-    int swipes = atomic_exchange(&s_swipes, 0);
+    int steps, swipes;
+    input_route_take_steps(&steps, &swipes);
     if (scene_gate(t, steps || swipes)) steps = swipes = 0;
     if (s_ks_lv->swipe_pages) steps += swipes;
     if (steps) page_go(steps, t);
@@ -1499,96 +1190,18 @@ static void setup_view_create(lv_obj_t *scr)
     lv_obj_align(idl, LV_ALIGN_CENTER, 0, 185);
 }
 
-#define STATS_PERIOD_MS 30000
-#define LVGL_STALL_CHECKS 2
+bool input_route_classify_touch(void) { return s_ks_lv->swipe_pages || (pages_current(&s_nav)->flags & PAGE_TOUCH_RAW); }
 
-static void lvgl_stall_check(void)
+stats_sample_t stats_app_sample(void)
 {
-    static unsigned last;
-    static int same;
-    unsigned tick = atomic_load(&s_loop_ticks);
-    if (tick != last || ota_client_verifying() || ota_face_requested()) same = 0;
-    else same++;
-    last = tick;
-    if (same > LVGL_STALL_CHECKS) return;
-    int s = LVGL_STALL_CHECKS * STATS_PERIOD_MS / 1000;
-    switch (diag_stall_check(same == LVGL_STALL_CHECKS)) {
-    case DEV_STALL_ABORT:
-        ESP_LOGE(TAG, "LVGL loop stalled for %d s: restarting", s);
-        abort();
-    case DEV_STALL_LOG:
-        ESP_LOGE(TAG, "LVGL loop stalled for %d s: not restarting (%d stall resets in a row)", s, DEV_STALL_MAX_RESETS);
-        break;
-    case DEV_STALL_NONE:
-        break;
-    }
-}
-
-static void stats_task(void *arg)
-{
-    (void)arg;
-    static EXT_RAM_BSS_ATTR http_conn_stats_t prev, ns;
-    static EXT_RAM_BSS_ATTR refr_kind_t kc[REFR_KINDS], kt;
-    static EXT_RAM_BSS_ATTR dev_wifi_t w;
-    int failed_logged = 0, refused_logged = 0;
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
-        diag_track();
-        orbit_reap();
-        double t = now_s();
-        int frames = s_frames;
-        s_frames = 0;
-        taskENTER_CRITICAL(&s_refr_mux);
-        int n = s_refr_count;
-        int64_t total = s_refr_total_us, mx = s_refr_max_us;
-        s_refr_count = 0;
-        s_refr_total_us = s_refr_max_us = 0;
-        int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);
-        taskEXIT_CRITICAL(&s_refr_mux);
-        http_conn_get_stats(&ns);
-        ESP_LOGI(TAG, "pose redraws %.1f/s | screen refreshes %d, avg %.1f ms, max %.1f ms | mood %s | page %d",
-                 frames / (t - s_fps_since), n, n ? total / 1000.0 / n : 0.0, mx / 1000.0, MOOD_NAMES[s_cur_mood],
-                 s_nav.page);
-        ESP_LOGI(TAG, "glint chase: phase %d, working %.0f of %.0f s, laps %d, eyes %d fps", (int)s_chase.phase,
-                 s_chase.work_s, s_chase.wait_s, s_chase.laps, atomic_load(&s_chase_fps));
-        int moments, bake_ms, failed, refused;
-        moment_view_stats(&moments, &bake_ms, &failed, &refused);
-        ESP_LOGI(TAG, "weather moments: %d shown, last bake %d ms", moments, bake_ms);
-        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);
-        failed_logged = failed;
-        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);
-        refused_logged = refused;
-        int music, paint_ms;
-        music_view_stats(&music, &paint_ms);
-        ESP_LOGI(TAG, "music moments: %d shown, sprites painted at boot in %d ms", music, paint_ms);
-        static const char *const KIND[4] = {"other", "pose", "glint", "pose+glint"};
-        for (int i = 0; i < REFR_KINDS; i++)
-            if (kc[i].n)
-                ESP_LOGI(TAG, "refresh %s: %d, avg %.1f ms, max %.1f ms, avg %lld px, max %d areas", KIND[i], kc[i].n,
-                         kc[i].us / 1000.0 / kc[i].n, kc[i].us_max / 1000.0, kc[i].px / kc[i].n, kc[i].areas_max);
-        double win = win_us > 0 ? win_us / 1e6 : 1;
-        ESP_LOGI(TAG, "invalidated: %lld areas (%.1f/s), %lld px (%.0f px/s) in %d refreshes over %.0f s", kt.areas,
-                 kt.areas / win, kt.px, kt.px / win, kt.n, win);
-        ESP_LOGI(TAG, "net: %" PRIu32 " req (%" PRIu32 " x 304), %" PRIu32 " B in, %" PRIu32 " failed, %" PRIu32
-                 " retried, %" PRIu32 " new connections | internal free %u B (largest %u B) | PSRAM free %u KB",
-                 ns.requests - prev.requests, ns.not_modified - prev.not_modified, ns.rx_bytes - prev.rx_bytes,
-                 ns.failures - prev.failures, ns.retries - prev.retries,
-                 ns.connects - prev.connects, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
-        int rssi = 0;
-        bool assoc = ember_client_rssi(&rssi);
-        ember_client_wifi(&w);
-        ESP_LOGI(TAG, "wifi: RSSI %d dBm (min %d), channel %d, %" PRIu32 " disconnects (last reason %d), %u beacon timeouts",
-                 assoc ? rssi : 0, w.has_rssi_min ? w.rssi_min : 0, w.channel, w.disconnects, w.last_reason,
-                 ember_client_beacon_timeouts());
-        static EXT_RAM_BSS_ATTR char stacks[DIAG_STACKS_LINE_MAX];
-        diag_stacks_line(stacks);
-        ESP_LOGI(TAG, "stack free B: %s", stacks);
-        lvgl_stall_check();
-        prev = ns;
-        s_fps_since = t;
-    }
+    return (stats_sample_t){.frames = atomic_exchange(&s_frames, 0),
+                            .mood = atomic_load(&s_cur_mood),
+                            .page = s_nav.page,
+                            .chase_phase = (int)s_chase.phase,
+                            .chase_laps = s_chase.laps,
+                            .chase_fps = atomic_load(&s_chase_fps),
+                            .chase_work_s = s_chase.work_s,
+                            .chase_wait_s = s_chase.wait_s};
 }
 
 static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBaseType_t prio, BaseType_t core,
@@ -1607,13 +1220,12 @@ void app_main(void)
     http_conn_quiet_idf_logs();
     config_store_init();
     diag_boot();
-    refr_stats_init(&s_refr, esp_timer_get_time());
-    diag_attach_refr(&s_refr, &s_refr_mux);
+    stats_refr_init();
     ota_client_boot();
     s_setup = !config_store_provisioned();
     s_ks_lv = heap_caps_calloc(1, sizeof *s_ks_lv, MALLOC_CAP_SPIRAM);
     assert(s_ks_lv);
-    rg_init(&s_rg);
+    input_route_init();
 
     /* Wi-Fi starts before the display: its RX buffers need internal DMA RAM (docs/features.md, internal RAM budget). */
     if (!s_setup) {
@@ -1637,12 +1249,12 @@ void app_main(void)
     bsp_knob_15_md50et_set_rotation(s_ks_lv->rotation);
     bsp_knob_15_md50et_handles_t handles = {0};
     ESP_ERROR_CHECK(bsp_knob_15_md50et_init(&handles));
-    bsp_knob_15_md50et_register_knob_cb(knob_cb);
-    bsp_knob_15_md50et_register_button_cb(button_cb);
+    bsp_knob_15_md50et_register_knob_cb(input_route_knob_cb);
+    bsp_knob_15_md50et_register_button_cb(input_route_button_cb);
     panel_check_init(handles.panel, handles.panel_io);
 
     bot_init(&s_bot, 0x454D4252ULL, now_s());
-    s_fps_since = now_s();
+    stats_fps_start();
 
     ESP_ERROR_CHECK(bsp_knob_15_md50et_lock(-1));
     lv_obj_t *scr = lv_screen_active();
@@ -1671,10 +1283,10 @@ void app_main(void)
         usage_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSED, NULL);
-        lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESSING, NULL);
-        lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_RELEASED, NULL);
-        lv_obj_add_event_cb(scr, touch_cb, LV_EVENT_PRESS_LOST, NULL);
+        lv_obj_add_event_cb(scr, input_route_touch_cb, LV_EVENT_PRESSED, NULL);
+        lv_obj_add_event_cb(scr, input_route_touch_cb, LV_EVENT_PRESSING, NULL);
+        lv_obj_add_event_cb(scr, input_route_touch_cb, LV_EVENT_RELEASED, NULL);
+        lv_obj_add_event_cb(scr, input_route_touch_cb, LV_EVENT_PRESS_LOST, NULL);
         page_fx_create();
     }
     reset_overlay_create();
@@ -1685,9 +1297,9 @@ void app_main(void)
     mm_init(&s_mm);
     bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
     lv_timer_create(frame_cb, 16, handles.disp);
-    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_START, NULL);
-    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_RENDER_START, NULL);
-    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_REFR_READY, NULL);
+    lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_RENDER_START, NULL);
+    lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_REFR_READY, NULL);
     bsp_knob_15_md50et_unlock();
 
     config_store_settings(s_ks_lv);
@@ -1695,8 +1307,8 @@ void app_main(void)
     panel_check_brightness(startup);
     if (!s_setup) dim_ctl_enable(startup);
     if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
-    psram_task(stats_task, "stats", 4352, 1, tskNO_AFFINITY, NULL);
-    psram_task(link_task, "link", 4096, 1, 1, NULL);
+    stats_task_start();
+    link_task_start();
     provision_usb_start();
     ESP_LOGI(TAG, "%s ready; free internal %u KB (largest %u KB); main task stack headroom %u B",
              s_setup ? "setup face" : "bot face", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),

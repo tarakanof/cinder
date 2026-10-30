@@ -1,0 +1,2 @@
+#pragma once
+typedef enum { BUTTON_PRESS_DOWN, BUTTON_PRESS_UP, BUTTON_LONG_PRESS_HOLD, BUTTON_SINGLE_CLICK } button_event_t;

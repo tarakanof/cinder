@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.c" "panel_check.c" "bot_view.c" "ember_client.c" "dim_ctl.c" "pomo_client.c" "pomo_view.c" "day_client.c" "day_view.c" "controls_client.c" "controls_view.c"
+idf_component_register(SRCS "main.c" "input_route.c" "link_task.c" "stats_task.c" "panel_check.c" "bot_view.c" "ember_client.c" "dim_ctl.c" "pomo_client.c" "pomo_view.c" "day_client.c" "day_view.c" "controls_client.c" "controls_view.c"
                             "weather_client.c" "temp_face.c" "config_store.c" "provision_usb.c" "http_conn.c" "diag.c"
                             "nowplaying_client.c" "nowplaying_view.c" "np_cover_view.c" "screen_snap.c" "ota_client.c" "ota_face.c" "font_title_bold.c"
                             "font_digits_60.c" "font_digits_78.c" "font_digits_96.c" "font_face_36.c" "moment_view.c" "music_view.c" "usage_client.c" "usage_view.c" "join_view.c" "claim_client.c" "timing.c"
