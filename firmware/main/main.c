@@ -30,6 +30,7 @@
 #include "display/lv_display_private.h"
 #include "config_store.h"
 #include "dim.h"
+#include "dim_ctl.h"
 #include "ember_client.h"
 #include "ember_host.h"
 #include "http_conn.h"
@@ -441,7 +442,7 @@ static EXT_RAM_BSS_ATTR int s_hold_pct = -1;
 static void touch_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_RELEASED && ember_client_idle_off()) code = LV_EVENT_PRESS_LOST;
+    if (code == LV_EVENT_RELEASED && dim_ctl_off()) code = LV_EVENT_PRESS_LOST;
     bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);
     if (code == LV_EVENT_PRESSED) ota_client_note_input();
     if (pr_wake_swallow(&s_wake_touch, code == LV_EVENT_PRESSED, code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST, woke)) return;
@@ -1423,9 +1424,9 @@ static bool idle_frame(lv_display_t *disp)
     static bool held;
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);
-    if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);
-    else if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);
-    bool off = ember_client_idle_off();
+    if (ota_face_requested()) dim_ctl_wake(DIM_WAKE_OTA_FACE);
+    else if (ds.playing || ds.view_on || s_scene_on) dim_ctl_wake(DIM_WAKE_DEMO);
+    bool off = dim_ctl_off();
     if (off != held) {
         held = off;
         lv_display_enable_invalidation(disp, !off);
@@ -1438,6 +1439,7 @@ static bool idle_frame(lv_display_t *disp)
 
 static void frame_cb(lv_timer_t *timer)
 {
+    dim_ctl_frame();
     panel_check_frame();
     bsp_knob_15_md50et_rotation_frame();
     screen_snap_reap();
@@ -1687,7 +1689,7 @@ void app_main(void)
     config_store_settings(s_ks_lv);
     uint8_t startup = s_ks_lv->startup;
     panel_check_brightness(startup);
-    if (!s_setup) ember_client_dim_enable(startup);
+    if (!s_setup) dim_ctl_enable(startup);
     if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
     psram_task(stats_task, "stats", 4352, 1, tskNO_AFFINITY, NULL);
     psram_task(link_task, "link", 4096, 1, 1, NULL);
