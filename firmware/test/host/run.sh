@@ -760,6 +760,8 @@ body "$CHC" chase_ctl_frame | grep -qxF '    atomic_store(&s_chase_status, in->s
     '            if (bot->tracking) bot_track_end(bot, t);' '            bot_look_still(bot, chase_gaze(&ref, 0, chase->orbit), 0, t);' \
     '        } else if (aim == GC_AIM_TRACK) {' '            chase_track(bot, &ref, deg, chase->orbit, t);' '        }')" ] && [ "$(grep -c 'gc_half_chase_step(' "$CHC")" -eq 1 ] && ! grep -q 's_half\.' "$CHC" ||
     WIRING="$WIRING half-chase-aims-through-gc_half_chase_step"
+body "$CHC" chase_ctl_orbit_start | grep -qxF '    if (xTaskCreatePinnedToCoreWithCaps(orbit_task, "orbit", 3328, NULL, 1, &s_orbit_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)' ||
+    WIRING="$WIRING orbit-task-stack-in-PSRAM"
 body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
     /^            if \(scene_on\(\)\) scene_end\(now_s\(\)\);$/ {e = NR} /^            scene_resume_cancel\(\);$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
     END {exit !(p && i == p + 1 && e == i + 1 && r == e + 1 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-or-offered-demo"

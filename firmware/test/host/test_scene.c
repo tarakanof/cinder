@@ -398,6 +398,7 @@ static void test_page_and_face(void)
     scene_frame(T);
     CHECK(!scene_on() && !scene_resuming() && D.st.gen == gen + 1, "a server stop on the user's page returns at once");
     CHECK(wipes == 2, "and wipes nothing: the page never changed");
+    CHECK(face_picks == 2, "a scene that picked no face restores none: %d", face_picks);
 
     offer(DEMO_PAGE_POMODORO, -1, (demo_act_t){.kind = DEMO_ACT_NONE});
     scene_frame(T);
@@ -1274,6 +1275,41 @@ static void test_music_demo(void)
     CHECK(!MU.busy && MU.stops == 1 && MU.aborts == 0 && !bot.acting, "a demo block stops a playing moment at once");
 }
 
+static void music_restart(void)
+{
+    music_view_stop();
+    music_unact(T);
+    T += MM_SAME_S + 1;
+    np_set("C", NP_PLAYING, false);
+}
+
+static void test_music_repeat(void)
+{
+    fresh();
+    music_started();
+    music_restart();
+    int starts = MU.starts;
+    MU.busy = true;
+    for (double end = T + 8; T < end; T += 0.25) music_tick(false, false, true, true);
+    CHECK(MU.starts == starts, "a new track while the music view is busy starts nothing");
+
+    fresh();
+    music_started();
+    int n;
+    const mm_cue_t *c = mm_script(&n);
+    MU.tau = c[n - 1].t;
+    music_tick(false, false, true, true);
+    music_restart();
+    for (double end = T + 8; T < end && !MU.busy; T += 0.25) music_tick(false, false, true, true);
+    CHECK(MU.busy && bot.acting, "the next moment starts");
+    MU.tau = c[0].t;
+    step(DT);
+    music_tick(false, false, true, true);
+    bool happy = false;
+    for (double end = T + 0.5; T < end; T += DT) happy |= bot_pose(&bot, T).eyes == BOT_EYES_HAPPY;
+    CHECK(happy, "the first cue fires again from the top");
+}
+
 static void test_music_cut(void)
 {
     struct {
@@ -1395,6 +1431,7 @@ int main(void)
     test_music_start();
     test_music_demo();
     test_music_cut();
+    test_music_repeat();
     test_orbit_task();
     if (failures) {
         printf("scene: %d failures\n", failures);
