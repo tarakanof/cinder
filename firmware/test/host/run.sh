@@ -87,8 +87,9 @@ body "$DIMC" idle_locked | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood
 [ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
 body "$DIMC" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
-body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_state\(\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
+body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_read\(&wake\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
+! body "$DIMC" fade_step | grep -qE 'idle_state\(\)|idle_wake_log|ESP_LOG' || IDLE="$IDLE fade_step-must-not-log-at-input-rate-on-the-frame-path"
 body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
 body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) dim_ctl_wake(DIM_WAKE_OTA_FACE);' &&
@@ -107,6 +108,13 @@ body "$MAINC" frame_cb | awk '/^    dim_ctl_frame\(\);$/ {d = NR} /^    panel_ch
 body "$DIMC" fade_start | grep -qxF '    if (s_idle.ready) {' || IDLE="$IDLE fade_start-waits-for-the-first-settings"
 ! grep -qE 'fade_step|fade_start|dim_fade_|panel_check_brightness|s_lit|s_idle\b' "$ECL" || IDLE="$IDLE the-network-loop-no-longer-steps-the-fade"
 awk '/taskENTER_CRITICAL/ {l = 1} /taskEXIT_CRITICAL/ {l = 0} l && /ESP_LOG|panel_check_brightness|alloc\(|ember_client_wake/ {bad = 1} END {exit bad}' "$DIMC" || IDLE="$IDLE dim_ctl-no-log-allocation-or-panel-write-under-the-lock"
+for FN in idle_locked fade_floor set_brightness_target; do
+    HELPER=$(body "$DIMC" "$FN")
+    { [ -n "$HELPER" ] && ! printf '%s\n' "$HELPER" | grep -qE 'ESP_LOG|panel_check_brightness|alloc\(|ember_client_wake'; } ||
+        IDLE="$IDLE $FN-runs-under-the-lock-so-no-log-allocation-or-panel-write"
+done
+grep -qxF 'static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }' "$DIMC" &&
+    grep -qxF 'bool ota_client_verifying(void) { return atomic_load(&s_verifying); }' "$OCL" || IDLE="$IDLE idle_ms-and-ota_client_verifying-stay-plain-reads-under-the-lock"
 body "$MAINC" knob_cb | grep -qF 'if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;' ||
     IDLE="$IDLE knob_cb-a-held-turn-claims-the-press-before-paging"
 grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$MAINC" ||

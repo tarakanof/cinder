@@ -50,14 +50,19 @@ static dim_idle_state_t idle_locked(int64_t now, bool verifying)
     return dim_idle_state(&s_idle.rules, &s_idle.clock, now);
 }
 
+static dim_idle_state_t idle_read(dim_wake_t *wake)
+{
+    taskENTER_CRITICAL(&s_mux);
+    dim_idle_state_t st = idle_locked(idle_ms(), ota_client_verifying());
+    *wake = s_idle.clock.wake;
+    taskEXIT_CRITICAL(&s_mux);
+    return st;
+}
+
 static dim_idle_state_t idle_state(void)
 {
-    int64_t now = idle_ms();
-    bool verifying = ota_client_verifying();
-    taskENTER_CRITICAL(&s_mux);
-    dim_idle_state_t st = idle_locked(now, verifying);
-    dim_wake_t wake = s_idle.clock.wake;
-    taskEXIT_CRITICAL(&s_mux);
+    dim_wake_t wake;
+    dim_idle_state_t st = idle_read(&wake);
     idle_wake_log(wake);
     return st;
 }
@@ -103,10 +108,8 @@ static void set_brightness_target(int level)
 void dim_ctl_apply(void)
 {
     static const char *const NAMES[] = {"awake", "dimmed", "off"};
-    int64_t now = idle_ms();
-    bool verifying = ota_client_verifying();
     taskENTER_CRITICAL(&s_mux);
-    dim_idle_state_t idle = idle_locked(now, verifying);
+    dim_idle_state_t idle = idle_locked(idle_ms(), ota_client_verifying());
     dim_wake_t wake = s_idle.clock.wake;
     dim_idle_state_t seen = s_idle_seen;
     int target = s_bright_target;
@@ -159,7 +162,8 @@ static void fade_step(void)
 {
     if (!s_fade_on) return;
     int taken = atomic_exchange(&s_lit, -1);
-    dim_idle_state_t idle = idle_state();
+    dim_wake_t wake;
+    dim_idle_state_t idle = idle_read(&wake);
     taskENTER_CRITICAL(&s_mux);
     int lit = dim_fade_take(&s_fade, taken, idle);
     bool moved = idle != s_idle_seen;
