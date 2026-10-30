@@ -397,6 +397,11 @@ static void test_diag_override(void)
         const char *tw = "CINDER1 {\"id\":10,\"ok\":true,\"since_ms\":61234,\"spans\":{\"fade\":{\"avg_us\":2500,\"max_us\":4000,\"n\":3},"
                          "\"ring\":{\"avg_us\":0,\"max_us\":0,\"n\":0}}}\n";
         CHECK(tn == strlen(tw) && strcmp(tout, tw) == 0, "timing reply: %s", tout);
+        cl_timing_span_t big[1] = {{"update", 4000000000u, 5000000000LL, 6000000000LL}};
+        tn = cl_reply_timing(11, 4000000000LL, big, 1, tout, sizeof tout);
+        CHECK(tn && strstr(tout, "\"since_ms\":4000000000") && strstr(tout, "\"avg_us\":5000000000") && strstr(tout, "\"max_us\":6000000000") &&
+                  strstr(tout, "\"n\":4000000000"),
+              "timing reply keeps values above INT32_MAX: %s", tout);
     }
     CHECK(cl_parse("{\"id\":30,\"op\":\"ota_fault\",\"fault\":\"net\"}", &r) == CL_OK && r.op == CL_OP_OTA_FAULT &&
               strcmp(r.fault, "net") == 0,

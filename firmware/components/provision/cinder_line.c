@@ -262,6 +262,12 @@ static void jw_kint(jw_t *w, const char *k, long v)
     jw_printf(w, "%ld", v);
 }
 
+static void jw_kint64(jw_t *w, const char *k, int64_t v)
+{
+    jw_key(w, k);
+    jw_printf(w, "%lld", (long long)v);
+}
+
 static void jw_kbool(jw_t *w, const char *k, bool v)
 {
     jw_key(w, k);
@@ -360,13 +366,13 @@ size_t cl_reply_timing(long id, int64_t since_ms, const cl_timing_span_t *spans,
     jw_t w = jw_begin(out, cap);
     jw_kint(&w, "id", id);
     jw_kbool(&w, "ok", true);
-    jw_kint(&w, "since_ms", (long)since_ms);
+    jw_kint64(&w, "since_ms", since_ms);
     jw_open(&w, "spans");
     for (int i = 0; i < count; i++) {
         jw_open(&w, spans[i].name);
-        jw_kint(&w, "avg_us", (long)spans[i].avg_us);
-        jw_kint(&w, "max_us", (long)spans[i].max_us);
-        jw_kint(&w, "n", (long)spans[i].n);
+        jw_kint64(&w, "avg_us", spans[i].avg_us);
+        jw_kint64(&w, "max_us", spans[i].max_us);
+        jw_kint64(&w, "n", spans[i].n);
         jw_close(&w);
     }
     jw_close(&w);
