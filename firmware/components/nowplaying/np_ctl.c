@@ -110,7 +110,7 @@ void np_ctl_track(np_ctl_t *c, const np_info_t *np, double now)
 void np_ctl_track_pos(np_ctl_t *c, long long pos_ms, long long dur_ms, double now)
 {
     if (c->track_set && c->track_pos >= 0 && dur_ms > NP_RESTART_MIN_MS &&
-        c->track_pos >= dur_ms - NP_RESTART_TAIL_MS && pos_ms < NP_RESTART_HEAD_MS)
+        c->track_pos >= dur_ms - NP_RESTART_TAIL_MS && pos_ms < NP_RESTART_HEAD_MS && pos_ms < c->track_pos)
         c->track_t = now;
     c->track_pos = pos_ms;
 }

@@ -1323,6 +1323,10 @@ static void test_short_track(void)
     np_ctl_track_pos(&c, 11500, 12000, t += 0.5);
     np_ctl_track_pos(&c, 300, 12000, t += 0.5);
     CHECK(np_ctl_info_opa(&c, t, false) == 255, "a 12 s track on repeat-one: each lap is a start");
+    np_ctl_track_pos(&c, 5000, 12000, t + 20);
+    for (long long p = 5250; p <= 11750; p += 250) np_ctl_track_pos(&c, p, 12000, t + 20 + (p - 5000) / 1000.0);
+    CHECK(np_ctl_info_opa(&c, t + 30, false) == 0, "a 12 s track played forward through the overlap is no restart");
+    t += 40;
     double s0 = t + 20;
     np_ctl_track_pos(&c, 7500, 12000, s0);
     np_ctl_track_pos(&c, 4000, 12000, s0 + 0.1);
