@@ -17,10 +17,8 @@
 
 #include "bot_behavior.h"
 #include "bot_view.h"
-#include "chase.h"
-#include "glint_chase.h"
+#include "chase_ctl.h"
 #include "bot_shape.h"
-#include "orbit_table.h"
 #include "panel_check.h"
 #include "esp_random.h"
 #include "config_store.h"
@@ -50,6 +48,7 @@
 #include "provision_usb.h"
 #include "screen_snap.h"
 #include "reset_gesture.h"
+#include "scene.h"
 #include "stats_task.h"
 #include "touch_swipe.h"
 #include "weather_client.h"
@@ -57,11 +56,9 @@
 #include "usage_client.h"
 #include "usage_view.h"
 #include "moment_view.h"
-#include "music_moment.h"
+#include "moments.h"
 #include "music_view.h"
 #include "shown.h"
-#include "wx_faces.h"
-#include "wx_moment.h"
 #include "wx_shift.h"
 #include "bsp_knob_15_md50et.h"
 
@@ -100,95 +97,9 @@ static double s_ring_deg;
 static int s_demo_index;
 static double s_demo_until;
 static double s_demo_hold_s = 20.0;
-#define CHASE_LEAD_DEG 15.0
-/* Chase gaze reach is tuned against tearing without TE; the eye rate is CINDER1 chase fps (docs/features.md, chase tearing, chase near the ring). */
-#define CHASE_GAZE 0.6
-#define CHASE_FPS_DEFAULT 60
-#define CHASE_OUTER 0.92
-static glint_chase_t s_chase;
-static atomic_int s_chase_status = 2;
-static atomic_int s_chase_req = -1;
-static atomic_int s_chase_fps = CHASE_FPS_DEFAULT;
-static gc_half_chase_t s_half;
-static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;
-static const wxm_cue_t *s_cues;
-static int s_cue, s_cue_n;
-static bot_mood_t s_moment_mood;
-static bool s_acting;
-static EXT_RAM_BSS_ATTR mm_trigger_t s_mm;
-static EXT_RAM_BSS_ATTR np_snapshot_t s_mm_np;
-static EXT_RAM_BSS_ATTR uint32_t s_mm_gen, s_mm_key;
-static EXT_RAM_BSS_ATTR bot_mood_t s_mm_mood;
-static EXT_RAM_BSS_ATTR bool s_mm_acting;
-static EXT_RAM_BSS_ATTR int s_mm_cue;
 
-_Static_assert(WXM_GLANCE == 1 && WXM_STORM == 9 && WXF_TEMP == 0 && WXF_AIR == 6, "demo.c's moment and face order");
-#define SCENE_START_S 3.0
-#define SCENE_NEXT_S 1.5
-typedef enum { SCENE_ACT_WAIT, SCENE_ACT_RUN, SCENE_ACT_DONE } scene_act_st_t;
-static bool s_scene_on;
-static unsigned s_scene_n;
 static bool s_bot_shown;
 static ember_host_info_t s_wait_host;
-static unsigned s_scene_gen;
-static demo_act_t s_scene_act;
-static scene_act_st_t s_scene_act_st;
-static double s_scene_t0;
-static bool s_scene_face, s_scene_chased;
-static int s_scene_face_saved;
-static bot_mood_t s_scene_mood0;
-static double s_scene_sleep_in;
-static EXT_RAM_BSS_ATTR glint_chase_t s_scene_chase;
-static gc_half_chase_t s_scene_half;
-static int s_scene_chase_req = -1;
-static double s_scene_resume_at;
-static demo_gate_t s_scene_gate;
-static EXT_RAM_BSS_ATTR wx_temp_t s_scene_scratch;
-static EXT_RAM_BSS_ATTR demo_block_t s_scene_block;
-
-int app_chase_request(int style, int fps, int laps)
-{
-    int st = atomic_load(&s_chase_status);
-    if (st != 0) return st;
-    if (fps > 0) atomic_store(&s_chase_fps, fps);
-    atomic_store(&s_chase_req, style | laps << 4);
-    return st;
-}
-
-#define ORBIT_CHUNK 8
-static EXT_RAM_BSS_ATTR bot_orbit_table_t s_orbit;
-static TaskHandle_t s_orbit_task;
-static atomic_bool s_orbit_done;
-
-static void orbit_task(void *arg)
-{
-    (void)arg;
-    for (int k = 0; k < BOT_ORBIT_KINDS; k++)
-        for (int i = 0; i < BOT_ORBIT_TAB_N; vTaskDelay(1)) i = bot_orbit_table_fill_part(&s_orbit, (bot_eyes_t)k, i, ORBIT_CHUNK);
-    atomic_store(&s_orbit_done, true);
-    for (;;) vTaskSuspend(NULL);
-}
-
-void orbit_reap(void)
-{
-    if (!s_orbit_task || !atomic_load(&s_orbit_done)) return;
-    vTaskDeleteWithCaps(s_orbit_task);
-    s_orbit_task = NULL;
-}
-
-static double chase_gaze(const bot_pose_t *p, double deg, double orbit)
-{
-    if (orbit <= 0) return CHASE_GAZE;
-    double ring = bot_orbit_table_get(&s_orbit, p, deg);
-    return CHASE_GAZE + (ring - CHASE_GAZE) * orbit;
-}
-
-static void chase_track(const bot_pose_t *ref, double deg, double orbit, double t)
-{
-    double m = chase_gaze(ref, deg, orbit), a = deg * M_PI / 180;
-    bot_track(&s_bot, cos(a) * m, -sin(a) * m, t);
-}
-
 static double s_pose_drawn_at;
 static atomic_int s_frames;
 static atomic_int s_cur_mood;
@@ -242,7 +153,7 @@ static void page_fx_create(void)
     lv_obj_add_event_cb(s_wipe, wipe_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
 }
 
-static void wipe_start(int dir, double t)
+void wipe_start(int dir, double t)
 {
     s_wipe_dir = dir;
     s_wipe_t0 = t;
@@ -348,31 +259,14 @@ static void pages_pause(void)
     s_reset_shown = RG_IDLE;
 }
 
-static void moment_unact(double t)
-{
-    if (s_acting && s_bot.mood != s_moment_mood) bot_act_drop(&s_bot, t);
-    else if (s_acting) bot_act_end(&s_bot, true, 0.3, t);
-    s_acting = false;
-    s_cue = s_cue_n;
-}
-
-static void music_unact(double t)
-{
-    if (s_mm_acting && s_bot.mood != s_mm_mood) bot_act_drop(&s_bot, t);
-    else if (s_mm_acting) bot_act_end(&s_bot, true, 0.3, t);
-    s_mm_acting = false;
-}
-
-static void scene_end(double t);
-
 static bool ota_frame(void)
 {
     if (ota_face_frame()) {
         if (!s_ota_paused) {
             s_ota_paused = true;
             ember_client_demo_input();
-            if (s_scene_on) scene_end(now_s());
-            s_scene_resume_at = 0;
+            if (scene_on()) scene_end(now_s());
+            scene_resume_cancel();
             pages_pause();
             bot_view_rim_hold(true);
             moment_view_hold(true);
@@ -713,7 +607,7 @@ void page_bot_frame(const page_frame_t *f)
     if (join_glyph_shown(f->offline, s_join_shown) && s_join_shown == JOIN_NONE) ember_client_age_text(age, sizeof age);
     bot_view_set_age(age);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
-    if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))
+    if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / chase_ctl_fps())
         pose = false;
     bot_view_chase(chase->chasing || moment_view_busy() || music_view_busy(), chase->chasing && chase->label_opa > 0);
     if (pose) s_pose_drawn_at = t;
@@ -730,163 +624,6 @@ void page_bot_frame(const page_frame_t *f)
     music_view_frame(t);
     moment_view_frame(t);
 }
-
-static wxm_mood_t moment_mood(bot_mood_t m)
-{
-    return m == BOT_WORKING ? WXM_WORKING : m == BOT_WAITING || m == BOT_ERROR ? WXM_BUSY : WXM_REST;
-}
-
-static void moment_cue(const wxm_cue_t *c, double t)
-{
-    switch (c->op) {
-    case WXM_GLIDE: bot_act_gaze(&s_bot, c->a, c->b, true, t); break;
-    case WXM_SACCADE: bot_act_gaze(&s_bot, c->a, c->b, false, t); break;
-    case WXM_LID: bot_act_lid(&s_bot, c->a, c->b, t); break;
-    case WXM_BLINK: bot_act_blink(&s_bot, c->a, t); break;
-    case WXM_EYES:
-        bot_act_eyes(&s_bot, c->eyes == WXM_EYES_ROUND ? BOT_EYES_ROUND : c->eyes == WXM_EYES_HAPPY ? BOT_EYES_HAPPY : -1, t);
-        break;
-    case WXM_HOP: bot_act_hop(&s_bot, t); break;
-    case WXM_END:
-        bot_act_end(&s_bot, c->a > 0, c->b, t);
-        s_acting = false;
-        break;
-    }
-}
-
-static __attribute__((noinline)) void moment_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page)
-{
-    if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();
-    if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {
-        moment_view_stop();
-        moment_unact(t);
-    } else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {
-        moment_view_abort(t);
-        moment_unact(t);
-    }
-    wxm_in_t in = {.t = t, .obs = wx, .mood = moment_mood(s_bot.mood), .bot_mood = (int)s_bot.mood, .shown = bot_page && !s_bot.asleep,
-                   .blocked = moment_view_busy() || music_view_busy() || mm_recent(&s_mm, t) || calm || s_chase.phase != GC_IDLE,
-                   .on = s_ks_lv->weather_moments,
-                   .every_s = s_ks_lv->weather_every_min * 60};
-    static EXT_RAM_BSS_ATTR wxm_moment_t m;
-    if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
-        wxm_shown(&s_wxm, &m, t);
-        s_moment_mood = s_bot.mood;
-        s_cues = wxm_script(&m, &s_cue_n);
-        s_cue = 0;
-        if (s_cue_n > 0) {
-            bot_act_begin(&s_bot, t);
-            s_acting = true;
-        }
-    }
-    double tau = moment_view_poll(t);
-    while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);
-    s_chase.hold = moment_view_busy();
-}
-
-static __attribute__((noinline)) void music_tick(double t, bool calm, bool offline, bool bot_page, bool on)
-{
-    if (np_client_get(&s_mm_np, &s_mm_gen))
-        s_mm_key = mm_track_key(s_mm_np.info.title, s_mm_np.info.artist, s_mm_np.info.album, s_mm_np.info.source);
-    on = mm_block_on(on, s_mm_np.demo);
-    bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;
-    if (music_view_busy() && (!on || !bot_page)) {
-        music_view_stop();
-        music_unact(t);
-    } else if (music_view_busy() && (s_bot.mood != s_mm_mood || calm || offline || !playing)) {
-        music_view_abort(t);
-        music_unact(t);
-    }
-    mm_in_t in = {.t = t, .have = s_mm_np.have && on, .playing = playing, .track = s_mm_key, .bot_mood = (int)s_bot.mood,
-                  .rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,
-                  .blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,
-                  .other_at = s_wxm.last_at};
-    if (mm_tick(&s_mm, &in) && music_view_start(t)) {
-        mm_shown(&s_mm, t);
-        s_mm_mood = s_bot.mood;
-        bot_act_begin(&s_bot, t);
-        s_mm_acting = true;
-        s_mm_cue = 0;
-    }
-    int n;
-    const mm_cue_t *c = mm_script(&n);
-    double tau = music_view_poll(t);
-    for (; tau >= 0 && s_mm_acting && s_mm_cue < n && tau >= c[s_mm_cue].t; s_mm_cue++) {
-        if (c[s_mm_cue].op == MM_HAPPY) bot_act_eyes(&s_bot, BOT_EYES_HAPPY, t);
-        else music_unact(t);
-    }
-    if (music_view_busy()) s_chase.hold = true;
-}
-
-static void scene_act_done(void)
-{
-    s_scene_act_st = SCENE_ACT_DONE;
-    ember_client_demo_act_done(s_scene_gen);
-}
-
-static void scene_moment(double t, const wx_obs_t *wx, bool bot_page)
-{
-    static EXT_RAM_BSS_ATTR wxm_moment_t m;
-    const demo_act_t *a = &s_scene_act;
-    if (s_scene_act_st == SCENE_ACT_WAIT) {
-        if (!bot_page || !wx || !wxm_moment_from((wxm_kind_t)a->moment, wx, a->quiet, &s_scene_scratch, &m)) {
-            scene_act_done();
-        } else if (moment_view_start(&m, t)) {
-            s_scene_act_st = SCENE_ACT_RUN;
-            s_moment_mood = s_bot.mood;
-            s_cues = wxm_script(&m, &s_cue_n);
-            s_cue = 0;
-            if (s_cue_n > 0) {
-                bot_act_begin(&s_bot, t);
-                s_acting = true;
-            }
-        } else if (t - s_scene_t0 > SCENE_START_S) {
-            scene_act_done();
-        }
-        return;
-    }
-    double tau = moment_view_poll(t);
-    while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);
-    if (!moment_view_busy()) scene_act_done();
-}
-
-static __attribute__((noinline)) void scene_act(double t, const wx_obs_t *wx, bool bot_page)
-{
-    const demo_act_t *a = &s_scene_act;
-    s_chase.hold = a->kind != DEMO_ACT_CHASE;
-    if (a->kind == DEMO_ACT_NONE || a->kind == DEMO_ACT_SLEEPY || a->kind == DEMO_ACT_ASLEEP || s_scene_act_st == SCENE_ACT_DONE)
-        return;
-    bool wait = s_scene_act_st == SCENE_ACT_WAIT;
-    switch (a->kind) {
-    case DEMO_ACT_MOMENT:
-        scene_moment(t, wx, bot_page);
-        return;
-    case DEMO_ACT_CHASE:
-        if (s_chase.phase != GC_IDLE) s_scene_act_st = SCENE_ACT_RUN;
-        else if (!wait) scene_act_done();
-        else if (t - s_scene_t0 > SCENE_START_S) scene_act_done();
-        else s_scene_chase_req = a->chase_style;
-        return;
-    case DEMO_ACT_HOP:
-        if (wait) bot_hop(&s_bot, t);
-        else if (!s_bot.hopping) scene_act_done();
-        break;
-    case DEMO_ACT_POP:
-        if (wait) bot_pop(&s_bot, t);
-        else if (!s_bot.popping) scene_act_done();
-        break;
-    case DEMO_ACT_BLINK:
-        if (wait) bot_blink(&s_bot, t);
-        else if (!s_bot.blinking) scene_act_done();
-        break;
-    default:
-        scene_act_done();
-        return;
-    }
-    if (wait) s_scene_act_st = SCENE_ACT_RUN;
-}
-
-static bool scene_gate(double t, bool input);
 
 static __attribute__((noinline)) const char *page_day_hold_label(void)
 {
@@ -946,48 +683,22 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     pages_dispatch(&s_nav, in, t);
     bool bot_page = pg->frame == page_bot_frame && !usage_view_open();
     bot_mood_t em;
-    bot_wait_scene(&s_bot, s_scene_on ? s_scene_n : 0, t);
-    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);
-    else if (s_scene_on && s_scene_act.kind == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
+    bot_wait_scene(&s_bot, scene_on() ? scene_n() : 0, t);
+    if (scene_on() && scene_act_kind() == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);
+    else if (scene_on() && scene_act_kind() == DEMO_ACT_SLEEPY) bot_set_mood(&s_bot, BOT_SLEEPY, t);
     else if (t >= s_demo_until && offline) bot_set_mood(&s_bot, BOT_IDLE, t);
     else if (t >= s_demo_until && ember_client_mood(&em)) bot_set_mood(&s_bot, em, t);
-    if (s_scene_on) scene_act(t, have_wx ? &wx : NULL, bot_page);
-    else if (!ds.view_on && s_scene_resume_at == 0) moment_tick(t, have_wx ? &wx : NULL, calm, bot_page);
+    if (scene_on()) scene_act(t, have_wx ? &wx : NULL, bot_page);
+    else if (!ds.view_on && !scene_resuming()) moments_tick(t, have_wx ? &wx : NULL, calm, bot_page);
     bot_read_moment(&s_bot, moment_view_busy(), t);
-    music_tick(t, calm, offline, bot_page, !s_scene_on && !ds.view_on && s_scene_resume_at == 0);
+    moments_music_tick(t, calm, offline, bot_page, !scene_on() && !ds.view_on && !scene_resuming());
 
     float gdeg;
-    bool glint = bot_chase_on((pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg), calm, s_chase.phase != GC_IDLE);
-    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);
-    s_scene_chase_req = -1;
-    if (req >= 0 && glint && bot_anim_allowed(BOT_ANIM_GLINT_CHASE, calm) && gc_start_now(&s_chase, req & 15, req >> 4)) {
-        gc_half_chase_reset(&s_half);
-    }
+    bool glint = (pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg);
+    chase_ctl_in_t ci = {.t = t, .glint = glint, .calm = calm, .scene = scene_on(), .scene_req = scene_chase_take(), .eyes = s_last_pose.eyes};
     page_frame_t f = {.t = t, .dt = dt, .offline = offline};
-    gc_out_t *chase = &f.chase;
-    gc_tick(&s_chase, t, glint, 3.0, chase);
-    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);
-    double psi = fmod(t / 3.0, 1.0) * 360.0 - 90.0;
-    bot_pose_t ref = {.mood = BOT_WORKING, .eyes = s_last_pose.eyes, .scale_x = 1, .scale_y = 1};
-    if (chase->chasing && glint && chase->style == GC_STYLE_HALF) {
-        gc_half_out_t h;
-        double deg = 0;
-        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);
-        if (!h.follow) {
-            bot_hold_gaze(&s_bot, t + 0.5);
-            if (h.blink) bot_blink(&s_bot, t);
-        }
-        if (aim == GC_AIM_SNAP) {
-            if (s_bot.tracking) bot_track_end(&s_bot, t);
-            bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);
-        } else if (aim == GC_AIM_TRACK) {
-            chase_track(&ref, deg, chase->orbit, t);
-        }
-    } else if (chase->chasing && glint) {
-        chase_track(&ref, psi + CHASE_LEAD_DEG, chase->orbit, t);
-    } else if (s_bot.tracking) {
-        bot_track_end(&s_bot, t);
-    }
+    f.chase = chase_ctl_frame(&s_bot, &ci);
+    const gc_out_t *chase = &f.chase;
 
     bot_rim_ready(&s_bot, bot_view_rim_feed(s_bot.mood, s_bot.asleep, bot_page));
     f.pose = bot_pose(&s_bot, t);
@@ -998,126 +709,13 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     pages_frame(&s_nav, &f);
 }
 
-static int page_index(const char *id)
-{
-    for (int i = 0; i < PAGES_N; i++)
-        if (strcmp(PAGES[i].id, id) == 0) return i;
-    return 0;
-}
-
-static bool scene_gate(double t, bool input)
-{
-    ember_demo_status_t st;
-    ember_client_demo_status(&st);
-    demo_gate_in_t in = {.playing = st.playing || s_scene_on || s_scene_resume_at > 0,
-                         .input = input,
-                         .held = input_route_held(),
-                         .view_on = st.view_on};
-    demo_gate_act_t a = demo_gate(&s_scene_gate, &in, t);
-    if (a == DEMO_GATE_END) {
-        ember_client_demo_input();
-        if (s_scene_resume_at > 0) s_scene_resume_at = t;
-    }
-    return a != DEMO_GATE_PASS;
-}
-
-static void scene_resume(double t)
-{
-    s_scene_resume_at = 0;
-    if (s_nav.page != s_nav.order[s_nav.pos]) {
-        pages_resume(&s_nav);
-        wipe_start(-1, t);
-    }
-}
-
-static void scene_end(double t)
-{
-    s_scene_on = false;
-    if (s_scene_act.kind == DEMO_ACT_MOMENT && s_scene_act_st == SCENE_ACT_RUN && moment_view_busy()) {
-        moment_view_abort(t);
-        moment_unact(t);
-    }
-    gc_restore(&s_chase, &s_scene_chase, s_scene_t0, t);
-    gc_half_chase_restore(&s_half, &s_scene_half);
-    if (s_scene_chased) {
-        if (s_bot.tracking) bot_track_end(&s_bot, t);
-        bot_view_glint_force(false);
-        s_scene_chased = false;
-    }
-    bool slept = s_scene_act.kind == DEMO_ACT_SLEEPY || s_scene_act.kind == DEMO_ACT_ASLEEP;
-    if (slept && s_scene_mood0 != BOT_SLEEPY) bot_wake(&s_bot, t);
-    else if (s_scene_mood0 == BOT_SLEEPY) bot_sleep_in(&s_bot, s_scene_sleep_in, t);
-    if (s_scene_face) temp_face_pick(s_scene_face_saved);
-    s_scene_face = false;
-    s_scene_resume_at = t + SCENE_NEXT_S;
-}
-
-static void scene_start(const demo_block_t *b, double t)
-{
-    s_scene_on = true;
-    atomic_store(&s_chase_status, 1);
-    if (!++s_scene_n) s_scene_n = 1;
-    s_scene_resume_at = 0;
-    s_scene_act = b->act;
-    s_scene_act_st = SCENE_ACT_WAIT;
-    s_scene_t0 = t;
-    s_scene_mood0 = s_bot.mood;
-    s_scene_sleep_in = bot_asleep_in(&s_bot, t);
-    s_scene_chase = s_chase;
-    s_scene_half = s_half;
-    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);
-    demo_gate_start(&s_scene_gate);
-    if (moment_view_busy()) {
-        moment_view_stop();
-        moment_unact(t);
-    }
-    if (music_view_busy()) {
-        music_view_stop();
-        music_unact(t);
-    }
-    int page = page_index(demo_page_id(b->page));
-    if (page != s_nav.page) {
-        pages_show(&s_nav, page);
-        wipe_start(1, t);
-    }
-    if (b->face >= 0) {
-        s_scene_face_saved = temp_face_picked();
-        temp_face_pick(b->face);
-        s_scene_face = true;
-    }
-    if (b->act.kind == DEMO_ACT_CHASE) {
-        bot_view_glint_force(true);
-        s_scene_chased = true;
-    }
-    if (!s_bot.asleep || b->act.kind == DEMO_ACT_SLEEPY) bot_sleep_in(&s_bot, INFINITY, t);
-}
-
-static void scene_frame(double t)
-{
-    if (scene_gate(t, input_route_pending())) input_route_drop();
-    bool timed = ember_client_demo_tick(t);
-    ember_demo_status_t st;
-    ember_client_demo_status(&st);
-    bool ended = s_scene_on && (!st.playing || st.gen != s_scene_gen);
-    if (ended) scene_end(t);
-    unsigned gen;
-    if (ember_client_demo_take(&s_scene_block, &gen)) {
-        if (s_scene_on) scene_end(t);
-        s_scene_gen = gen;
-        scene_start(&s_scene_block, t);
-    } else if (ended && (s_scene_gate.on || (!st.playing && !timed))) {
-        scene_resume(t);
-    }
-    if (s_scene_resume_at > 0 && t >= s_scene_resume_at) scene_resume(t);
-}
-
 static bool idle_frame(lv_display_t *disp)
 {
     static bool held;
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);
     if (ota_face_requested()) dim_ctl_wake(DIM_WAKE_OTA_FACE);
-    else if (ds.playing || ds.view_on || s_scene_on) dim_ctl_wake(DIM_WAKE_DEMO);
+    else if (ds.playing || ds.view_on || scene_on()) dim_ctl_wake(DIM_WAKE_DEMO);
     bool off = dim_ctl_off();
     if (off != held) {
         held = off;
@@ -1194,21 +792,15 @@ bool input_route_classify_touch(void) { return s_ks_lv->swipe_pages || (pages_cu
 
 stats_sample_t stats_app_sample(void)
 {
+    chase_ctl_sample_t c = chase_ctl_sample();
     return (stats_sample_t){.frames = atomic_exchange(&s_frames, 0),
                             .mood = atomic_load(&s_cur_mood),
                             .page = s_nav.page,
-                            .chase_phase = (int)s_chase.phase,
-                            .chase_laps = s_chase.laps,
-                            .chase_fps = atomic_load(&s_chase_fps),
-                            .chase_work_s = s_chase.work_s,
-                            .chase_wait_s = s_chase.wait_s};
-}
-
-static void psram_task(TaskFunction_t fn, const char *name, uint32_t stack, UBaseType_t prio, BaseType_t core,
-                       TaskHandle_t *out)
-{
-    if (xTaskCreatePinnedToCoreWithCaps(fn, name, stack, NULL, prio, out, core, MALLOC_CAP_SPIRAM) != pdPASS)
-        ESP_LOGE(TAG, "%s task not created", name);
+                            .chase_phase = c.phase,
+                            .chase_laps = c.laps,
+                            .chase_fps = c.fps,
+                            .chase_work_s = c.work_s,
+                            .chase_wait_s = c.wait_s};
 }
 
 static void *json_malloc(size_t n) { return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT); }
@@ -1292,10 +884,9 @@ void app_main(void)
     reset_overlay_create();
     hold_overlay_create();
     join_view_create();
-    gc_init(&s_chase, esp_random());
-    wxm_init(&s_wxm);
-    mm_init(&s_mm);
-    bot_orbit_table_init(&s_orbit, BOT_VIEW_EYE_SCALE, CHASE_OUTER);
+    chase_ctl_init(esp_random());
+    moments_init(&(moments_ctx_t){.bot = &s_bot, .ks = s_ks_lv});
+    scene_init(&(scene_ctx_t){.bot = &s_bot, .nav = &s_nav});
     lv_timer_create(frame_cb, 16, handles.disp);
     lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_REFR_START, NULL);
     lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_RENDER_START, NULL);
@@ -1306,7 +897,7 @@ void app_main(void)
     uint8_t startup = s_ks_lv->startup;
     panel_check_brightness(startup);
     if (!s_setup) dim_ctl_enable(startup);
-    if (!s_setup) psram_task(orbit_task, "orbit", 3328, 1, 1, &s_orbit_task);
+    if (!s_setup) chase_ctl_orbit_start();
     stats_task_start();
     link_task_start();
     provision_usb_start();
