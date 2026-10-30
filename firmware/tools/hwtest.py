@@ -105,7 +105,7 @@ def guided_probe(k):
     found = {}
     for g in gpios:
         while True:
-            if not k.call({"op": "probe", "gpio": g}).get("ok"):
+            if not k.call({"op": "probe", "gpio": g}).get("ok", True):
                 print("  GPIO%d refused the probe (in use as the radar RX); skipped" % g)
                 a = "skip"
                 break
