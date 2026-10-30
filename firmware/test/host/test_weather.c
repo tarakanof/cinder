@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "bot_raster.h"
+#include "link_state.h"
 #include "weather_face.h"
 #include "weather_scene.h"
 
@@ -322,6 +323,12 @@ static void test_age_text(void)
         int n = wx_age_text(C[i].age_s, buf, sizeof buf);
         CHECK(strcmp(buf, C[i].want) == 0 && n == (int)strlen(buf), "%.1f s -> '%s', want '%s'", C[i].age_s, buf,
               C[i].want);
+    }
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        char a[16], b[16];
+        wx_age_text(C[i].age_s, a, sizeof a);
+        link_age_text(1000, 1000 + (int64_t)(C[i].age_s * 1000), b, sizeof b);
+        if (C[i].age_s >= 0) CHECK(strcmp(a, b) == 0, "%.1f s: weather '%s', offline faces '%s'", C[i].age_s, a, b);
     }
     char nan_buf[16];
     wx_age_text(NAN, nan_buf, sizeof nan_buf);

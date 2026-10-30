@@ -88,6 +88,7 @@ static float s_avatar_frac = -1;
 static double s_avatar_t;
 static int s_mode = MODE_UNSET;
 static long long s_meta_sec = -1;
+static bool s_age_on;
 static double s_last_input;
 static EXT_RAM_BSS_ATTR int s_dim_after_set_s;
 
@@ -319,6 +320,7 @@ void np_view_show(bool show)
         s_idle_drift = 0;
         s_idle_drift_t = s_show_t;
         s_mode = MODE_UNSET;
+        s_age_on = false;
         s_gen--;
         s_last_input = esp_timer_get_time() / 1e6;
         s_dimmed = false;
@@ -627,7 +629,7 @@ static long long shown_pos(bool paused, double now)
     return np_anchor_at(an, paused && an->playing && V->ctl.play_set ? V->ctl.play_t : now);
 }
 
-static void cover_update(double now, bool offline, bool live, bool fresh, np_play_t shown)
+static void cover_update(double now, bool offline, const char *age, bool live, bool fresh, np_play_t shown)
 {
     const np_info_t *np = &V->snap.info;
     np_face_state_t st = np_face_state(V->snap.have, shown, offline, npc_has_cover());
@@ -639,6 +641,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
         .text_fresh = fresh,
         .dur_ms = V->snap.anchor.dur_ms,
         .vol = np_ctl_volume_shown(&V->ctl, now),
+        .offline_age = offline ? age : "",
     };
     char badge[24] = "";
     int hi = -1;
@@ -663,7 +666,7 @@ static void cover_update(double now, bool offline, bool live, bool fresh, np_pla
     npc_update(&f);
 }
 
-void np_view_update(double now, bool offline)
+void np_view_update(double now, bool offline, const char *age)
 {
     if (!s_shown || !V) return;
     np_art_set_t in;
@@ -703,7 +706,7 @@ void np_view_update(double now, bool offline)
     np_ctl_rest(&V->ctl, now - s_last_input >= dim_after_s());
     np_play_t shown = np_ctl_play_shown(&V->ctl, now);
     if (s_kind == KIND_COVER) {
-        cover_update(now, offline, live, fresh, shown);
+        cover_update(now, offline, age, live, fresh, shown);
         return;
     }
     if (live) {
@@ -731,10 +734,17 @@ void np_view_update(double now, bool offline)
             show(s_title, false);
             show(s_sub, false);
             show(s_meta, false);
+            s_age_on = false;
             show(s_idle, true);
             s_mode = MODE_IDLE;
         }
         text_set(s_idle, V->idle, sizeof V->idle, line);
+        bool age_on = offline && age[0];
+        if (age_on) text_set(s_meta, V->meta, sizeof V->meta, age);
+        if (age_on != s_age_on) {
+            s_age_on = age_on;
+            show(s_meta, age_on);
+        }
         if (now - s_idle_drift_t >= DRIFT_EVERY_S) {
             s_idle_drift_t = now;
             s_idle_drift = (s_idle_drift + 1) % 8;
@@ -754,6 +764,7 @@ void np_view_update(double now, bool offline)
         show(s_title, true);
         show(s_sub, true);
         show(s_meta, true);
+        s_age_on = false;
         s_mode = mode;
         s_meta_sec = -1;
     }

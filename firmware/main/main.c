@@ -748,7 +748,12 @@ void page_np_input(const page_input_t *in, double t)
     if (in->hswipes) np_view_skip(in->hswipes, t);
 }
 
-void page_np_frame(const page_frame_t *f) { np_view_update(f->t, f->offline); }
+void page_np_frame(const page_frame_t *f)
+{
+    char age[24] = "";
+    if (f->offline) ember_client_age_text(age, sizeof age);
+    np_view_update(f->t, f->offline, age);
+}
 
 static void reset_task(void *arg)
 {
@@ -959,6 +964,9 @@ void page_bot_frame(const page_frame_t *f)
     s_wait_host = host;
     bot_view_set_host(&host);
     bot_view_set_offline(join_glyph_shown(f->offline, s_join_shown));
+    char age[24] = "";
+    if (join_glyph_shown(f->offline, s_join_shown) && s_join_shown == JOIN_NONE) ember_client_age_text(age, sizeof age);
+    bot_view_set_age(age);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))
         pose = false;

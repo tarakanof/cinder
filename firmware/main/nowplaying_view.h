@@ -17,4 +17,5 @@ void np_view_push(double now);
 void np_view_tap(int zone, double now);
 /* steps > 0 next, < 0 previous. */
 void np_view_skip(int steps, double now);
-void np_view_update(double now, bool offline);
+/* age: how old Ember's last answer is ("5 min ago"), shown with the offline face; "" when unknown. */
+void np_view_update(double now, bool offline, const char *age);

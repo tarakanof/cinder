@@ -117,10 +117,13 @@ static EXT_RAM_BSS_ATTR struct {
 } s_hint;
 
 #define OFFLINE_RGB 0x5A5A5A
+#define AGE_W 140
 static lv_obj_t *s_offline;
 static EXT_RAM_BSS_ATTR lv_image_dsc_t s_offline_img;
 static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];
 static bool s_offline_on;
+static lv_obj_t *s_age;
+static char s_age_txt[16];
 
 static uint32_t mood_rgb(bot_mood_t m)
 {
@@ -251,6 +254,16 @@ void bot_view_create(lv_obj_t *parent)
     lv_obj_set_pos(s_offline, (int)CX - OFFLINE_GLYPH_W / 2, (int)CY + BOT_VIEW_OFFLINE_DY - OFFLINE_GLYPH_H / 2);
     lv_obj_remove_flag(s_offline, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
+    s_age = lv_label_create(parent);
+    lv_obj_set_style_text_font(s_age, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_age, lv_color_hex(OFFLINE_RGB), 0);
+    lv_obj_set_style_text_align(s_age, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_size(s_age, AGE_W, lv_font_get_line_height(&lv_font_montserrat_14));
+    lv_label_set_long_mode(s_age, LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_set_pos(s_age, (int)CX - AGE_W / 2, (int)CY + BOT_VIEW_OFFLINE_DY + OFFLINE_GLYPH_H / 2 + 2);
+    lv_obj_remove_flag(s_age, LV_OBJ_FLAG_CLICKABLE);
+    lv_label_set_text_static(s_age, s_age_txt);
+    lv_obj_add_flag(s_age, LV_OBJ_FLAG_HIDDEN);
     if (xTaskCreatePinnedToCoreWithCaps(rim_task, "rim", 2560, NULL, 2, &s_rim_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)
         esp_system_abort("bot_view: rim task not created");
     s_eye_go = xSemaphoreCreateBinary();
@@ -516,6 +529,18 @@ void bot_view_set_offline(bool on)
     s_offline_on = on;
     if (on) lv_obj_remove_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_offline, LV_OBJ_FLAG_HIDDEN);
+}
+
+void bot_view_set_age(const char *age)
+{
+    if (!s_age) return;
+    if (!s_offline_on || !age) age = "";
+    if (strcmp(age, s_age_txt) != 0) {
+        strlcpy(s_age_txt, age, sizeof s_age_txt);
+        lv_label_set_text_static(s_age, s_age_txt);
+    }
+    if (s_age_txt[0]) lv_obj_remove_flag(s_age, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_age, LV_OBJ_FLAG_HIDDEN);
 }
 
 void bot_view_set_options(bool source_label, bool working_ring)

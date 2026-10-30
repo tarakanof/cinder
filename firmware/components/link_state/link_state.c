@@ -1,6 +1,7 @@
 #include "link_state.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 link_outcome_t link_counts(link_level_t level, bool wifi, bool aborted, int status, bool parsed)
@@ -25,6 +26,7 @@ bool link_state_note(link_state_t *s, link_outcome_t o, int64_t now_ms)
     if (o == LINK_SKIP) return false;
     if (o == LINK_OK) {
         s->fails = 0;
+        s->ok_ms = now_ms > 0 ? now_ms : 1;
         s->level = LINK_ONLINE;
         return was != s->level;
     }
@@ -44,6 +46,22 @@ int64_t link_state_offline_ms(const link_state_t *s, int64_t now_ms)
     if (s->level != LINK_OFFLINE) return 0;
     int64_t d = now_ms - s->offline_since_ms;
     return d > 0 ? d : 0;
+}
+
+int64_t link_state_ok_ms(const link_state_t *s) { return s->ok_ms; }
+
+int link_age_text(int64_t ok_ms, int64_t now_ms, char *buf, size_t n)
+{
+    if (ok_ms <= 0) {
+        if (n) buf[0] = 0;
+        return 0;
+    }
+    int64_t s = (now_ms - ok_ms) / 1000;
+    if (s < 60) return snprintf(buf, n, "just now");
+    if (s < 3600) return snprintf(buf, n, "%d min ago", (int)(s / 60));
+    if (s < 86400) return snprintf(buf, n, "%d h ago", (int)(s / 3600));
+    int64_t d = s / 86400;
+    return snprintf(buf, n, "%d d ago", d < 999 ? (int)d : 999);
 }
 
 const char *link_level_name(link_level_t l)

@@ -35,6 +35,8 @@ bool ember_client_online(void);
 uint32_t ember_client_link_word(void);
 /* Any task. OFFLINE with an Ember URL configured; false when Ember is not set up. */
 bool ember_client_offline(void);
+/* Any task. How long ago Ember last answered ("5 min ago"); empty before the first answer. A demo scene with offline shows a fixed "5 min ago". Returns the length like snprintf. */
+int ember_client_age_text(char *buf, size_t n);
 
 typedef enum {
     EMBER_LINK_OFF,

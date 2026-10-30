@@ -273,6 +273,62 @@ static void test_join_label(void)
     }
 }
 
+static void test_age(void)
+{
+    static const struct {
+        int64_t age_ms;
+        const char *text;
+    } C[] = {
+        {0, "just now"},
+        {59999, "just now"},
+        {60000, "1 min ago"},
+        {3599999, "59 min ago"},
+        {3600000, "1 h ago"},
+        {86399999, "23 h ago"},
+        {86400000, "1 d ago"},
+        {5LL * 86400000 + 7, "5 d ago"},
+        {5000LL * 86400000, "999 d ago"},
+    };
+    for (size_t i = 0; i < sizeof C / sizeof C[0]; i++) {
+        char b[24];
+        int n = link_age_text(1000, 1000 + C[i].age_ms, b, sizeof b);
+        CHECK(strcmp(b, C[i].text) == 0 && n == (int)strlen(C[i].text), "age %lld ms: \"%s\", want \"%s\"", (long long)C[i].age_ms, b, C[i].text);
+    }
+    char b[24] = "x";
+    CHECK(link_age_text(0, 5000, b, sizeof b) == 0 && b[0] == 0, "never answered: empty");
+    CHECK(link_age_text(-1, 5000, b, sizeof b) == 0 && b[0] == 0, "negative stamp: empty");
+    CHECK(link_age_text(9000, 5000, b, sizeof b) == 8 && strcmp(b, "just now") == 0, "clock behind the stamp: just now");
+    char tiny[4];
+    CHECK(link_age_text(1000, 1000 + 7200000, tiny, sizeof tiny) == 7 && strcmp(tiny, "2 h") == 0, "truncates, returns the full length");
+}
+
+static void test_ok_stamp(void)
+{
+    link_state_t s;
+    link_state_init(&s, 100);
+    CHECK(link_state_ok_ms(&s) == 0, "BOOT: no answer yet");
+    link_state_note(&s, LINK_FAIL, 200);
+    link_state_note(&s, LINK_SKIP, 250);
+    CHECK(link_state_ok_ms(&s) == 0, "failures and skips before the first answer leave it at 0");
+    link_state_note(&s, LINK_OK, 1000);
+    CHECK(s.level == LINK_ONLINE && link_state_ok_ms(&s) == 1000, "ONLINE stamps the answer");
+    link_state_note(&s, LINK_OK, 2000);
+    CHECK(link_state_ok_ms(&s) == 2000, "an answer with no level change still moves it");
+    link_state_note(&s, LINK_FAIL, 3000);
+    link_state_note(&s, LINK_FAIL, 4000);
+    link_state_note(&s, LINK_SKIP, 4500);
+    link_state_note(&s, LINK_FAIL, 5000);
+    CHECK(s.level == LINK_OFFLINE && link_state_ok_ms(&s) == 2000, "OFFLINE keeps the last good answer");
+    link_state_note(&s, LINK_FAIL, 6000);
+    CHECK(link_state_ok_ms(&s) == 2000, "further failures keep it");
+    link_state_note(&s, LINK_OK, 9000);
+    CHECK(s.level == LINK_ONLINE && link_state_ok_ms(&s) == 9000, "ONLINE again stamps anew");
+    link_state_t z;
+    link_state_init(&z, 0);
+    link_state_note(&z, LINK_OK, 0);
+    CHECK(link_state_ok_ms(&z) > 0, "an answer at t=0 is not mistaken for never");
+}
+
 int main(void)
 {
     test_counts();
@@ -282,6 +338,8 @@ int main(void)
     test_wrong_host();
     test_names();
     test_join_label();
+    test_age();
+    test_ok_stamp();
     printf(failures ? "%d FAILED\n" : "all link tests passed\n", failures);
     return failures ? 1 : 0;
 }
