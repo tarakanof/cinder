@@ -43,6 +43,7 @@
 #include "nvs.h"
 #include "ota_client.h"
 #include "pomo_client.h"
+#include "controls_client.h"
 #include "day_client.h"
 #include "shown.h"
 #include "wake_turn.h"
@@ -548,6 +549,7 @@ static void wait_and_fade(int ms, char *buf)
         int next = fade_step();
         bool np = buf && np_client_visible();
         if (np && atomic_load(&s_online) && np_client_cmds_pending()) np_client_run_controls(s_conn, P->base);
+        if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);
         int wait = wake_slice_ms((int)pdTICKS_TO_MS(left), due, next, np);
         if (!buf) {
             vTaskDelay(pdMS_TO_TICKS(wait));
@@ -1005,6 +1007,7 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (config_store_settings_gen() != s_ks_gen) return true;
     if (np_client_pending()) return true;
     if (day_client_pending()) return true;
+    if (controls_client_pending()) return true;
     if (demo_moved()) return true;
     int64_t now = esp_timer_get_time() / 1000;
     taskENTER_CRITICAL(&s_shown_mux);
@@ -1037,6 +1040,7 @@ static int view_poll(char *buf, int *mood, ember_host_info_t *host)
         pomo_client_log_state();
     }
     day_client_run(s_conn);
+    controls_client_run(s_conn, P->base);
     const char *etag = knob_view_conditional(&P->vs) ? view_etag_get(&P->etag) : NULL;
     int wait = s_plain_poll ? 0 : view_wait_s(P->wait_cap, etag != NULL, s_sched.next_ms - now_ms(), P->view_failing);
     const char *url = P->view_url;

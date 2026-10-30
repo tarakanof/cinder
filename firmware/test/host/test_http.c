@@ -52,6 +52,10 @@ static struct {
     int64_t now_us;
     bool has_token;
     int auth_headers;
+    bool headers_fail_once;
+    char idem[32];
+    char idem_sent[4][32];
+    int idem_n;
 } F;
 
 static void server(int status, const char *body, int len)
@@ -112,15 +116,15 @@ esp_err_t esp_http_client_set_method(esp_http_client_handle_t client, esp_http_c
 esp_err_t esp_http_client_set_header(esp_http_client_handle_t client, const char *key, const char *value)
 {
     (void)client;
-    (void)value;
     if (strcmp(key, "Authorization") == 0) F.auth_headers++;
+    if (strcmp(key, "Idempotency-Key") == 0) snprintf(F.idem, sizeof F.idem, "%s", value);
     return ESP_OK;
 }
 
 esp_err_t esp_http_client_delete_header(esp_http_client_handle_t client, const char *key)
 {
     (void)client;
-    (void)key;
+    if (strcmp(key, "Idempotency-Key") == 0) F.idem[0] = 0;
     return ESP_OK;
 }
 
@@ -128,6 +132,7 @@ esp_err_t esp_http_client_open(esp_http_client_handle_t client, int write_len)
 {
     (void)write_len;
     F.sent = 0;
+    if (F.idem_n < 4) snprintf(F.idem_sent[F.idem_n++], sizeof F.idem_sent[0], "%s", F.idem);
     if (F.open_fail) return ESP_FAIL;
     if (!client->open) {
         F.opens++;
@@ -149,6 +154,10 @@ int64_t esp_http_client_fetch_headers(esp_http_client_handle_t client)
 {
     (void)client;
     if (F.headers_fail) return -1;
+    if (F.headers_fail_once) {
+        F.headers_fail_once = false;
+        return -1;
+    }
     return F.chunked ? 0 : F.body_len;
 }
 
@@ -489,6 +498,23 @@ static void test_transport_failures(http_conn_t *c)
     free(body);
 }
 
+static void test_idem_key_retry(http_conn_t *c)
+{
+    static const char OK[] = "{}";
+    char buf[64];
+    const http_req_opts_t get = {.idempotent = true};
+    server(200, OK, (int)strlen(OK));
+    CHECK(http_conn_req_opts(c, "http://e/warm", &get, buf, sizeof buf) == 200, "warm the socket");
+    server(202, OK, (int)strlen(OK));
+    F.headers_fail_once = true;
+    F.idem_n = 0;
+    const http_req_opts_t o = {.post_body = "{}", .idempotent = true, .idem_key = "abc-1"};
+    int st = http_conn_req_opts(c, "http://e/v1/controls/action", &o, buf, sizeof buf);
+    CHECK(st == 202 && F.idem_n == 2, "a stale socket resends once: %d after %d tries", st, F.idem_n);
+    CHECK(strcmp(F.idem_sent[0], "abc-1") == 0 && strcmp(F.idem_sent[1], "abc-1") == 0, "the resend keeps the key: %s, %s", F.idem_sent[0], F.idem_sent[1]);
+    CHECK(F.idem[0] == 0, "the next request carries no key");
+}
+
 static void test_oversized_error(http_conn_t *c)
 {
     char *body = padded("x", DRAIN_MAX + 8192);
@@ -715,6 +741,7 @@ int main(void)
         test_read_error(&c);
         test_chunked(&c);
         test_transport_failures(&c);
+        test_idem_key_retry(&c);
         test_oversized_error(&c);
         http_conn_free(&c);
     }

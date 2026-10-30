@@ -42,7 +42,7 @@ static char *load(const char *name)
 
 static void test_ids(void)
 {
-    static const char *const WANT[] = {"bot", "day", "weather", "nowplaying", "pomodoro"};
+    static const char *const WANT[] = {"bot", "day", "weather", "nowplaying", "controls", "pomodoro"};
     enum { N_WANT = sizeof WANT / sizeof WANT[0] };
     CHECK(PAGES_N == N_WANT && PAGES_N <= KS_MAX_PAGES, "page count %d", PAGES_N);
     const char *ids[PAGES_N + 2];
@@ -113,6 +113,8 @@ static void test_route(void)
           "nowplaying: raw taps with their zone, horizontal swipes");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("day")], in), .detents = 2, .pushes = 5, .longs = 3),
           "day: turns set the stop time, taps are pushes");
+    CHECK(SAME_IN(pages_route(&PAGES[index_of("controls")], in), .detents = 2, .pushes = 5, .longs = 3),
+          "controls: turns scroll, taps are pushes");
     CHECK(PAGES[index_of("bot")].flags & PAGE_GLINT, "bot runs the glint");
     for (int i = 0; i < PAGES_N; i++)
         if (strcmp(PAGES[i].id, "bot") != 0) CHECK(!(PAGES[i].flags & PAGE_GLINT), "%s: no glint", PAGES[i].id);
@@ -192,16 +194,16 @@ static void test_switch(void)
     pages_nav_t nav = nav_at(index_of("bot"));
     page_log_reset();
     pages_show(&nav, index_of("nowplaying"));
-    CHECK(strcmp(page_log, "bot- day- weather- np+ pomo- ") == 0 && nav.page == index_of("nowplaying"),
+    CHECK(strcmp(page_log, "bot- day- weather- np+ ctl- pomo- ") == 0 && nav.page == index_of("nowplaying"),
           "bot -> nowplaying hides the rest: %s", page_log);
     page_log_reset();
     pages_hide_all();
-    CHECK(strcmp(page_log, "bot- day- weather- np- pomo- ") == 0, "pause hides every page: %s", page_log);
+    CHECK(strcmp(page_log, "bot- day- weather- np- ctl- pomo- ") == 0, "pause hides every page: %s", page_log);
     nav = (pages_nav_t){.order = {index_of("nowplaying"), index_of("bot")}, .n = 2, .pos = 1, .page = 0};
     page_log_reset();
     pages_resume(&nav);
     CHECK_NAV(nav);
-    CHECK(strcmp(page_log, "bot+ day- weather- np- pomo- ") == 0 && nav.page == index_of("bot"),
+    CHECK(strcmp(page_log, "bot+ day- weather- np- ctl- pomo- ") == 0 && nav.page == index_of("bot"),
           "resume shows order[pos]: %s", page_log);
 
     knob_settings_t ks;
@@ -210,11 +212,11 @@ static void test_switch(void)
     page_log_reset();
     pages_settings(&nav, &ks, true);
     CHECK_NAV(nav);
-    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "bot+ day- weather- np- pomo- ") == 0,
+    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "bot+ day- weather- np- ctl- pomo- ") == 0,
           "first settings show home: %s", page_log);
     page_log_reset();
     CHECK(pages_step(&nav, 1) && nav.pos == 1 && nav.page == index_of("day") &&
-              strcmp(page_log, "bot- day+ weather- np- pomo- ") == 0,
+              strcmp(page_log, "bot- day+ weather- np- ctl- pomo- ") == 0,
           "step forward: %s", page_log);
     CHECK_NAV(nav);
     CHECK(pages_step(&nav, -2) && nav.pos == 2 && nav.page == index_of("weather"), "step back wraps");
@@ -243,7 +245,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 2 && nav.pos == 1 && nav.page == index_of("pomodoro") &&
-              strcmp(page_log, "bot- day- weather- np- pomo+ ") == 0,
+              strcmp(page_log, "bot- day- weather- np- ctl- pomo+ ") == 0,
           "shown page disabled: fall back to home: pos %d %s", nav.pos, page_log);
 
     knob_settings_parse("{\"pages\":[{\"id\":\"nowplaying\",\"on\":true},{\"id\":\"pomodoro\",\"on\":false}],"
@@ -253,7 +255,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 1 && nav.pos == 0 && nav.page == index_of("nowplaying") &&
-              strcmp(page_log, "bot- day- weather- np+ pomo- ") == 0,
+              strcmp(page_log, "bot- day- weather- np+ ctl- pomo- ") == 0,
           "unknown home: first shown page: %s", page_log);
     page_log_reset();
     CHECK(!pages_step(&nav, 1) && page_log[0] == 0, "one page: no step");
@@ -296,6 +298,7 @@ static void test_ops(void)
         {"day", "day+ ", "day.in ", "day.frame "},
         {"weather", "weather+ ", "weather.in ", NULL},
         {"nowplaying", "np+ ", "np.in ", "np.frame "},
+        {"controls", "ctl+ ", "ctl.in ", "ctl.frame "},
         {"pomodoro", "pomo+ ", "pomo.in ", "pomo.frame "},
     };
     for (int w = 0; w < (int)(sizeof WANT / sizeof WANT[0]); w++) {
@@ -320,6 +323,10 @@ static void test_ops(void)
 static void test_ember_fixtures(void)
 {
     for (int i = 0; i < PAGES_N; i++) {
+        if (!PAGES[i].view_block) {
+            CHECK(strcmp(PAGES[i].id, "controls") == 0, "%s: no view block", PAGES[i].id);
+            continue;
+        }
         const char *golden = strcmp(PAGES[i].view_block, "day") == 0 ? "view_day_on.json" : "view_full.json";
         char *j = load(golden);
         cJSON *v = j ? cJSON_Parse(j) : NULL;

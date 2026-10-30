@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "controls.h"
 #include "cfg.h"
 #include "claim.h"
 #include "coredump_up.h"
@@ -968,9 +969,10 @@ static void test_checkin_replies(void)
         CHECK(r.config_version == 2 && r.config && !r.config_too_deep, "stale: config included");
         knob_settings_t ks;
         CHECK(knob_settings_parse(r.config, &ks), "config parses");
-        CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 5 && strcmp(ks.pages[1].id, "day") == 0 && !ks.pages[3].on &&
-                  strcmp(ks.pages[4].id, "pomodoro") == 0 && !ks.pages[4].on,
-              "diagnostics full, day on, nowplaying and pomodoro off");
+        CHECK(ks.diagnostics == KS_DIAG_FULL && ks.n_pages == 6 && strcmp(ks.pages[1].id, "day") == 0 && !ks.pages[3].on &&
+                  strcmp(ks.pages[4].id, "controls") == 0 && !ks.pages[4].on &&
+                  strcmp(ks.pages[5].id, "pomodoro") == 0 && !ks.pages[5].on,
+              "diagnostics full, day on, nowplaying, controls and pomodoro off");
         CHECK(ks.quiet_calm && ks.quiet_dim == 20, "quiet defaults");
         CHECK(ks.rotation == 0, "rotation 0");
         CHECK(CFG_SETTINGS_MAX == 2048 && strlen(r.config) <= CFG_SETTINGS_MAX, "config fits the %d B store", CFG_SETTINGS_MAX);
@@ -1030,10 +1032,10 @@ static void test_config_default(void)
     if (!config("config_default.json", &ver, &ks)) return;
     CHECK(ver == 1, "version");
     CHECK(ks.follow_ember && ks.level == 153 && ks.floor == 10 && ks.startup == 153, "brightness");
-    CHECK(ks.n_pages == 5 && strcmp(ks.pages[1].id, "day") == 0 && ks.pages[1].on &&
-              strcmp(ks.pages[3].id, "nowplaying") == 0 && !ks.pages[3].on && strcmp(ks.pages[4].id, "pomodoro") == 0 &&
-              !ks.pages[4].on,
-          "day in pomodoro's place, nowplaying and pomodoro off");
+    CHECK(ks.n_pages == 6 && strcmp(ks.pages[1].id, "day") == 0 && ks.pages[1].on &&
+              strcmp(ks.pages[3].id, "nowplaying") == 0 && !ks.pages[3].on && strcmp(ks.pages[4].id, "controls") == 0 &&
+              !ks.pages[4].on && strcmp(ks.pages[5].id, "pomodoro") == 0 && !ks.pages[5].on,
+          "day in pomodoro's place, nowplaying, controls and pomodoro off");
     CHECK(strcmp(ks.home, "bot") == 0 && ks.poll_ms == 2000, "home, poll");
     CHECK(ks.sleepy_after_s == 300 && ks.demo_hold_s == 20 && ks.source_label && ks.working_ring, "bot");
     CHECK(ks.diagnostics == KS_DIAG_OFF && ks.stats_interval_s == 60 && ks.live_interval_s == 5, "diagnostics");
@@ -1060,9 +1062,10 @@ static void test_config_custom(void)
     CHECK(ver == 2, "version");
     CHECK(!ks.follow_ember && ks.level == 200 && ks.floor == 20 && ks.startup == 120, "brightness %d/%d/%d", ks.level,
           ks.floor, ks.startup);
-    CHECK(ks.n_pages == 6, "pages %d", ks.n_pages);
+    CHECK(ks.n_pages == 7, "pages %d", ks.n_pages);
     CHECK(strcmp(ks.pages[4].id, "future-page") == 0 && !ks.pages[4].on, "unknown page id kept");
     CHECK(strcmp(ks.pages[5].id, "day") == 0 && !ks.pages[5].on, "a stored config gains day off at the end");
+    CHECK(strcmp(ks.pages[6].id, "controls") == 0 && !ks.pages[6].on, "and controls off after it");
     CHECK(strcmp(ks.pages[0].id, "pomodoro") == 0 && strcmp(ks.pages[3].id, "weather") == 0 && !ks.pages[3].on,
           "page order and weather off");
     CHECK(strcmp(ks.home, "pomodoro") == 0 && ks.poll_ms == 3000, "home %s poll %d", ks.home, ks.poll_ms);
@@ -1075,7 +1078,7 @@ static void test_config_custom(void)
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
     int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
-    CHECK(n == 3 && order[0] == 4 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
+    CHECK(n == 3 && order[0] == 5 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
 }
 
 _Static_assert(KS_WX_FACES == WXF_N, "the settings' face list holds one slot per weather face");
@@ -1203,9 +1206,13 @@ static void test_controls_action(void)
     cJSON *r = j ? cJSON_Parse(j) : NULL;
     free(j);
     const char *st = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(r, "status"));
-    CHECK(cJSON_IsObject(r) && st && strcmp(st, "queued") == 0,
-          "controls action reply: no page sends it yet; the shape is pinned until one does");
+    CHECK(cJSON_IsObject(r) && st && strcmp(st, "queued") == 0, "controls action reply: queued");
     cJSON_Delete(r);
+    j = load("controls_action.json");
+    char target[CTL_TARGET_MAX] = "";
+    CHECK(j && ctl_reply(202, j, target, sizeof target) == CTL_RES_SENT && strcmp(target, "M4") == 0,
+          "controls action reply: the firmware reads the target Mac: %s", target);
+    free(j);
 }
 
 static void test_claim(void)
@@ -1262,7 +1269,7 @@ static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
-static const char *const PAGES_AHEAD[] = {"day"};
+static const char *const PAGES_AHEAD[] = {"day", "controls"};
 #define N_PAGES_AHEAD ((int)(sizeof PAGES_AHEAD / sizeof PAGES_AHEAD[0]))
 static int pages_ahead_used[N_PAGES_AHEAD];
 

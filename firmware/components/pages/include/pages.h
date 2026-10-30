@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define PAGES_N 5
+#define PAGES_N 6
 #define PAGE_TAP_ZONES 4
 
 /* PAGE_TOUCH_RAW: taps reach the page as touches (all taps; taps[z]: those in ts_zone_t z), wakes and hswipes (> 0 left, < 0 right), not as pushes. PAGE_TURN: the page takes detents. PAGE_GLINT: the working glint and chase run. */
