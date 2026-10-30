@@ -12,6 +12,7 @@ N="$D/../../components/net_policy"
 O="$D/../../components/ota_policy"
 PR="$D/../../components/panel_req"
 PG="$D/../../components/pages"
+PCV="$D/../../components/page_canvas"
 LS="$D/../../components/link_state"
 CP="$D/../../components/caps"
 RT="$D/../../components/rotation"
@@ -571,6 +572,28 @@ if [ -n "$UGL" ]; then
     echo "run.sh: FAIL usage screens wiring:$UGL" >&2
     exit 1
 fi
+CNV=""
+PVC="$D/../../main/pomo_view.c"
+UVC="$D/../../main/usage_view.c"
+NCV="$D/../../main/np_cover_view.c"
+NVC="$D/../../main/nowplaying_view.c"
+echo "$APP" | awk '/^        page_canvas_init\(page_canvas, PAGE_CANVAS_BYTES\);$/ {i = NR} /^        bot_view_create\(s_bot_page\);$/ {b = NR} END {exit !(i && b > i)}' &&
+    [ "$(grep -c 'page_canvas_init(' "$MAINC")" -eq 1 ] || CNV="$CNV app_main-lends-the-canvas-before-the-views"
+body "$TFC" release | awk '/^    detach\(\);$/ {d = NR} /^    page_canvas_give\(PAGE_CANVAS_WEATHER\);$/ {g = NR} /^    wx_job_released\(&s_job\);$/ {r = NR} END {exit !(d && g > d && r > g)}' &&
+    [ "$(grep -c 'page_canvas_give(' "$TFC")" -eq 1 ] || CNV="$CNV weather-gives-only-in-release-after-the-detach"
+body "$PVC" ring_detach | awk '/^    lv_canvas_set_buffer\(s_ring, s_none, / {s = NR} /^    page_canvas_give\(PAGE_CANVAS_POMO\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV pomo-repoints-the-canvas-before-the-give"
+body "$UVC" destroy | awk '/lv_obj_delete\(V.root\);/ {d = NR} /page_canvas_give\(PAGE_CANVAS_USAGE\);/ {g = NR} END {exit !(d && g > d)}' ||
+    CNV="$CNV usage-deletes-the-canvas-before-the-give"
+body "$NCV" buf_free | awk '/lv_image_set_src\(s_img, NULL\);/ {s = NR} /^    buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV cover-face-drops-the-image-source-before-the-give"
+body "$NVC" free_pictures | awk '/lv_image_set_src\(s_face, NULL\);/ {s = NR} /^    face_buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV legacy-face-drops-the-image-source-before-the-give"
+if [ -n "$CNV" ]; then
+    echo "run.sh: FAIL page canvas wiring:$CNV" >&2
+    exit 1
+fi
+echo "page canvas wiring: lent before the views exist, every owner lets go of the memory before it gives the canvas back, the weather page only in release"
 ORB=""
 body "$MAINC" page_bot_frame | awk '/^    if \(s_usage_on\) return;$/ {r = NR} /^    if \(wx_shift_tick\(&s_bot_shift, &WX_SHIFT_ORBIT, f->dt\)\) bot_shift_root\(\);$/ {o = NR} END {exit !(r && o == r + 1)}' ||
     ORB="$ORB page_bot_frame-steps-the-orbit-only-on-screen"
@@ -849,6 +872,7 @@ cc $CFLAGS -I"$HW" -I"$J" "$HW/hwt_line.c" "$J/cJSON.c" "$D/test_hwt.c" -lm -o "
 cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 cc $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
 cc $CFLAGS -I"$SS/include" "$SS/span_stats.c" "$D/test_span_stats.c" -o "${OUT}_span_stats"
+cc $CFLAGS -I"$PCV/include" "$PCV/page_canvas.c" "$D/test_page_canvas.c" -o "${OUT}_page_canvas"
 cc $CFLAGS -I"$G/include" "$G/touch_swipe.c" "$D/test_swipe.c" -lm -o "${OUT}_swipe"
 cc $CFLAGS -I"$G/include" -I"$V/include" -I"$J" "$G/cfg.c" "$V/improv.c" "$V/cinder_line.c" "$J/cJSON.c" \
     "$D/test_provision.c" -lm -o "${OUT}_provision"
@@ -923,11 +947,11 @@ if [ -d "$LV" ]; then
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
         "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$LS/join_label.c" "$D/../../main/join_view.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
-    cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$SS/include" -I"$J" \
-        "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
+    cc $CFLAGS $LVDEF -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$SS/include" -I"$PCV/include" -I"$J" \
+        "$PCV/page_canvas.c" "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
         "$G/touch_swipe.c" "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"
-    cc $CFLAGS $FPC $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
-        -I"$NP/include" -I"$J" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" \
+    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
+        -I"$NP/include" -I"$PCV/include" -I"$J" "$PCV/page_canvas.c" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" \
         "$NP/np.c" "$J/cJSON.c" "$D/test_usage_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_usage_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$CT/include" "$D/../../main/controls_view.c" "$D/test_controls_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_controls_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
@@ -960,6 +984,7 @@ fi
 "${OUT}_link"
 "${OUT}_refr"
 "${OUT}_span_stats"
+"${OUT}_page_canvas"
 "${OUT}_swipe"
 "${OUT}_provision" "$D/../vectors"
 "${OUT}_device"

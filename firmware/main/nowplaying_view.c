@@ -13,6 +13,7 @@
 #include "np_cover.h"
 #include "np_cover_view.h"
 #include "nowplaying_client.h"
+#include "page_canvas.h"
 #include "touch_swipe.h"
 
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
@@ -20,6 +21,8 @@
 #define FACE NP_BACKDROP_PX
 #define FACE_X ((SCREEN_W - FACE) / 2)
 #define ALBUM_DY (-44)
+
+_Static_assert(FACE * FACE * 2 <= PAGE_CANVAS_BYTES, "the face without a backdrop draws on the page canvas");
 
 #define COL_TRACK 0x2E2E2E
 #define COL_ARC 0xF4F4F2
@@ -71,7 +74,7 @@ typedef struct {
     lv_obj_t *btn[3];
     int btn_opa, btn_hi;
     bool btn_mid, btn_pause;
-    bool track_due, was_live;
+    bool track_due, was_live, face_lent;
     np_return_t ret;
 } view_mem_t;
 static view_mem_t *V;
@@ -204,6 +207,13 @@ static void build(void)
     s_badge_lbl = lv_obj_get_child(s_badge, 0);
 }
 
+static void face_buf_drop(void)
+{
+    if (V->face_lent) page_canvas_give(PAGE_CANVAS_NP);
+    else free(s_face_buf);
+    V->face_lent = false;
+}
+
 static void free_pictures(void)
 {
     if (!s_face) return;
@@ -211,7 +221,9 @@ static void free_pictures(void)
     lv_obj_add_flag(s_album, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_avatar, LV_OBJ_FLAG_HIDDEN);
     bool held = s_art.album || s_art.artist;
-    free(s_face_buf);
+    lv_image_set_src(s_face, NULL);
+    s_face_dsc.data = NULL;
+    face_buf_drop();
     s_face_buf = NULL;
     np_art_set_free(&s_art);
     s_ring_valid = false;
@@ -346,7 +358,7 @@ void np_view_show(bool show)
 
 static void set_face_buf(uint16_t *buf)
 {
-    if (buf != s_face_buf) free(s_face_buf);
+    if (buf != s_face_buf) face_buf_drop();
     s_face_buf = buf;
     s_face_dsc.data = (const uint8_t *)buf;
     lv_image_set_src(s_face, &s_face_dsc);
@@ -356,9 +368,11 @@ static void set_face_buf(uint16_t *buf)
 static bool ensure_face(void)
 {
     if (s_face_buf) return true;
-    uint16_t *b = heap_caps_calloc((size_t)FACE * FACE, 2, MALLOC_CAP_SPIRAM);
+    uint16_t *b = page_canvas_take(PAGE_CANVAS_NP);
     if (!b) return false;
+    memset(b, 0, (size_t)FACE * FACE * 2);
     set_face_buf(b);
+    V->face_lent = true;
     return true;
 }
 

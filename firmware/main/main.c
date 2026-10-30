@@ -45,6 +45,7 @@
 #include "nowplaying_view.h"
 #include "ota_client.h"
 #include "ota_face.h"
+#include "page_canvas.h"
 #include "page_ops.h"
 #include "pages.h"
 #include "press_route.h"
@@ -1649,6 +1650,9 @@ void app_main(void)
     if (s_setup) {
         setup_view_create(scr);
     } else {
+        void *page_canvas = heap_caps_malloc(PAGE_CANVAS_BYTES, MALLOC_CAP_SPIRAM);
+        assert(page_canvas);
+        page_canvas_init(page_canvas, PAGE_CANVAS_BYTES);
         s_bot_page = lv_obj_create(scr);
         lv_obj_remove_style_all(s_bot_page);
         lv_obj_set_size(s_bot_page, lv_pct(100), lv_pct(100));
