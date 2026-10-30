@@ -1284,6 +1284,15 @@ static void test_restart(void)
     np_ctl_track_pos(&c, 120000, 200000, s0);
     np_ctl_track_pos(&c, 0, 200000, s0 + 0.1);
     CHECK(np_ctl_info_opa(&c, s0 + 0.1, false) == 0, "a seek back from the middle to 0:00 is not");
+    double l0 = s0 + 20;
+    np_ctl_track_pos(&c, 197000, 200000, l0);
+    np_ctl_track_pos(&c, 5600, 200000, l0 + 0.1);
+    CHECK(np_ctl_info_opa(&c, l0 + 0.1, false) == 255, "repeat-one seen 5.6 s into the lap (#296) is a start");
+    double m0 = l0 + 20;
+    np_ctl_track_pos(&c, 197000, 200000, m0);
+    np_ctl_track_pos(&c, 8500, 200000, m0 + 0.1);
+    CHECK(np_ctl_info_opa(&c, m0 + 0.1, false) == 0, "8.5 s into the lap is past the head window");
+    s0 = m0 + 20;
     np_ctl_track_pos(&c, 150000, 200000, s0 + 1);
     np_ctl_track_pos(&c, 30000, 200000, s0 + 2);
     CHECK(np_ctl_info_opa(&c, s0 + 2, false) == 0, "nor a seek back elsewhere");
