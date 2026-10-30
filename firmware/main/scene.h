@@ -34,6 +34,3 @@ demo_act_kind_t scene_act_kind(void);
 bool scene_resuming(void);
 /* The chase style the act asks for this frame, -1 none. */
 int scene_chase_take(void);
-
-/* main.c: the page wipe. */
-void wipe_start(int dir, double t);

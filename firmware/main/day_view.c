@@ -4,7 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "day_client.h"
 #include "esp_attr.h"
+#include "page_frame.h"
+#include "page_ops.h"
+#include "pomo_client.h"
 
 LV_FONT_DECLARE(font_digits_60);
 LV_FONT_DECLARE(font_digits_78);
@@ -56,6 +60,7 @@ static EXT_RAM_BSS_ATTR lv_obj_t *s_marks[4];
 static EXT_RAM_BSS_ATTR day_arc_t s_seg[DAY_SEGS], s_tick;
 static EXT_RAM_BSS_ATTR day_model_t s_m;
 static EXT_RAM_BSS_ATTR bool s_drawn;
+static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;
 
 static lv_obj_t *plain(lv_obj_t *parent)
 {
@@ -148,6 +153,7 @@ static void arc_set(day_arc_t *a, bool on, int a0, int a1, uint32_t rgb)
 
 void day_view_create(lv_obj_t *parent)
 {
+    day_ui_init(&s_day_ui);
     s_root = plain(parent);
     lv_obj_set_size(s_root, SCREEN_W, SCREEN_H);
     lv_obj_set_pos(s_root, 0, 0);
@@ -303,4 +309,57 @@ void day_view_update(const day_model_t *m, double t)
     }
     s_m = *m;
     s_drawn = true;
+}
+
+void page_day_show(bool on)
+{
+    day_view_show(on);
+    day_act_t a[DAY_ACTS];
+    if (!on)
+        for (int i = 0, n = day_ui_leave(&s_day_ui, pomo_client_now(), a); i < n; i++) day_client_act(&a[i]);
+}
+
+static day_in_t day_now(day_snapshot_t *snap)
+{
+    day_client_get(snap);
+    double now = pomo_client_now();
+    bool exact;
+    int now_min = day_client_now_min(snap, now, &exact);
+    return (day_in_t){.b = snap->has ? &snap->b : NULL, .fed = snap->fed, .age_s = now - snap->fed_at,
+                      .now_min = now_min, .now_exact = exact, .busy = day_client_busy(snap, now)};
+}
+
+static void day_send(const day_act_t *a, int n)
+{
+    for (int i = 0; i < n; i++) day_client_act(&a[i]);
+}
+
+void page_day_input(const page_input_t *in, double t)
+{
+    day_snapshot_t snap;
+    day_in_t di = day_now(&snap);
+    day_act_t a[DAY_ACTS];
+    day_ui_sync(&s_day_ui, &di, t);
+    if (in->detents) day_send(a, day_ui_turn(&s_day_ui, &di, in->detents, t, a));
+    if (in->pushes) day_send(a, day_ui_push(&s_day_ui, &di, t, a));
+    else if (in->longs) day_send(a, day_ui_long(&s_day_ui, &di, t, a));
+}
+
+void page_day_frame(const page_frame_t *f)
+{
+    static EXT_RAM_BSS_ATTR day_snapshot_t snap;
+    static EXT_RAM_BSS_ATTR day_model_t m;
+    day_in_t di = day_now(&snap);
+    day_act_t a[DAY_ACTS];
+    day_ui_sync(&s_day_ui, &di, f->t);
+    day_send(a, day_ui_tick(&s_day_ui, &di, f->t, a));
+    day_model(&s_day_ui, &di, f->t, day_client_note(&snap, pomo_client_now()), &m);
+    day_view_update(&m, f->t);
+}
+
+const char *day_view_hold_label(void)
+{
+    static EXT_RAM_BSS_ATTR day_snapshot_t snap;
+    day_in_t di = day_now(&snap);
+    return day_hold_label(day_ui_face(&s_day_ui, &di, pomo_client_now()));
 }

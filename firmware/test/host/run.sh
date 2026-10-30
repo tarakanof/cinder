@@ -264,7 +264,7 @@ body "$TFC" temp_face_turn | grep -qF 'if (wx_faces_turn(&s_faces, wx_job_face(&
     [ "$(grep -c 'wx_job_cut(' "$TFC")" -eq 2 ] || WIRING="$WIRING turn-and-demo-pick-cut-only-on-a-new-face"
 body "$TFC" act | awk '/if \(a & WX_DO_ARRIVE\) \{/ {on = 1} on && /s_t = 0;/ {t = 1} on && /s_tick = -1;/ {k = 1} END {exit !(t && k)}' ||
     WIRING="$WIRING act-replays-the-arrival"
-body "$MAINC" page_weather_input | grep -qF 'if (in->detents) temp_face_turn(in->detents);' ||
+body "$TFC" page_weather_input | grep -qF 'if (in->detents) temp_face_turn(in->detents);' ||
     WIRING="$WIRING weather-page-turns-switch-faces"
 body "$TFC" temp_face_update | grep -qF 'paint(&t, obs, offline, s_job.opa);' || WIRING="$WIRING update-paints-at-the-job-opa"
 for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'if (a & WX_DO_DETACH) detach();' \
@@ -566,7 +566,8 @@ MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 UGL=""
 body "$MAINC" page_bot_show | awk '/^    if \(!on\) \{$/ {o = 1; next} o && /^    }$/ {o = 0} o && /^        usage_view_close\(\);$/ {c = 1} END {exit !c}' || UGL="$UGL page_bot_show-false-closes-the-usage-screens"
-body "$MAINC" pages_pause | grep -qxF '    pages_hide_all();' && body "$MAINC" ota_frame | grep -qxF '            pages_pause();' || UGL="$UGL the-OTA-face-hides-every-page"
+body "$MAINC" ota_frame | awk '/^            pages_hide_all\(\);$/ {h = NR} /^            page_fx_pause\(\);$/ {f = NR} /^            overlays_pause\(\);$/ {o = NR} END {exit !(h && f == h + 1 && o == f + 1)}' ||
+    UGL="$UGL the-OTA-face-hides-every-page-then-stops-the-wipe-and-the-reset-screen"
 body "$MAINC" page_bot_input | awk '/^    if \(usage_view_input\(&u, t\)\) return;$/ {r = NR} /bot_(push|look|set_mood_user)\(/ && !b {b = NR} /^    for \(int n = in->pushes \+ in->touches; n > 0; n--\) bot_push\(&s_bot, t\);$/ {p = NR} END {exit !(r && b > r && p > r)}' ||
     UGL="$UGL page_bot_input-gives-the-screens-every-input-they-take-then-falls-through-to-the-bot"
 body "$MAINC" page_bot_frame | awk '/^    bot_under_usage\(usage_view_frame\(t\)\);$/ {u = NR} /^    if \(s_usage_on\) return;$/ {r = NR} /bot_view_|bot_wait_restart\(/ && !b {b = NR} /^    bot_view_set_hint\(usage_view_hint\(\)\);$/ {h = NR} END {exit !(u && r > u && b > r && h > r)}' ||
@@ -739,7 +740,7 @@ done
 [ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 2 ] && [ "$(grep -c 'scene_gate(t, ' "$SCC")" -eq 1 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
     WIRING="$WIRING page_tick-gates-its-input"
-body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
+body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
 body "$CHC" chase_ctl_pause | grep -qxF '    *saved_half = s_half;' && body "$CHC" chase_ctl_pause | tail -2 | head -1 | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
     WIRING="$WIRING scene_start-pauses-the-chase"
@@ -763,9 +764,15 @@ body "$CHC" chase_ctl_frame | grep -qxF '    atomic_store(&s_chase_status, in->s
 body "$CHC" chase_ctl_orbit_start | grep -qxF '    if (xTaskCreatePinnedToCoreWithCaps(orbit_task, "orbit", 3328, NULL, 1, &s_orbit_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)' ||
     WIRING="$WIRING orbit-task-stack-in-PSRAM"
 body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
-    /^            if \(scene_on\(\)\) scene_end\(now_s\(\)\);$/ {e = NR} /^            scene_resume_cancel\(\);$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
+    /^            if \(scene_on\(\)\) scene_end\(now_s\(\)\);$/ {e = NR} /^            scene_resume_cancel\(\);$/ {r = NR} /^            pages_hide_all\(\);$/ {q = NR}
     END {exit !(p && i == p + 1 && e == i + 1 && r == e + 1 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-or-offered-demo"
 ! grep -qE 's_(scene_|chase|half|cue|acting|moment_mood|mm_|wxm|orbit)|\b(gc|wxm|mm)_[a-z_]+\(' "$MAINC" || WIRING="$WIRING scene-moment-and-chase-state-stays-behind-their-seams"
+! grep -qE '\bs_(wipe|dots|reset_|hold_|day_ui|ctl_batch)|\b(day_ui|ctl_batch|lv_arc)_[a-z_]+\(' "$MAINC" || WIRING="$WIRING page-effects-overlays-and-page-ops-stay-behind-their-seams"
+PFC="$D/../../main/page_fx.c"
+OVC="$D/../../main/overlays.c"
+grep -qxF 'static EXT_RAM_BSS_ATTR double s_wipe_t0, s_dots_until;' "$PFC" && grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_hold_layer, *s_hold_arc, *s_hold_label;' "$OVC" &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR const char *s_hold_text;' "$OVC" && grep -qxF 'static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;' "$D/../../main/day_view.c" &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR ctl_batch_t s_ctl_batch;' "$D/../../main/controls_page.c" || WIRING="$WIRING moved-page-state-stays-in-PSRAM"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
@@ -1125,3 +1132,7 @@ cc $CFLAGS $FPC -I"$D/scene_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D" -I"
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" \
     "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$J/cJSON.c" "$D/test_scene.c" -lm -o "${OUT}_scene"
 "${OUT}_scene"
+cc $CFLAGS -I"$D/page_ops_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$C/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" -I"$H/include" -I"$M/include" \
+    -I"$LS/include" -I"$N/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$CT/include" -I"$J" "$PFC" "$OVC" "$D/../../main/pomo_page.c" \
+    "$D/../../main/controls_page.c" "$D/../../main/np_page.c" "$G/touch_swipe.c" "$P/pomo.c" "$LS/link_state.c" "$CT/controls.c" "$J/cJSON.c" "$D/test_page_ops.c" -lm -o "${OUT}_page_ops"
+"${OUT}_page_ops"

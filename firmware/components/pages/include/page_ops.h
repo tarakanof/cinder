@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-/* Defined by the app (main/main.c) on the LVGL task; host tests stub them. */
+/* Defined by the app (main/) on the LVGL task; host tests stub them. */
 void page_bot_show(bool on);
 void page_bot_input(const page_input_t *in, double t);
 void page_bot_frame(const page_frame_t *f);
