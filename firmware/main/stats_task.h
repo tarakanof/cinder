@@ -24,5 +24,3 @@ void stats_task_start(void);
 
 /* main.c, called on the stats task: takes the pose redraw count, reads the rest. */
 stats_sample_t stats_app_sample(void);
-/* main.c, called on the stats task. */
-void orbit_reap(void);

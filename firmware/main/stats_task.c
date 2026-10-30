@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "chase_ctl.h"
 #include "diag.h"
 #include "diag_refr.h"
 #include "display/lv_display_private.h"
@@ -117,7 +118,7 @@ static void stats_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(STATS_PERIOD_MS));
         diag_track();
-        orbit_reap();
+        chase_ctl_orbit_reap();
         double t = now_s();
         stats_sample_t app = stats_app_sample();
         taskENTER_CRITICAL(&s_refr_mux);
