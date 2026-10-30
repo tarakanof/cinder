@@ -39,7 +39,9 @@ const page_desc_t *pages_current(const pages_nav_t *nav) { return &PAGES[nav->pa
 
 void pages_show(pages_nav_t *nav, int page)
 {
-    for (int i = 0; i < PAGES_N; i++) PAGES[i].show(i == page);
+    for (int i = 0; i < PAGES_N; i++)
+        if (i != page) PAGES[i].show(false);
+    PAGES[page].show(true);
     nav->page = page;
 }
 

@@ -194,8 +194,8 @@ static void test_switch(void)
     pages_nav_t nav = nav_at(index_of("bot"));
     page_log_reset();
     pages_show(&nav, index_of("nowplaying"));
-    CHECK(strcmp(page_log, "bot- day- weather- np+ ctl- pomo- ") == 0 && nav.page == index_of("nowplaying"),
-          "bot -> nowplaying hides the rest: %s", page_log);
+    CHECK(strcmp(page_log, "bot- day- weather- ctl- pomo- np+ ") == 0 && nav.page == index_of("nowplaying"),
+          "bot -> nowplaying hides the rest first, so the page canvas is free for the shown page: %s", page_log);
     page_log_reset();
     pages_hide_all();
     CHECK(strcmp(page_log, "bot- day- weather- np- ctl- pomo- ") == 0, "pause hides every page: %s", page_log);
@@ -203,8 +203,16 @@ static void test_switch(void)
     page_log_reset();
     pages_resume(&nav);
     CHECK_NAV(nav);
-    CHECK(strcmp(page_log, "bot+ day- weather- np- ctl- pomo- ") == 0 && nav.page == index_of("bot"),
+    CHECK(strcmp(page_log, "day- weather- np- ctl- pomo- bot+ ") == 0 && nav.page == index_of("bot"),
           "resume shows order[pos]: %s", page_log);
+
+    for (int i = 0; i < PAGES_N; i++) {
+        page_log_reset();
+        pages_show(&nav, i);
+        char *plus = strchr(page_log, '+');
+        CHECK(plus && plus[1] == ' ' && plus[2] == 0, "%s shows after every hide: %s", PAGES[i].id, page_log);
+        CHECK(nav.page == i, "%s is the page", PAGES[i].id);
+    }
 
     knob_settings_t ks;
     knob_settings_defaults(&ks);
@@ -212,11 +220,11 @@ static void test_switch(void)
     page_log_reset();
     pages_settings(&nav, &ks, true);
     CHECK_NAV(nav);
-    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "bot+ day- weather- np- ctl- pomo- ") == 0,
+    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "day- weather- np- ctl- pomo- bot+ ") == 0,
           "first settings show home: %s", page_log);
     page_log_reset();
     CHECK(pages_step(&nav, 1) && nav.pos == 1 && nav.page == index_of("day") &&
-              strcmp(page_log, "bot- day+ weather- np- ctl- pomo- ") == 0,
+              strcmp(page_log, "bot- weather- np- ctl- pomo- day+ ") == 0,
           "step forward: %s", page_log);
     CHECK_NAV(nav);
     CHECK(pages_step(&nav, -2) && nav.pos == 2 && nav.page == index_of("weather"), "step back wraps");
@@ -255,7 +263,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 1 && nav.pos == 0 && nav.page == index_of("nowplaying") &&
-              strcmp(page_log, "bot- day- weather- np+ ctl- pomo- ") == 0,
+              strcmp(page_log, "bot- day- weather- ctl- pomo- np+ ") == 0,
           "unknown home: first shown page: %s", page_log);
     page_log_reset();
     CHECK(!pages_step(&nav, 1) && page_log[0] == 0, "one page: no step");
