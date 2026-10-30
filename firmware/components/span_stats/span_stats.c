@@ -3,7 +3,7 @@
 #include <string.h>
 
 static const char *const NAMES[SPAN_COUNT] = {"update", "fade", "label", "v15_render", "arc_text",
-                                              "ring", "m8", "cover_fetch", "cover_decode"};
+                                              "ring", "m8", "cover_fetch", "cover_decode", "rim"};
 
 const char *span_name(int id)
 {

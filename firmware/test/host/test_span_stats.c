@@ -29,7 +29,7 @@ int main(void)
     CHECK(span_avg_us(&s.span[SPAN_M8]) == 2, "avg rounds to nearest: %lld", (long long)span_avg_us(&s.span[SPAN_M8]));
     span_stats_init(&s, 9000);
     CHECK(s.since_us == 9000 && s.span[SPAN_FADE].n == 0 && s.span[SPAN_FADE].max_us == 0 && s.span[SPAN_RING].total_us == 0, "reset clears all");
-    CHECK(strcmp(span_name(SPAN_COVER_DECODE), "cover_decode") == 0 && strcmp(span_name(SPAN_UPDATE), "update") == 0 && span_name(99)[0] == 0, "names");
+    CHECK(strcmp(span_name(SPAN_COVER_DECODE), "cover_decode") == 0 && strcmp(span_name(SPAN_UPDATE), "update") == 0 && strcmp(span_name(SPAN_RIM), "rim") == 0 && span_name(99)[0] == 0, "names");
     if (failures) return 1;
     printf("span_stats: ok\n");
     return 0;
