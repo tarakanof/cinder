@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "page_canvas.h"
+#include "page_ops.h"
 #include "wx_air.h"
 #include "wx_cast.h"
 #include "wx_days.h"
@@ -1279,4 +1280,12 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     s_tick = tick;
     paint(&t, obs, offline, s_job.opa);
     show_obj(s_root, true);
+}
+
+void page_weather_show(bool on) { temp_face_show(on); }
+
+void page_weather_input(const page_input_t *in, double t)
+{
+    (void)t;
+    if (in->detents) temp_face_turn(in->detents);
 }

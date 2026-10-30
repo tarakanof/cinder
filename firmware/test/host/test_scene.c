@@ -14,6 +14,7 @@
 #include "moments.h"
 #include "music_view.h"
 #include "nowplaying_client.h"
+#include "page_fx.h"
 #include "page_stubs.h"
 #include "scene.h"
 #include "temp_face.h"

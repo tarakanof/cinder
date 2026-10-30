@@ -11,6 +11,7 @@
 #include "moment_view.h"
 #include "moments.h"
 #include "music_view.h"
+#include "page_fx.h"
 #include "temp_face.h"
 #include "wx_faces.h"
 
