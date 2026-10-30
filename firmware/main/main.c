@@ -965,7 +965,7 @@ void page_bot_frame(const page_frame_t *f)
     bot_view_set_host(&host);
     bot_view_set_offline(join_glyph_shown(f->offline, s_join_shown));
     char age[24] = "";
-    if (join_glyph_shown(f->offline, s_join_shown)) ember_client_age_text(age, sizeof age);
+    if (join_glyph_shown(f->offline, s_join_shown) && s_join_shown == JOIN_NONE) ember_client_age_text(age, sizeof age);
     bot_view_set_age(age);
     bool pose = !s_drawn || !bot_pose_same(p, &s_last_pose, bot_view_radius_px());
     if (pose && s_drawn && chase->chasing && p->face == s_last_pose.face && t - s_pose_drawn_at < 0.75 / atomic_load(&s_chase_fps))

@@ -1156,7 +1156,7 @@ static int touch(lv_display_t *d, int zone)
     double now = s_now_us / 1e6;
     np_view_input(now);
     np_view_tap(zone, now);
-    np_view_update(now, false);
+    np_view_update(now, false, "");
     refresh(d);
     return s_ncmds - n;
 }
@@ -1644,7 +1644,7 @@ static fade_t fade_watch(lv_display_t *d, double secs, bool offline)
     fade_t f = {.mono = true, .last = title_glow()};
     for (double t = 0; t < secs; t += 1 / 60.0) {
         s_now_us += 16667;
-        np_view_update(s_now_us / 1e6, offline);
+        np_view_update(s_now_us / 1e6, offline, "");
         refresh(d);
         long g = title_glow();
         f.mono &= g <= f.last;
@@ -1843,7 +1843,7 @@ static void frames_off(lv_display_t *d, int n)
 {
     for (int i = 0; i < n; i++) {
         s_now_us += 100000;
-        np_view_update(s_now_us / 1e6, true);
+        np_view_update(s_now_us / 1e6, true, "5 min ago");
         refresh(d);
     }
 }
@@ -1917,8 +1917,19 @@ static void test_text_fade_review(lv_display_t *d, lv_obj_t *scr)
     CHECK(title_ink() > 300 && all_shown() && !avatar_seen(), "paused: up, with the controls, so the avatar makes room");
     frames_off(d, 150);
     save("fade-paused-offline");
+    {
+        lv_obj_t *age = label_find(scr, "5 min ago");
+        CHECK(age && !lv_obj_has_flag(age, LV_OBJ_FLAG_HIDDEN) && !lv_obj_has_flag(lv_obj_get_parent(age), LV_OBJ_FLAG_HIDDEN),
+              "offline badge: the data age shows under Ember offline");
+    }
     CHECK(title_ink() > 300 && avatar_seen(), "paused, then offline 15 s: the text and the avatar stay beside the badge: %d px",
           title_ink());
+    frames(d, 2);
+    {
+        lv_obj_t *age = label_find(scr, "5 min ago");
+        CHECK(!age || lv_obj_has_flag(age, LV_OBJ_FLAG_HIDDEN) || lv_obj_has_flag(lv_obj_get_parent(age), LV_OBJ_FLAG_HIDDEN),
+              "back online: no data age");
+    }
     np.state = NP_PLAYING;
     nx = np;
     frames(d, 2);

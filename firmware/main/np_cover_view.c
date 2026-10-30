@@ -30,6 +30,7 @@ LV_FONT_DECLARE(font_digits_96);
 #define VOL_ICON_DY (-134)
 #define OFFLINE_DY NUM_DY
 #define AGE_DY 22
+#define IDLE_AGE_DY 143
 #define OFFLINE_TEXT_DY (-9)
 #define PAUSE_DY (-65)
 #define PAUSE_PX 104
@@ -563,6 +564,10 @@ static void idle_update(const npc_frame_t *f, bool relayout)
         M->info_cover = false;
         lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
         lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
+        lv_obj_align(s_time, LV_ALIGN_CENTER, f->dx, IDLE_AGE_DY + f->dy);
+        lv_obj_set_style_text_color(s_time, lv_color_hex(COL_SUB), 0);
+        lv_obj_set_style_text_opa(s_time, LV_OPA_COVER, 0);
+        s_time_col = 0;
         s_dx = f->dx;
         s_dy = f->dy;
         s_dim = -1;
@@ -572,8 +577,12 @@ static void idle_update(const npc_frame_t *f, bool relayout)
         s_dy = f->dy;
         lv_obj_align(s_vinyl, LV_ALIGN_CENTER, f->dx, NP_VINYL_DY + f->dy);
         lv_obj_align(s_idle, LV_ALIGN_CENTER, f->dx, IDLE_DY + f->dy);
+        lv_obj_align(s_time, LV_ALIGN_CENTER, f->dx, IDLE_AGE_DY + f->dy);
     }
     text_set(s_idle, M->idle, sizeof M->idle, line);
+    const char *age = f->state == NPF_OFFLINE_EMPTY && f->offline_age ? f->offline_age : "";
+    text_set(s_time, M->time, sizeof M->time, age);
+    show(s_time, age[0] != 0);
 }
 
 static void badge_update(const npc_frame_t *f, const np_face_look_t *look)

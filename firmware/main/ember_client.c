@@ -1402,8 +1402,8 @@ int ember_client_age_text(char *buf, size_t n)
     taskENTER_CRITICAL(&s_demo_mux);
     bool demo = demo_playing(&s_demo) && s_demo.cur.offline;
     taskEXIT_CRITICAL(&s_demo_mux);
-    int64_t t = now_ms();
-    return link_age_text(demo ? t - 300000 : atomic_load(&s_ok_ms), t, buf, n);
+    if (demo) return snprintf(buf, n, "5 min ago");
+    return link_age_text(atomic_load(&s_ok_ms), now_ms(), buf, n);
 }
 
 void ember_client_demo_status(ember_demo_status_t *out)
