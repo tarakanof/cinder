@@ -427,7 +427,7 @@ static void loop_wait(int ms, char *buf)
         bool np = buf && np_client_visible();
         if (np && atomic_load(&s_online) && np_client_cmds_pending()) np_client_run_controls(s_conn, P->base);
         if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);
-        int wait = wake_slice_ms((int)pdTICKS_TO_MS(left), due, -1, np);
+        int wait = wake_slice_ms((int)pdTICKS_TO_MS(left), due, np);
         if (!buf) {
             vTaskDelay(pdMS_TO_TICKS(wait));
             continue;
