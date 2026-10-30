@@ -8,6 +8,7 @@
 #include "arc_text.h"
 #include "esp_heap_caps.h"
 #include "np_ctl.h"
+#include "page_canvas.h"
 #include "timing.h"
 #include "touch_swipe.h"
 
@@ -17,6 +18,8 @@ LV_FONT_DECLARE(font_digits_96);
 #define SCREEN_H 466
 #define FACE NP_COVER_PX
 #define FACE_X ((SCREEN_W - FACE) / 2)
+
+_Static_assert(FACE * FACE * 2 <= PAGE_CANVAS_BYTES, "the face without a cover draws on the page canvas");
 
 #define TITLE_W 340
 #define ARTIST_W 320
@@ -74,7 +77,7 @@ typedef struct {
     arc_item_t arc_it[NP_TEXT_MAX];
     char arc_artist[2 * NP_TEXT_MAX + 1];
     np_art_set_t pend;
-    bool pend_vinyl, chg_from, swapped;
+    bool pend_vinyl, chg_from, swapped, buf_lent;
     int chg;
     double chg_t0;
     double sweep_t0, sweep_dur;
@@ -274,9 +277,18 @@ static void chg_drop(void)
     M->chg = CHG_NONE;
 }
 
+static void buf_drop(void)
+{
+    if (M->buf_lent) page_canvas_give(PAGE_CANVAS_NP);
+    else heap_caps_free(s_buf);
+    M->buf_lent = false;
+}
+
 static void buf_free(void)
 {
-    heap_caps_free(s_buf);
+    if (s_img) lv_image_set_src(s_img, NULL);
+    M->img_dsc.data = NULL;
+    buf_drop();
     s_buf = NULL;
     s_has_cover = s_no_cover = s_no_cover_painted = s_ring_on = false;
     chg_drop();
@@ -299,20 +311,22 @@ bool npc_has_cover(void) { return s_has_cover || s_no_cover; }
 
 static void set_buf(uint16_t *b)
 {
-    if (b != s_buf) heap_caps_free(s_buf);
-    s_buf = b;
     M->img_dsc.data = (const uint8_t *)b;
     lv_image_set_src(s_img, &M->img_dsc);
     lv_obj_invalidate(s_img);
+    if (b != s_buf) buf_drop();
+    s_buf = b;
     s_ring_on = false;
 }
 
 static bool ensure_buf(void)
 {
     if (s_buf) return true;
-    uint16_t *b = heap_caps_calloc((size_t)FACE * FACE, 2, MALLOC_CAP_SPIRAM);
+    uint16_t *b = page_canvas_take(PAGE_CANVAS_NP);
     if (!b) return false;
+    memset(b, 0, (size_t)FACE * FACE * 2);
     set_buf(b);
+    M->buf_lent = true;
     return true;
 }
 

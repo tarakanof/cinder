@@ -12,6 +12,7 @@ typedef enum {
     SPAN_M8,
     SPAN_COVER_FETCH,
     SPAN_COVER_DECODE,
+    SPAN_RIM,
     SPAN_COUNT
 } span_id_t;
 

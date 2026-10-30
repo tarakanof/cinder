@@ -84,7 +84,6 @@ static int req_due;
 static void on_header(const char *k, const char *v, void *c) { (void)k; (void)v; (void)c; }
 static bool longpoll_idle(void *c, int *n) { (void)c; (void)n; return false; }
 static int64_t now_ms(void) { return s_now; }
-static void fade_start(void) {}
 static double pomo_client_now(void) { return 0; }
 static bool pomo_client_next_action(int a, pomo_press_t *in) { (void)a; (void)in; return false; }
 static void pomo_client_run_action(pomo_press_t in, http_conn_t *c, char *b, int n) { (void)in; (void)c; (void)b; (void)n; }

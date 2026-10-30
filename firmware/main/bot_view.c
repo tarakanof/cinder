@@ -12,6 +12,7 @@
 #include "bot_shape.h"
 #include "rim_slots.h"
 #include "ring_glint.h"
+#include "timing.h"
 #include "tool_marks.h"
 #include "usage.h"
 #include "esp_attr.h"
@@ -66,6 +67,7 @@ static lv_obj_t *s_badge_gap, *s_badge_dot;
 #define LABEL_SUB_R 147.0f
 static lv_obj_t *s_label;
 static uint16_t *s_label_buf;
+static uint32_t *s_label_scratch;
 static int s_label_cx, s_label_cy;
 static int s_label_sx, s_label_sy;
 static int s_label_opa = 255;
@@ -174,6 +176,7 @@ static void rim_raster(uint16_t *buf, int shape, int tone, float sx, float sy, r
     double *bx = wk->bx, *by = wk->by;
     float *rx = wk->rx, *ry = wk->ry;
     int *segs = wk->segs;
+    int64_t t0 = timing_now();
     bot_pose_t pose = {.scale_x = sx, .scale_y = sy};
     bot_body_ring(shape, bx, by);
     for (int i = 0; i < BOT_RING_POINTS; i++) {
@@ -187,6 +190,7 @@ static void rim_raster(uint16_t *buf, int shape, int tone, float sx, float sy, r
     ry[BOT_RING_POINTS] = ry[0];
     bot_raster_stroke(&wk->scratch, buf, NULL, SCREEN_W, SCREEN_H, 0, 0, rx, ry, BOT_RING_POINTS, segs,
                       (float)(RIM_PX / 2), mood_rgb(bot_rim_mood(tone)), bot_rim_alpha(tone));
+    timing_add(SPAN_RIM, timing_now() - t0);
 }
 
 static void rim_raster_cb(void *ctx, void *buf, int shape, int tone, float sx, float sy) { rim_raster(buf, shape, tone, sx, sy, ctx); }
@@ -234,9 +238,10 @@ void bot_view_create(lv_obj_t *parent)
         s_eye[e].canvas = canvas_create(parent);
     }
     s_label_buf = heap_caps_malloc(LABEL_W * LABEL_H * 3, MALLOC_CAP_SPIRAM);
+    s_label_scratch = heap_caps_malloc(LABEL_W * LABEL_H * 4, MALLOC_CAP_SPIRAM);
     s_label_alpha0 = heap_caps_malloc(LABEL_W * LABEL_H, MALLOC_CAP_SPIRAM);
     s_label_bin = heap_caps_malloc(LABEL_W * LABEL_H * sizeof *s_label_bin, MALLOC_CAP_SPIRAM);
-    assert(s_label_alpha0 && s_label_bin);
+    assert(s_label_scratch && s_label_alpha0 && s_label_bin);
     s_icon_buf = heap_caps_malloc(LABEL_ICON_MAX_W * LABEL_ICON_H * 4, MALLOC_CAP_SPIRAM);
     assert(s_label_buf && s_icon_buf);
     s_label = canvas_create(parent);
@@ -445,8 +450,7 @@ static void label_draw(void)
     const char *sub = s_rim_mood == BOT_WAITING || s_rim_mood == BOT_DONE ? s_host.sub : "";
 
     /* LVGL cannot render into RGB565A8: draw ARGB8888, keep the drawn bounds. */
-    uint32_t *scratch = heap_caps_malloc(LABEL_W * LABEL_H * 4, MALLOC_CAP_SPIRAM);
-    if (!scratch) return;
+    uint32_t *scratch = s_label_scratch;
     lv_obj_t *tmp = lv_canvas_create(NULL);
     lv_canvas_set_buffer(tmp, scratch, LABEL_W, LABEL_H, LV_COLOR_FORMAT_ARGB8888);
     lv_canvas_fill_bg(tmp, lv_color_black(), LV_OPA_TRANSP);
@@ -478,7 +482,6 @@ static void label_draw(void)
     lv_canvas_finish_layer(tmp, &layer);
     lv_obj_delete(tmp);
     label_crop(scratch);
-    heap_caps_free(scratch);
     s_label_mood = (int)s_rim_mood;
     s_label_dirty = false;
 }

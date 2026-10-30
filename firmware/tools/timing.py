@@ -5,7 +5,8 @@
 
 Prints one row per span: calls, average and maximum microseconds since boot or the last reset.
 --reset clears the table after the read (the reply still holds the values read). Spans nest:
-`update` holds the others on the LVGL task, `label` holds `v15_render` and `arc_text`.
+`update` holds the now-playing spans on the LVGL task, `label` holds `v15_render` and `arc_text`;
+`cover_fetch` and `cover_decode` run on the ember task and `rim` on the rim task.
 
 The port is opened with raw termios and DTR/RTS left alone, so opening it does not reset
 the knob. A CINDER1 message lowers the knob's log level to WARN for 30 s.

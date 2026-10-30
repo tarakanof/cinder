@@ -24,10 +24,6 @@ bool ember_client_quiet(void);
 
 /* Any task. A knob or touch input: true when the panel was off, so the input only wakes it and must be dropped (docs/features.md, idle dim and off). */
 bool ember_client_idle_input(dim_wake_t src);
-/* Any task. A wake source that is not input: the mood turning to waiting or error, the OTA face, a demo. */
-void ember_client_idle_wake(dim_wake_t src);
-/* Any task. The idle rules have the panel off: the LVGL task skips rendering. */
-bool ember_client_idle_off(void);
 
 bool ember_client_online(void);
 
@@ -88,6 +84,3 @@ bool ember_client_demo_input(void);
 void ember_client_shown(const char *page, int face);
 /* LVGL task: the act of the scene with this gen has played. */
 void ember_client_demo_act_done(unsigned gen);
-
-/* level on the 0-255 scale; call once after the BSP init. */
-void ember_client_dim_enable(uint8_t current_level);

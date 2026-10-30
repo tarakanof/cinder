@@ -5,9 +5,9 @@
 #include <string.h>
 
 #include "esp_attr.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "page_canvas.h"
 #include "pomo_client.h"
 #include "tool_marks.h"
 #include "usage_client.h"
@@ -29,6 +29,8 @@ LV_FONT_DECLARE(font_digits_96);
 #define TICK_OUT 10
 #define TICK_IN 6
 #define OTHER_MARK 36
+
+_Static_assert(SCREEN_W * SCREEN_H * 2 <= PAGE_CANVAS_BYTES, "the face draws on the page canvas");
 
 static const char *TAG = "usage";
 
@@ -101,17 +103,18 @@ static void destroy(void)
 {
     if (V.root) lv_obj_delete(V.root);
     V.root = NULL;
-    heap_caps_free(V.buf);
+    if (V.buf) page_canvas_give(PAGE_CANVAS_USAGE);
     V.buf = NULL;
 }
 
 static bool build(void)
 {
-    V.buf = heap_caps_calloc(SCREEN_W * SCREEN_H, 2, MALLOC_CAP_SPIRAM);
+    V.buf = page_canvas_take(PAGE_CANVAS_USAGE);
     if (!V.buf) {
-        ESP_LOGW(TAG, "no PSRAM for the face (%d B): staying on the bot", SCREEN_W * SCREEN_H * 2);
+        ESP_LOGW(TAG, "page canvas held by owner %d: staying on the bot", (int)page_canvas_owner());
         return false;
     }
+    memset(V.buf, 0, SCREEN_W * SCREEN_H * 2);
     V.root = plain(V.parent);
     lv_obj_set_size(V.root, SCREEN_W, SCREEN_H);
     lv_obj_set_pos(V.root, 0, 0);

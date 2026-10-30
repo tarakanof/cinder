@@ -21,8 +21,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "improv.h"
+#include "input_route.h"
 #include "ota_client.h"
-#include "chase.h"
+#include "chase_ctl.h"
 #include "screen_snap.h"
 #include "timing.h"
 
@@ -397,10 +398,10 @@ static void op_snapshot(const cl_req_t *r)
 
 static void op_chase(const cl_req_t *r)
 {
-    int st = app_chase_request(r->chase_style, r->chase_fps, r->chase_laps);
+    int st = chase_ctl_request(r->chase_style, r->chase_fps, r->chase_laps);
     for (int i = 0; st == 2 && i < 30; i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        st = app_chase_request(r->chase_style, r->chase_fps, r->chase_laps);
+        st = chase_ctl_request(r->chase_style, r->chase_fps, r->chase_laps);
     }
     if (st == 0) reply_ok(r);
     else reply_err(r, st == 1 ? CL_E_BUSY : st == 2 ? CL_E_NOT_WORKING : CL_E_FAILED);
@@ -410,7 +411,7 @@ static void op_input(const cl_req_t *r)
 {
 #if CONFIG_CINDER_DEV_INPUT
     ESP_LOGW(TAG, "input op: %s x %d (USB dev tool)", CL_INPUT_NAMES[r->input], r->input_n);
-    app_input_inject((int)r->input, r->input_n);
+    input_route_inject((int)r->input, r->input_n);
     reply_ok(r);
 #else
     reply_err(r, CL_E_UNKNOWN_OP);

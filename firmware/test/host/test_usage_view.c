@@ -8,6 +8,7 @@
 
 #include "esp_log.h"
 #include "lvgl.h"
+#include "page_canvas.h"
 #include "pomo_client.h"
 #include "src/display/lv_display_private.h"
 #include "usage_client.h"
@@ -21,6 +22,7 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 static uint16_t s_fb[W * H];
+static uint16_t s_canvas[W * H];
 static int s_areas;
 static long s_px;
 static lv_area_t s_inv[LV_INV_BUF_SIZE];
@@ -41,8 +43,6 @@ bool usage_client_take(unsigned *gen, usage_block_t *out, usage_clock_t *clk)
 }
 
 double pomo_client_now(void) { return s_now; }
-static bool s_heap_fail;
-int host_heap_fail(size_t n) { return s_heap_fail && n >= 400000; }
 int64_t esp_timer_get_time(void) { return (int64_t)(s_now * 1e6); }
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...)
 {
@@ -277,6 +277,7 @@ int main(int argc, char **argv)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    page_canvas_init(s_canvas, sizeof s_canvas);
     usage_view_create(scr);
     s_clk = (usage_clock_t){.have_srv = true, .srv_offset = (double)(T0 + 10000) - s_now, .has_utc_offset = true, .utc_offset = 3600,
                            .fed_at = T0 + 10000 - 5 * 60};
@@ -493,10 +494,18 @@ int main(int argc, char **argv)
     CHECK(!usage_view_hint(), "its 5h window has reset by the knob's clock: hint off");
     usage_view_close();
 
-    s_heap_fail = true;
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "closed: the page canvas is back: %d", (int)page_canvas_owner());
+    CHECK(page_canvas_take(PAGE_CANVAS_WEATHER) != NULL, "a weather bake still running holds the canvas");
     CHECK(!usage_view_input(&(usage_in_t){.taps = 1}, 400) && !usage_view_open(),
-          "no PSRAM for the face: the tap stays the bot's");
-    s_heap_fail = false;
+          "the page canvas is held: the tap stays the bot's");
+    page_canvas_give(PAGE_CANVAS_WEATHER);
+
+    for (int i = 0; i < W * H; i++) s_canvas[i] = 0xFFFF;
+    CHECK(usage_view_input(&(usage_in_t){.taps = 1}, 401) && page_canvas_owner() == PAGE_CANVAS_USAGE, "free again: it opens on the canvas");
+    frame(d, 401);
+    CHECK(s_fb[2 * W + 2] == 0, "the last owner's pixels are cleared: %04x", s_fb[2 * W + 2]);
+    usage_view_close();
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "closing gives it back");
 
     usage_face_t f;
     usage_face(&b.a[1], (double)(T0 + 10000), true, 3600, &f);

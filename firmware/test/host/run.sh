@@ -12,6 +12,7 @@ N="$D/../../components/net_policy"
 O="$D/../../components/ota_policy"
 PR="$D/../../components/panel_req"
 PG="$D/../../components/pages"
+PCV="$D/../../components/page_canvas"
 LS="$D/../../components/link_state"
 CP="$D/../../components/caps"
 RT="$D/../../components/rotation"
@@ -25,6 +26,7 @@ OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cinder_test.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 OUT="$OUT_DIR/t"
 ECL="$D/../../main/ember_client.c"
+DIMC="$D/../../main/dim_ctl.c"
 OTA_CALLS=$(grep -c 'ota_client_checkin_done(' "$ECL" || true)
 OTA_BAD=$(grep 'ota_client_checkin_done(' "$ECL" | grep -vc 'ota_client_checkin_done(step\.ota_status, ' || true)
 if [ "$OTA_CALLS" -eq 0 ] || [ "$OTA_BAD" -ne 0 ]; then
@@ -44,6 +46,11 @@ for CALL in esp_ota_end esp_ota_set_boot_partition; do
     grep -B3 "= $CALL(" "$OCL" | grep -q 'ota_yield(&YIELD_IO);' || WIRING="$WIRING ota_yield-before-$CALL"
 done
 MAINC="$D/../../main/main.c"
+IRC="$D/../../main/input_route.c"
+STC="$D/../../main/stats_task.c"
+SCC="$D/../../main/scene.c"
+MOC="$D/../../main/moments.c"
+CHC="$D/../../main/chase_ctl.c"
 for ARG in true false; do
     body "$MAINC" ota_frame | grep -q "bot_view_rim_hold($ARG);" || WIRING="$WIRING ota_frame-bot_view_rim_hold($ARG)"
 done
@@ -63,53 +70,51 @@ if [ -n "$WIRING" ]; then
 fi
 echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
 IDLE=""
-for FN in knob_cb button_cb touch_cb app_input_inject; do
-    body "$MAINC" "$FN" | grep -qF 'ember_client_idle_input(' || IDLE="$IDLE $FN-feeds-the-idle-clock"
-done
-body "$MAINC" knob_cb | awk '/ember_client_idle_input\(DIM_WAKE_ENCODER\) \|\| pr_wake_held\(&s_wake_press\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
-    IDLE="$IDLE knob_cb-swallows-the-waking-turn-and-turns-in-a-waking-press"
-body "$MAINC" app_input_inject | sed -n 3p | grep -qxF '    if (ember_client_idle_input(kind == 3 || kind >= 5 ? DIM_WAKE_TOUCH : DIM_WAKE_ENCODER)) return;' ||
-    IDLE="$IDLE app_input_inject-swallows-first"
-body "$MAINC" button_cb | awk '/pr_wake_swallow\(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke\)\) return;/ {w = NR} /^    switch \(ev\) \{$/ {s = NR} END {exit !(w && s > w)}' ||
-    IDLE="$IDLE button_cb-swallows-the-whole-waking-press"
-body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_note_input\(\);$/ {n = NR} /pr_wake_swallow\(&s_wake_touch, / {w = NR} /ts_press\(/ {p = NR} END {exit !(n && w > n && p > w)}' ||
-    IDLE="$IDLE touch_cb-notes-the-input-then-swallows-the-whole-waking-touch"
-body "$MAINC" touch_cb | grep -qxF '    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);' ||
-    IDLE="$IDLE touch_cb-only-a-press-counts-as-idle-input-not-pressing"
-body "$MAINC" touch_cb | grep -qxF '    if (code == LV_EVENT_RELEASED && ember_client_idle_off()) code = LV_EVENT_PRESS_LOST;' ||
-    IDLE="$IDLE touch_cb-cancels-a-release-after-the-panel-went-off"
-body "$ECL" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
-body "$ECL" idle_diag_fill | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
-    IDLE="$IDLE idle_diag_fill-reads-state-age-and-wake-in-one-critical-section"
-body "$ECL" idle_state | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
-    IDLE="$IDLE idle_state-credits-the-mood-hold-to-mood"
-[ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
-body "$ECL" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
+body "$DIMC" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
+body "$DIMC" dim_ctl_diag | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
+    IDLE="$IDLE dim_ctl_diag-reads-state-age-and-wake-in-one-critical-section"
+body "$DIMC" idle_locked | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
+    IDLE="$IDLE idle_locked-credits-the-mood-hold-to-mood"
+body "$DIMC" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
-body "$ECL" fade_step | awk '/dim_fade_take\(&s_fade, atomic_exchange\(&s_lit, -1\), idle_state\(\)\)/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /bright_apply\(\);/ {b = NR} END {exit !(x && p > x && b > p)}' ||
+body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_read\(&wake\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
-body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
+! body "$DIMC" fade_step | grep -qE 'idle_state\(\)|idle_wake_log|ESP_LOG' || IDLE="$IDLE fade_step-must-not-log-at-input-rate-on-the-frame-path"
+body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    stats_note_loop\(\);$/ {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
-body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) ember_client_idle_wake(DIM_WAKE_OTA_FACE);' &&
-    body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || s_scene_on) ember_client_idle_wake(DIM_WAKE_DEMO);' &&
+grep -qxF 'void stats_note_loop(void) { atomic_fetch_add_explicit(&s_loop_ticks, 1, memory_order_relaxed); }' "$STC" ||
+    IDLE="$IDLE stats_note_loop-feeds-the-stall-watchdog"
+body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) dim_ctl_wake(DIM_WAKE_OTA_FACE);' &&
+    body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || scene_on()) dim_ctl_wake(DIM_WAKE_DEMO);' &&
     body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
     body "$MAINC" idle_frame | grep -qxF '    if (off) s_last_frame_t = 0;' ||
     IDLE="$IDLE idle_frame-wakes-for-the-OTA-face-and-demos-and-pauses-invalidation"
-body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) ember_client_idle_wake(DIM_WAKE_MOOD);' ||
+body "$ECL" poll_task | grep -qxF '            if (dim_mood_holds(mood) && !dim_mood_holds(last)) dim_ctl_wake(DIM_WAKE_MOOD);' ||
     IDLE="$IDLE poll_task-wakes-when-the-mood-turns-active"
-body "$ECL" bright_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
-    IDLE="$IDLE bright_apply-sets-the-level-then-the-off-flag"
-body "$ECL" fade_step | grep -qxF '    if (idle_state() != s_idle_seen) bright_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
-body "$ECL" idle_state | grep -qF 'if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);' || IDLE="$IDLE idle_state-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
-body "$MAINC" knob_cb | grep -qF 'if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;' ||
-    IDLE="$IDLE knob_cb-a-held-turn-claims-the-press-before-paging"
-grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$MAINC" ||
-    IDLE="$IDLE hold_tick-fires-only-on-an-open-claim"
+body "$DIMC" dim_ctl_apply | awk '/dim_idle_level\(/ {l = NR} /if \(level > 0\) set_brightness_target\(level\);/ {t = NR} /dim_fade_set_off\(&s_fade, idle == DIM_IDLE_OFF\);/ {o = NR} END {exit !(l && t > l && o > t)}' ||
+    IDLE="$IDLE dim_ctl_apply-sets-the-level-then-the-off-flag"
+body "$DIMC" fade_step | grep -qxF '    bool moved = idle != s_idle_seen;' && body "$DIMC" fade_step | grep -qxF '    if (moved) dim_ctl_apply();' || IDLE="$IDLE fade_step-follows-the-idle-clock"
+body "$DIMC" idle_locked | grep -qF 'if (verifying) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_OTA_TRIAL);' || IDLE="$IDLE idle_locked-holds-awake-while-an-OTA-image-verifies-or-the-mood-is-active"
+body "$MAINC" frame_cb | awk '/^    dim_ctl_frame\(\);$/ {d = NR} /^    panel_check_frame\(\);$/ {p = NR} /^    if \(ota_client_render_frozen\(\)\) return;$/ {r = NR} /^    if \(idle_frame\(/ {i = NR} END {exit !(d && p > d && r > p && i > r)}' ||
+    IDLE="$IDLE frame_cb-steps-the-dimmer-before-the-panel-write-and-every-early-return"
+body "$DIMC" fade_start | grep -qxF '    if (s_idle.ready) {' || IDLE="$IDLE fade_start-waits-for-the-first-settings"
+! grep -qE 'fade_step|fade_start|dim_fade_|panel_check_brightness|s_lit|s_idle\b' "$ECL" || IDLE="$IDLE the-network-loop-no-longer-steps-the-fade"
+awk '/taskENTER_CRITICAL/ {l = 1} /taskEXIT_CRITICAL/ {l = 0} l && /ESP_LOG|panel_check_brightness|alloc\(|ember_client_wake/ {bad = 1} END {exit bad}' "$DIMC" || IDLE="$IDLE dim_ctl-no-log-allocation-or-panel-write-under-the-lock"
+for FN in idle_locked fade_floor set_brightness_target; do
+    HELPER=$(body "$DIMC" "$FN")
+    { [ -n "$HELPER" ] && ! printf '%s\n' "$HELPER" | grep -qE 'ESP_LOG|panel_check_brightness|alloc\(|ember_client_wake'; } ||
+        IDLE="$IDLE $FN-runs-under-the-lock-so-no-log-allocation-or-panel-write"
+done
+grep -qxF 'static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }' "$DIMC" &&
+    grep -qxF 'bool ota_client_verifying(void) { return atomic_load(&s_verifying); }' "$OCL" || IDLE="$IDLE idle_ms-and-ota_client_verifying-stay-plain-reads-under-the-lock"
+[ "$(grep -c 'atomic_compare_exchange_strong(&s_press_claim, ' "$IRC")" -eq 3 ] || IDLE="$IDLE every-press-claim-is-a-compare-exchange"
+grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$IRC" ||
+    IDLE="$IDLE hold-fires-only-on-an-open-claim"
 if [ -n "$IDLE" ]; then
     echo "run.sh: FAIL idle wiring:$IDLE" >&2
     exit 1
 fi
-echo "idle wiring: every input path asks the idle clock first and drops the waking input (the whole press or touch), frame_cb feeds the stall watchdog before pausing for off, the OTA face and demos wake, a mood to waiting or error wakes, an OTA image on trial holds the panel on"
+echo "idle wiring: frame_cb feeds the stall watchdog before pausing for off, the OTA face and demos wake, a mood to waiting or error wakes, an OTA image on trial holds the panel on"
 OPTS=""
 body "$MAINC" settings_frame | grep -qxF '    temp_face_set_list(s_ks_lv->wx_faces, s_ks_lv->n_wx_faces);' || OPTS="$OPTS settings_frame-sets-the-weather-face-list"
 body "$MAINC" settings_frame | grep -qxF '    pomo_view_set_colors(s_ks_lv->pomo_focus_rgb, s_ks_lv->pomo_break_rgb);' || OPTS="$OPTS settings_frame-sets-the-pomodoro-colours"
@@ -123,9 +128,9 @@ if [ -n "$OPTS" ]; then
     exit 1
 fi
 echo "app options wiring: settings_frame hands the weather faces, Pomodoro colours and now-playing delay to their pages, the weather page paints through the list, no fixed colours or dim delay are left"
-REFR="$(body "$MAINC" refr_cb)"
+REFR="$(body "$STC" stats_refr_cb)"
 for EV in REFR_START RENDER_START REFR_READY; do
-    grep -qxF "    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_$EV, NULL);" "$MAINC" || WIRING="$WIRING refr_cb-on-$EV"
+    grep -qxF "    lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_$EV, NULL);" "$MAINC" || WIRING="$WIRING refr_cb-on-$EV"
 done
 echo "$REFR" | grep -qxF '        refr_stats_begin(&s_refr, s_frame_kind);' || WIRING="$WIRING refr_stats_begin-at-REFR_START"
 echo "$REFR" | grep -qxF '        refr_stats_render(&s_refr, s_refr_areas, disp->inv_area_joined, n);' || WIRING="$WIRING refr_stats_render-at-RENDER_START"
@@ -136,19 +141,19 @@ in_refr_lock() { awk -v want="$1" '/taskENTER_CRITICAL\(&s_refr_mux\);/ {l=1; e+
     /s_refr_(count|total_us|max_us)/ { if (l) n++; else bad=1 }
     index($0, want) { if (l) w++ } END {print n + 0; exit !(e == 1 && !l && w == 1 && !bad)}'; }
 RN=$(echo "$REFR" | in_refr_lock 'bool drew = refr_stats_end(&s_refr, d);') &&
-    SN=$(body "$MAINC" stats_task | in_refr_lock 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);') ||
+    SN=$(body "$STC" stats_task | in_refr_lock 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);') ||
     WIRING="$WIRING refr-end-and-take-inside-the-s_refr_mux-section"
-[ -n "$WIRING" ] || [ "$(grep -E 's_refr_(count|total_us|max_us)' "$MAINC" | grep -vcE '^static [a-z0-9_]+ s_refr_[a-z_]+(, s_refr_[a-z_]+)*;$')" -eq $((RN + SN)) ] ||
+[ -n "$WIRING" ] || [ "$(grep -E 's_refr_(count|total_us|max_us)' "$STC" | grep -vcE '^static [a-z0-9_]+ s_refr_[a-z_]+(, s_refr_[a-z_]+)*;$')" -eq $((RN + SN)) ] ||
     WIRING="$WIRING refr-counters-only-in-the-refr_cb-and-stats_task-sections"
-STATS="$(body "$MAINC" stats_task)"
+STATS="$(body "$STC" stats_task)"
 echo "$STATS" | grep -qxF '    int failed_logged = 0, refused_logged = 0;' &&
     echo "$STATS" | grep -qxF '        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);' &&
     echo "$STATS" | grep -A1 -F 'if (failed > failed_logged) ESP_LOGE(' | tail -1 | grep -qxF '        failed_logged = failed;' &&
-    [ "$(grep -c 'failed_logged' "$MAINC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts since boot without' "$MAINC")" -eq 1 ] ||
+    [ "$(grep -c 'failed_logged' "$STC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts since boot without' "$STC")" -eq 1 ] ||
     WIRING="$WIRING stats-logs-moment-start-failures-only-when-the-count-grows"
 echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);' &&
     echo "$STATS" | grep -A1 -F 'if (refused > refused_logged) ESP_LOGE(' | tail -1 | grep -qxF '        refused_logged = refused;' &&
-    [ "$(grep -c 'refused_logged' "$MAINC")" -eq 3 ] &&
+    [ "$(grep -c 'refused_logged' "$STC")" -eq 3 ] &&
     body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' &&
     grep -qxF 'static atomic_int s_refused;' "$D/../../main/moment_view.c" && [ "$(grep -c 's_refused' "$D/../../main/moment_view.c")" -eq 3 ] &&
     body "$D/../../main/moment_view.c" moment_view_stats | grep -qxF '    *refused = atomic_load(&s_refused);' ||
@@ -166,11 +171,13 @@ fi
 echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section; moment start failures and refused clouds logged when the count grows"
 DIAGC="$D/../../main/diag.c"
 APP="$(body "$MAINC" app_main)"
-echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -e '    diag_attach_refr(&s_refr, &s_refr_mux);' \
-    -e '    ember_client_start();' -e 'lv_display_add_event_cb(handles.disp, refr_cb' | cut -d: -f2- | sed 's/(.*//' | uniq |
-    tr -d ' \n' | grep -qx 'refr_stats_initdiag_attach_refrember_client_startlv_display_add_event_cb' ||
+echo "$APP" | grep -n -e '    stats_refr_init();' \
+    -e '    ember_client_start();' -e 'lv_display_add_event_cb(handles.disp, stats_refr_cb' | cut -d: -f2- | sed 's/(.*//' | uniq |
+    tr -d ' \n' | grep -qx 'stats_refr_initember_client_startlv_display_add_event_cb' ||
     WIRING="$WIRING refr-init-and-attach-before-ember_client_start-and-refr_cb"
-[ "$(grep -c 'refr_stats_init(' "$MAINC")" -eq 1 ] || WIRING="$WIRING refr_stats_init-once"
+[ "$(body "$STC" stats_refr_init | tail -3 | head -2 | tr -d ' \n')" = 'refr_stats_init(&s_refr,esp_timer_get_time());diag_attach_refr(&s_refr,&s_refr_mux);' ] ||
+    WIRING="$WIRING refr-init-then-attach"
+[ "$(grep -c 'refr_stats_init(' "$STC")" -eq 1 ] && ! grep -q 'refr_stats_init(' "$MAINC" || WIRING="$WIRING refr_stats_init-once"
 WS="$(body "$DIAGC" window_start)"
 REFR_NOW='/^    if / {i = ($0 ~ /^    if \(s_refr\) \{$/); x = ($0 ~ /^    if \(!s_refr\) \{$/)}
     /^    \} else \{$/ {x = i; i = 0} /^    \}$/ {x = 0; i = 0}
@@ -200,7 +207,7 @@ if [ -n "$WIRING" ]; then
 fi
 echo "checkin area window wiring: attached before the ember task; window stamp with reset and sample time with read, each in one s_refr_mux section; inv fields only inside the full block"
 WXC="$D/../../main/weather_client.c"
-body "$WXC" weather_client_get | awk '/xSemaphoreTake\(s_lock/ {lock=1} /xSemaphoreGive\(s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
+body "$WXC" weather_client_get | awk '/taskENTER_CRITICAL\(&s_lock/ {lock=1} /taskEXIT_CRITICAL\(&s_lock/ {lock=0} /esp_timer_get_time\(/ {t++; if (!lock) bad=1} END {exit !(t == 1 && !bad)}' ||
     WIRING="$WIRING weather_client_get-reads-the-timer-under-the-lock"
 body "$WXC" poll_task | grep -qxF '    static EXT_RAM_BSS_ATTR wx_obs_t obs;' || WIRING="$WIRING legacy-weather-obs-in-PSRAM"
 if [ -n "$WIRING" ]; then
@@ -257,7 +264,7 @@ body "$TFC" temp_face_turn | grep -qF 'if (wx_faces_turn(&s_faces, wx_job_face(&
     [ "$(grep -c 'wx_job_cut(' "$TFC")" -eq 2 ] || WIRING="$WIRING turn-and-demo-pick-cut-only-on-a-new-face"
 body "$TFC" act | awk '/if \(a & WX_DO_ARRIVE\) \{/ {on = 1} on && /s_t = 0;/ {t = 1} on && /s_tick = -1;/ {k = 1} END {exit !(t && k)}' ||
     WIRING="$WIRING act-replays-the-arrival"
-body "$MAINC" page_weather_input | grep -qF 'if (in->detents) temp_face_turn(in->detents);' ||
+body "$TFC" page_weather_input | grep -qF 'if (in->detents) temp_face_turn(in->detents);' ||
     WIRING="$WIRING weather-page-turns-switch-faces"
 body "$TFC" temp_face_update | grep -qF 'paint(&t, obs, offline, s_job.opa);' || WIRING="$WIRING update-paints-at-the-job-opa"
 for ACT in 'if (a & WX_DO_RELEASE) release();' 'wx_job_acquired(&s_job, ok);' 'if (a & WX_DO_DETACH) detach();' \
@@ -559,7 +566,8 @@ MVC="$D/../../main/moment_view.c"
 fbody() { awk -v f="$2" '$0 ~ "^static __attribute__\\(\\(noinline\\)\\) [a-z_]+ " f "\\(" {on=1} on {print} on && /^}/ {exit}' "$1"; }
 UGL=""
 body "$MAINC" page_bot_show | awk '/^    if \(!on\) \{$/ {o = 1; next} o && /^    }$/ {o = 0} o && /^        usage_view_close\(\);$/ {c = 1} END {exit !c}' || UGL="$UGL page_bot_show-false-closes-the-usage-screens"
-body "$MAINC" pages_pause | grep -qxF '    pages_hide_all();' && body "$MAINC" ota_frame | grep -qxF '            pages_pause();' || UGL="$UGL the-OTA-face-hides-every-page"
+body "$MAINC" ota_frame | awk '/^            pages_hide_all\(\);$/ {h = NR} /^            page_fx_pause\(\);$/ {f = NR} /^            overlays_pause\(\);$/ {o = NR} END {exit !(h && f == h + 1 && o == f + 1)}' ||
+    UGL="$UGL the-OTA-face-hides-every-page-then-stops-the-wipe-and-the-reset-screen"
 body "$MAINC" page_bot_input | awk '/^    if \(usage_view_input\(&u, t\)\) return;$/ {r = NR} /bot_(push|look|set_mood_user)\(/ && !b {b = NR} /^    for \(int n = in->pushes \+ in->touches; n > 0; n--\) bot_push\(&s_bot, t\);$/ {p = NR} END {exit !(r && b > r && p > r)}' ||
     UGL="$UGL page_bot_input-gives-the-screens-every-input-they-take-then-falls-through-to-the-bot"
 body "$MAINC" page_bot_frame | awk '/^    bot_under_usage\(usage_view_frame\(t\)\);$/ {u = NR} /^    if \(s_usage_on\) return;$/ {r = NR} /bot_view_|bot_wait_restart\(/ && !b {b = NR} /^    bot_view_set_hint\(usage_view_hint\(\)\);$/ {h = NR} END {exit !(u && r > u && b > r && h > r)}' ||
@@ -571,6 +579,32 @@ if [ -n "$UGL" ]; then
     echo "run.sh: FAIL usage screens wiring:$UGL" >&2
     exit 1
 fi
+CNV=""
+PVC="$D/../../main/pomo_view.c"
+UVC="$D/../../main/usage_view.c"
+NCV="$D/../../main/np_cover_view.c"
+NVC="$D/../../main/nowplaying_view.c"
+echo "$APP" | awk '/^        page_canvas_init\(page_canvas, PAGE_CANVAS_BYTES\);$/ {i = NR} /^        bot_view_create\(s_bot_page\);$/ {b = NR} END {exit !(i && b > i)}' &&
+    [ "$(grep -c 'page_canvas_init(' "$MAINC")" -eq 1 ] || CNV="$CNV app_main-lends-the-canvas-before-the-views"
+body "$TFC" release | awk '/^    detach\(\);$/ {d = NR} /^    page_canvas_give\(PAGE_CANVAS_WEATHER\);$/ {g = NR} /^    wx_job_released\(&s_job\);$/ {r = NR} END {exit !(d && g > d && r > g)}' &&
+    [ "$(grep -c 'page_canvas_give(' "$TFC")" -eq 1 ] || CNV="$CNV weather-gives-only-in-release-after-the-detach"
+body "$PVC" ring_detach | awk '/^    lv_canvas_set_buffer\(s_ring, s_none, / {s = NR} /^    page_canvas_give\(PAGE_CANVAS_POMO\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV pomo-repoints-the-canvas-before-the-give"
+body "$UVC" destroy | awk '/lv_obj_delete\(V.root\);/ {d = NR} /page_canvas_give\(PAGE_CANVAS_USAGE\);/ {g = NR} END {exit !(d && g > d)}' ||
+    CNV="$CNV usage-deletes-the-canvas-before-the-give"
+body "$NCV" buf_free | awk '/lv_image_set_src\(s_img, NULL\);/ {s = NR} /^    buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV cover-face-drops-the-image-source-before-the-give"
+body "$NVC" free_pictures | awk '/lv_image_set_src\(s_face, NULL\);/ {s = NR} /^    face_buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV legacy-face-drops-the-image-source-before-the-give"
+body "$NCV" set_buf | awk '/^    lv_image_set_src\(s_img, &M->img_dsc\);$/ {s = NR} /^    if \(b != s_buf\) buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV cover-face-repoints-the-image-before-it-drops-the-old-buffer"
+body "$NVC" set_face_buf | awk '/^    lv_image_set_src\(s_face, &s_face_dsc\);$/ {s = NR} /^    if \(buf != s_face_buf\) face_buf_drop\(\);$/ {g = NR} END {exit !(s && g > s)}' ||
+    CNV="$CNV legacy-face-repoints-the-image-before-it-drops-the-old-buffer"
+if [ -n "$CNV" ]; then
+    echo "run.sh: FAIL page canvas wiring:$CNV" >&2
+    exit 1
+fi
+echo "page canvas wiring: lent before the views exist, every owner lets go of the memory before it gives the canvas back, the weather page only in release"
 ORB=""
 body "$MAINC" page_bot_frame | awk '/^    if \(s_usage_on\) return;$/ {r = NR} /^    if \(wx_shift_tick\(&s_bot_shift, &WX_SHIFT_ORBIT, f->dt\)\) bot_shift_root\(\);$/ {o = NR} END {exit !(r && o == r + 1)}' ||
     ORB="$ORB page_bot_frame-steps-the-orbit-only-on-screen"
@@ -596,32 +630,11 @@ for ARG in true false; do
     body "$MAINC" ota_frame | grep -qF "moment_view_hold($ARG);" || WIRING="$WIRING ota_frame-moment_view_hold($ARG)"
 done
 body "$MAINC" ota_frame | grep -qF 'moment_unact(now_s());' || WIRING="$WIRING ota_frame-ends-the-act"
-fbody "$MAINC" page_tick | awk '/moment_tick\(t, have_wx \? &wx : NULL, calm, bot_page\);/ {m = NR} /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && m < p)}' ||
-    WIRING="$WIRING page_tick-runs-moment_tick-before-the-chase-and-the-pose"
-fbody "$MAINC" page_tick | awk '/^    else if \(!ds\.view_on && s_scene_resume_at == 0\) moment_tick\(/ {m = NR} /^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && r == m + 1 && r < p)}' ||
+fbody "$MAINC" page_tick | awk '/moments_tick\(t, have_wx \? &wx : NULL, calm, bot_page\);/ {m = NR} /chase_ctl_frame\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && g < p)}' ||
+    WIRING="$WIRING page_tick-runs-moments_tick-before-the-chase-and-the-pose"
+fbody "$MAINC" page_tick | awk '/^    else if \(!ds\.view_on && !scene_resuming\(\)\) moments_tick\(/ {m = NR} /^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && r == m + 1 && r < p)}' ||
     WIRING="$WIRING page_tick-reads-around-a-moment-before-the-pose"
-MT="$(fbody "$MAINC" moment_tick)"
-for L in 'if (!s_ks_lv->weather_moments && !moment_view_busy()) moment_view_release();' 'if (moment_view_busy() && (!bot_page || !s_ks_lv->weather_moments)) {' '} else if (moment_view_busy() && (s_bot.mood != s_moment_mood || calm)) {' \
-    'moment_view_abort(t);' 'moment_view_stop();' '.blocked = moment_view_busy() || music_view_busy() || mm_recent(&s_mm, t) || calm || s_chase.phase != GC_IDLE,' '.on = s_ks_lv->weather_moments,' \
-    '.every_s = s_ks_lv->weather_every_min * 60};' '.bot_mood = (int)s_bot.mood, .shown = bot_page && !s_bot.asleep,' 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' 's_moment_mood = s_bot.mood;' \
-    'wxm_shown(&s_wxm, &m, t);' 'bot_act_begin(&s_bot, t);' 'double tau = moment_view_poll(t);' \
-    'while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);' 's_chase.hold = moment_view_busy();'; do
-    printf '%s\n' "$MT" | grep -qF "$L" || WIRING="$WIRING moment_tick:$L"
-done
-[ "$(grep -c 'wxm_shown(' "$MAINC")" -eq 1 ] && printf '%s\n' "$MT" | grep -B1 -F 'wxm_shown(&s_wxm, &m, t);' | head -1 | grep -qF 'if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {' ||
-    WIRING="$WIRING moment_tick-records-a-moment-only-once-it-started"
 body "$MVC" moment_view_start | grep -qF 's_retry_at = t + MV_RETRY_S;' || WIRING="$WIRING start-retries-a-failed-allocation-later"
-[ "$(printf '%s\n' "$MT" | grep -cF 'moment_unact(t);')" -eq 2 ] || WIRING="$WIRING moment_tick-ends-the-act-on-stop-and-abort"
-MC="$(body "$MAINC" moment_cue)"
-for L in 'case WXM_GLIDE: bot_act_gaze(&s_bot, c->a, c->b, true, t); break;' 'case WXM_SACCADE: bot_act_gaze(&s_bot, c->a, c->b, false, t); break;' \
-    'case WXM_LID: bot_act_lid(&s_bot, c->a, c->b, t); break;' 'case WXM_BLINK: bot_act_blink(&s_bot, c->a, t); break;' \
-    'bot_act_eyes(&s_bot, c->eyes == WXM_EYES_ROUND ? BOT_EYES_ROUND : c->eyes == WXM_EYES_HAPPY ? BOT_EYES_HAPPY : -1, t);' \
-    'case WXM_HOP: bot_act_hop(&s_bot, t); break;' 'bot_act_end(&s_bot, c->a > 0, c->b, t);'; do
-    printf '%s\n' "$MC" | grep -qF "$L" || WIRING="$WIRING moment_cue:$L"
-done
-body "$MAINC" moment_unact | grep -qF 'if (s_acting && s_bot.mood != s_moment_mood) bot_act_drop(&s_bot, t);' &&
-    body "$MAINC" moment_unact | grep -qF 'else if (s_acting) bot_act_end(&s_bot, true, 0.3, t);' && body "$MAINC" moment_unact | grep -qF 's_cue = s_cue_n;' ||
-    WIRING="$WIRING moment_unact-ends-the-act-and-the-cues"
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
 body "$MAINC" page_bot_frame | grep -qF 'bot_view_chase(chase->chasing || moment_view_busy() || music_view_busy(), chase->chasing && chase->label_opa > 0);' ||
     WIRING="$WIRING page_bot_frame-merges-the-eyes-into-one-area-during-a-moment"
@@ -638,9 +651,10 @@ done
 body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);' &&
     grep -qxF 'static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];' "$BVC" &&
     [ "$(grep -c 'offline_glyph_raster(' "$BVC")" -eq 1 ] || WIRING="$WIRING offline-glyph-rastered-once-into-PSRAM"
-body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'wxm_init(&s_wxm);' ||
+body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'moments_init(&(moments_ctx_t){.bot = &s_bot, .ks = s_ks_lv});' &&
+    body "$MOC" moments_init | grep -qxF '    wxm_init(&s_wxm);' && body "$MOC" moments_init | grep -qxF '    mm_init(&s_mm);' ||
     WIRING="$WIRING app_main-creates-the-moments"
-grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MAINC" || WIRING="$WIRING trigger-in-PSRAM"
+grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MOC" || WIRING="$WIRING trigger-in-PSRAM"
 [ "$(grep -c 'wxm_paint(' "$MVC")" -eq 1 ] && body "$MVC" moment_bake_task | grep -qF 'atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' ||
     WIRING="$WIRING wxm_paint-only-in-the-bake-task-with-the-yield-hook"
 body "$MVC" moment_bake_task | awk '/s_yield_at = t0;/ {y = NR} /wxm_paint\(/ {p = NR} END {exit !(y && p > y)}' &&
@@ -681,33 +695,16 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL weather moment wiring:$WIRING" >&2
     exit 1
 fi
-echo "weather moment wiring: OTA hold, trigger and cues before the pose, aborts, chase hold, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
-MUT="$(fbody "$MAINC" music_tick)"
-for L in 'if (np_client_get(&s_mm_np, &s_mm_gen))' 'mm_in_t in = {.t = t, .have = s_mm_np.have && on, .playing = playing,' 'bool playing = s_mm_np.have && s_mm_np.info.state == NP_PLAYING;' \
-    'if (music_view_busy() && (!on || !bot_page)) {' 'music_view_stop();' \
-    '} else if (music_view_busy() && (s_bot.mood != s_mm_mood || calm || offline || !playing)) {' 'music_view_abort(t);' \
-    '.rest = moment_mood(s_bot.mood) == WXM_REST, .shown = bot_page && !s_bot.asleep,' \
-    '.blocked = !on || offline || calm || moment_view_busy() || music_view_busy() || s_chase.phase != GC_IDLE,' '.other_at = s_wxm.last_at};' \
-    's_mm_mood = s_bot.mood;' 'bot_act_begin(&s_bot, t);' 'double tau = music_view_poll(t);' \
-    'if (c[s_mm_cue].op == MM_HAPPY) bot_act_eyes(&s_bot, BOT_EYES_HAPPY, t);' 'if (music_view_busy()) s_chase.hold = true;'; do
-    printf '%s\n' "$MUT" | grep -qF "$L" || WIRING="$WIRING music_tick:$L"
-done
-[ "$(grep -c 'mm_shown(' "$MAINC")" -eq 1 ] && printf '%s\n' "$MUT" | grep -B1 -F 'mm_shown(&s_mm, t);' | head -1 | grep -qF 'if (mm_tick(&s_mm, &in) && music_view_start(t)) {' ||
-    WIRING="$WIRING music_tick-records-a-moment-only-once-it-started"
-[ "$(printf '%s\n' "$MUT" | grep -cF 'music_unact(t);')" -eq 3 ] || WIRING="$WIRING music_tick-ends-the-act-on-stop-abort-and-the-end-cue"
-body "$MAINC" music_unact | grep -qxF '    if (s_mm_acting && s_bot.mood != s_mm_mood) bot_act_drop(&s_bot, t);' &&
-    body "$MAINC" music_unact | grep -qxF '    else if (s_mm_acting) bot_act_end(&s_bot, true, 0.3, t);' || WIRING="$WIRING music_unact-ends-the-act"
+echo "weather moment wiring: OTA hold, ticks before the chase and the pose, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
 fbody "$MAINC" page_tick | awk '/^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR}
-    /^    music_tick\(t, calm, offline, bot_page, !s_scene_on && !ds\.view_on && s_scene_resume_at == 0\);$/ {m = NR}
-    /gc_tick\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && m < p)}' ||
-    WIRING="$WIRING page_tick-runs-music_tick-after-the-weather-moment-before-the-chase-and-the-pose"
+    /^    moments_music_tick\(t, calm, offline, bot_page, !scene_on\(\) && !ds\.view_on && !scene_resuming\(\)\);$/ {m = NR}
+    /chase_ctl_frame\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && g < p)}' ||
+    WIRING="$WIRING page_tick-runs-the-music-tick-after-the-weather-moment-before-the-chase-and-the-pose"
 fbody "$MAINC" page_tick | awk '/^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} /^    f\.pose\.eye_dy -= music_view_eye_px\(t\) \/ bot_view_radius_px\(\);$/ {e = NR}
     /^    pages_frame\(&s_nav, &f\);$/ {p = NR} END {exit !(s && e == s + 1 && p > e)}' || WIRING="$WIRING page_tick-adds-the-bob-to-the-pose-before-the-frame"
 for L in 'music_view_hold(true);' 'music_unact(now_s());' 'music_view_hold(false);'; do
     body "$MAINC" ota_frame | grep -qxF "            $L" || body "$MAINC" ota_frame | grep -qxF "        $L" || WIRING="$WIRING ota_frame:$L"
 done
-[ "$(body "$MAINC" scene_start | grep -A3 -xF '    if (music_view_busy()) {' | tr -d ' \n')" = 'if(music_view_busy()){music_view_stop();music_unact(t);}' ] ||
-    WIRING="$WIRING scene_start-stops-the-music-moment"
 [ "$(body "$MAINC" page_bot_frame | tail -3 | head -2 | tr -d ' \n')" = 'music_view_frame(t);moment_view_frame(t);' ] ||
     WIRING="$WIRING page_bot_frame-draws-the-music-moment-before-the-weather-moment"
 NPC="$D/../../main/nowplaying_client.c"
@@ -717,7 +714,7 @@ if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL music moment wiring:$WIRING" >&2
     exit 1
 fi
-echo "music moment wiring: trigger, stop, abort and act in music_tick after the weather moment, the bob on the pose, OTA hold, demo stop, draw order, the now-playing log outside its lock"
+echo "music moment wiring: the tick after the weather moment, the bob on the pose, OTA hold, draw order, the now-playing log outside its lock"
 body "$ECL" poll_task | awk '/^        demo_mark_ready\(\);$/ {r = NR} /np_client_service\(/ {n = NR} END {exit !(r && n && r < n)}' ||
     WIRING="$WIRING demo-ready-before-the-art-fetch"
 body "$ECL" apply_view | awk '/np_client_feed\(/ {n++} /demo_flags\(/ {if (n) {a++; if ($0 == "    demo_flags(want, want && e->quiet);") ga++} else {b++; if ($0 == "    if (want) demo_flags(true, e->quiet);") gb++}}
@@ -737,56 +734,59 @@ done
     WIRING="$WIRING apply_view-marks-a-demo-np-block"
 [ "$(body "$ECL" demo_sync | awk '/^    if \(P->vp\.legacy \|\| !P->vs\.have_view \|\| P->vs\.unsupported\) \{$/ {on = 1; next} on && /^    }$/ {exit} on' | tr -d ' \n')" = \
     'P->demo_gen=gen;np_client_drop_demo();demo_flags(false,false);return;' ] || WIRING="$WIRING demo_sync-early-return-drops-the-demo-np-block-and-clears-the-demo-flags"
-printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /(^|[^a-z_.>])on[ \t]*([-+*\/%&|^]|<<|>>)?=([^=]|$)/ {n++; if ($0 == "    on = mm_block_on(on, s_mm_np.demo);") o = NR}
-    /\(!on \|\| !bot_page\)/ && !u {u = NR} END {exit !(k && n == 1 && o == k + 1 && u > o)}' || WIRING="$WIRING music_tick-ignores-a-demo-np-block"
-[ "$(grep -c 'atomic_store(&s_quiet_dim, ' "$ECL")" -eq 1 ] &&
-    body "$ECL" apply_view | grep -qxF '    atomic_store(&s_quiet_dim, demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
+[ "$(grep -c 'dim_ctl_quiet(' "$ECL")" -eq 1 ] &&
+    body "$ECL" apply_view | grep -qxF '    dim_ctl_quiet(demo_quiet_dim(playing, atomic_load(&s_quiet)));' ||
     WIRING="$WIRING quiet-dim-only-in-apply_view"
-[ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 3 ] || WIRING="$WIRING three-scene_gate-call-sites"
+[ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 2 ] && [ "$(grep -c 'scene_gate(t, ' "$SCC")" -eq 1 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
     WIRING="$WIRING page_tick-gates-its-input"
-body "$MAINC" scene_frame | sed -n 3p | grep -qxF '    if (scene_gate(t, inputs_pending())) drop_inputs();' || WIRING="$WIRING scene_frame-gates-first"
-body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
+body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
-body "$MAINC" scene_frame | grep -qxF '    } else if (ended && (s_scene_gate.on || (!st.playing && !timed))) {' || WIRING="$WIRING scene_frame-resume-branch"
-body "$MAINC" scene_start | grep -qxF '    demo_gate_start(&s_scene_gate);' || WIRING="$WIRING scene_start-clears-the-gate"
-body "$MAINC" scene_start | grep -qxF '    s_scene_half = s_half;' && body "$MAINC" scene_start | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
+body "$CHC" chase_ctl_pause | grep -qxF '    *saved_half = s_half;' && body "$CHC" chase_ctl_pause | tail -2 | head -1 | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
     WIRING="$WIRING scene_start-pauses-the-chase"
-body "$MAINC" scene_end | awk '/gc_restore\(&s_chase, &s_scene_chase, / {r = NR} /^    gc_half_chase_restore\(&s_half, &s_scene_half\);$/ {h = NR} END {exit !(r && h > r)}' ||
+body "$CHC" chase_ctl_restore | awk '/gc_restore\(&s_chase, saved, saved_t, t\);/ {r = NR} /^    gc_half_chase_restore\(&s_half, saved_half\);$/ {h = NR} END {exit !(r && h > r)}' ||
     WIRING="$WIRING scene_end-restores-the-half-chase"
-fbody "$MAINC" page_tick | grep -qxF '    if (s_scene_on && s_scene_act.kind == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);' ||
+fbody "$MAINC" page_tick | grep -qxF '    if (scene_on() && scene_act_kind() == DEMO_ACT_ASLEEP) bot_sleep(&s_bot, t);' ||
     WIRING="$WIRING page_tick-asleep-act-sleeps"
-body "$MAINC" scene_end | grep -qxF '    else if (s_scene_mood0 == BOT_SLEEPY) bot_sleep_in(&s_bot, s_scene_sleep_in, t);' &&
-    body "$MAINC" scene_start | grep -qxF '    s_scene_sleep_in = bot_asleep_in(&s_bot, t);' &&
-    body "$MAINC" scene_start | tail -2 | head -1 | grep -qxF '    if (!s_bot.asleep || b->act.kind == DEMO_ACT_SLEEPY) bot_sleep_in(&s_bot, INFINITY, t);' &&
-    body "$MAINC" scene_end | grep -qF 'bool slept = s_scene_act.kind == DEMO_ACT_SLEEPY || s_scene_act.kind == DEMO_ACT_ASLEEP;' ||
-    WIRING="$WIRING scene_end-wakes-after-asleep"
-fbody "$MAINC" page_tick | grep -qxF '    int req = s_scene_on ? s_scene_chase_req : atomic_exchange(&s_chase_req, -1);' &&
-    [ "$(grep -c 'atomic_store(&s_chase_req, ' "$MAINC")" -eq 1 ] || WIRING="$WIRING server-chase-deferred-during-a-scene"
-fbody "$MAINC" page_tick | grep -qxF '    atomic_store(&s_chase_status, s_scene_on ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
-    body "$MAINC" scene_start | sed -n 3,4p | tr -d '\n' | grep -qxF '    s_scene_on = true;    atomic_store(&s_chase_status, 1);' &&
-    [ "$(grep -c 'atomic_store(&s_chase_status, ' "$MAINC")" -eq 2 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
-[ "$(fbody "$MAINC" page_tick | grep -A10 -xF '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);')" = "$(printf '%s\n' \
+body "$CHC" chase_ctl_frame | grep -qxF '    int req = in->scene ? in->scene_req : atomic_exchange(&s_chase_req, -1);' &&
+    [ "$(grep -c 'atomic_store(&s_chase_req, ' "$CHC")" -eq 1 ] &&
+    fbody "$MAINC" page_tick | grep -qxF '    chase_ctl_in_t ci = {.t = t, .glint = glint, .calm = calm, .scene = scene_on(), .scene_req = scene_chase_take(), .eyes = s_last_pose.eyes};' &&
+    fbody "$MAINC" page_tick | grep -qxF '    bool glint = (pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg);' || WIRING="$WIRING server-chase-deferred-during-a-scene"
+body "$CHC" chase_ctl_frame | grep -qxF '    atomic_store(&s_chase_status, in->scene ? 1 : !glint ? 2 : s_chase.phase != GC_IDLE ? 1 : 0);' &&
+    body "$SCC" scene_start | sed -n 3,4p | tr -d '\n' | grep -qxF '    s_scene_on = true;    chase_ctl_status_busy();' &&
+    [ "$(grep -c 'atomic_store(&s_chase_status, ' "$CHC")" -eq 2 ] || WIRING="$WIRING chase-request-busy-during-a-scene"
+[ "$(body "$CHC" chase_ctl_frame | grep -A10 -xF '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);')" = "$(printf '%s\n' \
     '        gc_aim_t aim = gc_half_chase_step(&s_half, psi, CHASE_LEAD_DEG, &h, &deg);' '        if (!h.follow) {' \
-    '            bot_hold_gaze(&s_bot, t + 0.5);' '            if (h.blink) bot_blink(&s_bot, t);' '        }' '        if (aim == GC_AIM_SNAP) {' \
-    '            if (s_bot.tracking) bot_track_end(&s_bot, t);' '            bot_look_still(&s_bot, chase_gaze(&ref, 0, chase->orbit), 0, t);' \
-    '        } else if (aim == GC_AIM_TRACK) {' '            chase_track(&ref, deg, chase->orbit, t);' '        }')" ] && [ "$(grep -c 'gc_half_chase_step(' "$MAINC")" -eq 1 ] && ! grep -q 's_half\.' "$MAINC" ||
+    '            bot_hold_gaze(bot, t + 0.5);' '            if (h.blink) bot_blink(bot, t);' '        }' '        if (aim == GC_AIM_SNAP) {' \
+    '            if (bot->tracking) bot_track_end(bot, t);' '            bot_look_still(bot, chase_gaze(&ref, 0, chase->orbit), 0, t);' \
+    '        } else if (aim == GC_AIM_TRACK) {' '            chase_track(bot, &ref, deg, chase->orbit, t);' '        }')" ] && [ "$(grep -c 'gc_half_chase_step(' "$CHC")" -eq 1 ] && ! grep -q 's_half\.' "$CHC" ||
     WIRING="$WIRING half-chase-aims-through-gc_half_chase_step"
+body "$CHC" chase_ctl_orbit_start | grep -qxF '    if (xTaskCreatePinnedToCoreWithCaps(orbit_task, "orbit", 3328, NULL, 1, &s_orbit_task, 1, MALLOC_CAP_SPIRAM) != pdPASS)' ||
+    WIRING="$WIRING orbit-task-stack-in-PSRAM"
 body "$MAINC" ota_frame | awk '/^            s_ota_paused = true;$/ {p = NR} /^            ember_client_demo_input\(\);$/ {i = NR}
-    /^            if \(s_scene_on\) scene_end\(now_s\(\)\);$/ {e = NR} /^            s_scene_resume_at = 0;$/ {r = NR} /^            pages_pause\(\);$/ {q = NR}
+    /^            if \(scene_on\(\)\) scene_end\(now_s\(\)\);$/ {e = NR} /^            scene_resume_cancel\(\);$/ {r = NR} /^            pages_hide_all\(\);$/ {q = NR}
     END {exit !(p && i == p + 1 && e == i + 1 && r == e + 1 && q == r + 1)}' || WIRING="$WIRING ota-ends-a-playing-or-offered-demo"
+! grep -qE 's_(scene_|chase|half|cue|acting|moment_mood|mm_|wxm|orbit)|\b(gc|wxm|mm)_[a-z_]+\(' "$MAINC" || WIRING="$WIRING scene-moment-and-chase-state-stays-behind-their-seams"
+! grep -qE '\bs_(wipe|dots|reset_|hold_|day_ui|ctl_batch)|\b(day_ui|ctl_batch|lv_arc)_[a-z_]+\(' "$MAINC" || WIRING="$WIRING page-effects-overlays-and-page-ops-stay-behind-their-seams"
+PFC="$D/../../main/page_fx.c"
+OVC="$D/../../main/overlays.c"
+grep -qxF 'static EXT_RAM_BSS_ATTR double s_wipe_t0, s_dots_until;' "$PFC" && grep -qxF 'static EXT_RAM_BSS_ATTR lv_obj_t *s_hold_layer, *s_hold_arc, *s_hold_label;' "$OVC" &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR const char *s_hold_text;' "$OVC" && grep -qxF 'static EXT_RAM_BSS_ATTR int s_hold_pct = -1;' "$OVC" &&
+    grep -qxF 'static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;' "$D/../../main/day_view.c" && grep -qxF '    static EXT_RAM_BSS_ATTR day_snapshot_t snap;' "$D/../../main/day_view.c" &&
+    grep -qxF '    static EXT_RAM_BSS_ATTR day_model_t m;' "$D/../../main/day_view.c" && grep -qxF 'static EXT_RAM_BSS_ATTR ctl_batch_t s_ctl_batch;' "$D/../../main/controls_page.c" &&
+    grep -qxF '    static EXT_RAM_BSS_ATTR ctl_state_t st;' "$D/../../main/controls_page.c" || WIRING="$WIRING moved-page-state-stays-in-PSRAM"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL demo scene wiring:$WIRING" >&2
     exit 1
 fi
-echo "demo scene wiring: ready before the art fetch, demo view and quiet flags set together and cleared after the now-playing feed, the demo np block marked, dropped on an early demo_sync and ignored by music_tick, flags used nowhere else, quiet dim, three gates, resume branch, gate and chase per scene, asleep act, chase requests busy from scene_start, half chase through gc_half_chase_step, OTA ends a playing or offered demo"
+echo "demo scene wiring: ready before the art fetch, demo view and quiet flags set together and cleared after the now-playing feed, the demo np block marked, dropped on an early demo_sync, flags used nowhere else, quiet dim, three gates, the half chase saved and put back, asleep act, chase requests busy from scene_start, half chase through gc_half_chase_step, OTA ends a playing or offered demo, no scene, moment or chase state in main.c (the rest in test_scene)"
 body "$MAINC" page_bot_show | grep -qxF '    if (on && lv_obj_has_flag(s_bot_page, LV_OBJ_FLAG_HIDDEN)) s_bot_shown = true;' ||
     WIRING="$WIRING page_bot_show-flags-hidden-to-shown"
 body "$MAINC" page_bot_frame | awk '/^    if \(ember_host_lead_new\(&s_wait_host, &host\)\) bot_wait_restart\(&s_bot, t, true\);$/ {r = NR} /^    else if \(s_bot_shown\) bot_wait_restart\(&s_bot, t, false\);$/ {e = NR} /^    s_bot_shown = false;$/ {c = NR} /^    s_wait_host = host;$/ {h = NR} END {exit !(r && e == r + 1 && c == r + 2 && h == r + 3)}' ||
     WIRING="$WIRING page_bot_frame-latches-a-new-lead-restart-not-a-shown-one"
-fbody "$MAINC" page_tick | awk '/^    bot_wait_scene\(&s_bot, s_scene_on \? s_scene_n : 0, t\);$/ {d = NR} /^    if \(s_scene_on && s_scene_act\.kind == DEMO_ACT_ASLEEP\) bot_sleep\(/ {m = NR} END {exit !(d && m == d + 1)}' ||
+fbody "$MAINC" page_tick | awk '/^    bot_wait_scene\(&s_bot, scene_on\(\) \? scene_n\(\) : 0, t\);$/ {d = NR} /^    if \(scene_on\(\) && scene_act_kind\(\) == DEMO_ACT_ASLEEP\) bot_sleep\(/ {m = NR} END {exit !(d && m == d + 1)}' ||
     WIRING="$WIRING page_tick-sets-the-demo-scene-before-the-mood"
-body "$MAINC" scene_start | grep -qxF '    if (!++s_scene_n) s_scene_n = 1;' || WIRING="$WIRING scene_start-numbers-the-scene"
+body "$SCC" scene_start | grep -qxF '    if (!++s_scene_n) s_scene_n = 1;' || WIRING="$WIRING scene_start-numbers-the-scene"
 body "$ECL" view_host | grep -qxF '    ember_host_lead_info(v->source, v->lead, v->hosts, v->lead_project, v->waiting, v->done, host);' ||
     WIRING="$WIRING view_host-fills-lead-and-count"
 if [ -n "$WIRING" ]; then
@@ -849,6 +849,7 @@ cc $CFLAGS -I"$HW" -I"$J" "$HW/hwt_line.c" "$J/cJSON.c" "$D/test_hwt.c" -lm -o "
 cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 cc $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
 cc $CFLAGS -I"$SS/include" "$SS/span_stats.c" "$D/test_span_stats.c" -o "${OUT}_span_stats"
+cc $CFLAGS -I"$PCV/include" "$PCV/page_canvas.c" "$D/test_page_canvas.c" -o "${OUT}_page_canvas"
 cc $CFLAGS -I"$G/include" "$G/touch_swipe.c" "$D/test_swipe.c" -lm -o "${OUT}_swipe"
 cc $CFLAGS -I"$G/include" -I"$V/include" -I"$J" "$G/cfg.c" "$V/improv.c" "$V/cinder_line.c" "$J/cJSON.c" \
     "$D/test_provision.c" -lm -o "${OUT}_provision"
@@ -918,17 +919,20 @@ if [ -d "$LV" ]; then
     mkdir -p "$OUT_DIR/lv"
     find "$LV/src" -name '*.c' -print0 | LVDEF="$LVDEF" LV="$LV" LVO="$OUT_DIR/lv" xargs -0 -P 8 -n 1 \
         sh -c 'cc -std=c11 -O1 -w $LVDEF -I"$LV" -c "$1" -o "$LVO/$(printf "%s" "$1" | tr / _).o"' sh
-    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" -I"$LS/include" -I"$D/idf_stubs" "$D/../../main/bot_view.c" "$D/../../main/moment_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
+    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" -I"$LS/include" -I"$SS/include" -I"$D/idf_stubs" "$D/../../main/bot_view.c" "$D/../../main/moment_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
         "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
         "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$LS/join_label.c" "$D/../../main/join_view.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
-    cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$SS/include" -I"$J" \
-        "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
+    cc $CFLAGS $LVDEF -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$SS/include" -I"$PCV/include" -I"$J" \
+        "$PCV/page_canvas.c" "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
         "$G/touch_swipe.c" "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"
-    cc $CFLAGS $FPC $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
-        -I"$NP/include" -I"$J" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" \
+    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
+        -I"$NP/include" -I"$PCV/include" -I"$J" "$PCV/page_canvas.c" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" \
         "$NP/np.c" "$J/cJSON.c" "$D/test_usage_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_usage_view"
+    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$PCV/include" \
+        "$PCV/page_canvas.c" "$D/../../main/pomo_view.c" "$P/pomo.c" "$P/pomo_ring.c" "$C/bot_raster.c" "$LS/link_state.c" "$D/test_pomo_view.c" \
+        "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_pomo_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$CT/include" "$D/../../main/controls_view.c" "$D/test_controls_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_controls_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
         "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
@@ -960,6 +964,7 @@ fi
 "${OUT}_link"
 "${OUT}_refr"
 "${OUT}_span_stats"
+"${OUT}_page_canvas"
 "${OUT}_swipe"
 "${OUT}_provision" "$D/../vectors"
 "${OUT}_device"
@@ -996,6 +1001,7 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_np_view" ${NP_VIEW_SHOTS:+"$NP_VIEW_SHOTS"}
     "${OUT}_music_view" ${MUSIC_VIEW_SHOTS:+"$MUSIC_VIEW_SHOTS"}
     "${OUT}_usage_view" ${USAGE_VIEW_SHOTS:+"$USAGE_VIEW_SHOTS"}
+    "${OUT}_pomo_view"
     "${OUT}_controls_view" ${CONTROLS_VIEW_SHOTS:+"$CONTROLS_VIEW_SHOTS"}
 else
     echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing, music moment and usage view tests: $LV missing; run idf.py reconfigure once" >&2
@@ -1035,8 +1041,8 @@ awk '/^static __attribute__\(\(noinline\)\) void page_tick\(/ {on=1} on {print} 
 grep -qxF 'int temp_face_resolved(void) { return s_root && s_job.visible ? s_face : -1; }' "$TFC" || WIRING="$WIRING temp_face_resolved-is-the-resolved-face"
 body "$ECL" longpoll_idle | grep -qxF '    bool settled = shown_idle(&s_shown, now, next_slice_ms);' && body "$ECL" longpoll_idle | grep -qxF '    if (settled) return true;' ||
     WIRING="$WIRING longpoll_idle-ends-on-a-settled-shown-change"
-body "$ECL" wait_and_fade | grep -qxF '        if (due == 0) return;' && body "$ECL" shown_due | grep -qxF '    bool online = atomic_load(&s_online);' &&
-    body "$ECL" shown_due | grep -qxF '    int due = shown_wait_ms(&s_shown, now, online);' || WIRING="$WIRING wait_and_fade-ends-on-a-settled-shown-change-only-online"
+body "$ECL" loop_wait | grep -qxF '        if (due == 0) return;' && body "$ECL" shown_due | grep -qxF '    bool online = atomic_load(&s_online);' &&
+    body "$ECL" shown_due | grep -qxF '    int due = shown_wait_ms(&s_shown, now, online);' || WIRING="$WIRING loop_wait-ends-on-a-settled-shown-change-only-online"
 body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, sizeof P->shown_q, &sv)) P->shown_q[0] = 0;' &&
     body "$ECL" view_poll | grep -A1 -xF '    taskENTER_CRITICAL(&s_shown_mux);' | grep -qxF '    shown_sent(&s_shown, sv);' &&
     ! body "$ECL" view_poll | grep -qF 'url == P->wait_url &&' &&
@@ -1044,11 +1050,11 @@ body "$ECL" view_poll | grep -qxF '    if (!shown_query(&s_shown, P->shown_q, si
     body "$ECL" view_poll | grep -qxF '        if (shown_poll_url(P->wait_url, sizeof P->wait_url, P->view_url, &wait, P->demo_q, P->shown_q)) url = P->wait_url;' ||
     WIRING="$WIRING view_poll-sends-shown"
 body "$ECL" ember_client_shown | grep -qxF '    if (changed) ember_client_wake();' || WIRING="$WIRING ember_client_shown-wakes-the-long-poll"
-body "$ECL" wait_and_fade | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
-    body "$ECL" wait_and_fade | grep -qF 'wake_slice_ms(' &&
-    ! body "$ECL" wait_and_fade | grep -qE 'pomo_client_next_action|http_conn_wake_wait' &&
+body "$ECL" loop_wait | grep -qF 'wake_turn(&WAKE_OPS, wait, &in)' &&
+    body "$ECL" loop_wait | grep -qF 'wake_slice_ms(' &&
+    ! body "$ECL" loop_wait | grep -qE 'pomo_client_next_action|http_conn_wake_wait' &&
     body "$ECL" wake_take | grep -qF 'pomo_client_next_action(' && body "$ECL" wake_wait | grep -qF 'http_conn_wake_wait(' ||
-    WIRING="$WIRING wait_and_fade-takes-and-waits-through-wake_turn"
+    WIRING="$WIRING loop_wait-takes-and-waits-through-wake_turn"
 grep -F 'xQueueSendToFront(' "$D/../../main/pomo_client.c" | grep -qF 'ember_client_wake()' ||
     WIRING="$WIRING pomo-requeue-wakes-the-wait"
 body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r.config, r.config_version);' | grep -A2 -xF '        if (err == ESP_OK) {' | grep -qxF '            dev_sched_now(&s_sched, now_ms());' &&
@@ -1056,7 +1062,7 @@ body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r
     ! body "$ECL" checkin | awk '/knob settings v.* rejected/ {on=1} on' | grep -qF 'dev_sched_now(' ||
     WIRING="$WIRING applied-settings-check-in-at-once"
 body "$ECL" longpoll_idle | grep -qxF '    if (controls_client_pending()) return true;' || WIRING="$WIRING a-gesture-ends-the-long-poll"
-body "$ECL" wait_and_fade | grep -qxF '        if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);' ||
+body "$ECL" loop_wait | grep -qxF '        if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);' ||
     WIRING="$WIRING a-gesture-ends-the-plain-poll-wait"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
@@ -1105,7 +1111,7 @@ if [ -n "$CLAIM" ]; then
 fi
 echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label, every settings write one locked update, factory erase blocks later writes"
 echo "controls wiring: a queued gesture ends the long-poll and the plain-poll wait"
-echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
+echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and loop_wait (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
     "$D/../../main/http_conn.c" "$N/fail_streak.c" "$N/http_retry.c" "$K/ember_legacy.c" "$K/knob_view.c" "$DY/day.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" \
@@ -1118,3 +1124,17 @@ cc $CFLAGS -I"$WT/include" -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT
     "$WT/wake_turn.c" "$SH/shown.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" \
     "$J/cJSON.c" "$D/test_wake.c" -lm -o "${OUT}_wake"
 "${OUT}_wake"
+cc $CFLAGS -I"$D/input_route_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$G/include" -I"$PG/include" -I"$V/include" -I"$RT/include" -I"$O/include" \
+    -I"$M/include" -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$N/include" -I"$J" "$IRC" "$G/press_route.c" "$G/reset_gesture.c" "$G/touch_swipe.c" \
+    "$D/test_input_route.c" -lm -o "${OUT}_input_route"
+"${OUT}_input_route"
+cc $CFLAGS $FPC -I"$D/scene_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D" -I"$D/../../main" -I"$C/include" -I"$W/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" \
+    -I"$H/include" -I"$M/include" -I"$LS/include" -I"$N/include" -I"$NP/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$SS/include" -I"$J" \
+    "$SCC" "$MOC" "$CHC" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
+    "$V/knob_settings.c" "$RT/knob_rotation.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" \
+    "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$J/cJSON.c" "$D/test_scene.c" -lm -o "${OUT}_scene"
+"${OUT}_scene"
+cc $CFLAGS -I"$D/page_ops_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$C/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" -I"$H/include" -I"$M/include" \
+    -I"$LS/include" -I"$N/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$CT/include" -I"$J" "$PFC" "$OVC" "$D/../../main/pomo_page.c" \
+    "$D/../../main/controls_page.c" "$D/../../main/np_page.c" "$G/touch_swipe.c" "$P/pomo.c" "$LS/link_state.c" "$CT/controls.c" "$J/cJSON.c" "$D/test_page_ops.c" -lm -o "${OUT}_page_ops"
+"${OUT}_page_ops"

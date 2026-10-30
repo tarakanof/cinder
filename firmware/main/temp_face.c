@@ -12,6 +12,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "page_canvas.h"
+#include "page_ops.h"
 #include "wx_air.h"
 #include "wx_cast.h"
 #include "wx_days.h"
@@ -28,6 +30,7 @@ LV_FONT_DECLARE(font_face_36);
 static const char *TAG = "tempface";
 
 _Static_assert(WX_SCENE_ALIGN % LV_DRAW_BUF_ALIGN == 0, "cloud sprites start on LVGL's draw buffer alignment");
+_Static_assert(WX_FACE * WX_FACE * 2 <= PAGE_CANVAS_BYTES, "the background bakes on the page canvas");
 
 #define FACE_X 3
 #define VALUE_Y 200
@@ -356,7 +359,8 @@ static void release(void)
     lv_canvas_set_buffer(s_thermo, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_marker, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
     lv_canvas_set_buffer(s_drop, s_none, 2, 2, LV_COLOR_FORMAT_RGB565A8);
-    DROP(s_buf.bg);
+    s_buf.bg = NULL;
+    page_canvas_give(PAGE_CANVAS_WEATHER);
     DROP(s_buf.lut);
     DROP(s_buf.ring);
     DROP(s_hero_buf[0]);
@@ -371,7 +375,7 @@ static void release(void)
 
 static bool acquire(void)
 {
-    s_buf.bg = psram((size_t)WX_FACE * WX_FACE * 2);
+    s_buf.bg = page_canvas_take(PAGE_CANVAS_WEATHER);
     s_buf.lut = psram(WX_RING_LUT * sizeof *s_buf.lut);
     s_buf.ring = psram(sizeof *s_buf.ring);
     s_hero_buf[0] = psram(WX_HERO_BOX * WX_HERO_BOX * 3);
@@ -382,7 +386,7 @@ static bool acquire(void)
     s_drop_buf = psram(WX_DROP_BOX * WX_DROP_BOX * 3);
     if (!s_buf.bg || !s_buf.lut || !s_buf.ring || !s_hero_buf[0] || !s_hero_buf[1] || !s_buf.scene || !s_thermo_buf || !s_marker_buf ||
         !s_drop_buf) {
-        ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black, retrying in 5 s",
+        ESP_LOGE(TAG, "no PSRAM for the face (canvas owner %d, %u KB free, largest %u KB): black, retrying in 5 s", (int)page_canvas_owner(),
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
                  (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
         release();
@@ -1276,4 +1280,12 @@ void temp_face_update(const wx_obs_t *obs, bool offline, double dt)
     s_tick = tick;
     paint(&t, obs, offline, s_job.opa);
     show_obj(s_root, true);
+}
+
+void page_weather_show(bool on) { temp_face_show(on); }
+
+void page_weather_input(const page_input_t *in, double t)
+{
+    (void)t;
+    if (in->detents) temp_face_turn(in->detents);
 }

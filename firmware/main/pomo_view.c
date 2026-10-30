@@ -7,10 +7,13 @@
 
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
+#include "page_canvas.h"
 #include "pomo_ring.h"
 
 #define SCREEN_W 472   /* driver frame 472; visible circle 466 (docs/llm.md) */
 #define SCREEN_H 466
+
+_Static_assert(SCREEN_W * SCREEN_H * 2 <= PAGE_CANVAS_BYTES, "the ring draws on the page canvas");
 
 #define COL_OTHER 0x9A9A9A
 #define COL_IDLE_TRACK 0x262626
@@ -24,6 +27,7 @@ static const pomo_ring_t RING = {.cx = 236, .cy = 233, .r = 222, .hw = 6};
 
 static lv_obj_t *s_root, *s_ring, *s_time, *s_phase, *s_round;
 static uint16_t *s_ring_buf;
+static EXT_RAM_BSS_ATTR uint32_t s_none[2];
 static pomo_ring_work_t *s_work;
 
 static bool s_ring_drawn;
@@ -64,12 +68,11 @@ void pomo_view_create(lv_obj_t *parent)
     lv_obj_remove_flag(s_root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
 
-    s_ring_buf = heap_caps_calloc(SCREEN_W * SCREEN_H, 2, MALLOC_CAP_SPIRAM);
     s_work = heap_caps_malloc(sizeof *s_work, MALLOC_CAP_SPIRAM);
-    assert(s_ring_buf && s_work);
+    assert(s_work);
     s_ring = lv_canvas_create(s_root);
     lv_obj_remove_flag(s_ring, LV_OBJ_FLAG_CLICKABLE);
-    lv_canvas_set_buffer(s_ring, s_ring_buf, SCREEN_W, SCREEN_H, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(s_ring, s_none, 2, 2, LV_COLOR_FORMAT_RGB565);
     lv_obj_set_pos(s_ring, 0, 0);
 
     s_time = label_create(s_root, &lv_font_montserrat_48, 260, -6);
@@ -78,10 +81,30 @@ void pomo_view_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_round, lv_color_hex(COL_TEXT_DIM), 0);
 }
 
+static void ring_attach(void)
+{
+    if (s_ring_buf || lv_obj_has_flag(s_root, LV_OBJ_FLAG_HIDDEN)) return;
+    s_ring_buf = page_canvas_take(PAGE_CANVAS_POMO);
+    if (!s_ring_buf) return;
+    memset(s_ring_buf, 0, SCREEN_W * SCREEN_H * 2);
+    lv_canvas_set_buffer(s_ring, s_ring_buf, SCREEN_W, SCREEN_H, LV_COLOR_FORMAT_RGB565);
+    s_ring_drawn = false;
+}
+
+static void ring_detach(void)
+{
+    if (!s_ring_buf) return;
+    lv_canvas_set_buffer(s_ring, s_none, 2, 2, LV_COLOR_FORMAT_RGB565);
+    page_canvas_give(PAGE_CANVAS_POMO);
+    s_ring_buf = NULL;
+}
+
 void pomo_view_show(bool show)
 {
     if (show) lv_obj_remove_flag(s_root, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+    if (show) ring_attach();
+    else ring_detach();
 }
 
 void pomo_view_set_colors(uint32_t focus_rgb, uint32_t break_rgb)
@@ -109,6 +132,8 @@ static void label_color(lv_obj_t *l, uint32_t *shown, uint32_t rgb)
 
 static void ring_update(float frac, uint32_t arc, uint32_t track)
 {
+    ring_attach();
+    if (!s_ring_buf) return;
     if (!s_ring_drawn || arc != s_ring_arc || track != s_ring_track) {
         pomo_ring_render(&RING, s_work, s_ring_buf, SCREEN_W, SCREEN_H, (pomo_rect_t){0, 0, SCREEN_W, SCREEN_H},
                          frac, arc, track);

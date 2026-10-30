@@ -7,6 +7,7 @@
 #include "lvgl.h"
 #include "np_cover_view.h"
 #include "nowplaying_view.h"
+#include "page_canvas.h"
 #include "touch_swipe.h"
 #include "src/display/lv_display_private.h"
 
@@ -22,6 +23,7 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 static uint16_t s_fb[W * H];
+static uint16_t s_canvas[W * H];
 static int s_areas, s_forgets;
 static long s_px;
 static lv_area_t s_box;
@@ -33,9 +35,6 @@ static np_art_set_t s_pend;
 static bool s_has_pend;
 static int s_takes, s_frees;
 static int64_t s_now_us = 1000000;
-static bool s_no_face_buf;
-
-int host_heap_fail(size_t n) { return s_no_face_buf && n >= (size_t)NP_COVER_PX * NP_COVER_PX * 2; }
 
 #define TRACK_MAX 64
 static void *s_tracked[TRACK_MAX];
@@ -764,20 +763,72 @@ static void test_no_cover_oom(lv_display_t *d, lv_obj_t *root)
     strcpy(np.cover_version, "bad0-r1");
     np_art_set_t art = {.is_cover = true, .no_cover = true};
     strcpy(art.version, np.cover_version);
-    s_no_face_buf = true;
+    CHECK(page_canvas_take(PAGE_CANVAS_WEATHER) != NULL, "a weather bake still running holds the canvas");
     npc_adopt(&art);
     npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
                      .pos_ms = 10000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
     npc_update(&f);
     refresh(d);
     CHECK(npc_has_cover(), "no buffer yet: the no-cover look is still pending");
-    s_no_face_buf = false;
+    page_canvas_give(PAGE_CANVAS_WEATHER);
     f.pos_ms = 11000;
     npc_update(&f);
     refresh(d);
     CHECK(v15_label() > 180, "the buffer comes later: M15's vinyl, not black: %d", v15_label());
     npc_destroy();
     lv_obj_clean(root);
+}
+
+static void test_canvas(lv_display_t *d, lv_obj_t *root)
+{
+    npc_build(root);
+    np_info_t np = {.state = NP_PLAYING, .duration_ms = 228000};
+    strcpy(np.title, "No Art Yet");
+    strcpy(np.cover_version, "lent0-r1");
+    npc_frame_t f = {.now = 100, .state = NPF_PLAYING, .ring = NP_RING_PROGRESS, .np = &np, .text_fresh = true,
+                     .pos_ms = 10000, .dur_ms = 228000, .vol = 40, .badge_text = ""};
+    np_art_set_t art = {.is_cover = true, .cover = make_cover()};
+    strcpy(art.version, np.cover_version);
+    npc_adopt(&art);
+    npc_update(&f);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "a cover is its own buffer: the canvas stays free: %d", (int)page_canvas_owner());
+    npc_destroy();
+    lv_obj_clean(root);
+
+    npc_build(root);
+    for (int i = 0; i < W * H; i++) s_canvas[i] = 0xFFFF;
+    npc_update(&f);
+    refresh(d);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_NP, "no art yet: the face draws on the canvas: %d", (int)page_canvas_owner());
+    CHECK(luma(FX + 2, 2) == 0 && s_canvas[2 * NP_COVER_PX + 2] == 0, "the last owner's pixels are cleared: %04x", s_canvas[2 * NP_COVER_PX + 2]);
+
+    f.state = NPF_NOTHING;
+    f.now += 1;
+    npc_update(&f);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "nothing playing: the canvas goes back at once");
+    f.state = NPF_PLAYING;
+    f.now += 1;
+    npc_update(&f);
+    refresh(d);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_NP, "playing again: taken again");
+
+    art = (np_art_set_t){.is_cover = true, .cover = make_cover()};
+    strcpy(art.version, np.cover_version);
+    npc_adopt(&art);
+    run(d, &f, 1.2, 1 / 30.0);
+    CHECK(npc_has_cover() && page_canvas_owner() == PAGE_CANVAS_FREE, "the cover swaps in: the canvas goes back: %d", (int)page_canvas_owner());
+    npc_destroy();
+    lv_obj_clean(root);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "and stays free after the cover goes");
+
+    npc_build(root);
+    f.state = NPF_PLAYING;
+    f.now += 1;
+    npc_update(&f);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_NP, "a new face takes it");
+    npc_destroy();
+    lv_obj_clean(root);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "npc_destroy gives it back");
 }
 
 static void test_page(lv_display_t *d, lv_obj_t *scr)
@@ -2555,6 +2606,7 @@ int main(int argc, char **argv)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    page_canvas_init(s_canvas, sizeof s_canvas);
     lv_obj_t *root = lv_obj_create(scr);
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, W, H);
@@ -2720,6 +2772,7 @@ int main(int argc, char **argv)
     lv_obj_clean(root);
     test_scrim(d, root);
     test_no_cover_oom(d, root);
+    test_canvas(d, root);
     test_change(d, root);
     test_interrupt(d, root);
     test_details(d, root);

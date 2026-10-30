@@ -28,6 +28,8 @@ static float s_want[W * H];
 static uint8_t s_ref[W * H];
 static uint16_t s_tmp[W * H];
 
+void timing_add(int span, int64_t us) { (void)span; (void)us; }
+
 int64_t esp_timer_get_time(void)
 {
     struct timeval tv;

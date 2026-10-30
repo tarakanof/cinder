@@ -1,6 +1,5 @@
 #include "weather_client.h"
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,7 +15,6 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 static const char *TAG = "weather";
@@ -25,7 +23,8 @@ static const char *TAG = "weather";
 #define POLL_RETRY_MS (30 * 1000)
 #define RESP_MAX (16 * 1024)
 
-static SemaphoreHandle_t s_lock;
+static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_init;
 static wx_store_t s_store;
 static legacy_task_t s_lt;
 typedef struct {
@@ -39,9 +38,9 @@ static poll_ctx_t *s_ctx;
 static void publish(const wx_obs_t *obs, double server_now)
 {
     double now_s = esp_timer_get_time() / 1e6;
-    xSemaphoreTake(s_lock, portMAX_DELAY);
+    taskENTER_CRITICAL(&s_lock);
     wx_store_put(&s_store, obs, server_now, now_s);
-    xSemaphoreGive(s_lock);
+    taskEXIT_CRITICAL(&s_lock);
 }
 
 static bool wait_legacy(int ms)
@@ -126,15 +125,14 @@ static void poll_task(void *arg)
 
 void weather_client_init(void)
 {
-    if (s_lock) return;
-    s_lock = xSemaphoreCreateMutex();
-    assert(s_lock);
+    if (s_init) return;
     lt_init(&s_lt);
+    s_init = true;
 }
 
 void weather_client_legacy(bool on)
 {
-    if (!s_lock) return;
+    if (!s_init) return;
     int64_t now_ms = esp_timer_get_time() / 1000;
     int act = lt_want(&s_lt, on, now_ms);
     if (act & LT_REAP) {
@@ -161,7 +159,7 @@ void weather_client_feed(const wx_obs_t *obs, double server_now)
 {
     static wx_look_t last;
     static bool logged, had;
-    if (!s_lock) return;
+    if (!s_init) return;
     publish(obs, server_now);
     if (!obs) {
         if (had || !logged) ESP_LOGI(TAG, "view: no weather (off or not fetched yet)");
@@ -179,10 +177,10 @@ void weather_client_feed(const wx_obs_t *obs, double server_now)
 
 bool weather_client_get(wx_obs_t *out)
 {
-    if (!s_lock) return false;
-    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (!s_init) return false;
+    taskENTER_CRITICAL(&s_lock);
     double now_s = esp_timer_get_time() / 1e6;
     bool have = wx_store_get(&s_store, now_s, out);
-    xSemaphoreGive(s_lock);
+    taskEXIT_CRITICAL(&s_lock);
     return have;
 }
