@@ -19,7 +19,8 @@ extern "C" {
 #define NP_TOUCH_FADE_STEPS 3
 #define NP_TOUCH_REST_OPA 64
 #define NP_INFO_TRACK_S 10.0
-#define NP_RESTART_HEAD_MS 5000
+#define NP_RESTART_HEAD_MS 8000
+#define NP_RESTART_MIN_MS 10000
 #define NP_RESTART_TAIL_MS 5000
 #define NP_FLASH_S 0.8
 #define NP_PULSE_S 0.3
