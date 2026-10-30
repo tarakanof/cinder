@@ -15,6 +15,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "np_cover.h"
+#include "timing.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -452,6 +453,11 @@ void np_client_service(http_conn_t *conn, const char *base)
         return;
     }
     set.no_cover = end == NP_ART_END_NO_COVER || end == NP_ART_END_NO_COVER_RETRY;
+    if (plan.cover && !set.no_cover && fetch) {
+        int64_t total_us = esp_timer_get_time() - t0;
+        timing_add(SPAN_COVER_FETCH, total_us - dec_us);
+        timing_add(SPAN_COVER_DECODE, dec_us);
+    }
     if (set.no_cover)
         ESP_LOGW(TAG, "cover %s: bad %d times, no cover%s", plan.version, S->retry.bad,
                  end == NP_ART_END_NO_COVER_RETRY ? ", avatar later" : "");

@@ -24,6 +24,7 @@
 #include "ota_client.h"
 #include "chase.h"
 #include "screen_snap.h"
+#include "timing.h"
 
 static const char *TAG = "prov";
 
@@ -330,6 +331,18 @@ static void op_status(const cl_req_t *r)
     out_write(s_out, cl_reply_status(r->id, &st, s_out, CL_LINE_MAX));
 }
 
+static void op_timing(const cl_req_t *r)
+{
+    static span_stats_t st;
+    cl_timing_span_t rows[SPAN_COUNT];
+    timing_read(&st, r->timing_reset);
+    for (int i = 0; i < SPAN_COUNT; i++)
+        rows[i] = (cl_timing_span_t){.name = span_name(i), .n = st.span[i].n, .avg_us = span_avg_us(&st.span[i]),
+                                     .max_us = st.span[i].max_us};
+    int64_t since_ms = (esp_timer_get_time() - st.since_us) / 1000;
+    out_write(s_out, cl_reply_timing(r->id, since_ms, rows, SPAN_COUNT, s_out, CL_LINE_MAX));
+}
+
 static void op_diag_override(const cl_req_t *r)
 {
     ember_client_diag_override(r->stats_s, r->live_s);
@@ -463,6 +476,7 @@ static void handle_line(const char *json)
         case CL_OP_RESET: op_reset(s_req); break;
         case CL_OP_DIAG_OVERRIDE: op_diag_override(s_req); break;
         case CL_OP_SNAPSHOT: op_snapshot(s_req); break;
+        case CL_OP_TIMING: op_timing(s_req); break;
         case CL_OP_CHASE: op_chase(s_req); break;
         case CL_OP_INPUT: op_input(s_req); break;
         case CL_OP_OTA_FAULT: op_ota_fault(s_req); break;

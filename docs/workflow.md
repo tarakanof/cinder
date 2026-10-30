@@ -191,6 +191,7 @@ The port tools open it with raw termios and leave DTR/RTS alone; their effects a
 |---|---|
 | `snapshot.py --out x.png` | Screen as PNG (show the user, PR evidence) |
 | `chase.py --style full\|half [--fps N] [--laps N]` | Start a glint chase now (needs working mood); `--fps` sets the chase eye rate until a reboot |
+| `timing.py [--reset]` | Music-face span timings (fade, label, `np_v15_render`, curved text, ring, M8 swap, cover fetch and decode): n, avg and max µs since boot or the last reset |
 | `input.py push\|long\|turn\|touch\|page\|swipe_up\|swipe_down` | Simulate knob input (needs `CONFIG_CINDER_DEV_INPUT`, default on) |
 | `measure_view_latency.py` | Mood latency and idle traffic against Ember |
 | `gen_tool_marks.py` | Regenerate `components/bot/tool_marks.c` (venv; no port) |

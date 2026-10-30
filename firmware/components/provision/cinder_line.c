@@ -102,6 +102,11 @@ cl_err_t cl_parse(const char *json, cl_req_t *out)
         else if (strcmp(s, "ember") == 0) out->scope = CL_SCOPE_EMBER;
         else if (strcmp(s, "wifi") == 0) out->scope = CL_SCOPE_WIFI;
         else e = CL_E_BAD_VALUE;
+    } else if (strcmp(o, "timing") == 0) {
+        out->op = CL_OP_TIMING;
+        const cJSON *r = cJSON_GetObjectItemCaseSensitive(root, "reset");
+        if (r && !cJSON_IsNull(r) && !cJSON_IsBool(r)) e = CL_E_BAD_JSON;
+        else out->timing_reset = cJSON_IsTrue(r);
     } else if (strcmp(o, "snapshot") == 0) {
         out->op = CL_OP_SNAPSHOT;
     } else if (strcmp(o, "chase") == 0) {
@@ -257,6 +262,12 @@ static void jw_kint(jw_t *w, const char *k, long v)
     jw_printf(w, "%ld", v);
 }
 
+static void jw_kint64(jw_t *w, const char *k, int64_t v)
+{
+    jw_key(w, k);
+    jw_printf(w, "%lld", (long long)v);
+}
+
 static void jw_kbool(jw_t *w, const char *k, bool v)
 {
     jw_key(w, k);
@@ -346,6 +357,24 @@ size_t cl_reply_status(long id, const cl_status_t *st, char *out, size_t cap)
     if (st->has_rssi) jw_kint(&w, "rssi", st->rssi);
     if (st->ssid) jw_kstr(&w, "ssid", st->ssid);
     jw_kstr(&w, "state", st->wifi_state);
+    jw_close(&w);
+    return jw_end(&w);
+}
+
+size_t cl_reply_timing(long id, int64_t since_ms, const cl_timing_span_t *spans, int count, char *out, size_t cap)
+{
+    jw_t w = jw_begin(out, cap);
+    jw_kint(&w, "id", id);
+    jw_kbool(&w, "ok", true);
+    jw_kint64(&w, "since_ms", since_ms);
+    jw_open(&w, "spans");
+    for (int i = 0; i < count; i++) {
+        jw_open(&w, spans[i].name);
+        jw_kint64(&w, "avg_us", spans[i].avg_us);
+        jw_kint64(&w, "max_us", spans[i].max_us);
+        jw_kint64(&w, "n", spans[i].n);
+        jw_close(&w);
+    }
     jw_close(&w);
     return jw_end(&w);
 }

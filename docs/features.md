@@ -1697,15 +1697,25 @@ Measured over USB (`snapshot.py`, `input.py page` only) and Ember's full diagnos
 | # | Item | Result | Method, sample |
 |---|---|---|---|
 | 1 | Repeat-one restart inside the 5 s head window | **Fails** (fixed in #296 by widening the head window to 8 s; device re-check pending): Ember's anchored position was 5.4 s and 5.6 s into the lap when the restart first showed (2 laps, `GET /v1/nowplaying/state`, position + `position_at` against the clock), so it never lands in `NP_RESTART_HEAD_MS`; snapshots 6-9 s into both laps show the clean cover, no text | 2 laps, 4 snapshots each |
-| 2 | Fade step and reveal ms | Not measurable with the current tools: the step is not in the stats or a CINDER1 op, only a serial log | follow-up: a per-view render timing field in the stats |
-| 3 | * M15 label step ms at 4 fps, CPU per core | Not measured (M15 never shown, no timing field). Cover face playing, steady: core 0 13.3-14.3 %, core 1 5.9-8.0 % (9 points, 6-60 s) | |
+| 2 | Fade step and reveal ms | Not measured. No timer existed (#297 adds the `fade` span, read with `timing.py`; needs a flash) | re-measure |
+| 3 | * M15 label step ms at 4 fps, CPU per core | Not measured (M15 never shown; #297 adds the `label` span). Cover face playing, steady: core 0 13.3-14.3 %, core 1 5.9-8.0 % (9 points, 6-60 s) | |
 | 4 | * Internal RAM and PSRAM across a track change and 3 quick skips | Internal min free 39,828 B and largest block 31,744 B unchanged by the skips (since-boot minimums, so the session cannot lower them unseen); free 67.2-67.4 KB. PSRAM free 1.34 MB flat, min 460,836 B unchanged, largest block 0.66-1.21 MB. **Pass** against the OTA health floors (27 KB / 15 KB); M8 and M15 were not isolated at 6 s resolution | 11 points, 00:24:58-00:34:12 UTC |
 | 5 | * LVGL stack high-water after a track change | 4,960 B free (5,632 B at boot, before any music), on a cover face, not M15; **pass** against the 1,024 B health floor. `stack_walk.py` did not run (no ELF and `nm` here) | checkin `diag.stack_free.lvgl`, 1 read |
-| 6 | M8 step, `np_v15_render`, curved text, arrival ring box ms | Not measurable with the current tools (as 2) | |
-| 7 | Cover fetch + decode ms; hide/show memory; areas/s | Fetch + decode: not measurable (serial log only). Playing steady: 1.0-1.2 areas/s, 1 fps, frame 2.5-3.0 ms avg, 3-6 ms max. Points holding a skip or the page show: 2.6 areas/s, frame avg 18.2 ms, max 130 ms (one point, a 60 s average); other skip points 93-96 ms max. Paused, turning and a mode switch: not measured (the maintainer's Mac is not driven; no volume turns). Hide/show cycles: not measured | |
+| 6 | M8 step, `np_v15_render`, curved text, arrival ring box ms | Not measured. No timer existed (#297 adds the `m8`, `v15_render`, `arc_text` and `ring` spans) | |
+| 7 | Cover fetch + decode ms; hide/show memory; areas/s | Fetch + decode: not measured (the serial log line only; #297 adds the `cover_fetch` and `cover_decode` spans). Playing steady: 1.0-1.2 areas/s, 1 fps, frame 2.5-3.0 ms avg, 3-6 ms max. Points holding a skip or the page show: 2.6 areas/s, frame avg 18.2 ms, max 130 ms (one point, a 60 s average); other skip points 93-96 ms max. Paused, turning and a mode switch: not measured (the maintainer's Mac is not driven; no volume turns). Hide/show cycles: not measured | |
 | 8 | Ember art latency after a skip | Not measurable (no timestamp for the art fetch); Apple Music only, Plex and Spotify not measured | |
 
-Follow-ups: a per-view timing field in the stats (items 2, 3, 6, 7); the repeat-one restart reaching the knob after the head window (item 1).
+Correction (#297): the cover fetch and decode times exist only in a serial log (`nowplaying_client.c`); `np_cover_view.c` had no timer calls and logged nothing, so items 2, 3 and 6 were not timed anywhere. #297 adds the timers and the `timing` op below; items 2, 3, 6 and 7 are re-measured once a build with it is flashed.
+
+Follow-ups: re-measure items 2, 3, 6 and 7 with `timing.py`; the repeat-one restart reaching the knob after the head window (item 1).
+
+## Music face timing op (#297)
+
+- **Why an op, not the stats**: the stats route needs `dev_stats_t`, the checkin body (buffer 1280 B), Ember's `knobStatsReport` and samples, the protocol doc and fixtures, to trend numbers nobody needs after a measuring session. The op is firmware only; Ember, `stats` and the checkin are unchanged.
+- **Dev tool**: CINDER1 `{"op":"timing"}`, optional `"reset":true` (clears the table after the read; the reply holds the values read). Reply: `since_ms` and `spans`, each `{"n","avg_us","max_us"}`. `python3 firmware/tools/timing.py [--reset]` prints the table (raw termios, DTR/RTS untouched).
+- **Table**: `components/span_stats` (pure, host-tested: count, total, max, avg rounded to nearest, reset) behind `main/timing.c`, which guards it with a `portMUX` (writers: LVGL and now-playing tasks; reader: the USB task). A write is a few stores in a critical section; nothing allocates or logs, so the LVGL task keeps its no-logging rule.
+- **Spans** (nested ones are counted in both): `update` the whole `npc_update`, including the idle faces; `fade` a track-change step with M8 running (`chg_step`) and each change of the info container's opacity (`info_fade`, not the unchanged frames); `label` `v15_strings` and `v15_text`; `v15_render` every `np_v15_render` call (full-face paint, label box, text box); `arc_text` the two `arc_line` calls in `v15_text`; `ring` `ring_draw` when it draws (a frame with nothing dirty is not counted); `m8` `chg_swap`, the picture swap on the black frame; `cover_fetch` and `cover_decode` once per cover that landed (the fetch is the wall time of the HTTP requests, headers and the avatar bake aside, i.e. total minus decode; the decode is the `dec_us` already logged).
+- **Not covered**: Ember art latency after a skip (#293 item 8), the Plex and Spotify paths, the 0.9.0 face.
 
 ## Cover face: text fades to a clean cover (#196)
 

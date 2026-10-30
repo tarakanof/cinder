@@ -28,6 +28,7 @@ static UINT s_px;
 static JRESULT s_jd;
 
 int64_t esp_timer_get_time(void) { return s_us; }
+void timing_add(int span, int64_t us) { (void)span; (void)us; }
 int host_heap_fail(size_t n)
 {
     if (n != NP_JPEG_MAX) return 0;
