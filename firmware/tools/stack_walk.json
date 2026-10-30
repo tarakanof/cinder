@@ -468,48 +468,55 @@
    "page_pomo_show",
    "page_weather_show",
    "page_np_show",
-   "page_day_show"
+   "page_day_show",
+   "page_controls_show"
   ],
   "pages_hide_all": [
    "page_bot_show",
    "page_pomo_show",
    "page_weather_show",
    "page_np_show",
-   "page_day_show"
+   "page_day_show",
+   "page_controls_show"
   ],
   "pages_dispatch": [
    "page_bot_input",
    "page_pomo_input",
    "page_weather_input",
    "page_np_input",
-   "page_day_input"
+   "page_day_input",
+   "page_controls_input"
   ],
   "pages_frame": [
    "page_bot_frame",
    "page_pomo_frame",
    "page_np_frame",
-   "page_day_frame"
+   "page_day_frame",
+   "page_controls_frame"
   ],
   "pages_resume": [
    "page_bot_show",
    "page_pomo_show",
    "page_weather_show",
    "page_np_show",
-   "page_day_show"
+   "page_day_show",
+   "page_controls_show"
   ],
   "pages_settings": [
    "page_bot_show",
    "page_pomo_show",
    "page_weather_show",
    "page_np_show",
-   "page_day_show"
+   "page_day_show",
+   "page_controls_show"
   ],
   "pages_step": [
    "page_bot_show",
    "page_pomo_show",
    "page_weather_show",
    "page_np_show",
-   "page_day_show"
+   "page_day_show",
+   "page_controls_show"
   ],
   "fill": [
    "bake_yield",

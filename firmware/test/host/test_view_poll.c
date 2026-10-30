@@ -54,6 +54,7 @@ typedef struct {
     bool view_failing;
     bool unparsed;
     bool applied;
+    char base[CFG_URL_MAX];
     char view_url[CFG_URL_MAX + 32];
     char wait_url[CFG_URL_MAX + 48 + DEMO_QUERY_MAX + SHOWN_QUERY_MAX];
     char demo_q[DEMO_QUERY_MAX];
@@ -89,6 +90,12 @@ static bool pomo_client_next_action(int a, pomo_press_t *in) { (void)a; (void)in
 static void pomo_client_run_action(pomo_press_t in, http_conn_t *c, char *b, int n) { (void)in; (void)c; (void)b; (void)n; }
 static void pomo_client_log_state(void) {}
 static void day_client_run(http_conn_t *c) { (void)c; }
+static int s_controls_runs, s_controls_runs_at_get;
+static void controls_client_run(http_conn_t *c, const char *base)
+{
+    (void)c, (void)base;
+    s_controls_runs++;
+}
 static bool s_conditional;
 static bool knob_view_conditional(const knob_view_state_t *v) { (void)v; return s_conditional; }
 static const char *view_etag_get(const view_etag_t *e) { return e->etag; }
@@ -112,6 +119,7 @@ static int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_op
 {
     (void)c; (void)o; (void)buf; (void)cap;
     req_count++;
+    s_controls_runs_at_get = s_controls_runs;
     req_due = shown_due_ms(&s_shown, s_now);
     req_saw_sent = s_shown.sent;
     snprintf(req_url, sizeof req_url, "%s", url);
@@ -164,6 +172,7 @@ int main(void)
     run("plain poll 200", true, 200);
     run("long-poll aborted", false, HTTP_CONN_ABORTED);
     run("long-poll timeout", false, 0);
+    CHECK(s_controls_runs_at_get == s_controls_runs && s_controls_runs == 4, "a gesture goes before the view GET: %d", s_controls_runs);
     if (failures) {
         printf("%d view_poll check(s) failed\n", failures);
         return 1;

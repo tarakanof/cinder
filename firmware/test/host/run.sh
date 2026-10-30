@@ -859,6 +859,7 @@ cc $CFLAGS -I"$RT/include" -I"$V/include" -I"$O/include" -I"$J" "$V/device_api.c
 cc $CFLAGS "-DLT_RACE_POINT(t)=lt_race_point(t)" -I"$N/include" "$N/fail_streak.c" "$N/http_retry.c" "$N/wifi_backoff.c" "$N/view_wait.c" "$N/legacy_task.c" "$D/test_net.c" -o "${OUT}_net"
 K="$D/../../components/knob_view"
 DY="$D/../../components/day"
+CT="$D/../../components/controls"
 NP="$D/../../components/nowplaying"
 cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$H/include" -I"$J" \
     "$K/knob_view.c" "$DY/day.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$H/ember_host.c" "$J/cJSON.c" \
@@ -921,6 +922,7 @@ if [ -d "$LV" ]; then
     cc $CFLAGS $FPC $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
         -I"$NP/include" -I"$J" "$D/../../main/usage_view.c" "$D/../../main/font_digits_96.c" "$C/tool_marks.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" \
         "$NP/np.c" "$J/cJSON.c" "$D/test_usage_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_usage_view"
+    cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$CT/include" "$D/../../main/controls_view.c" "$D/test_controls_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_controls_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
         "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
 fi
@@ -964,6 +966,12 @@ cc $CFLAGS -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -I"$D/np_client_stubs" -I"$D/view_
     -I"$C/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$SS/include" -I"$J" \
     "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$C/music_moment.c" "$D/test_np_client.c" \
     -lm -lpthread -o "${OUT}_np_client"
+cc $CFLAGS -I"$CT/include" -I"$J" "$CT/controls.c" "$J/cJSON.c" "$D/test_controls.c" -lm -o "${OUT}_controls"
+"${OUT}_controls"
+cc $CFLAGS -I"$D/controls_client_stubs" -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$C/include" -I"$N/include" -I"$G/include" -I"$V/include" \
+    -I"$CT/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$SS/include" -I"$J" \
+    "$D/../../main/controls_client.c" "$CT/controls.c" "$LS/link_state.c" "$J/cJSON.c" "$D/test_controls_client.c" -lm -o "${OUT}_controls_client"
+"${OUT}_controls_client"
 "${OUT}_np_client"
 if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_title_font"
@@ -978,6 +986,7 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_np_view" ${NP_VIEW_SHOTS:+"$NP_VIEW_SHOTS"}
     "${OUT}_music_view" ${MUSIC_VIEW_SHOTS:+"$MUSIC_VIEW_SHOTS"}
     "${OUT}_usage_view" ${USAGE_VIEW_SHOTS:+"$USAGE_VIEW_SHOTS"}
+    "${OUT}_controls_view" ${CONTROLS_VIEW_SHOTS:+"$CONTROLS_VIEW_SHOTS"}
 else
     echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing, music moment and usage view tests: $LV missing; run idf.py reconfigure once" >&2
 fi
@@ -991,9 +1000,9 @@ cc $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I
     "$H/ember_host.c" "$G/press_route.c" "$J/cJSON.c" "$D/test_legacy.c" -lm -o "${OUT}_legacy"
 "${OUT}_legacy"
 cc $CFLAGS $FPC -I"$RT/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
-    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$D/../../components/shown/include" -I"$J" "$K/knob_view.c" "$DY/day.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
+    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$CT/include" -I"$D/../../components/shown/include" -I"$J" "$K/knob_view.c" "$DY/day.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
     "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_faces.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
-    "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$G/cfg.c" "$V/claim.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$D/../../components/shown/shown.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
+    "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$G/cfg.c" "$V/claim.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$D/../../components/shown/shown.c" "$CT/controls.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
 cc $CFLAGS -I"$RT/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
@@ -1036,6 +1045,9 @@ body "$ECL" checkin | grep -A3 -F 'esp_err_t err = config_store_apply_settings(r
     [ "$(body "$ECL" checkin | grep -c 'knob settings v.* rejected')" -eq 1 ] &&
     ! body "$ECL" checkin | awk '/knob settings v.* rejected/ {on=1} on' | grep -qF 'dev_sched_now(' ||
     WIRING="$WIRING applied-settings-check-in-at-once"
+body "$ECL" longpoll_idle | grep -qxF '    if (controls_client_pending()) return true;' || WIRING="$WIRING a-gesture-ends-the-long-poll"
+body "$ECL" wait_and_fade | grep -qxF '        if (buf && atomic_load(&s_online) && controls_client_pending()) controls_client_run(s_conn, P->base);' ||
+    WIRING="$WIRING a-gesture-ends-the-plain-poll-wait"
 if [ -n "$WIRING" ]; then
     echo "run.sh: FAIL shown wiring:$WIRING" >&2
     exit 1
@@ -1082,6 +1094,7 @@ if [ -n "$CLAIM" ]; then
     exit 1
 fi
 echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label, every settings write one locked update, factory erase blocks later writes"
+echo "controls wiring: a queued gesture ends the long-poll and the plain-poll wait"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and wait_and_fade (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 cc $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \

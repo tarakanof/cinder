@@ -45,7 +45,7 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   the entry in the sync commit).
 - **New page ids.** `test_pages.c` requires the page table to equal Ember's default page list (`config_default.json`), so a
   new page lands after Ember's. A table page that `checkin_req_caps.json` does not list yet goes in `PAGES_AHEAD[]` in
-  `test_fixtures.c` (`day` since #283); it fails once the fixture lists it, then remove the entry in the sync commit.
+  `test_fixtures.c` (`day` since #283, `controls` since #144); it fails once the fixture lists it, then remove the entry in the sync commit.
   `caps.pages` compares as a set, as Ember does.
 - Feature and fix PRs leave `PROJECT_VER` in `firmware/CMakeLists.txt` alone. A
   separate release PR (`chore(release): X.Y.Z`) bumps it once for everything merged

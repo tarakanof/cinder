@@ -35,6 +35,8 @@
 #include "http_conn.h"
 #include "join_view.h"
 #include "claim_client.h"
+#include "controls_client.h"
+#include "controls_view.h"
 #include "day_client.h"
 #include "day_view.h"
 #include "pomo_client.h"
@@ -116,6 +118,7 @@ static bot_pose_t s_last_pose;
 static bool s_drawn;
 static EXT_RAM_BSS_ATTR bool s_usage_on;
 static EXT_RAM_BSS_ATTR day_ui_t s_day_ui;
+static EXT_RAM_BSS_ATTR ctl_batch_t s_ctl_batch;
 static EXT_RAM_BSS_ATTR wx_shift_t s_bot_shift;
 static double s_ring_deg;
 static int s_demo_index;
@@ -593,6 +596,12 @@ void page_weather_input(const page_input_t *in, double t)
 
 void page_np_show(bool on) { np_view_show(on); }
 
+void page_controls_show(bool on)
+{
+    controls_view_show(on);
+    ctl_batch_init(&s_ctl_batch);
+}
+
 static bool s_ota_paused;
 
 static void pages_pause(void)
@@ -736,6 +745,26 @@ void page_day_frame(const page_frame_t *f)
     day_send(a, day_ui_tick(&s_day_ui, &di, f->t, a));
     day_model(&s_day_ui, &di, f->t, day_client_note(&snap, pomo_client_now()), &m);
     day_view_update(&m, f->t);
+}
+
+void page_controls_input(const page_input_t *in, double t)
+{
+    if (in->detents) ctl_batch_turn(&s_ctl_batch, in->detents);
+    if (in->pushes || in->longs) {
+        int steps = ctl_batch_flush(&s_ctl_batch, t);
+        if (steps) controls_client_send(CTL_TURN, steps);
+    }
+    for (int n = in->pushes; n > 0; n--) controls_client_send(CTL_PUSH, 0);
+    for (int n = in->longs; n > 0; n--) controls_client_send(CTL_LONG_PUSH, 0);
+}
+
+void page_controls_frame(const page_frame_t *f)
+{
+    int steps = ctl_batch_take(&s_ctl_batch, f->t);
+    if (steps) controls_client_send(CTL_TURN, steps);
+    static EXT_RAM_BSS_ATTR ctl_state_t st;
+    controls_client_get(&st);
+    controls_view_update(st.target, ctl_note(st.res, pomo_client_now() - st.at, f->offline));
 }
 
 void page_np_input(const page_input_t *in, double t)
@@ -1153,6 +1182,7 @@ static __attribute__((noinline)) const char *page_day_hold_label(void)
 static const char *hold_label(const page_desc_t *pg)
 {
     if (pg->frame == page_day_frame) return page_day_hold_label();
+    if (pg->frame == page_controls_frame) return "Mac action";
     if (pg->frame != page_pomo_frame) return NULL;
     pomo_snapshot_t snap;
     if (!pomo_client_get(&snap)) return NULL;
@@ -1631,6 +1661,7 @@ void app_main(void)
         day_view_create(scr);
         temp_face_create(scr);
         np_view_create(scr);
+        controls_view_create(scr);
         usage_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);

@@ -28,6 +28,7 @@ The knob has no USB port of its own. It connects over a 10-pin FPC to the `USB-t
 - **Bot face**: Ember's bot with a mood taken from the agent session that needs you most, and the host name of that session
 - **Pomodoro**: an arc around the bezel; push to start or pause, long push to stop
 - **Weather** and **now playing** pages, with volume, play/pause and track controls on the knob
+- **Controls** page (off by default): turn, push and long push run the actions you set on your Mac in the Ember app
 - **Pairing over USB**: Wi-Fi through [Improv Serial](https://www.improv-wifi.com/serial/) and a per-device token, both sent by the Ember app
 - **OTA updates from Ember**, with automatic rollback if a new image does not check in
 - Brightness, page list and timings set from Ember; dimming and pixel shift against AMOLED burn-in
