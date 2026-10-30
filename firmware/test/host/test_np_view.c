@@ -86,6 +86,7 @@ void np_client_forget_dropped(const char *version)
     strcpy(s_reoffer_v, version);
 }
 int64_t esp_timer_get_time(void) { return s_now_us; }
+void timing_add(int span, int64_t us) { (void)span; (void)us; }
 void np_client_set_visible(bool on) { (void)on; }
 static np_cmd_kind_t s_cmds[64];
 static int s_ncmds;

@@ -20,7 +20,7 @@ typedef enum { CL_OP_INFO, CL_OP_SET_EMBER, CL_OP_STATUS, CL_OP_RESET, CL_OP_REB
               CL_OP_CHASE ,
               CL_OP_INPUT ,
               CL_OP_OTA_FAULT,
-              CL_OP_OTA_VALID } cl_op_t;
+              CL_OP_OTA_VALID, CL_OP_TIMING } cl_op_t;
 typedef enum {
     CL_INPUT_TURN,
     CL_INPUT_PUSH,
@@ -72,6 +72,7 @@ typedef struct {
     cl_input_t input;
     int input_n;
     char fault[8];
+    bool timing_reset;
 } cl_req_t;
 
 #define CL_DIAG_STATS_S_MIN 5
@@ -111,6 +112,12 @@ typedef struct {
     bool diag_override;
     int diag_stats_s, diag_live_s;
 } cl_status_t;
+typedef struct {
+    const char *name;
+    uint32_t n;
+    int64_t avg_us, max_us;
+} cl_timing_span_t;
+size_t cl_reply_timing(long id, int64_t since_ms, const cl_timing_span_t *spans, int count, char *out, size_t cap);
 size_t cl_reply_status(long id, const cl_status_t *st, char *out, size_t cap);
 
 typedef struct {

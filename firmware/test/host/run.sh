@@ -17,6 +17,7 @@ CP="$D/../../components/caps"
 RT="$D/../../components/rotation"
 DM="$D/../../components/demo"
 RS="$D/../../components/refr_stats"
+SS="$D/../../components/span_stats"
 U="$D/../../components/usage"
 IDF="${IDF_PATH:?source the ESP-IDF export script first (IDF_PATH)}"
 J="$IDF/components/json/cJSON"
@@ -840,6 +841,7 @@ cc $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
 cc $CFLAGS -I"$RT/include" "$RT/knob_rotation.c" "$D/test_rotation.c" -o "${OUT}_rotation"
 cc $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 cc $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
+cc $CFLAGS -I"$SS/include" "$SS/span_stats.c" "$D/test_span_stats.c" -o "${OUT}_span_stats"
 cc $CFLAGS -I"$G/include" "$G/touch_swipe.c" "$D/test_swipe.c" -lm -o "${OUT}_swipe"
 cc $CFLAGS -I"$G/include" -I"$V/include" -I"$J" "$G/cfg.c" "$V/improv.c" "$V/cinder_line.c" "$J/cJSON.c" \
     "$D/test_provision.c" -lm -o "${OUT}_provision"
@@ -913,7 +915,7 @@ if [ -d "$LV" ]; then
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
         "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$LS/join_label.c" "$D/../../main/join_view.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
-    cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$J" \
+    cc $CFLAGS $LVDEF -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -DHOST_HEAP_ALLOCED -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$NP/include" -I"$N/include" -I"$C/include" -I"$G/include" -I"$SS/include" -I"$J" \
         "$C/arc_text.c" "$D/../../main/np_cover_view.c" "$D/../../main/nowplaying_view.c" "$D/../../main/font_digits_96.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" \
         "$G/touch_swipe.c" "$J/cJSON.c" "$D/test_np_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_np_view"
     cc $CFLAGS $FPC $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$U/include" -I"$W/include" -I"$N/include" -I"$P/include" -I"$LS/include" \
@@ -945,6 +947,7 @@ fi
 "${OUT}_rotation"
 "${OUT}_link"
 "${OUT}_refr"
+"${OUT}_span_stats"
 "${OUT}_swipe"
 "${OUT}_provision" "$D/../vectors"
 "${OUT}_device"
@@ -958,7 +961,7 @@ fi
 "${OUT}_demo" "$D/fixtures/demo" "$D/fixtures/ember/demo"
 "${OUT}_np"
 cc $CFLAGS -DHOST_HEAP_FAIL -DHOST_HEAP_FREED -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" \
-    -I"$C/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$J" \
+    -I"$C/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$DY/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$SS/include" -I"$J" \
     "$D/../../main/nowplaying_client.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" "$C/music_moment.c" "$D/test_np_client.c" \
     -lm -lpthread -o "${OUT}_np_client"
 "${OUT}_np_client"

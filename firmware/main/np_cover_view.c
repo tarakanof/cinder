@@ -8,6 +8,7 @@
 #include "arc_text.h"
 #include "esp_heap_caps.h"
 #include "np_ctl.h"
+#include "timing.h"
 #include "touch_swipe.h"
 
 LV_FONT_DECLARE(font_digits_96);
@@ -337,7 +338,9 @@ static uint32_t accent_of(const np_info_t *np, bool vinyl)
 static void paint_no_cover(void)
 {
     if (s_no_cover_painted || !ensure_buf()) return;
+    int64_t t0 = timing_now();
     np_v15_render(s_buf, FACE, FACE, (np_rect_t){0, 0, FACE, FACE}, M->frame < 0 ? 0 : M->frame, M->accent);
+    timing_add(SPAN_V15_RENDER, timing_now() - t0);
     lv_obj_invalidate(s_img);
     s_ring_on = false;
     s_no_cover_painted = true;
@@ -478,6 +481,7 @@ static void text_set(lv_obj_t *l, char *shown, size_t cap, const char *txt)
 
 static void ring_draw(float frac, const np_edge_style_t *st)
 {
+    int64_t t0 = timing_now();
     if (!s_ring_on || !np_edge_style_eq(st, &M->style)) {
         M->style = *st;
         np_edge_render(&EDGE, s_buf, FACE, FACE, (np_rect_t){0, 0, FACE, FACE}, frac, st, M->glow);
@@ -491,6 +495,7 @@ static void ring_draw(float frac, const np_edge_style_t *st)
     }
     s_ring_on = true;
     s_frac = frac;
+    timing_add(SPAN_RING, timing_now() - t0);
 }
 
 static void place_text(int dx, int dy)
@@ -509,9 +514,11 @@ static void place_text(int dx, int dy)
 static void info_fade(int opa)
 {
     if (opa == M->info_opa) return;
+    int64_t t0 = timing_now();
     M->info_opa = opa;
     lv_obj_set_style_opa(M->info, (lv_opa_t)opa, 0);
     show(M->info, opa > 0);
+    timing_add(SPAN_FADE, timing_now() - t0);
 }
 
 static void hide_overlays(void)
@@ -658,21 +665,27 @@ static void v15_text(int dx, int dy)
 {
     lv_obj_t *c = lv_canvas_create(NULL);
     if (!c) return;
+    int64_t t0 = timing_now();
     np_rect_t b = np_v15_text_box();
     np_v15_render(s_buf, FACE, FACE, b, M->frame < 0 ? 0 : M->frame, M->accent);
+    timing_add(SPAN_V15_RENDER, timing_now() - t0);
     lv_canvas_set_buffer(c, s_buf, FACE, FACE, LV_COLOR_FORMAT_RGB565);
+    int64_t t1 = timing_now();
     arc_line(c, &lv_font_montserrat_30, M->arc_title, NP_V15_TITLE_R, COL_TEXT, dx, dy);
     arc_line(c, &lv_font_montserrat_24, M->arc_artist, NP_V15_ARTIST_R, COL_V15_ARTIST, dx, dy);
+    timing_add(SPAN_ARC_TEXT, timing_now() - t1);
     lv_obj_delete(c);
     lv_area_t a = {.x1 = b.x + FACE_X, .y1 = b.y, .x2 = b.x + FACE_X + b.w - 1, .y2 = b.y + b.h - 1};
     lv_obj_invalidate_area(s_img, &a);
     M->text_dx = dx;
     M->text_dy = dy;
     M->text_dirty = false;
+    timing_add(SPAN_LABEL, timing_now() - t0);
 }
 
 static void v15_strings(const np_info_t *np)
 {
+    int64_t t0 = timing_now();
     char *w = M->work;
     np_text_fold(np->title[0] ? np->title : "Unknown track", w, sizeof M->arc_title);
     npc_fit_text(w, &lv_font_montserrat_30, NP_V15_TEXT_W);
@@ -686,6 +699,7 @@ static void v15_strings(const np_info_t *np)
         strlcpy(M->arc_artist, w, sizeof M->arc_artist);
         M->text_dirty = true;
     }
+    timing_add(SPAN_LABEL, timing_now() - t0);
 }
 
 static void v15_spin(int frame)
@@ -694,7 +708,9 @@ static void v15_spin(int frame)
     M->frame = frame;
     if (!s_no_cover_painted) return;
     np_rect_t b = np_v15_label_box();
+    int64_t t0 = timing_now();
     np_v15_render(s_buf, FACE, FACE, b, frame, M->accent);
+    timing_add(SPAN_V15_RENDER, timing_now() - t0);
     lv_area_t a = {.x1 = b.x + FACE_X, .y1 = b.y, .x2 = b.x + FACE_X + b.w - 1, .y2 = b.y + b.h - 1};
     lv_obj_invalidate_area(s_img, &a);
 }
@@ -745,7 +761,9 @@ static uint8_t chg_step(const npc_frame_t *f, float *keep)
     np_change_at(f->now - M->chg_t0, M->chg_from, &c);
     if (c.swap && !M->swapped) {
         M->swapped = true;
+        int64_t t0 = timing_now();
         chg_swap(f->np);
+        timing_add(SPAN_M8, timing_now() - t0);
         if (M->chg_from) sweep_start(f->now, NP_REGROW_S);
     }
     if (c.done) M->chg = CHG_NONE;
@@ -806,7 +824,7 @@ static float ring_target(const npc_frame_t *f, const np_info_t *np)
     return awaiting && f->now - M->hold_t0 < NP_RING_HOLD_S ? M->hold_frac : live;
 }
 
-void npc_update(const npc_frame_t *f)
+static void update_run(const npc_frame_t *f)
 {
     if (!s_img || !M) return;
     bool idle = f->state == NPF_WAITING || f->state == NPF_NOTHING || f->state == NPF_OFFLINE_EMPTY;
@@ -822,7 +840,10 @@ void npc_update(const npc_frame_t *f)
     chg_revalidate(np);
     nopic_step(np, f->now);
     float keep;
+    bool changing = M->chg != CHG_NONE;
+    int64_t t0 = timing_now();
     uint8_t fade = chg_step(f, &keep);
+    if (changing) timing_add(SPAN_FADE, timing_now() - t0);
     bool held = M->accent_ok && npc_has_cover() && strcmp(M->shown, np->cover_version) != 0;
     if (!held) {
         uint32_t a = accent_of(np, s_no_cover);
@@ -979,4 +1000,11 @@ void npc_round_lit(lv_obj_t *o, bool lit)
     lv_obj_set_style_bg_color(o, lit ? lv_color_hex(COL_TEXT) : lv_color_black(), 0);
     lv_obj_set_style_bg_opa(o, lit ? LV_OPA_COVER : NPC_ROUND_OPA, 0);
     lv_obj_set_style_text_color(lv_obj_get_child(o, 0), lit ? lv_color_black() : lv_color_hex(COL_TEXT), 0);
+}
+
+void npc_update(const npc_frame_t *f)
+{
+    int64_t t0 = timing_now();
+    update_run(f);
+    timing_add(SPAN_UPDATE, timing_now() - t0);
 }
