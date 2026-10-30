@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "improv.h"
+#include "input_route.h"
 #include "ota_client.h"
 #include "chase.h"
 #include "screen_snap.h"
@@ -410,7 +411,7 @@ static void op_input(const cl_req_t *r)
 {
 #if CONFIG_CINDER_DEV_INPUT
     ESP_LOGW(TAG, "input op: %s x %d (USB dev tool)", CL_INPUT_NAMES[r->input], r->input_n);
-    app_input_inject((int)r->input, r->input_n);
+    input_route_inject((int)r->input, r->input_n);
     reply_ok(r);
 #else
     reply_err(r, CL_E_UNKNOWN_OP);

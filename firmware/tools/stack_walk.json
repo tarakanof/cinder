@@ -56,8 +56,8 @@
    "glint_draw_cb",
    "wipe_draw_cb",
    "music_draw_cb",
-   "touch_cb",
-   "refr_cb",
+   "input_route_touch_cb",
+   "stats_refr_cb",
    "disp_event_cb",
    "rounder_event_cb"
   ],
@@ -69,8 +69,8 @@
    "glint_draw_cb",
    "wipe_draw_cb",
    "music_draw_cb",
-   "touch_cb",
-   "refr_cb"
+   "input_route_touch_cb",
+   "stats_refr_cb"
   ],
   "lv_obj_event_base": [
    "lv_obj_event"
@@ -428,8 +428,8 @@
   ],
   "timer_task": [
    "tick_increment",
-   "knob_cb",
-   "button_cb",
+   "input_route_knob_cb",
+   "input_route_button_cb",
    "reconnect_cb",
    "wdt_feed_cb"
   ],

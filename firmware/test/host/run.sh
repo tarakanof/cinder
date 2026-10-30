@@ -46,6 +46,8 @@ for CALL in esp_ota_end esp_ota_set_boot_partition; do
     grep -B3 "= $CALL(" "$OCL" | grep -q 'ota_yield(&YIELD_IO);' || WIRING="$WIRING ota_yield-before-$CALL"
 done
 MAINC="$D/../../main/main.c"
+IRC="$D/../../main/input_route.c"
+STC="$D/../../main/stats_task.c"
 for ARG in true false; do
     body "$MAINC" ota_frame | grep -q "bot_view_rim_hold($ARG);" || WIRING="$WIRING ota_frame-bot_view_rim_hold($ARG)"
 done
@@ -65,34 +67,20 @@ if [ -n "$WIRING" ]; then
 fi
 echo "rotation redraw wiring: lv_obj_invalidate on KR_APPLIED"
 IDLE=""
-for FN in knob_cb button_cb touch_cb app_input_inject; do
-    body "$MAINC" "$FN" | grep -qF 'ember_client_idle_input(' || IDLE="$IDLE $FN-feeds-the-idle-clock"
-done
-body "$MAINC" knob_cb | awk '/ember_client_idle_input\(DIM_WAKE_ENCODER\) \|\| pr_wake_held\(&s_wake_press\)\) return;/ {i = NR} /rg_turn\(/ {r = NR} /atomic_fetch_add/ {a = a ? a : NR} END {exit !(i && i < r && i < a)}' ||
-    IDLE="$IDLE knob_cb-swallows-the-waking-turn-and-turns-in-a-waking-press"
-body "$MAINC" app_input_inject | sed -n 3p | grep -qxF '    if (ember_client_idle_input(kind == 3 || kind >= 5 ? DIM_WAKE_TOUCH : DIM_WAKE_ENCODER)) return;' ||
-    IDLE="$IDLE app_input_inject-swallows-first"
-body "$MAINC" button_cb | awk '/pr_wake_swallow\(&s_wake_press, ev == BUTTON_PRESS_DOWN, ev == BUTTON_PRESS_UP, woke\)\) return;/ {w = NR} /^    switch \(ev\) \{$/ {s = NR} END {exit !(w && s > w)}' ||
-    IDLE="$IDLE button_cb-swallows-the-whole-waking-press"
-body "$MAINC" touch_cb | awk '/^    if \(code == LV_EVENT_PRESSED\) ota_client_note_input\(\);$/ {n = NR} /pr_wake_swallow\(&s_wake_touch, / {w = NR} /ts_press\(/ {p = NR} END {exit !(n && w > n && p > w)}' ||
-    IDLE="$IDLE touch_cb-notes-the-input-then-swallows-the-whole-waking-touch"
-body "$MAINC" touch_cb | grep -qxF '    bool woke = code == LV_EVENT_PRESSED && ember_client_idle_input(DIM_WAKE_TOUCH);' ||
-    IDLE="$IDLE touch_cb-only-a-press-counts-as-idle-input-not-pressing"
-body "$MAINC" touch_cb | grep -qxF '    if (code == LV_EVENT_RELEASED && dim_ctl_off()) code = LV_EVENT_PRESS_LOST;' ||
-    IDLE="$IDLE touch_cb-cancels-a-release-after-the-panel-went-off"
 body "$DIMC" idle_touch | grep -qF 'idle_wake_log' && IDLE="$IDLE idle_touch-does-not-log-the-wake-source"
 body "$DIMC" dim_ctl_diag | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_idle_age_s\(/ {a = NR} /taskEXIT_CRITICAL/ {x = NR} END {exit !(s && a > s && x > a)}' ||
     IDLE="$IDLE dim_ctl_diag-reads-state-age-and-wake-in-one-critical-section"
 body "$DIMC" idle_locked | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
     IDLE="$IDLE idle_locked-credits-the-mood-hold-to-mood"
-[ "$(grep -c 'ota_client_note_input();' "$MAINC")" -eq 3 ] || IDLE="$IDLE note_input-in-knob_cb-button_cb-and-touch_cb-only"
 body "$DIMC" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
 body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_read\(&wake\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
 ! body "$DIMC" fade_step | grep -qE 'idle_state\(\)|idle_wake_log|ESP_LOG' || IDLE="$IDLE fade_step-must-not-log-at-input-rate-on-the-frame-path"
-body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    atomic_fetch_add_explicit\(&s_loop_ticks, / {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
+body "$MAINC" frame_cb | awk '/^    ota_client_note_loop\(\);$/ {n = NR} /^    stats_note_loop\(\);$/ {l = NR} /^    if \(idle_frame\(lv_timer_get_user_data\(timer\)\)\) return;$/ {i = NR} /^    join_frame\(\);$/ {j = NR} /^    double t = now_s\(\);$/ {t = NR} END {exit !(n && l > n && i > l && j > i && t > i)}' ||
     IDLE="$IDLE frame_cb-keeps-the-stall-watchdog-fed-then-pauses-for-off"
+grep -qxF 'void stats_note_loop(void) { atomic_fetch_add_explicit(&s_loop_ticks, 1, memory_order_relaxed); }' "$STC" ||
+    IDLE="$IDLE stats_note_loop-feeds-the-stall-watchdog"
 body "$MAINC" idle_frame | grep -qxF '    if (ota_face_requested()) dim_ctl_wake(DIM_WAKE_OTA_FACE);' &&
     body "$MAINC" idle_frame | grep -qxF '    else if (ds.playing || ds.view_on || s_scene_on) dim_ctl_wake(DIM_WAKE_DEMO);' &&
     body "$MAINC" idle_frame | grep -qxF '        lv_display_enable_invalidation(disp, !off);' &&
@@ -116,15 +104,14 @@ for FN in idle_locked fade_floor set_brightness_target; do
 done
 grep -qxF 'static int64_t idle_ms(void) { return esp_timer_get_time() / 1000; }' "$DIMC" &&
     grep -qxF 'bool ota_client_verifying(void) { return atomic_load(&s_verifying); }' "$OCL" || IDLE="$IDLE idle_ms-and-ota_client_verifying-stay-plain-reads-under-the-lock"
-body "$MAINC" knob_cb | grep -qF 'if (!atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_TURNED) && open != PRESS_TURNED) break;' ||
-    IDLE="$IDLE knob_cb-a-held-turn-claims-the-press-before-paging"
-grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$MAINC" ||
-    IDLE="$IDLE hold_tick-fires-only-on-an-open-claim"
+[ "$(grep -c 'atomic_compare_exchange_strong(&s_press_claim, ' "$IRC")" -eq 3 ] || IDLE="$IDLE every-press-claim-is-a-compare-exchange"
+grep -qF 'if (atomic_compare_exchange_strong(&s_press_claim, &open, PRESS_FIRED)) atomic_fetch_add(&s_long_pushes, 1);' "$IRC" ||
+    IDLE="$IDLE hold-fires-only-on-an-open-claim"
 if [ -n "$IDLE" ]; then
     echo "run.sh: FAIL idle wiring:$IDLE" >&2
     exit 1
 fi
-echo "idle wiring: every input path asks the idle clock first and drops the waking input (the whole press or touch), frame_cb feeds the stall watchdog before pausing for off, the OTA face and demos wake, a mood to waiting or error wakes, an OTA image on trial holds the panel on"
+echo "idle wiring: frame_cb feeds the stall watchdog before pausing for off, the OTA face and demos wake, a mood to waiting or error wakes, an OTA image on trial holds the panel on"
 OPTS=""
 body "$MAINC" settings_frame | grep -qxF '    temp_face_set_list(s_ks_lv->wx_faces, s_ks_lv->n_wx_faces);' || OPTS="$OPTS settings_frame-sets-the-weather-face-list"
 body "$MAINC" settings_frame | grep -qxF '    pomo_view_set_colors(s_ks_lv->pomo_focus_rgb, s_ks_lv->pomo_break_rgb);' || OPTS="$OPTS settings_frame-sets-the-pomodoro-colours"
@@ -138,9 +125,9 @@ if [ -n "$OPTS" ]; then
     exit 1
 fi
 echo "app options wiring: settings_frame hands the weather faces, Pomodoro colours and now-playing delay to their pages, the weather page paints through the list, no fixed colours or dim delay are left"
-REFR="$(body "$MAINC" refr_cb)"
+REFR="$(body "$STC" stats_refr_cb)"
 for EV in REFR_START RENDER_START REFR_READY; do
-    grep -qxF "    lv_display_add_event_cb(handles.disp, refr_cb, LV_EVENT_$EV, NULL);" "$MAINC" || WIRING="$WIRING refr_cb-on-$EV"
+    grep -qxF "    lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_$EV, NULL);" "$MAINC" || WIRING="$WIRING refr_cb-on-$EV"
 done
 echo "$REFR" | grep -qxF '        refr_stats_begin(&s_refr, s_frame_kind);' || WIRING="$WIRING refr_stats_begin-at-REFR_START"
 echo "$REFR" | grep -qxF '        refr_stats_render(&s_refr, s_refr_areas, disp->inv_area_joined, n);' || WIRING="$WIRING refr_stats_render-at-RENDER_START"
@@ -151,19 +138,19 @@ in_refr_lock() { awk -v want="$1" '/taskENTER_CRITICAL\(&s_refr_mux\);/ {l=1; e+
     /s_refr_(count|total_us|max_us)/ { if (l) n++; else bad=1 }
     index($0, want) { if (l) w++ } END {print n + 0; exit !(e == 1 && !l && w == 1 && !bad)}'; }
 RN=$(echo "$REFR" | in_refr_lock 'bool drew = refr_stats_end(&s_refr, d);') &&
-    SN=$(body "$MAINC" stats_task | in_refr_lock 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);') ||
+    SN=$(body "$STC" stats_task | in_refr_lock 'int64_t win_us = refr_stats_take(&s_refr, esp_timer_get_time(), kc, &kt);') ||
     WIRING="$WIRING refr-end-and-take-inside-the-s_refr_mux-section"
-[ -n "$WIRING" ] || [ "$(grep -E 's_refr_(count|total_us|max_us)' "$MAINC" | grep -vcE '^static [a-z0-9_]+ s_refr_[a-z_]+(, s_refr_[a-z_]+)*;$')" -eq $((RN + SN)) ] ||
+[ -n "$WIRING" ] || [ "$(grep -E 's_refr_(count|total_us|max_us)' "$STC" | grep -vcE '^static [a-z0-9_]+ s_refr_[a-z_]+(, s_refr_[a-z_]+)*;$')" -eq $((RN + SN)) ] ||
     WIRING="$WIRING refr-counters-only-in-the-refr_cb-and-stats_task-sections"
-STATS="$(body "$MAINC" stats_task)"
+STATS="$(body "$STC" stats_task)"
 echo "$STATS" | grep -qxF '    int failed_logged = 0, refused_logged = 0;' &&
     echo "$STATS" | grep -qxF '        if (failed > failed_logged) ESP_LOGE(TAG, "weather moments: %d starts since boot without the PSRAM arena or the bake task", failed);' &&
     echo "$STATS" | grep -A1 -F 'if (failed > failed_logged) ESP_LOGE(' | tail -1 | grep -qxF '        failed_logged = failed;' &&
-    [ "$(grep -c 'failed_logged' "$MAINC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts since boot without' "$MAINC")" -eq 1 ] ||
+    [ "$(grep -c 'failed_logged' "$STC")" -eq 3 ] && [ "$(grep -c 'weather moments: %d starts since boot without' "$STC")" -eq 1 ] ||
     WIRING="$WIRING stats-logs-moment-start-failures-only-when-the-count-grows"
 echo "$STATS" | grep -qxF '        if (refused > refused_logged) ESP_LOGE(TAG, "weather moments: %d clouds since boot refused by wx_cloud_shape, drawn blank", refused);' &&
     echo "$STATS" | grep -A1 -F 'if (refused > refused_logged) ESP_LOGE(' | tail -1 | grep -qxF '        refused_logged = refused;' &&
-    [ "$(grep -c 'refused_logged' "$MAINC")" -eq 3 ] &&
+    [ "$(grep -c 'refused_logged' "$STC")" -eq 3 ] &&
     body "$D/../../main/moment_view.c" moment_bake_task | grep -qxF '        atomic_fetch_add(&s_refused, wxm_paint(&s_m, &s_l, s_arena, bake_yield));' &&
     grep -qxF 'static atomic_int s_refused;' "$D/../../main/moment_view.c" && [ "$(grep -c 's_refused' "$D/../../main/moment_view.c")" -eq 3 ] &&
     body "$D/../../main/moment_view.c" moment_view_stats | grep -qxF '    *refused = atomic_load(&s_refused);' ||
@@ -181,11 +168,13 @@ fi
 echo "refresh stats wiring: begin at REFR_START, areas at RENDER_START, end, take and the counters inside one s_refr_mux section; moment start failures and refused clouds logged when the count grows"
 DIAGC="$D/../../main/diag.c"
 APP="$(body "$MAINC" app_main)"
-echo "$APP" | grep -n -e '    refr_stats_init(&s_refr, esp_timer_get_time());' -e '    diag_attach_refr(&s_refr, &s_refr_mux);' \
-    -e '    ember_client_start();' -e 'lv_display_add_event_cb(handles.disp, refr_cb' | cut -d: -f2- | sed 's/(.*//' | uniq |
-    tr -d ' \n' | grep -qx 'refr_stats_initdiag_attach_refrember_client_startlv_display_add_event_cb' ||
+echo "$APP" | grep -n -e '    stats_refr_init();' \
+    -e '    ember_client_start();' -e 'lv_display_add_event_cb(handles.disp, stats_refr_cb' | cut -d: -f2- | sed 's/(.*//' | uniq |
+    tr -d ' \n' | grep -qx 'stats_refr_initember_client_startlv_display_add_event_cb' ||
     WIRING="$WIRING refr-init-and-attach-before-ember_client_start-and-refr_cb"
-[ "$(grep -c 'refr_stats_init(' "$MAINC")" -eq 1 ] || WIRING="$WIRING refr_stats_init-once"
+[ "$(body "$STC" stats_refr_init | tail -3 | head -2 | tr -d ' \n')" = 'refr_stats_init(&s_refr,esp_timer_get_time());diag_attach_refr(&s_refr,&s_refr_mux);' ] ||
+    WIRING="$WIRING refr-init-then-attach"
+[ "$(grep -c 'refr_stats_init(' "$STC")" -eq 1 ] && ! grep -q 'refr_stats_init(' "$MAINC" || WIRING="$WIRING refr_stats_init-once"
 WS="$(body "$DIAGC" window_start)"
 REFR_NOW='/^    if / {i = ($0 ~ /^    if \(s_refr\) \{$/); x = ($0 ~ /^    if \(!s_refr\) \{$/)}
     /^    \} else \{$/ {x = i; i = 0} /^    \}$/ {x = 0; i = 0}
@@ -786,7 +775,7 @@ printf '%s\n' "$MUT" | awk '/^        s_mm_key = mm_track_key\(/ {k = NR} /(^|[^
 [ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 3 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
     WIRING="$WIRING page_tick-gates-its-input"
-body "$MAINC" scene_frame | sed -n 3p | grep -qxF '    if (scene_gate(t, inputs_pending())) drop_inputs();' || WIRING="$WIRING scene_frame-gates-first"
+body "$MAINC" scene_frame | sed -n 3p | grep -qxF '    if (scene_gate(t, input_route_pending())) input_route_drop();' || WIRING="$WIRING scene_frame-gates-first"
 body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
 body "$MAINC" scene_frame | grep -qxF '    } else if (ended && (s_scene_gate.on || (!st.playing && !timed))) {' || WIRING="$WIRING scene_frame-resume-branch"
@@ -1165,3 +1154,7 @@ cc $CFLAGS -I"$WT/include" -I"$SH/include" -I"$DM/include" -I"$W/include" -I"$RT
     "$WT/wake_turn.c" "$SH/shown.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$V/knob_settings.c" "$RT/knob_rotation.c" \
     "$J/cJSON.c" "$D/test_wake.c" -lm -o "${OUT}_wake"
 "${OUT}_wake"
+cc $CFLAGS -I"$D/input_route_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$G/include" -I"$PG/include" -I"$V/include" -I"$RT/include" -I"$O/include" \
+    -I"$M/include" -I"$C/include" -I"$DM/include" -I"$H/include" -I"$LS/include" -I"$N/include" -I"$J" "$IRC" "$G/press_route.c" "$G/reset_gesture.c" "$G/touch_swipe.c" \
+    "$D/test_input_route.c" -lm -o "${OUT}_input_route"
+"${OUT}_input_route"
