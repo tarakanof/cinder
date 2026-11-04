@@ -1,6 +1,6 @@
 # Hardware expansion: speaker and sensors
 
-Status: modules bought 2026-10-30 (MAX98357A amp, 3 W speaker, HLK-LD2410 radar, ENS160+AHT21, AHT20+BMP280, BH1750, PCF8574 expander), plus breadboard, jumper wires and pin headers; nothing wired yet. Firmware: drivers and a hardware test image ([`hardware-test.md`](hardware-test.md)); the app does not use them yet. Prices are rough Temu/AliExpress figures from 2026-10-09 (RSD); sizes are typical listing values, measure before designing the enclosure.
+Status: modules bought 2026-10-30 (MAX98357A amp, 3 W speaker, HLK-LD2410 radar, ENS160+AHT21, AHT20+BMP280, BH1750, PCF8574 expander), plus breadboard, jumper wires and pin headers. All arrived by 2026-11-04; their connectors and pin names, read off photos of both sides, are in [Boards as delivered](#boards-as-delivered). Nothing wired yet. Firmware: drivers and a hardware test image ([`hardware-test.md`](hardware-test.md)); the app does not use them yet. Prices are rough Temu/AliExpress figures from 2026-10-09 (RSD); sizes are typical listing values, measure before designing the enclosure.
 
 ## What the knob exposes
 
@@ -21,16 +21,16 @@ That is 5 GPIOs, 3 of them to be verified first: the test image ([`hardware-test
 | Pins | Use |
 |---|---|
 | 3 | MAX98357A I2S amp (BCLK, LRC, DIN) |
-| 2 | I2C bus: ENS160+AHT21, BH1750, PCF8574 |
+| 2 | I2C bus: ENS160 board, BH1750, PCF8574 |
 | via PCF8574 P0 | LD2410 radar OUT (presence high/low) |
 
-I2C addresses don't clash: AHT21 0x38, ENS160 0x53 (ADD high; 0x52 low), BH1750 0x23 (ADDR low), PCF8574 0x20 (A0-A2 low). A board with a PCF8574**A** chip answers at 0x38-0x3F instead and clashes with the AHT21 at the default: read the chip marking, and if it is the A part set A0-A2 to anything but all low (0x39-0x3F).
+I2C addresses don't clash: AHT20 0x38 (on the ENS160 board), ENS160 0x53 (ADD high; 0x52 low), BH1750 0x23 (ADDR low), PCF8574 0x20 (A0-A2 low). A board with a PCF8574**A** chip answers at 0x38-0x3F instead and clashes with the AHT21 at the default: read the chip marking, and if it is the A part set A0-A2 to anything but all low (0x39-0x3F).
 
 The radar is polled over I2C (a few reads a second); the PCF8574's INT pin stays unconnected, since it would need a GPIO of its own.
 
-The AHT20+BMP280 board stays off the bus: the AHT20 and the AHT21 both sit at fixed 0x38, and there is no spare pin pair for a second bus. It only adds pressure (BMP280 0x76 or 0x77), which a desk display barely needs. To add it anyway: lift the AHT20 off its board, or put a TCA9548A I2C mux (0x70) in front of one of the two boards.
+The AHT20+BMP280 board stays off the bus: its AHT20 and the ENS160 board's AHT20 both sit at fixed 0x38, and there is no spare pin pair for a second bus. It only adds pressure (BMP280 0x76 or 0x77), which a desk display barely needs. To add it anyway: lift the AHT20 off its board, or put a TCA9548A I2C mux (0x70) in front of one of the two boards.
 
-Uses: sounds and TTS clips from Ember (amp), "air is stale" alerts and room temperature/humidity (ENS160+AHT21; the AHT21 readings also feed the ENS160's compensation), panel off when you leave and on when you sit down (radar), auto-dim (BH1750).
+Uses: sounds and TTS clips from Ember (amp), "air is stale" alerts and room temperature/humidity (ENS160 board; its AHT20 readings also feed the ENS160's compensation), panel off when you leave and on when you sit down (radar), auto-dim (BH1750).
 
 ## Pin budget
 
@@ -52,6 +52,8 @@ Put I2C on GPIO43/44, SCL on GPIO43: the ROM bootloader prints on GPIO43 (U0TXD)
 - ESP32-S3 pins are not 5V-tolerant. Before wiring a module's SDA/SCL/OUT to a GPIO, power it and measure those pins to GND: about 3.3 V is fine, about 5 V means don't connect.
 - The PCF8574 board pulls SDA/SCL up to its VCC, and at 5V its input threshold (0.7×VCC = 3.5 V) is above what a 3.3 V GPIO drives: run it from 3.3 V. Power it from the ENS160+AHT21 board's 3V3 pin (measure 3.3 V there first).
 - Each module adds its own SDA/SCL pull-ups (typically 4.7-10 kΩ). Three or four in parallel is still fine for 100-400 kHz.
+- The ENS160 board level-shifts SCL, SDA, ADD and CS (two 822 resistor arrays, two K27 dual MOSFETs). If the header side follows VIN, its SDA/SCL sit at 5 V on 5V: measure SDA before it touches J2. At 5 V it needs a 3.3 V supply on VIN instead (no 3.3 V source on J2 today).
+- The PCF8574 board has R1 (102, 1 kΩ) and R2 (201, 200 Ω) next to J3. Unpowered, measure J3 VCC to SDA and to SCL: a reading near those values means bus pull-ups far stronger than I2C's 3 mA sink limit allows with the others in parallel.
 
 ## Parts: prototype
 
@@ -66,6 +68,20 @@ Bought 2026-10-30:
 | Temp + humidity + pressure | AHT20+BMP280 | Spare: clashes with the AHT21 at 0x38 (see Plan) |
 | I/O expander | PCF8574 8-channel module | Chip marking PCF8574 or PCF8574A (address, see Plan); A0-A2 jumpers; power from the ENS160 board's 3V3 |
 | Light sensor | BH1750 | Same SDA/SCL check; ADDR low = 0x23 |
+
+### Boards as delivered
+
+Read off photos of both sides (2026-11-04). Pin order is left to right with the printed side up and the pins at the bottom, unless the row says otherwise.
+
+| Board | Connector | Pins | Notes |
+|---|---|---|---|
+| MAX98357A (purple, back: V914) | 7 bare holes; 2 holes for the screw terminal | LRC, BCLK, DIN, GAIN, SD, GND, Vin; terminal ⊖, ⊕ | Back: vin 2.5-5.5V, 4-8 Ω 3 W, default 9 dB gain, (L+R)/2 out |
+| BH1750 (GY-302 V322) | 5 bare holes | ADDR, SDA, SCL, GND, VCC | Names on the back only (VCC first from the back). 3.3 V LDO and 4.7 kΩ (472) pull-ups on board |
+| ENS160 board | 8 bare holes, VIN square | VIN, 3V3, GND, SCL, SDA, ADD, CS, INT | Humidity chip marked **AHT20**, not AHT21 as listed (same 0x38, same protocol). Back: ADD/MISO, SDA/MOSI, SCL/SCLK. Level shifter on SCL/SDA/ADD/CS (Voltage rules). CS high selects I2C |
+| HLK-LD2410C V1.1 | right-angle male header, pins out of the top edge | TX, RX, OUT, GND, VCC (antenna side) | Reversed when read from the back. The four round pads on the back are VIN, DM, DP, GND (USB): leave them |
+| PCF8574 (V1165) | J3 right-angle male, bottom edge; J5 female, top edge; J1 right-angle male, left edge | J3 and J5: VCC, GND, SDA, SCL; J1 top to bottom: P0-P7, INT | Chip marked **PCF8574T** (non-A: 0x20-0x27, no clash at 0x38). A0-A2 jumper caps sit on the two rows away from "+": expect 0x20, `scan` confirms. R1/R2 by J3 (Voltage rules) |
+
+The radar and the PCF8574 stay off the breadboard on female-male jumpers (right-angle headers). The amp, BH1750 and ENS160 board need straight headers soldered; the breadboard holds the strip straight while soldering.
 
 Still to buy:
 
@@ -113,7 +129,7 @@ The current puck ([`enclosure.html`](enclosure.html), Ø66 × 29 mm, 43×43 mm c
 |---|---|
 | Adapter | 42×37 |
 | MAX98357A | ~18×18 |
-| ENS160+AHT21 | ~24×19 |
+| ENS160 board | ~24×19 |
 | BH1750 | ~19×14 (measure) |
 | LD2410 | ~35×7 (LD2410/B) or ~22×16 (LD2410C) |
 | PCF8574 | ~42×16 |
