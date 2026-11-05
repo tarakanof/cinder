@@ -21,11 +21,19 @@
         "on": true
       },
       {
+        "id": "room",
+        "on": false
+      },
+      {
         "id": "nowplaying",
         "on": false
       },
       {
         "id": "controls",
+        "on": false
+      },
+      {
+        "id": "print",
         "on": false
       },
       {

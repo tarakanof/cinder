@@ -328,6 +328,16 @@ static void test_ops(void)
     }
 }
 
+static const char *const PAGES_LATER[] = {"room", "print"};
+enum { N_PAGES_LATER = sizeof PAGES_LATER / sizeof PAGES_LATER[0] };
+
+static int page_later(const char *id)
+{
+    for (int k = 0; k < N_PAGES_LATER; k++)
+        if (strcmp(PAGES_LATER[k], id) == 0) return k;
+    return -1;
+}
+
 static void test_ember_fixtures(void)
 {
     for (int i = 0; i < PAGES_N; i++) {
@@ -349,14 +359,23 @@ static void test_ember_fixtures(void)
     j = load("config_default.json");
     cJSON *c = j ? cJSON_Parse(j) : NULL;
     const cJSON *pages = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(c, "config"), "pages");
-    CHECK(cJSON_GetArraySize(pages) == PAGES_N, "Ember default page list has every table page");
-    int i = 0;
+    int i = 0, later = 0, later_seen[N_PAGES_LATER] = {0};
     const cJSON *pg;
     cJSON_ArrayForEach(pg, pages) {
         const cJSON *id = cJSON_GetObjectItemCaseSensitive(pg, "id");
+        int l = cJSON_IsString(id) ? page_later(id->valuestring) : -1;
+        if (l >= 0) {
+            CHECK(index_of(id->valuestring) < 0, "%s is in the table now, drop it from PAGES_LATER", id->valuestring);
+            later_seen[l]++;
+            later++;
+            continue;
+        }
         CHECK(i < PAGES_N && cJSON_IsString(id) && strcmp(id->valuestring, PAGES[i].id) == 0, "Ember page %d", i);
         i++;
     }
+    CHECK(i == PAGES_N && cJSON_GetArraySize(pages) == PAGES_N + later, "Ember default page list has every table page");
+    for (int k = 0; k < N_PAGES_LATER; k++)
+        CHECK(later_seen[k] == 1, "PAGES_LATER %s is not in Ember's default page list once", PAGES_LATER[k]);
     cJSON_Delete(c);
     free(j);
 }
