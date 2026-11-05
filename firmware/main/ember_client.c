@@ -44,6 +44,7 @@
 #include "ota_client.h"
 #include "pomo_client.h"
 #include "controls_client.h"
+#include "print_client.h"
 #include "day_client.h"
 #include "shown.h"
 #include "wake_turn.h"
@@ -422,6 +423,7 @@ static void loop_wait(int ms, char *buf)
         if (ota_client_mark_pending()) return;
         if (buf && demo_moved()) return;
         if (buf && atomic_load(&s_online) && day_client_pending()) return;
+        if (buf && atomic_load(&s_online) && print_client_pending()) return;
         int due = buf ? shown_due() : -1;
         if (due == 0) return;
         bool np = buf && np_client_visible();
@@ -803,6 +805,7 @@ static void apply_mode(void)
         view_etag_clear(&P->etag);
         view_reset();
         usage_client_feed(NULL, false, 0);
+        print_client_feed(NULL, false, 0);
     }
     dev_sched_epoch_reset(&s_sched);
     pomo_client_legacy(legacy);
@@ -866,6 +869,7 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     np_client_feed(e->has_np ? &e->np : NULL, want);
     usage_client_feed(&e->usage, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
     day_client_feed(e->has_day ? &e->day : NULL, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
+    print_client_feed(e->has_print ? &e->print : NULL, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
     demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     dim_ctl_quiet(demo_quiet_dim(playing, atomic_load(&s_quiet)));
@@ -883,6 +887,7 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (config_store_settings_gen() != s_ks_gen) return true;
     if (np_client_pending()) return true;
     if (day_client_pending()) return true;
+    if (print_client_pending()) return true;
     if (controls_client_pending()) return true;
     if (demo_moved()) return true;
     int64_t now = esp_timer_get_time() / 1000;
@@ -1189,6 +1194,7 @@ static void poll_task(void *arg)
         dim_ctl_mood(mood);
         demo_mark_ready();
         if (online && !P->vp.legacy && P->vs.have_view) np_client_service(s_conn, P->base);
+        if (online && !P->vp.legacy && P->vs.have_view) print_client_service(s_conn, P->base);
         if (mood != last) {
             if (dim_mood_holds(mood) && !dim_mood_holds(last)) dim_ctl_wake(DIM_WAKE_MOOD);
             ESP_LOGI(TAG, "Ember mood -> %d%s", mood, mood < 0 ? " (offline / no data)" : "");

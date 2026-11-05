@@ -42,7 +42,8 @@ static const char *const COVERED[] = {
     "config_v2.json",          "checkin_reply_config_v2.json", "claim_req.json",
     "claim_reply.json",        "claim_poll_pending.json",     "claim_poll_approved.json",
     "view_day_off.json",       "view_day_on.json",            "view_day_summary.json",
-    "day_action.json",         "view_day_break.json",
+    "day_action.json",         "view_day_break.json",         "view_print.json",
+    "view_print_heating.json", "view_print_attention.json",
 };
 #define N_COVERED (sizeof COVERED / sizeof COVERED[0])
 
@@ -1084,7 +1085,7 @@ static void test_config_custom(void)
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
     int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
-    CHECK(n == 3 && order[0] == 5 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
+    CHECK(n == 3 && order[0] == 6 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
 }
 
 _Static_assert(KS_WX_FACES == WXF_N, "the settings' face list holds one slot per weather face");
@@ -1206,6 +1207,25 @@ static void test_day(void)
     cJSON_Delete(r);
 }
 
+static void test_print(void)
+{
+    knob_view_t v;
+    const print_block_t *b = &v.print;
+    if (view("view_print.json", &v))
+        CHECK(v.has_print && v.has_mood && b->phase == PRINT_PRINTING && b->progress == 24 && b->ends_at == 1782051245LL &&
+                  strcmp(b->thumb_version, "5d73e113fbb7-r1") == 0 && b->thumb_top == 110 && b->thumb_bottom == 300 &&
+                  b->event.kind == PRINT_EV_STARTED && strcmp(b->printer, "CORE One") == 0,
+              "view_print: printing 24%% with its picture rows and the start event");
+    if (view("view_print_heating.json", &v))
+        CHECK(v.has_print && b->phase == PRINT_HEATING && b->has_temps && b->nozzle == 182 && b->bed_target == 85 &&
+                  !b->thumb_version[0],
+              "view_print_heating: the four temperatures, no picture yet");
+    if (view("view_print_attention.json", &v))
+        CHECK(v.has_print && b->phase == PRINT_ATTENTION && b->event.kind == PRINT_EV_ATTENTION && !b->change_at,
+              "view_print_attention: attention with its event");
+    if (view("view_full.json", &v)) CHECK(!v.has_print, "view_full: no print block");
+}
+
 static void test_controls_action(void)
 {
     char *j = load("controls_action.json");
@@ -1275,7 +1295,7 @@ static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
-static const char *const PAGES_AHEAD[] = {"day", "controls"};
+static const char *const PAGES_AHEAD[] = {"day", "controls", "print"};
 #define N_PAGES_AHEAD ((int)(sizeof PAGES_AHEAD / sizeof PAGES_AHEAD[0]))
 static int pages_ahead_used[N_PAGES_AHEAD];
 
@@ -1573,6 +1593,7 @@ int main(int argc, char **argv)
     test_view_usage();
     test_controls_action();
     test_day();
+    test_print();
     test_claim();
     test_checkin_req_minimal();
     test_view_req_shown();

@@ -8,6 +8,7 @@
 #include "demo.h"
 #include "np.h"
 #include "pomo.h"
+#include "print.h"
 #include "usage.h"
 #include "weather_face.h"
 
@@ -56,6 +57,9 @@ typedef struct {
 
     bool has_day;
     day_block_t day;
+
+    bool has_print;
+    print_block_t print;
 
     long long diag_live_until;   /* server Unix s; 0 = absent */
 

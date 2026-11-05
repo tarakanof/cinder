@@ -42,6 +42,7 @@ STUB_PAGE(controls, "ctl")
 STUB_PAGE(pomo, "pomo")
 STUB_PAGE(np, "np")
 STUB_PAGE(day, "day")
+STUB_PAGE(print, "print")
 
 void page_weather_show(bool on) { note(on ? "weather+" : "weather-"); }
 

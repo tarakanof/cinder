@@ -37,6 +37,8 @@
 #include "day_view.h"
 #include "pomo_client.h"
 #include "pomo_view.h"
+#include "print_client.h"
+#include "print_view.h"
 #include "nowplaying_client.h"
 #include "nowplaying_view.h"
 #include "ota_client.h"
@@ -450,6 +452,7 @@ void app_main(void)
         if (url[0]) {
             pomo_client_init();
             day_client_init();
+            print_client_init();
             weather_client_init();
             np_client_init();
             usage_client_init();
@@ -495,6 +498,7 @@ void app_main(void)
         temp_face_create(scr);
         np_view_create(scr);
         controls_view_create(scr);
+        print_view_create(scr);
         usage_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);

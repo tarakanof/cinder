@@ -1,3 +1,3 @@
 idf_component_register(SRCS "knob_view.c" "ember_legacy.c" "view_step.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES json day usage demo bot pomo weather nowplaying ember_host net_policy link_state)
+                       REQUIRES json day print usage demo bot pomo weather nowplaying ember_host net_policy link_state)

@@ -1,0 +1,320 @@
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+
+#include "lvgl.h"
+#include "page_canvas.h"
+#include "page_frame.h"
+#include "page_ops.h"
+#include "pomo_client.h"
+#include "print_client.h"
+#include "print_view.h"
+#include "src/display/lv_display_private.h"
+
+#define W 472
+#define H 466
+#define FX 3
+
+static int failures;
+#define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
+
+static uint16_t s_fb[W * H];
+static int s_areas, s_px;
+static const char *s_dir;
+static print_snapshot_t s_snap;
+static print_pics_t s_pics;
+static bool s_has_pics, s_visible;
+static double s_now;
+
+double pomo_client_now(void) { return s_now; }
+void print_client_get(print_snapshot_t *out) { *out = s_snap; }
+void print_client_set_visible(bool on) { s_visible = on; }
+bool print_client_take_pics(print_pics_t *out)
+{
+    if (!s_has_pics) return false;
+    *out = s_pics;
+    s_has_pics = false;
+    return true;
+}
+void print_pics_free(print_pics_t *p)
+{
+    free(p->ghost);
+    free(p->solid);
+    memset(p, 0, sizeof *p);
+}
+
+static uint32_t tick_ms(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+}
+
+static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
+{
+    const uint16_t *src = (const uint16_t *)px;
+    int w = lv_area_get_width(a);
+    for (int y = a->y1; y <= a->y2; y++) memcpy(&s_fb[y * W + a->x1], &src[(y - a->y1) * w], (size_t)w * 2);
+    lv_display_flush_ready(d);
+}
+
+static void render_cb(lv_event_t *e)
+{
+    lv_display_t *d = lv_event_get_target(e);
+    for (uint32_t i = 0; i < d->inv_p; i++)
+        if (!d->inv_area_joined[i]) {
+            s_areas++;
+            s_px += lv_area_get_size(&d->inv_areas[i]);
+            if (getenv("PV_AREAS"))
+                printf("  area %d,%d-%d,%d\n", d->inv_areas[i].x1, d->inv_areas[i].y1, d->inv_areas[i].x2, d->inv_areas[i].y2);
+        }
+}
+
+static lv_display_t *s_disp;
+
+static void frame(double t)
+{
+    page_frame_t f = {.t = t, .dt = 1.0 / 60};
+    s_now = t;
+    page_print_frame(&f);
+}
+
+static void refresh(void)
+{
+    s_areas = s_px = 0;
+    lv_refr_now(s_disp);
+}
+
+static void settle(double t)
+{
+    frame(t);
+    refresh();
+}
+
+static void save(const char *name)
+{
+    if (!s_dir) return;
+    char path[512];
+    snprintf(path, sizeof path, "%s/print-%s.ppm", s_dir, name);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fprintf(f, "P6\n%d %d\n255\n", W, H);
+    for (int i = 0; i < W * H; i++) {
+        uint16_t p = s_fb[i];
+        uint8_t rgb[3] = {(uint8_t)((p >> 11) * 255 / 31), (uint8_t)(((p >> 5) & 63) * 255 / 63), (uint8_t)((p & 31) * 255 / 31)};
+        fwrite(rgb, 1, 3, f);
+    }
+    fclose(f);
+}
+
+static uint16_t c565(uint32_t c) { return (uint16_t)((((c >> 16) & 0xFF) >> 3) << 11 | (((c >> 8) & 0xFF) >> 2) << 5 | ((c & 0xFF) >> 3)); }
+
+static int count(int x0, int y0, int x1, int y1, uint16_t want)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) n += s_fb[y * W + x] == want;
+    return n;
+}
+
+static int ink(int x0, int y0, int x1, int y1)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) n += s_fb[y * W + x] != 0;
+    return n;
+}
+
+#define T0 1782043200.0
+
+static void block(print_phase_t ph, int progress)
+{
+    memset(&s_snap, 0, sizeof s_snap);
+    s_snap.fed = s_snap.has = true;
+    s_snap.have_srv = s_snap.has_utc_offset = true;
+    s_snap.utc_offset = 3600;
+    print_block_t *b = &s_snap.b;
+    b->phase = ph;
+    b->has_progress = true;
+    b->progress = progress;
+    b->ends_at = (long long)T0 + 6120;
+    b->started_at = (long long)T0 - 1800;
+    strcpy(b->name, "bracket_v3");
+    strcpy(b->material, "PETG");
+    strcpy(b->printer, "CORE One");
+    strcpy(b->thumb_version, "5d73e113fbb7-r1");
+    b->thumb_top = 110;
+    b->thumb_bottom = 300;
+    s_snap.gen++;
+}
+
+static void make_pics(void)
+{
+    int rows = 190;
+    s_pics = (print_pics_t){.top = 110, .bottom = 300};
+    strcpy(s_pics.version, "5d73e113fbb7-r1");
+    s_pics.ghost = calloc((size_t)PRINT_PIC_W * rows, 2);
+    s_pics.solid = calloc((size_t)PRINT_PIC_W * rows, 2);
+    for (int y = 0; y < rows; y++) {
+        float k = (float)y / rows;
+        int half = (int)(40 + 30 * sinf(k * 3.1f));
+        for (int x = PRINT_PIC_W / 2 - half; x < PRINT_PIC_W / 2 + half; x++) {
+            s_pics.ghost[y * PRINT_PIC_W + x] = c565(0x404040);
+            s_pics.solid[y * PRINT_PIC_W + x] = c565(0x30A0E0);
+        }
+    }
+    s_has_pics = true;
+}
+
+static void input(int detents)
+{
+    page_input_t in = {.detents = detents};
+    page_print_input(&in, s_now);
+}
+
+int main(int argc, char **argv)
+{
+    s_dir = argc > 1 ? argv[1] : NULL;
+    lv_init();
+    lv_tick_set_cb(tick_ms);
+    s_disp = lv_display_create(W, H);
+    static uint16_t buf[W * 60];
+    lv_display_set_buffers(s_disp, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(s_disp, flush_cb);
+    lv_display_add_event_cb(s_disp, render_cb, LV_EVENT_RENDER_START, NULL);
+    lv_obj_t *scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    static uint16_t canvas[PAGE_CANVAS_BYTES / 2];
+    page_canvas_init(canvas, sizeof canvas);
+
+    print_view_create(scr);
+    page_print_show(true);
+    CHECK(s_visible && page_canvas_owner() == PAGE_CANVAS_PRINT, "shown: visible to the client, holds the canvas");
+
+    settle(T0);
+    save("none");
+    CHECK(ink(0, 0, W, H) > 500, "no block: something on screen");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_ACCENT)) > 500 && count(0, 0, W, H, c565(PRINT_COL_FIL)) == 0,
+          "no block: the drawn printer, no part");
+
+    block(PRINT_PRINTING, 24);
+    settle(T0);
+    save("k1-printing");
+    CHECK(count(FX + 233 - 10, 0, FX + 233 + 10, 20, 0) < 400, "the ring starts at 12 o'clock");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_FIL)) > 50, "K1 printing: the part in the printer");
+    CHECK(ink(80, 210, 390, 300) > 2000 && ink(80, 320, 390, 350) > 500 && ink(80, 360, 390, 385) > 300,
+          "K1: value, ready time and file line");
+    refresh();
+    CHECK(s_areas == 0, "nothing new, nothing drawn: %d", s_areas);
+    frame(T0 + 0.01);
+    refresh();
+    CHECK(s_areas == 0, "inside the ambient step: %d areas", s_areas);
+    frame(T0 + 0.2);
+    refresh();
+    CHECK(s_areas == 1 && s_px < 4000, "an ambient step: one head box, %d areas, %d px", s_areas, s_px);
+    frame(T0 + 0.25);
+    refresh();
+    s_snap.b.progress = 25;
+    s_snap.gen++;
+    frame(T0 + 0.26);
+    refresh();
+    CHECK(s_areas <= 2 && s_px < 40000, "a percent: the ring step and the hero, %d areas, %d px", s_areas, s_px);
+    double tick = T0 + 6120 - 6061;
+    frame(tick);
+    refresh();
+    frame(tick + 0.02);
+    refresh();
+    CHECK(s_areas == 0, "same minute: %d", s_areas);
+    frame(tick + 1);
+    refresh();
+    CHECK(s_areas >= 1, "the minute ticks without a view change: %d", s_areas);
+
+    block(PRINT_HEATING, 0);
+    s_snap.b.has_temps = true;
+    s_snap.b.nozzle = 182;
+    s_snap.b.nozzle_target = 240;
+    s_snap.b.bed = 72;
+    s_snap.b.bed_target = 85;
+    s_snap.b.thumb_version[0] = 0;
+    settle(T0);
+    save("k1-heating");
+    CHECK(count(0, 0, W, 240, c565(PRINT_COL_HEAT)) > 500, "heating: a red ring");
+
+    block(PRINT_ATTENTION, 46);
+    settle(T0);
+    save("k1-attention");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_WAIT)) > 300, "attention: amber");
+    frame(T0 + 0.1);
+    refresh();
+    CHECK(s_areas == 1, "attention pulses in the hero box only: %d areas, %d px", s_areas, s_px);
+
+    block(PRINT_FINISHED, 100);
+    s_snap.b.event = (print_event_t){.id = 1, .kind = PRINT_EV_FINISHED, .at = (long long)T0};
+    settle(T0 + 5);
+    save("k1-done");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) > 1000, "done: blue");
+    int lit = ink(0, 0, W, H);
+    settle(T0 + 601);
+    save("k1-done-dim");
+    int dim = 0;
+    for (int i = 0; i < W * H; i++) dim += s_fb[i] == c565(PRINT_COL_DONE);
+    CHECK(dim == 0 && ink(0, 0, W, H) <= lit, "after 10 min the Done face dims");
+
+    block(PRINT_OFFLINE, 0);
+    s_snap.b.has_progress = false;
+    settle(T0);
+    save("k1-offline");
+
+    block(PRINT_PRINTING, 42);
+    settle(T0);
+    input(1);
+    settle(T0 + 0.5);
+    save("k2-fallback");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_FIL)) > 200, "K2 without pictures: K1's printer, larger");
+    make_pics();
+    settle(T0 + 1);
+    save("k2-printing");
+    CHECK(count(0, 110, W, 300, c565(0x30A0E0)) > 3000 && count(0, 110, W, 300, c565(0x404040)) > 3000,
+          "K2: solid below, ghost above");
+    int clip = print_clip_row(110, 300, 42);
+    CHECK(count(0, clip, W, 300, c565(0x404040)) == 0 && count(0, 110, W, clip - 3, c565(0x30A0E0)) == 0,
+          "split at row %d", clip);
+    frame(T0 + 1.2);
+    refresh();
+    CHECK(s_areas == 1 && s_px < 300 * 8, "the hot line is one thin box: %d areas, %d px", s_areas, s_px);
+    s_snap.b.progress = 43;
+    s_snap.gen++;
+    frame(T0 + 1.21);
+    refresh();
+    CHECK(s_areas <= 4 && s_px < 50000, "a percent on K2 (ring, rows, value and its unit): %d areas, %d px", s_areas, s_px);
+
+    block(PRINT_FINISHED, 100);
+    s_snap.b.event = (print_event_t){.id = 2, .kind = PRINT_EV_FINISHED, .at = (long long)T0};
+    settle(T0 + 3.6);
+    save("k2-done");
+    CHECK(count(0, 110, W, 300, c565(0x404040)) == 0, "done: all solid");
+
+    input(1);
+    block(PRINT_PRINTING, 42);
+    settle(T0 + 10);
+    CHECK(count(0, 110, W, 300, c565(0x30A0E0)) == 0, "a turn back to K1: no picture");
+    input(-1);
+    settle(T0 + 11);
+    CHECK(count(0, 110, W, 300, c565(0x30A0E0)) > 3000, "and back to K2");
+
+    page_print_show(false);
+    CHECK(!s_visible && page_canvas_owner() == PAGE_CANVAS_FREE, "hidden: canvas back, client told");
+    page_print_show(true);
+    settle(T0 + 12);
+    CHECK(count(0, 110, W, 300, c565(0x30A0E0)) == 0, "a new open starts on K1");
+
+    if (failures) {
+        printf("print_view: %d failure(s)\n", failures);
+        return 1;
+    }
+    printf("print_view: ok\n");
+    return 0;
+}
