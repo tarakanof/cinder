@@ -148,6 +148,8 @@ typedef struct {
 /* now: server Unix s (0 unknown); has_off: utc_offset is the weather zone's. The face's text; name, material and
    printer are copied raw (the view folds them to ASCII). */
 void print_text(const print_block_t *b, print_face_t face, double now, bool has_off, int utc_offset, print_text_t *out);
+/* Before the first view: "Connecting"; offline: the last face with "offline" as its sub-line and no file line. */
+void print_text_link(print_text_t *t, bool fed, bool offline);
 
 typedef struct {
     int x, y, w, h;
@@ -167,8 +169,6 @@ typedef struct {
 
 /* The hero's box in face px, even-aligned. */
 print_rect_t print_hero_box(const print_hero_t *h);
-/* The head row's whole strip, for any head x. */
-print_rect_t print_hero_head_box(const print_hero_t *h);
 /* The head and nozzle alone at head_x (unscaled px), even-aligned. */
 print_rect_t print_hero_head_at(const print_hero_t *h, float head_x);
 /* The bed and nozzle at their heating place: the only pixels the heat-up changes. */

@@ -120,10 +120,6 @@ int main(void)
     CHECK(snap.fed && snap.has && snap.b.progress == 24 && snap.have_srv && snap.srv_offset == 1782043199.0 &&
               snap.has_utc_offset && snap.utc_offset == 3600,
           "the snapshot carries the block, Ember's clock and the zone");
-    unsigned gen = snap.gen;
-    feed("aaaaaaaaaaaa-r1", 110);
-    print_client_get(&snap);
-    CHECK(snap.gen == gen, "the same block again: same gen");
     CHECK(!print_client_pending(), "hidden: no picture is due");
     service_after(0);
     CHECK(s_gets == 0, "hidden: nothing fetched");

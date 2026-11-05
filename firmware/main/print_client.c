@@ -61,14 +61,9 @@ void print_client_feed(const print_block_t *b, bool has_utc_offset, int utc_offs
     if (!s_init) return;
     double srv = 0;
     bool have_srv = pomo_client_srv_offset(&srv);
-    double now = pomo_client_now();
     taskENTER_CRITICAL(&s_lock);
     print_snapshot_t *s = &S.snap;
-    bool changed = s->has != (b != NULL) || (b && memcmp(&s->b, b, sizeof *b) != 0) || s->have_srv != have_srv ||
-                   s->has_utc_offset != has_utc_offset || s->utc_offset != (has_utc_offset ? utc_offset : 0) ||
-                   (have_srv && (s->srv_offset - srv > 1 || srv - s->srv_offset > 1));
     if (b) {
-        if (!s->has || memcmp(&s->b, b, sizeof *b) != 0) s->fed_at = now;
         s->b = *b;
         strcpy(S.want, b->thumb_version);
         S.want_top = b->thumb_top;
@@ -83,7 +78,6 @@ void print_client_feed(const print_block_t *b, bool has_utc_offset, int utc_offs
     s->srv_offset = srv;
     s->has_utc_offset = has_utc_offset;
     s->utc_offset = has_utc_offset ? utc_offset : 0;
-    if (changed) s->gen++;
     taskEXIT_CRITICAL(&s_lock);
 }
 

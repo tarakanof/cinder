@@ -320,6 +320,21 @@ static void test_phase_face(void)
     CHECK(strcmp(t.word, "Printer off") == 0 && strcmp(t.sub, "CORE One") == 0 && print_ring_frac(&b) == 0, "offline");
 }
 
+static void test_link(void)
+{
+    print_text_t t;
+    print_block_t b = {.phase = PRINT_PRINTING, .has_progress = true, .progress = 24, .ends_at = 100000};
+    strcpy(b.name, "bracket_v3");
+    print_text(&b, PRINT_FACE_K1, 100000 - 6120, true, 0, &t);
+    print_text_link(&t, true, false);
+    CHECK(strncmp(t.sub, "done", 4) == 0 && t.small[0], "online: unchanged");
+    print_text_link(&t, true, true);
+    CHECK(strcmp(t.sub, "offline") == 0 && t.sub_col == PRINT_COL_SUB && !t.small[0] && strcmp(t.val, "1:42") == 0,
+          "offline: the last value, the sub-line says offline, no file line");
+    print_text_link(&t, false, true);
+    CHECK(strcmp(t.word, "Connecting") == 0 && !t.val[0] && !t.sub[0], "before the first view: Connecting");
+}
+
 static void test_turns(void)
 {
     print_block_t b = {.phase = PRINT_PRINTING};
@@ -380,9 +395,9 @@ static void test_hero(void)
     CHECK(box.x <= 233 - 120 && box.x + box.w >= 233 + 120 && box.y <= 233 - 112 && box.y + box.h >= 233 + 112 &&
               box.x % 2 == 0 && box.y % 2 == 0 && box.w % 2 == 0 && box.h % 2 == 0,
           "hero box %d,%d %dx%d", box.x, box.y, box.w, box.h);
-    print_rect_t head = print_hero_head_box(&h);
-    CHECK(head.y >= box.y && head.y + head.h <= box.y + box.h && head.h < box.h / 3, "head box is a strip: %d+%d", head.y,
-          head.h);
+    print_rect_t head = print_rect_union(print_hero_head_at(&h, -20), print_hero_head_at(&h, 20));
+    CHECK(head.y >= box.y && head.y + head.h <= box.y + box.h && head.h < box.h / 3, "the head's sweep is a strip: %d+%d",
+          head.y, head.h);
 
     uint16_t bed = c565(0x5A5A5A), head_col = c565(0xD8D8D8);
     int bed_y[3], head_y[3];
@@ -514,6 +529,7 @@ int main(int argc, char **argv)
     test_left();
     test_ticks_each_minute();
     test_phase_face();
+    test_link();
     test_turns();
     test_clip();
     test_hero();

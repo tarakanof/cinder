@@ -90,9 +90,11 @@ static void render_cb(lv_event_t *e)
 
 static lv_display_t *s_disp;
 
+static bool s_offline;
+
 static void frame(double t)
 {
-    page_frame_t f = {.t = t, .dt = 1.0 / 60};
+    page_frame_t f = {.t = t, .dt = 1.0 / 60, .offline = s_offline};
     s_now = t;
     page_print_frame(&f);
 }
@@ -163,8 +165,9 @@ static void block(print_phase_t ph, int progress)
     strcpy(b->thumb_version, "5d73e113fbb7-r1");
     b->thumb_top = 110;
     b->thumb_bottom = 300;
-    s_snap.gen++;
 }
+
+static uint32_t s_solid_col = 0x30A0E0;
 
 static void make_pics(void)
 {
@@ -178,7 +181,7 @@ static void make_pics(void)
         int half = (int)(40 + 30 * sinf(k * 3.1f));
         for (int x = PRINT_PIC_W / 2 - half; x < PRINT_PIC_W / 2 + half; x++) {
             s_pics.ghost[y * PRINT_PIC_W + x] = c565(0x404040);
-            s_pics.solid[y * PRINT_PIC_W + x] = c565(0x30A0E0);
+            s_pics.solid[y * PRINT_PIC_W + x] = c565(s_solid_col);
         }
     }
     s_has_pics = true;
@@ -211,6 +214,10 @@ int main(int argc, char **argv)
     CHECK(s_visible && page_canvas_owner() == PAGE_CANVAS_PRINT, "shown: visible to the client, holds the canvas");
 
     settle(T0);
+    save("connecting");
+    CHECK(ink(0, 0, W, H) > 500, "before the first view: Connecting");
+    s_snap.fed = true;
+    settle(T0);
     save("none");
     CHECK(ink(0, 0, W, H) > 500, "no block: something on screen");
     CHECK(count(0, 0, W, H, c565(PRINT_COL_ACCENT)) > 500 && count(0, 0, W, H, c565(PRINT_COL_FIL)) == 0,
@@ -234,7 +241,6 @@ int main(int argc, char **argv)
     frame(T0 + 0.25);
     refresh();
     s_snap.b.progress = 25;
-    s_snap.gen++;
     frame(T0 + 0.26);
     refresh();
     CHECK(s_areas <= 2 && s_px < 40000, "a percent: the ring step and the hero, %d areas, %d px", s_areas, s_px);
@@ -247,6 +253,27 @@ int main(int argc, char **argv)
     frame(tick + 1);
     refresh();
     CHECK(s_areas >= 1, "the minute ticks without a view change: %d", s_areas);
+
+    strcpy(s_snap.b.name, "Desk lamp bracket v3 with clipX");
+    strcpy(s_snap.b.material, "PLA/PETG");
+    settle(T0);
+    save("k1-long-name");
+    CHECK(ink(156, 388, 316, 425) == 0, "a 31-character name stays on its line: %d px below it", ink(156, 388, 316, 425));
+    CHECK(count(0, 352, W, 386, c565(PRINT_COL_SMALL)) > 0 || ink(60, 352, W - 60, 386) > 300, "and is drawn");
+    strcpy(s_snap.b.name, "abcdefghijklmnopqrstuvwxyzabcdef");
+    settle(T0 + 0.01);
+    CHECK(ink(156, 388, 316, 425) == 0, "32 characters without a space: still one line");
+    s_offline = true;
+    settle(T0 + 0.02);
+    save("k1-offline-link");
+    CHECK(ink(156, 352, 316, 425) == 0, "offline: the file line goes");
+    s_offline = false;
+    block(PRINT_OFFLINE, 0);
+    s_snap.b.has_progress = false;
+    strcpy(s_snap.b.printer, "Prusa CORE One in the workshop");
+    settle(T0 + 0.03);
+    save("k1-offline-long-label");
+    CHECK(ink(156, 352, 316, 425) == 0, "a 30-character printer label stays on the sub-line");
 
     block(PRINT_HEATING, 0);
     s_snap.b.has_temps = true;
@@ -323,6 +350,13 @@ int main(int argc, char **argv)
     s_snap.b.event = (print_event_t){0};
     settle(T0 + 1801);
     CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) == 0, "still dimmed once the finish event ages out of the view");
+    page_print_show(false);
+    block(PRINT_FINISHED, 100);
+    s_snap.b.started_at = (long long)T0 + 5000;
+    s_snap.b.event = (print_event_t){.id = 9, .kind = PRINT_EV_FINISHED, .at = (long long)T0 + 9000};
+    page_print_show(true);
+    settle(T0 + 9030);
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) > 1000, "the next job's Done, opened 30 s after it finished, is bright");
 
     block(PRINT_FINISHED, 100);
     s_snap.b.event = (print_event_t){.id = 1, .kind = PRINT_EV_FINISHED, .at = (long long)T0};
@@ -359,7 +393,6 @@ int main(int argc, char **argv)
     refresh();
     CHECK(s_areas == 1 && s_px < 300 * 8, "the hot line is one thin box: %d areas, %d px", s_areas, s_px);
     s_snap.b.progress = 43;
-    s_snap.gen++;
     frame(T0 + 1.21);
     refresh();
     CHECK(s_areas <= 4 && s_px < 50000, "a percent on K2 (ring, rows, value and its unit): %d areas, %d px", s_areas, s_px);
@@ -394,6 +427,12 @@ int main(int argc, char **argv)
     make_pics();
     strcpy(s_snap.b.thumb_version, "5d73e113fbb7-r1");
     settle(T0 + 14);
+    s_solid_col = 0xE03030;
+    make_pics();
+    s_solid_col = 0x30A0E0;
+    settle(T0 + 15);
+    CHECK(count(0, 110, W, 300, c565(0x30A0E0)) == 0 && count(0, 110, W, 300, c565(0xE03030)) > 3000,
+          "a replaced pair of the same version is drawn whole");
 
     page_print_show(false);
     CHECK(!s_visible && page_canvas_owner() == PAGE_CANVAS_FREE, "hidden: canvas back, client told");

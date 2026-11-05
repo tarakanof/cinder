@@ -869,7 +869,8 @@ static void apply_view(ember_host_info_t *host, long long srv_now, double sent, 
     np_client_feed(e->has_np ? &e->np : NULL, want);
     usage_client_feed(&e->usage, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
     day_client_feed(e->has_day ? &e->day : NULL, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
-    print_client_feed(e->has_print ? &e->print : NULL, e->has_weather && e->weather.has_utc_offset, e->weather.utc_offset);
+    bool day_zone = e->has_day && e->day.has_utc_offset, wx_zone = e->has_weather && e->weather.has_utc_offset;
+    print_client_feed(e->has_print ? &e->print : NULL, day_zone || wx_zone, day_zone ? e->day.utc_offset : e->weather.utc_offset);
     demo_flags(want, want && e->quiet);
     set_quiet(knob_quiet_next(atomic_load(&s_quiet), KNOB_QUIET_VIEW, v->quiet));
     dim_ctl_quiet(demo_quiet_dim(playing, atomic_load(&s_quiet)));

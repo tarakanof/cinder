@@ -435,3 +435,16 @@ void print_text(const print_block_t *b, print_face_t face, double now, bool has_
         break;
     }
 }
+
+void print_text_link(print_text_t *t, bool fed, bool offline)
+{
+    if (!fed) {
+        memset(t, 0, sizeof *t);
+        word(t, "Connecting", PRINT_COL_DIMWORD);
+        t->small_col = PRINT_COL_SMALL;
+        return;
+    }
+    if (!offline) return;
+    sub(t, PRINT_COL_SUB, "offline");
+    t->small[0] = 0;
+}

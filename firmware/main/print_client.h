@@ -11,11 +11,9 @@ typedef struct {
     bool fed;              /* a view was applied since boot */
     bool has;              /* the last view carried a print block */
     print_block_t b;
-    double fed_at;         /* pomo_client_now() clock */
     bool have_srv, has_utc_offset;
     double srv_offset;     /* server Unix s = pomo_client_now() + srv_offset */
     int utc_offset;        /* s, the weather location's */
-    unsigned gen;          /* bumps when the block or the clocks change */
 } print_snapshot_t;
 
 /* ghost and solid: PRINT_PIC_W x (bottom - top) RGB565, rows top..bottom of the 466 px picture. */

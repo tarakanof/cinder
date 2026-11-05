@@ -105,38 +105,51 @@ static bool part_shown(print_look_t l)
     return l != PRINT_LOOK_HEATING && l != PRINT_LOOK_OFFLINE && l != PRINT_LOOK_NONE && l != PRINT_LOOK_IDLE;
 }
 
-static void paint(const print_pose_t *p, float u, float v, float sc, float *px)
+typedef struct {
+    const print_pose_t *p;
+    uint32_t win_top, bed, nozzle, layer_a, layer_b, light;
+    bool sign;
+    float part, bed_y;
+} paint_ctx_t;
+
+static void paint_init(const print_pose_t *p, paint_ctx_t *c)
 {
     print_look_t l = p->look;
-    bool off = l == PRINT_LOOK_OFFLINE || l == PRINT_LOOK_NONE;
-    bool heat = l == PRINT_LOOK_HEATING;
-    blend(px, COL_BODY, rrect(u, v, -BODY_W, -BODY_H, 2 * BODY_W, 2 * BODY_H, 14, sc));
-    float band = rrect(u, v, -BODY_W, -BODY_H, 2 * BODY_W, 2 * BODY_H, 14, sc) * clamp01((-BODY_H + 14 - v) * sc + 0.5f);
-    blend(px, PRINT_COL_ACCENT, band);
-    float win = rrect(u, v, -48, -38, 96, 84, 8, sc);
-    if (win > 0) {
-        uint32_t top = off ? COL_WIN_OFF : print_mix(COL_WIN_TOP, light_of(l), 0.18f * p->pulse);
-        blend(px, print_mix(top, COL_WIN_BOT, clamp01((v + 40) / 86)), win);
-    }
+    bool off = l == PRINT_LOOK_OFFLINE || l == PRINT_LOOK_NONE, heat = l == PRINT_LOOK_HEATING;
+    c->p = p;
+    c->win_top = off ? COL_WIN_OFF : print_mix(COL_WIN_TOP, light_of(l), 0.18f * p->pulse);
+    c->bed = heat ? print_mix(COL_BED_HEAT, PRINT_COL_HEAT, p->heat) : COL_BED;
+    c->nozzle = heat ? print_mix(COL_HEAD, PRINT_COL_HEAT, p->heat) : COL_HEAD;
+    c->layer_a = PRINT_COL_FIL;
+    c->layer_b = print_scale(PRINT_COL_FIL, 0.85f);
+    c->light = light_of(l);
+    c->sign = l == PRINT_LOOK_ATTENTION || l == PRINT_LOOK_ERROR;
+    c->part = part_shown(l) ? PART_MAX * clamp01(p->progress) : 0;
+    c->bed_y = PART_TOP + c->part;
+}
+
+static void paint(const paint_ctx_t *c, uint32_t win_col, float u, float v, float sc, float *px)
+{
+    const print_pose_t *p = c->p;
+    float body = rrect(u, v, -BODY_W, -BODY_H, 2 * BODY_W, 2 * BODY_H, 14, sc);
+    blend(px, COL_BODY, body);
+    blend(px, PRINT_COL_ACCENT, body * clamp01((-BODY_H + 14 - v) * sc + 0.5f));
+    blend(px, win_col, rrect(u, v, -48, -38, 96, 84, 8, sc));
     blend(px, COL_ROD, rect(u, v, -44, -38, 3, 84, sc));
     blend(px, COL_ROD, rect(u, v, 41, -38, 3, 84, sc));
-    float h = part_shown(l) ? PART_MAX * clamp01(p->progress) : 0;
-    float bed = PART_TOP + h;
+    float h = c->part, bed = c->bed_y;
     if (h > 0) {
         float a = rect(u, v, -22, bed - h, 44, h, sc);
-        if (a > 0) {
-            int layer = (int)floorf((bed - v) / LAYER);
-            blend(px, layer % 2 ? PRINT_COL_FIL : print_scale(PRINT_COL_FIL, 0.85f), a);
-        }
+        if (a > 0) blend(px, (int)floorf((bed - v) / LAYER) % 2 ? c->layer_a : c->layer_b, a);
     }
-    blend(px, heat ? print_mix(COL_BED_HEAT, PRINT_COL_HEAT, p->heat) : COL_BED, rect(u, v, -42, bed, 84, 5, sc));
+    blend(px, c->bed, rect(u, v, -42, bed, 84, 5, sc));
     blend(px, COL_GANTRY, rect(u, v, -46, HEAD_Y - 6, 92, 3, sc));
     blend(px, COL_HEAD, rrect(u, v, p->head_x - 9, HEAD_Y - 10, 18, 12, 3, sc));
-    blend(px, heat ? print_mix(COL_HEAD, PRINT_COL_HEAT, p->heat) : COL_HEAD, tri(u, v, p->head_x, sc));
-    if (l == PRINT_LOOK_ATTENTION || l == PRINT_LOOK_ERROR) {
+    blend(px, c->nozzle, tri(u, v, p->head_x, sc));
+    if (c->sign) {
         float a = rrect(u, v, -3.2f, -9, 6.4f, 20, 3.2f, sc);
         float d = disc(u, v, 0, 17, 3.4f, sc);
-        blend(px, light_of(l), (a > d ? a : d) * p->pulse);
+        blend(px, c->light, (a > d ? a : d) * p->pulse);
     }
 }
 
@@ -152,8 +165,6 @@ static print_rect_t box(const print_hero_t *h, float u0, float v0, float u1, flo
 }
 
 print_rect_t print_hero_box(const print_hero_t *h) { return box(h, -BODY_W, -BODY_H, BODY_W, BODY_H); }
-
-print_rect_t print_hero_head_box(const print_hero_t *h) { return box(h, -47, HEAD_Y - 11, 47, PART_TOP + 1); }
 
 print_rect_t print_hero_head_at(const print_hero_t *h, float head_x)
 {
@@ -187,13 +198,16 @@ void print_hero_render(const print_hero_t *h, const print_pose_t *p, uint16_t *b
 {
     int x0 = clip.x < 0 ? 0 : clip.x, y0 = clip.y < 0 ? 0 : clip.y;
     int x1 = clip.x + clip.w > w ? w : clip.x + clip.w, y1 = clip.y + clip.h > h_px ? h_px : clip.y + clip.h;
+    paint_ctx_t c;
+    paint_init(p, &c);
     for (int y = y0; y < y1; y++) {
         float v = (y + 0.5f - h->cy) / h->sc;
+        uint32_t win = print_mix(c.win_top, COL_WIN_BOT, clamp01((v + 40) / 86));
         uint16_t *row = buf + (size_t)y * w;
         for (int x = x0; x < x1; x++) {
             float u = (x + 0.5f - h->cx) / h->sc;
             float px[3] = {0, 0, 0};
-            if (fabsf(u) <= BODY_W + 1 && fabsf(v) <= BODY_H + 1) paint(p, u, v, h->sc, px);
+            if (fabsf(u) <= BODY_W + 1 && fabsf(v) <= BODY_H + 1) paint(&c, win, u, v, h->sc, px);
             row[x] = pack(px[0], px[1], px[2]);
         }
     }

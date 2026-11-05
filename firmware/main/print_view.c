@@ -34,6 +34,9 @@ _Static_assert(SCREEN_W * SCREEN_H * 2 <= PAGE_CANVAS_BYTES, "the face draws on 
 #define TEXT_W 340
 #define SMALL_W 290
 #define K2_SUB_W 230
+#define K1_WORD_W 400
+#define K2_WORD_W 320
+#define SEP " \xE2\x80\xA2 "
 #define UNIT_GAP 8
 
 static const np_ring_t EDGE = {.cx = SCREEN_W / 2.0f, .cy = SCREEN_H / 2.0f, .r = NP_EDGE_R, .hw = NP_EDGE_HW};
@@ -48,7 +51,8 @@ typedef struct {
     print_block_t b;
     print_pics_t pics;
     print_faces_t faces;
-    print_text_t want, shown;
+    print_text_t raw, want, shown;
+    bool raw_k1;
     np_edge_style_t style;
     bool drawn, ring_on, labels_on, labels_k1;
     int face, look, hero;
@@ -62,6 +66,7 @@ typedef struct {
     int glint_y0, glint_y1;
     double amb_t;
     double done_t0;
+    long long done_job;
     bool done_seen;
     int dim, word_opa;
     char val[16], unit[16], word[24], sub[64], small[2 * PRINT_NAME_MAX + 8];
@@ -81,8 +86,8 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *f, int w)
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_remove_flag(l, LV_OBJ_FLAG_CLICKABLE);
     if (w > 0) {
-        lv_obj_set_width(l, w);
-        lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(l, w, f->line_height);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
     }
     lv_label_set_text_static(l, "");
     return l;
@@ -432,8 +437,10 @@ static void labels(bool k1)
     bool first = !M->labels_on;
     if (!first && M->labels_k1 == k1 && memcmp(t, o, sizeof *t) == 0) return;
     if (first || M->labels_k1 != k1) {
-        lv_obj_set_style_text_font(s_sub, k1 ? &lv_font_montserrat_30 : &lv_font_montserrat_24, 0);
-        lv_obj_set_width(s_sub, k1 ? TEXT_W : K2_SUB_W);
+        const lv_font_t *sf = k1 ? &lv_font_montserrat_30 : &lv_font_montserrat_24;
+        lv_obj_set_style_text_font(s_sub, sf, 0);
+        lv_obj_set_size(s_sub, k1 ? TEXT_W : K2_SUB_W, sf->line_height);
+        lv_obj_set_width(s_word, k1 ? K1_WORD_W : K2_WORD_W);
     }
     M->labels_on = true;
     M->labels_k1 = k1;
@@ -463,9 +470,61 @@ static void labels(bool k1)
         pos(s_val, x0, top_for(&font_digits_96, vbase));
         pos(s_unit, x0 + vs.x + gap, top_for(&lv_font_montserrat_30, vbase));
     }
-    place(s_word, k1 ? 292 : 368, 400);
+    place(s_word, k1 ? 292 : 368, k1 ? K1_WORD_W : K2_WORD_W);
     place(s_sub, k1 ? (wd ? 340 : 344) : 404, k1 ? TEXT_W : K2_SUB_W);
     place(s_small, 380, SMALL_W);
+}
+
+static int text_w(const char *s, const lv_font_t *f)
+{
+    lv_point_t p;
+    lv_text_get_size(&p, s, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return p.x;
+}
+
+static const char *last_sep(const char *s)
+{
+    const char *last = NULL;
+    for (const char *p = strstr(s, SEP); p; p = strstr(p + 1, SEP)) last = p;
+    return last;
+}
+
+static void fit(char *s, size_t cap, const lv_font_t *f, int w)
+{
+    if (!s[0] || text_w(s, f) <= w) return;
+    char out[2 * PRINT_NAME_MAX + 8], tail[2 * PRINT_NAME_MAX + 8] = "";
+    const char *sep = last_sep(s);
+    size_t n = sep ? (size_t)(sep - s) : strlen(s);
+    if (sep) strlcpy(tail, sep, sizeof tail);
+    for (int pass = 0; pass < 2; pass++) {
+        while (n > 0) {
+            n--;
+            while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) n--;
+            size_t k = n;
+            while (k > 0 && s[k - 1] == ' ') k--;
+            snprintf(out, sizeof out, "%.*s...%s", (int)k, s, tail);
+            if (text_w(out, f) <= w) {
+                strlcpy(s, out, cap);
+                return;
+            }
+        }
+        tail[0] = 0;
+        n = strlen(s);
+    }
+    s[0] = 0;
+}
+
+static void fit_text(print_text_t *t, bool k1)
+{
+    if (M->raw_k1 == k1 && memcmp(t, &M->raw, sizeof *t) == 0) {
+        *t = M->want;
+        return;
+    }
+    M->raw = *t;
+    M->raw_k1 = k1;
+    fit(t->word, sizeof t->word, &lv_font_montserrat_48, k1 ? K1_WORD_W : K2_WORD_W);
+    fit(t->sub, sizeof t->sub, k1 ? &lv_font_montserrat_30 : &lv_font_montserrat_24, k1 ? TEXT_W : K2_SUB_W);
+    fit(t->small, sizeof t->small, &lv_font_montserrat_24, SMALL_W);
 }
 
 static void fold(const print_block_t *in, print_block_t *out)
@@ -484,6 +543,9 @@ static bool done_dim(int look, double now)
     }
     double local = pomo_client_now();
     const print_event_t *e = &M->b.event;
+    long long job = M->b.started_at ? M->b.started_at : e->kind == PRINT_EV_FINISHED ? e->id : 0;
+    if (M->done_seen && job && M->done_job && job != M->done_job) M->done_seen = false;
+    if (job) M->done_job = job;
     double t0 = now > 0 && e->kind == PRINT_EV_FINISHED && e->at ? local - (now - (double)e->at) : local;
     if (!M->done_seen || t0 < M->done_t0) M->done_t0 = t0;
     M->done_seen = true;
@@ -504,6 +566,7 @@ void page_print_frame(const page_frame_t *f)
     if (print_client_take_pics(&np)) {
         print_pics_free(&M->pics);
         M->pics = np;
+        M->drawn = false;
     }
     print_client_get(&M->snap);
     const print_block_t *b = NULL;
@@ -520,7 +583,11 @@ void page_print_frame(const page_frame_t *f)
     int look = print_look(b);
     int hero = face == PRINT_FACE_K2 && pics_fit(b) ? HERO_PICS : HERO_PRINTER;
     M->phase = b ? (int)b->phase : PRINT_UNKNOWN;
-    print_text(b, (print_face_t)face, now, M->snap.has_utc_offset, M->snap.utc_offset, &M->want);
+    print_text_t txt;
+    print_text(b, (print_face_t)face, now, M->snap.has_utc_offset, M->snap.utc_offset, &txt);
+    print_text_link(&txt, M->snap.fed, f->offline);
+    fit_text(&txt, face == PRINT_FACE_K1);
+    M->want = txt;
     print_ring_look_t rl;
     print_ring_look((print_look_t)look, &rl);
     if (!rl.pulse && M->lo) cache_free();
