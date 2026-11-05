@@ -42,3 +42,5 @@ void print_client_service(http_conn_t *conn, const char *base);
 /* LVGL task: the newest finished pair, if any; the caller frees it with print_pics_free. */
 bool print_client_take_pics(print_pics_t *out);
 void print_pics_free(print_pics_t *p);
+/* LVGL task: the view freed its pair, so the same version is fetched again when the page shows. */
+void print_client_pics_dropped(void);

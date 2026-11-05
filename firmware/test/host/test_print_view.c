@@ -38,8 +38,24 @@ bool print_client_take_pics(print_pics_t *out)
     s_has_pics = false;
     return true;
 }
+static int s_dropped, s_pics_freed;
+static size_t s_allocs[64];
+static int s_n_allocs;
+int host_heap_fail(size_t n)
+{
+    if (s_n_allocs < 64) s_allocs[s_n_allocs++] = n;
+    return 0;
+}
+static bool allocated(size_t n, int from)
+{
+    for (int i = from; i < s_n_allocs; i++)
+        if (s_allocs[i] == n) return true;
+    return false;
+}
+void print_client_pics_dropped(void) { s_dropped++; }
 void print_pics_free(print_pics_t *p)
 {
+    s_pics_freed += p->ghost != NULL;
     free(p->ghost);
     free(p->solid);
     memset(p, 0, sizeof *p);
@@ -251,6 +267,63 @@ int main(int argc, char **argv)
     refresh();
     CHECK(s_areas == 1, "attention pulses in the hero box only: %d areas, %d px", s_areas, s_px);
 
+    s_snap.b.thumb_version[0] = 0;
+    s_snap.b.thumb_top = s_snap.b.thumb_bottom = 0;
+    settle(T0 + 0.5);
+    frame(T0 + 0.6);
+    refresh();
+    print_rect_t k1 = print_hero_box(&(print_hero_t){233 + FX, 122, 0.95f}), k2 = print_hero_box(&(print_hero_t){233 + FX, 205, 1.6f});
+    CHECK(allocated((size_t)k1.w * k1.h * 2, 0), "the K1 pulse pair is sized for K1's hero");
+    int mark = s_n_allocs;
+    input(1);
+    for (int i = 1; i <= 4; i++) {
+        frame(T0 + 0.6 + i * 0.1);
+        refresh();
+    }
+    CHECK(s_areas == 1, "attention on K2 without a picture pulses its larger hero: %d areas", s_areas);
+    CHECK(allocated((size_t)k2.w * k2.h * 2, mark), "a turn to K2 reallocates the pulse pair for its larger hero");
+    input(-1);
+    settle(T0 + 2);
+    frame(T0 + 2.1);
+    refresh();
+    CHECK(s_areas == 1, "and back on K1: %d areas", s_areas);
+
+    block(PRINT_HEATING, 0);
+    s_snap.b.has_temps = true;
+    s_snap.b.nozzle = 182;
+    s_snap.b.nozzle_target = 240;
+    s_snap.b.bed = 72;
+    s_snap.b.bed_target = 85;
+    s_snap.b.thumb_version[0] = 0;
+    settle(T0);
+    s_snap.b.nozzle = 183;
+    frame(T0 + 0.01);
+    refresh();
+    CHECK(s_areas <= 3, "a heat degree: the ring step, the bed and nozzle box and the value, %d areas", s_areas);
+
+    block(PRINT_PRINTING, 44);
+    settle(T0);
+    s_snap.b.progress = 56;
+    settle(T0 + 0.01);
+    static uint16_t stepped[W * H];
+    memcpy(stepped, s_fb, sizeof stepped);
+    input(1);
+    settle(T0 + 0.02);
+    input(-1);
+    settle(T0 + 0.03);
+    int diff = 0;
+    for (int y = 410; y < 450; y++)
+        for (int x = 200; x < 272; x++) diff += stepped[y * W + x] != s_fb[y * W + x];
+    CHECK(diff == 0, "a ring step past the dots leaves them whole: %d px differ from a fresh draw", diff);
+
+    block(PRINT_FINISHED, 100);
+    s_snap.b.event = (print_event_t){.id = 1, .kind = PRINT_EV_FINISHED, .at = (long long)T0};
+    settle(T0 + 1500);
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) == 0, "first shown 25 min after the finish: dimmed already");
+    s_snap.b.event = (print_event_t){0};
+    settle(T0 + 1801);
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) == 0, "still dimmed once the finish event ages out of the view");
+
     block(PRINT_FINISHED, 100);
     s_snap.b.event = (print_event_t){.id = 1, .kind = PRINT_EV_FINISHED, .at = (long long)T0};
     settle(T0 + 5);
@@ -296,6 +369,14 @@ int main(int argc, char **argv)
     settle(T0 + 3.6);
     save("k2-done");
     CHECK(count(0, 110, W, 300, c565(0x404040)) == 0, "done: all solid");
+    settle(T0 + 700);
+    int glints = 0;
+    for (int i = 0; i < 45; i++) {
+        frame(T0 + 700 + i * 0.07);
+        refresh();
+        glints += s_areas;
+    }
+    CHECK(glints == 0, "no glint under the dim: %d areas in 3 s", glints);
 
     input(1);
     block(PRINT_PRINTING, 42);
@@ -304,6 +385,15 @@ int main(int argc, char **argv)
     input(-1);
     settle(T0 + 11);
     CHECK(count(0, 110, W, 300, c565(0x30A0E0)) > 3000, "and back to K2");
+
+    int freed = s_pics_freed, dropped = s_dropped;
+    s_snap.b.thumb_version[0] = 0;
+    settle(T0 + 13);
+    CHECK(s_pics_freed == freed + 1 && s_dropped == dropped + 1, "a block without the picture frees it and tells the client");
+    CHECK(count(0, 110, W, 300, c565(0x30A0E0)) == 0, "K2 falls back to the printer");
+    make_pics();
+    strcpy(s_snap.b.thumb_version, "5d73e113fbb7-r1");
+    settle(T0 + 14);
 
     page_print_show(false);
     CHECK(!s_visible && page_canvas_owner() == PAGE_CANVAS_FREE, "hidden: canvas back, client told");

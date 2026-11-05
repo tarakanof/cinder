@@ -32,6 +32,8 @@ _Static_assert(SCREEN_W * SCREEN_H * 2 <= PAGE_CANVAS_BYTES, "the face draws on 
 #define GLINT_SWEEP_S 1.2
 #define GLINT_HALF 20
 #define TEXT_W 340
+#define SMALL_W 290
+#define K2_SUB_W 230
 #define UNIT_GAP 8
 
 static const np_ring_t EDGE = {.cx = SCREEN_W / 2.0f, .cy = SCREEN_H / 2.0f, .r = NP_EDGE_R, .hw = NP_EDGE_HW};
@@ -52,9 +54,10 @@ typedef struct {
     int face, look, hero;
     float frac;
     print_pose_t pose;
-    print_rect_t hero_box;
+    print_rect_t hero_box, cache_box;
     uint16_t *lo, *hi;
     bool cache_ok;
+    int phase;
     int clip, hot_y;
     int glint_y0, glint_y1;
     double amb_t;
@@ -106,7 +109,7 @@ void print_view_create(lv_obj_t *parent)
     s_unit = label(s_root, &lv_font_montserrat_30, 0);
     s_word = label(s_root, &lv_font_montserrat_48, 400);
     s_sub = label(s_root, &lv_font_montserrat_30, TEXT_W);
-    s_small = label(s_root, &lv_font_montserrat_24, TEXT_W - 20);
+    s_small = label(s_root, &lv_font_montserrat_24, SMALL_W);
 
     s_shade = lv_obj_create(s_root);
     lv_obj_remove_style_all(s_shade);
@@ -213,8 +216,10 @@ static void box_blend(float k)
 
 static bool pulse_cache(void)
 {
-    if (M->cache_ok) return true;
     print_rect_t r = M->hero_box;
+    if (M->lo && memcmp(&M->cache_box, &r, sizeof r) != 0) cache_free();
+    if (M->cache_ok) return true;
+    M->cache_box = r;
     size_t n = (size_t)r.w * r.h;
     if (!M->lo) M->lo = heap_caps_malloc(n * 2, MALLOC_CAP_SPIRAM);
     if (!M->hi) M->hi = heap_caps_malloc(n * 2, MALLOC_CAP_SPIRAM);
@@ -234,7 +239,7 @@ static bool pulse_cache(void)
     return true;
 }
 
-static void hero_printer(bool full, double t)
+static void hero_printer(bool full, double t, bool pulsing)
 {
     const print_hero_t *h = hero_geom();
     print_pose_t want = M->pose;
@@ -246,13 +251,10 @@ static void hero_printer(bool full, double t)
     } else {
         want.heat = 0;
     }
-    want.head_x = print_head_x(want.look, t);
-    want.pulse = print_pulse(want.look, t);
-    bool pulsing = want.look == PRINT_LOOK_ATTENTION || want.look == PRINT_LOOK_ERROR;
-    bool changed = full || want.look != M->pose.look || want.progress != M->pose.progress || want.heat != M->pose.heat;
-    bool tick = t - M->amb_t >= AMBIENT_S;
+    want.head_x = print_head_x((print_phase_t)M->phase, t);
+    want.pulse = pulsing ? print_pulse(want.look, t) : 1;
     M->hero_box = print_hero_box(h);
-    if (changed) {
+    if (full || want.look != M->pose.look || want.progress != M->pose.progress) {
         M->pose = want;
         M->cache_ok = false;
         print_hero_render(h, &want, s_buf, SCREEN_W, SCREEN_H, M->hero_box);
@@ -260,11 +262,18 @@ static void hero_printer(bool full, double t)
         M->amb_t = t;
         return;
     }
-    if (!tick) return;
+    if (want.heat != M->pose.heat) {
+        M->pose.heat = want.heat;
+        M->cache_ok = false;
+        print_rect_t hb = print_hero_heat_box(h);
+        print_hero_render(h, &M->pose, s_buf, SCREEN_W, SCREEN_H, hb);
+        invalidate(hb);
+    }
+    if (t - M->amb_t < AMBIENT_S) return;
     M->amb_t = t;
-    if (want.look == PRINT_LOOK_PROGRESS && want.head_x != M->pose.head_x) {
+    if (want.head_x != M->pose.head_x) {
+        print_rect_t hb = print_rect_union(print_hero_head_at(h, M->pose.head_x), print_hero_head_at(h, want.head_x));
         M->pose.head_x = want.head_x;
-        print_rect_t hb = print_hero_head_box(h);
         print_hero_render(h, &M->pose, s_buf, SCREEN_W, SCREEN_H, hb);
         invalidate(hb);
     } else if (pulsing && want.pulse != M->pose.pulse) {
@@ -372,7 +381,7 @@ static void hero_pics(bool full, double t)
     if (t - M->amb_t < AMBIENT_S && !full) return;
     M->amb_t = t;
     hot_line(t, hot, !full);
-    glint(t, M->look == PRINT_LOOK_DONE);
+    glint(t, M->look == PRINT_LOOK_DONE && !M->dim);
 }
 
 static void dots(void)
@@ -422,7 +431,10 @@ static void labels(bool k1)
     print_text_t *o = &M->shown;
     bool first = !M->labels_on;
     if (!first && M->labels_k1 == k1 && memcmp(t, o, sizeof *t) == 0) return;
-    if (first || M->labels_k1 != k1) lv_obj_set_style_text_font(s_sub, k1 ? &lv_font_montserrat_30 : &lv_font_montserrat_24, 0);
+    if (first || M->labels_k1 != k1) {
+        lv_obj_set_style_text_font(s_sub, k1 ? &lv_font_montserrat_30 : &lv_font_montserrat_24, 0);
+        lv_obj_set_width(s_sub, k1 ? TEXT_W : K2_SUB_W);
+    }
     M->labels_on = true;
     M->labels_k1 = k1;
     bool big = t->val[0] != 0, wd = t->word[0] != 0;
@@ -442,7 +454,7 @@ static void labels(bool k1)
     color(s_sub, &o->sub_col, t->sub_col, first);
     color(s_small, &o->small_col, t->small_col, first);
     *o = *t;
-    int vbase = k1 ? 300 : 388;
+    int vbase = k1 ? 300 : 372;
     if (big) {
         lv_point_t vs, us = {0, 0};
         lv_text_get_size(&vs, t->val, &font_digits_96, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
@@ -451,9 +463,9 @@ static void labels(bool k1)
         pos(s_val, x0, top_for(&font_digits_96, vbase));
         pos(s_unit, x0 + vs.x + gap, top_for(&lv_font_montserrat_30, vbase));
     }
-    place(s_word, k1 ? 292 : 384, 400);
-    place(s_sub, k1 ? (wd ? 340 : 344) : (wd ? 418 : 420), TEXT_W);
-    place(s_small, 380, TEXT_W - 20);
+    place(s_word, k1 ? 292 : 368, 400);
+    place(s_sub, k1 ? (wd ? 340 : 344) : 404, k1 ? TEXT_W : K2_SUB_W);
+    place(s_small, 380, SMALL_W);
 }
 
 static void fold(const print_block_t *in, print_block_t *out)
@@ -464,20 +476,24 @@ static void fold(const print_block_t *in, print_block_t *out)
     np_text_fold(in->printer, out->printer, sizeof out->printer);
 }
 
-static bool done_dim(double now)
+static bool done_dim(int look, double now)
 {
-    if (M->look != PRINT_LOOK_DONE) {
+    if (look != PRINT_LOOK_DONE) {
         M->done_seen = false;
         return false;
     }
     double local = pomo_client_now();
-    if (!M->done_seen) {
-        M->done_seen = true;
-        M->done_t0 = local;
-    }
     const print_event_t *e = &M->b.event;
-    double age = now > 0 && e->kind == PRINT_EV_FINISHED && e->at ? now - (double)e->at : local - M->done_t0;
-    return age >= DONE_DIM_S;
+    double t0 = now > 0 && e->kind == PRINT_EV_FINISHED && e->at ? local - (now - (double)e->at) : local;
+    if (!M->done_seen || t0 < M->done_t0) M->done_t0 = t0;
+    M->done_seen = true;
+    return local - M->done_t0 >= DONE_DIM_S;
+}
+
+static bool pics_fit(const print_block_t *b)
+{
+    return b && M->pics.ghost && strcmp(M->pics.version, b->thumb_version) == 0 && M->pics.top == b->thumb_top &&
+           M->pics.bottom == b->thumb_bottom;
 }
 
 void page_print_frame(const page_frame_t *f)
@@ -488,7 +504,6 @@ void page_print_frame(const page_frame_t *f)
     if (print_client_take_pics(&np)) {
         print_pics_free(&M->pics);
         M->pics = np;
-        if (M->hero == HERO_PICS || M->face == PRINT_FACE_K2) M->drawn = false;
     }
     print_client_get(&M->snap);
     const print_block_t *b = NULL;
@@ -496,18 +511,29 @@ void page_print_frame(const page_frame_t *f)
         fold(&M->snap.b, &M->b);
         b = &M->b;
     }
+    if (M->pics.ghost && !pics_fit(b)) {
+        print_pics_free(&M->pics);
+        print_client_pics_dropped();
+    }
     double now = M->snap.have_srv ? pomo_client_now() + M->snap.srv_offset : 0;
     int face = print_faces_shown(&M->faces, b);
     int look = print_look(b);
-    bool pics = face == PRINT_FACE_K2 && b && M->pics.ghost && strcmp(M->pics.version, b->thumb_version) == 0 &&
-                M->pics.top == b->thumb_top && M->pics.bottom == b->thumb_bottom;
-    int hero = pics ? HERO_PICS : HERO_PRINTER;
+    int hero = face == PRINT_FACE_K2 && pics_fit(b) ? HERO_PICS : HERO_PRINTER;
+    M->phase = b ? (int)b->phase : PRINT_UNKNOWN;
     print_text(b, (print_face_t)face, now, M->snap.has_utc_offset, M->snap.utc_offset, &M->want);
+    print_ring_look_t rl;
+    print_ring_look((print_look_t)look, &rl);
+    if (!rl.pulse && M->lo) cache_free();
+    int dim = done_dim(look, now);
     attach();
     bool full = !M->drawn || face != M->face || look != M->look || hero != M->hero;
     M->face = face;
     M->look = look;
     M->hero = hero;
+    if (dim != M->dim) {
+        M->dim = dim;
+        show(s_shade, dim);
+    }
     if (s_buf) {
         if (full) {
             memset(s_buf, 0, SCREEN_W * SCREEN_H * 2);
@@ -515,15 +541,13 @@ void page_print_frame(const page_frame_t *f)
             M->pose.look = PRINT_LOOK_NONE;
             M->cache_ok = false;
         }
-        print_ring_look_t rl;
-        print_ring_look((print_look_t)look, &rl);
         np_edge_style_t st;
         np_edge_style(&st, NP_RING_PROGRESS, rl.col);
         st.track = PRINT_COL_TRACK;
         st.head = rl.head;
         ring_draw(print_ring_frac(b), &st, full);
         if (hero == HERO_PICS) hero_pics(full, t);
-        else hero_printer(full, t);
+        else hero_printer(full, t, rl.pulse);
         if (full) {
             dots();
             lv_obj_invalidate(s_canvas);
@@ -531,16 +555,9 @@ void page_print_frame(const page_frame_t *f)
         M->drawn = true;
     }
     labels(face == PRINT_FACE_K1);
-    int wopa = hero == HERO_PICS && (look == PRINT_LOOK_ATTENTION || look == PRINT_LOOK_ERROR)
-                   ? (int)lroundf(255 * print_pulse((print_look_t)look, floor(t * 15) / 15))
-                   : 255;
+    int wopa = hero == HERO_PICS && rl.pulse ? (int)lroundf(255 * print_pulse((print_look_t)look, floor(t * 15) / 15)) : 255;
     if (wopa != M->word_opa) {
         M->word_opa = wopa;
         lv_obj_set_style_text_opa(s_word, (lv_opa_t)wopa, 0);
-    }
-    int dim = done_dim(now);
-    if (dim != M->dim) {
-        M->dim = dim;
-        show(s_shade, dim);
     }
 }

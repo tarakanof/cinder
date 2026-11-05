@@ -939,7 +939,7 @@ if [ -d "$LV" ]; then
     cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$PCV/include" \
         "$PCV/page_canvas.c" "$D/../../main/pomo_view.c" "$P/pomo.c" "$P/pomo_ring.c" "$C/bot_raster.c" "$LS/link_state.c" "$D/test_pomo_view.c" \
         "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_pomo_view"
-    cc $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$PRT/include" -I"$NP/include" -I"$PCV/include" -I"$C/include" \
+    cc $CFLAGS $FPC $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$PRT/include" -I"$NP/include" -I"$PCV/include" -I"$C/include" \
         -I"$PG/include" -I"$V/include" -I"$G/include" -I"$P/include" -I"$LS/include" -I"$N/include" -I"$J" "$PCV/page_canvas.c" "$D/../../main/print_view.c" "$D/../../main/font_digits_96.c" \
         "$PRT/print.c" "$PRT/print_draw.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$J/cJSON.c" "$D/test_print_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_print_view"
     cc $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$CT/include" "$D/../../main/controls_view.c" "$D/test_controls_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_controls_view"
@@ -995,6 +995,10 @@ cc $CFLAGS -I"$CT/include" -I"$J" "$CT/controls.c" "$J/cJSON.c" "$D/test_control
 cc $CFLAGS -I"$D/controls_client_stubs" -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$C/include" -I"$N/include" -I"$G/include" -I"$V/include" \
     -I"$CT/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$SS/include" -I"$J" \
     "$D/../../main/controls_client.c" "$CT/controls.c" "$LS/link_state.c" "$J/cJSON.c" "$D/test_controls_client.c" -lm -o "${OUT}_controls_client"
+cc $CFLAGS -DHOST_HEAP_ALLOCED -DHOST_HEAP_FREED -I"$D/controls_client_stubs" -I"$D/np_client_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$C/include" \
+    -I"$N/include" -I"$G/include" -I"$V/include" -I"$DM/include" -I"$M/include" -I"$H/include" -I"$LS/include" -I"$P/include" -I"$NP/include" -I"$K/include" -I"$DY/include" \
+    -I"$PRT/include" -I"$U/include" -I"$W/include" -I"$O/include" -I"$RT/include" -I"$SS/include" -I"$J" "$D/../../main/print_client.c" "$D/test_print_client.c" -lm -o "${OUT}_print_client"
+"${OUT}_print_client"
 "${OUT}_controls_client"
 "${OUT}_np_client"
 if [ "$TITLE_FONT" = 1 ]; then

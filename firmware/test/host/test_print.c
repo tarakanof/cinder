@@ -228,7 +228,9 @@ static void test_ticks_each_minute(void)
           "K2: %s%s %s", t.val, t.unit, t.sub);
     b.change_at = (long long)now + 300;
     print_text(&b, PRINT_FACE_K1, now, true, 3600, &t);
-    CHECK(strcmp(t.sub, "colour change in 5 min") == 0 && t.sub_col == PRINT_COL_WAIT, "colour change soon: %s", t.sub);
+    CHECK(strcmp(t.sub, "colour change: 5 min") == 0 && t.sub_col == PRINT_COL_WAIT, "colour change soon: %s", t.sub);
+    print_text(&b, PRINT_FACE_K2, now, true, 3600, &t);
+    CHECK(strcmp(t.sub, "change in 5 min") == 0 && t.sub_col == PRINT_COL_WAIT, "K2 colour change soon: %s", t.sub);
     b.change_at = (long long)now + 3600;
     print_text(&b, PRINT_FACE_K1, now, true, 3600, &t);
     CHECK(strcmp(t.sub, "done 15:14") == 0, "colour change later: %s", t.sub);
@@ -295,7 +297,7 @@ static void test_phase_face(void)
                         .event = {.id = 1, .kind = PRINT_EV_FINISHED, .at = 1000 + 8040}};
     print_text(&b, PRINT_FACE_K1, 0, false, 0, &t);
     CHECK(strcmp(t.word, "Done") == 0 && t.word_col == PRINT_COL_DONE &&
-              strcmp(t.sub, "in 2 h 14 m \xE2\x80\xA2 take it out") == 0,
+              strcmp(t.sub, "2 h 14 m \xE2\x80\xA2 take it out") == 0,
           "done %s / %s", t.word, t.sub);
     CHECK(print_ring_frac(&b) == 1, "done: full ring");
     print_text(&b, PRINT_FACE_K2, 0, false, 0, &t);
@@ -420,9 +422,45 @@ static void test_hero(void)
         print_hero_render(&h, &a, s_buf, W, W, head);
         CHECK(memcmp(full, s_buf, sizeof full) == 0, "a head move redraws only the head box (head at %.0f)", hx);
     }
-    CHECK(print_head_x(PRINT_LOOK_PROGRESS, 0) == 0 && fabsf(print_head_x(PRINT_LOOK_PROGRESS, 0.6)) > 10,
+    CHECK(print_head_x(PRINT_PRINTING, 0) == 0 && fabsf(print_head_x(PRINT_PRINTING, 0.6)) > 10,
           "the head sweeps while printing");
-    CHECK(print_head_x(PRINT_LOOK_DONE, 1) == print_head_x(PRINT_LOOK_DONE, 2), "parked when done");
+    CHECK(print_head_x(PRINT_PREPARING, 0.6) == print_head_x(PRINT_PREPARING, 1.2), "still while preparing");
+    CHECK(print_head_x(PRINT_FINISHED, 1) == print_head_x(PRINT_FINISHED, 2), "parked when done");
+    CHECK(print_head_x(PRINT_HEATING, 0.6) == 0, "centred while heating");
+
+    for (int k = 0; k < 3; k++) {
+        float from = k == 0 ? -20 : k == 1 ? 3 : 19.5f, to = k == 0 ? -16.4f : k == 1 ? 6.2f : 20;
+        static uint16_t full[W * W];
+        print_pose_t a = {.look = PRINT_LOOK_PROGRESS, .progress = 0.4f, .head_x = to, .pulse = 1};
+        memset(full, 0, sizeof full);
+        print_hero_render(&h, &a, full, W, W, box);
+        print_pose_t b0 = a;
+        b0.head_x = from;
+        memset(s_buf, 0, sizeof s_buf);
+        print_hero_render(&h, &b0, s_buf, W, W, box);
+        print_rect_t r = print_rect_union(print_hero_head_at(&h, from), print_hero_head_at(&h, to));
+        print_hero_render(&h, &a, s_buf, W, W, r);
+        CHECK(memcmp(full, s_buf, sizeof full) == 0 && r.w * r.h < head.w * head.h / 2,
+              "a head step redraws only the old and new head (%.1f -> %.1f, %d px)", from, to, r.w * r.h);
+    }
+    {
+        static uint16_t full[W * W];
+        print_pose_t cold = {.look = PRINT_LOOK_HEATING, .heat = 0.2f, .pulse = 1}, hot = cold;
+        hot.heat = 0.9f;
+        memset(full, 0, sizeof full);
+        print_hero_render(&h, &hot, full, W, W, box);
+        memset(s_buf, 0, sizeof s_buf);
+        print_hero_render(&h, &cold, s_buf, W, W, box);
+        print_rect_t r = print_hero_heat_box(&h);
+        print_hero_render(&h, &hot, s_buf, W, W, r);
+        CHECK(memcmp(full, s_buf, sizeof full) == 0 && r.w * r.h < box.w * box.h / 4,
+              "a heat change redraws only the bed and nozzle (%d of %d px)", r.w * r.h, box.w * box.h);
+    }
+    print_rect_t u = print_rect_union((print_rect_t){10, 10, 4, 4}, (print_rect_t){0, 0, 0, 0});
+    CHECK(u.x == 10 && u.w == 4, "an empty box adds nothing");
+    float dx, dy;
+    print_dot_xy(0, 2, 233, 233, &dx, &dy);
+    CHECK(hypotf(dx - 233, dy - 233) + PRINT_DOT_SIZE + 1 < 209, "the dots stay inside the ring layer (r 209)");
     CHECK(print_pulse(PRINT_LOOK_PROGRESS, 1) == 1 && print_pulse(PRINT_LOOK_ATTENTION, 0) > 0.6f &&
               print_pulse(PRINT_LOOK_ATTENTION, 0.94) < 0.4f,
           "attention pulses");

@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "config_store.h"
+#include "cfg.h"
 #include "ember_client.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
@@ -51,8 +51,8 @@ void print_client_init(void)
 
 void print_pics_free(print_pics_t *p)
 {
-    free(p->ghost);
-    free(p->solid);
+    heap_caps_free(p->ghost);
+    heap_caps_free(p->solid);
     memset(p, 0, sizeof *p);
 }
 
@@ -120,6 +120,14 @@ bool print_client_pending(void)
     return due;
 }
 
+void print_client_pics_dropped(void)
+{
+    if (!s_init) return;
+    taskENTER_CRITICAL(&s_lock);
+    if (!S.has_pending) S.handed[0] = 0;
+    taskEXIT_CRITICAL(&s_lock);
+}
+
 bool print_client_take_pics(print_pics_t *out)
 {
     if (!s_init) return false;
@@ -181,9 +189,9 @@ static uint16_t *decode(const uint8_t *jpg, int len, int top, int bottom)
         r = JDR_PAR;
     }
     if (r == JDR_OK) r = jd_decomp(&jd, jd_out, 0);
-    free(work);
+    heap_caps_free(work);
     if (r != JDR_OK) {
-        free(out);
+        heap_caps_free(out);
         ESP_LOGW(TAG, "JPEG decode failed (%d)", (int)r);
         return NULL;
     }

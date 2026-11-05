@@ -49,7 +49,7 @@ typedef struct {
     char name[PRINT_NAME_MAX + 1];
     char material[PRINT_MATERIAL_MAX + 1];
     char printer[PRINT_PRINTER_MAX + 1];
-    char thumb_version[PRINT_THUMBV_MAX + 1];   /* "" absent; [0-9a-z._-] only, so it goes into a URL as is */
+    char thumb_version[PRINT_THUMBV_MAX + 1];   /* "" absent; [0-9A-Za-z._-] only, so it goes into a URL as is */
     int thumb_top, thumb_bottom;  /* rows [top, bottom) of the 466 px picture; set only with thumb_version */
     print_event_t event;
 } print_block_t;
@@ -112,7 +112,6 @@ int print_clip_row(int top, int bottom, int progress);
 /* The ring's share 0..1: the heat-up while heating, else progress; 0 for no block, offline and idle. */
 float print_ring_frac(const print_block_t *b);
 
-/* Colours (RGB888) from the mockups. */
 #define PRINT_COL_TEXT 0xF4F4F2
 #define PRINT_COL_SUB 0x9A9A96
 #define PRINT_COL_SMALL 0x8A8A86
@@ -136,7 +135,7 @@ typedef struct {
 } print_ring_look_t;
 void print_ring_look(print_look_t l, print_ring_look_t *out);
 
-/* The face's text. val "" = no big value; word "" = no state word. Colours RGB888. */
+/* val "" = no big value; word "" = no state word. Colours RGB888. */
 typedef struct {
     char val[16];
     char unit[16];
@@ -150,7 +149,6 @@ typedef struct {
    printer are copied raw (the view folds them to ASCII). */
 void print_text(const print_block_t *b, print_face_t face, double now, bool has_off, int utc_offset, print_text_t *out);
 
-/* Hero drawing: the CORE One as it moves (the head stays at the top, the bed sinks as the part grows). */
 typedef struct {
     int x, y, w, h;
 } print_rect_t;
@@ -169,10 +167,15 @@ typedef struct {
 
 /* The hero's box in face px, even-aligned. */
 print_rect_t print_hero_box(const print_hero_t *h);
-/* The head row's box: the only part that moves while printing. */
+/* The head row's whole strip, for any head x. */
 print_rect_t print_hero_head_box(const print_hero_t *h);
-/* Head x while printing at time t (s); parked otherwise. */
-float print_head_x(print_look_t l, double t);
+/* The head and nozzle alone at head_x (unscaled px), even-aligned. */
+print_rect_t print_hero_head_at(const print_hero_t *h, float head_x);
+/* The bed and nozzle at their heating place: the only pixels the heat-up changes. */
+print_rect_t print_hero_heat_box(const print_hero_t *h);
+print_rect_t print_rect_union(print_rect_t a, print_rect_t b);
+/* Sweeps only while printing; centred while heating, parked otherwise. */
+float print_head_x(print_phase_t phase, double t);
 /* 0.35..1 for attention and error at t, else 1. */
 float print_pulse(print_look_t l, double t);
 /* Paints the hero into buf (w x h RGB565) inside clip, over black. */
@@ -187,7 +190,7 @@ void print_hot_line(const uint16_t *ghost_row, uint16_t *dst_row, int w, float k
 /* The Done glint over a solid row: brightened by a (0..1). */
 void print_glint_row(const uint16_t *src, uint16_t *dst, int w, float a);
 
-#define PRINT_DOT_R 206.0f
+#define PRINT_DOT_R 200.0f
 #define PRINT_DOT_PITCH 16.0f
 #define PRINT_DOT_SIZE 5.0f
 #define PRINT_COL_DOT_ON 0xF4F4F2

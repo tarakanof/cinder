@@ -339,7 +339,7 @@ static void progress_text(const print_block_t *b, print_face_t face, double now,
         snprintf(t->unit, sizeof t->unit, "%s", unit);
         t->val_col = PRINT_COL_TEXT;
         t->unit_col = PRINT_COL_SUB;
-        if (soon) sub(t, PRINT_COL_WAIT, "colour change in %d min", ch);
+        if (soon) sub(t, PRINT_COL_WAIT, "colour change: %d min", ch);
         else if (ready[0]) sub(t, PRINT_COL_ACCENT, "done %s", ready);
         else {
             char d[16];
@@ -352,7 +352,7 @@ static void progress_text(const print_block_t *b, print_face_t face, double now,
     snprintf(t->unit, sizeof t->unit, "%%");
     t->val_col = PRINT_COL_TEXT;
     t->unit_col = PRINT_COL_SUB;
-    if (soon) sub(t, PRINT_COL_WAIT, "colour change in %d min", ch);
+    if (soon) sub(t, PRINT_COL_WAIT, "change in %d min", ch);
     else if (ready[0]) sub(t, PRINT_COL_ACCENT, "%s %s" SEP "%s", left, min >= 60 ? "left" : "min left", ready);
     else sub(t, PRINT_COL_ACCENT, "%s %s", left, min >= 60 ? "left" : "min left");
 }
@@ -420,7 +420,7 @@ void print_text(const print_block_t *b, print_face_t face, double now, bool has_
         long long took = print_took_s(b);
         char d[16];
         if (took >= 0) print_duration_text(took, d, sizeof d);
-        if (k1 && took >= 0) sub(t, PRINT_COL_SUB, "in %s" SEP "take it out", d);
+        if (k1 && took >= 0) sub(t, PRINT_COL_SUB, "%s" SEP "take it out", d);
         else if (k1) sub(t, PRINT_COL_SUB, "take it out");
         else if (took >= 0) sub(t, PRINT_COL_SUB, "took %s", d);
         break;
@@ -431,7 +431,7 @@ void print_text(const print_block_t *b, print_face_t face, double now, bool has_
         break;
     case PRINT_LOOK_ERROR:
         word(t, "Printer error", PRINT_COL_ERR);
-        sub(t, PRINT_COL_SUB, k1 ? "see the printer's screen" : "see the printer");
+        sub(t, PRINT_COL_SUB, "see the printer");
         break;
     }
 }

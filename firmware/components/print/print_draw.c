@@ -155,10 +155,26 @@ print_rect_t print_hero_box(const print_hero_t *h) { return box(h, -BODY_W, -BOD
 
 print_rect_t print_hero_head_box(const print_hero_t *h) { return box(h, -47, HEAD_Y - 11, 47, PART_TOP + 1); }
 
-float print_head_x(print_look_t l, double t)
+print_rect_t print_hero_head_at(const print_hero_t *h, float head_x)
 {
-    if (l == PRINT_LOOK_PROGRESS) return (float)(sin(t * 2.6) * HEAD_SWEEP);
-    return l == PRINT_LOOK_HEATING ? 0 : HEAD_PARK;
+    return box(h, head_x - 10, HEAD_Y - 11, head_x + 10, HEAD_Y + 9);
+}
+
+print_rect_t print_hero_heat_box(const print_hero_t *h) { return box(h, -43, HEAD_Y + 1, 43, PART_TOP + 6); }
+
+print_rect_t print_rect_union(print_rect_t a, print_rect_t b)
+{
+    if (a.w <= 0 || a.h <= 0) return b;
+    if (b.w <= 0 || b.h <= 0) return a;
+    int x0 = a.x < b.x ? a.x : b.x, y0 = a.y < b.y ? a.y : b.y;
+    int x1 = a.x + a.w > b.x + b.w ? a.x + a.w : b.x + b.w, y1 = a.y + a.h > b.y + b.h ? a.y + a.h : b.y + b.h;
+    return (print_rect_t){x0, y0, x1 - x0, y1 - y0};
+}
+
+float print_head_x(print_phase_t phase, double t)
+{
+    if (phase == PRINT_PRINTING) return (float)(sin(t * 2.6) * HEAD_SWEEP);
+    return phase == PRINT_HEATING ? 0 : HEAD_PARK;
 }
 
 float print_pulse(print_look_t l, double t)
