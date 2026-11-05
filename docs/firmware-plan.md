@@ -24,6 +24,7 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 | **Day** | 24-hour dial: clock in and out, today's stop time; in Pomodoro's place in the default pages (built, `features.md` "Day clock page") | the view's `day` block, `/v1/day/*` |
 | **Media** | volume arc, play/pause icon, BLE link state | BLE HID (below) |
 | **Controls** | Sends turn, push and long push to the target Mac through Ember; off by default (built, `features.md` "Controls page") | `POST /v1/controls/action` |
+| **Print** | The printer's job: K1 Progress (time left, ready time, a drawn CORE One) and K2 Materialise (the model's picture filling in); off by default (built, `features.md` "Print page") | the view's `print` block, `GET /v1/print/thumb` |
 | **Usage** | 5 h / weekly gauges per Claude or Codex account: screens behind a tap on the bot face, not a page (built, `features.md` "Usage screens") | the view's `usage` block |
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |
 | Debug | Wi-Fi, BLE, heap, Ember health | `GET /v1/clock/health` |
@@ -50,6 +51,8 @@ Detent count per turn and double-push timing need tuning on hardware.
 The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember instead of BLE: turn = volume (Plex / Apple Music's own level, 2 points per detent), push = play/pause; a tap shows on-screen ⏮ ⏯ ⏭ (the first tap only shows them), swipe left / right = next / previous track; double and long push do nothing there. See `features.md` "Now-playing controls" and "Touch controls on the music page".
 
 The **day** page: push on Off = clock in with the last stop time; turn = today's stop time ±15 min (the start time ±5 min on the offer); push = break / resume; long push = clock out (dismiss the offer); taps are pushes; each face names its controls on its top line. See `features.md` "Day clock page".
+
+The **print** page: turn = the other face (K1 ↔ K2, face dots at the bottom); push, tap and long push do nothing. It opens on K1 every time. See `features.md` "Print page".
 
 The **controls** page: turn = `turn` with the detents since the last send (at most 4 sends/s), push or tap = `push`, long push = `long_push` (ring "Mac action"); the actions live on the Mac. Double push is not sent: it would delay every push. See `features.md` "Controls page".
 
