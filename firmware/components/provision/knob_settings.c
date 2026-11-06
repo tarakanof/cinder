@@ -26,6 +26,7 @@ void knob_settings_defaults(knob_settings_t *ks)
     ks->source_label = true;
     ks->working_ring = true;
     ks->weather_moments = true;
+    ks->print_moments = true;
     ks->weather_every_min = KS_WEATHER_EVERY_MIN_DEFAULT;
     ks->fast_link = true;
     ks->swipe_pages = true;
@@ -169,6 +170,8 @@ bool knob_settings_parse(const char *json, knob_settings_t *ks)
         if (cJSON_IsBool(wr)) ks->working_ring = cJSON_IsTrue(wr);
         const cJSON *wm = cJSON_GetObjectItemCaseSensitive(bot, "weather_moments");
         if (cJSON_IsBool(wm)) ks->weather_moments = cJSON_IsTrue(wm);
+        const cJSON *pm = cJSON_GetObjectItemCaseSensitive(bot, "print_moments");
+        if (cJSON_IsBool(pm)) ks->print_moments = cJSON_IsTrue(pm);
         num(bot, "weather_every_min", 0, KS_WEATHER_EVERY_MIN_MAX, &ks->weather_every_min);
     }
     const cJSON *disp = cJSON_GetObjectItemCaseSensitive(root, "display");

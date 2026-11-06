@@ -19,7 +19,7 @@
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
-static const char *const KIND[WXM_KINDS] = {"none", "glance", "night", "frost", "heat", "wind", "afterrain", "snow", "rain", "storm"};
+static const char *const KIND[WXM_KINDS] = {"none", "glance", "night", "frost", "heat", "wind", "afterrain", "snow", "rain", "storm", "print_done", "print_attention"};
 static const wxm_kind_t ALL[] = {WXM_GLANCE, WXM_NIGHT, WXM_FROST, WXM_HEAT, WXM_WIND, WXM_AFTERRAIN, WXM_SNOW, WXM_RAIN, WXM_STORM};
 #define N_ALL ((int)(sizeof ALL / sizeof ALL[0]))
 

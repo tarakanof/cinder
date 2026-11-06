@@ -117,6 +117,10 @@ void wxm_layout(const wxm_moment_t *m, wxm_layout_t *l)
         add_el(l, add_layer(l, BOW_R), 0, 0);
         add_el(l, add_layer(l, FEET_R), 0, 0);
         break;
+    case WXM_PRINT_DONE:
+    case WXM_PRINT_ATTENTION:
+        wxm_print_layout(m, l);
+        break;
     default: break;
     }
 }
@@ -572,6 +576,10 @@ int wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void
         memset(arena + a->at, 0, (size_t)(a->w * a->h * 3));
     }
     if (yield) yield();
+    if (m->kind == WXM_PRINT_DONE || m->kind == WXM_PRINT_ATTENTION) {
+        wxm_print_paint(m, l, arena, yield);
+        return 0;
+    }
     switch (m->kind) {
     case WXM_GLANCE:
     case WXM_FROST:

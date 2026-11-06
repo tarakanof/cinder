@@ -22,6 +22,10 @@ void bot_view_set_options(bool source_label, bool working_ring);
 /* LVGL task only: the usage limit hint, a short red arc on the round outline's rim; it hides while the outline is not
    the round base (squash variants, the error triangle). */
 void bot_view_set_hint(bool on);
+/* LVGL task only: the round base outline fades toward rgb at opa 0..255 (a print moment, docs/features.md); it shows
+   only while the outline is the round base, like the usage hint. 0 clears it. The first nonzero opa allocates and
+   rasterizes the ring mask (PSRAM, kept). */
+void bot_view_set_tint(uint32_t rgb, int opa);
 /* LVGL task only: the link glyph under the face. */
 void bot_view_set_offline(bool on);
 /* LVGL task only: how old Ember's last answer is, under the link glyph. Shown only while the glyph is; "" or NULL hides it. */

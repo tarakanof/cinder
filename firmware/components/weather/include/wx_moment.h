@@ -20,6 +20,7 @@ extern "C" {
 #define WXM_SPRITE_OUT 64
 #define WXM_TEXT_OUT 65
 #define WXM_RISE 7
+#define WXM_PRINT_TINT_OUT 50
 #define WXM_K 0.9f
 #define WXM_BOX_X 158
 #define WXM_BOX_Y 62
@@ -44,6 +45,8 @@ extern "C" {
 #define WXM_FROST_KEEP_C 2
 #define WXM_BLUE 0x5C9CE0
 #define WXM_STORM_RGB 0xF0D040
+#define WXM_PRINT_RGB 0xFA6831
+#define WXM_PRINT_FIL 0xFF6A2A
 
 /* Change moments rank in this order (STORM highest); GLANCE and NIGHT are only periodic. */
 typedef enum {
@@ -57,6 +60,8 @@ typedef enum {
     WXM_SNOW,
     WXM_RAIN,
     WXM_STORM,
+    WXM_PRINT_DONE,
+    WXM_PRINT_ATTENTION,
     WXM_KINDS
 } wxm_kind_t;
 
@@ -71,6 +76,7 @@ typedef struct {
     int moon_phase, moon_illum;
     char text[WXM_TEXT_MAX];
     uint32_t rgb;
+    uint32_t tint;      /* the bot's outline fades to this colour for the moment; 0 none (print moments, not quiet) */
 } wxm_moment_t;
 
 /* What a change is measured on. precip: 0 dry, 1 rain, 2 snow, 3 storm (wx_rain_from); hot from WXM_HOT_C, kept to
@@ -90,6 +96,9 @@ bool wxm_holds(wxm_kind_t k, const wxm_sig_t *s);
 /* The periodic moment for the weather now: RAIN, SNOW or STORM while it falls, NIGHT on a clear night, else GLANCE;
    WXM_NONE without fresh data. t: scratch. */
 wxm_kind_t wxm_now_kind(const wx_obs_t *o, wx_temp_t *t);
+/* A print moment (WXM_PRINT_DONE, WXM_PRINT_ATTENTION) with its text; false for any other kind. Quiet: sprite and text
+   only, the outline keeps its colour. */
+bool wxm_print_moment(wxm_kind_t kind, bool quiet, const char *text, wxm_moment_t *m);
 /* Fills m for kind from the observation; false without fresh data. t: scratch. */
 bool wxm_moment_from(wxm_kind_t kind, const wx_obs_t *o, bool quiet, wx_temp_t *t, wxm_moment_t *m);
 
@@ -120,6 +129,8 @@ typedef struct {
 } wxm_in_t;
 
 void wxm_init(wxm_trigger_t *tr);
+/* A moment of another trigger just played: the next weather moment waits the gap from t, like a weather one. */
+void wxm_note_other(wxm_trigger_t *tr, double t);
 /* Every frame. Returns true and fills m when a moment is due now; it counts for the cooldowns only once wxm_shown
    records it, so a moment that could not start is offered again. A change of every_s reschedules the periodic moment
    every_s from then. The same-kind cooldown holds for periodic ones too. */
@@ -147,6 +158,9 @@ void wxm_layout(const wxm_moment_t *m, wxm_layout_t *l);
    clear and before every row of every pass (at most one row, WXM_BOX_W px, between calls); it decides when to sleep.
    Returns how many clouds wx_cloud_shape refused (each left blank); 0 for every shipped moment. */
 int wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void));
+/* The print kinds' layers and paint (wx_moment_print.c); wxm_layout and wxm_paint call them. Nothing is refused. */
+void wxm_print_layout(const wxm_moment_t *m, wxm_layout_t *l);
+void wxm_print_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void));
 #define WXM_CLOUDS 5
 int wxm_clouds(const wx_cloud_t *out[WXM_CLOUDS]);
 
@@ -158,15 +172,19 @@ typedef struct {
     int opa;  /* the sprite, 0..255 */
     int dy;   /* the sprite, px below its rest (the rise) */
     int text_opa;
+    int tint;      /* the outline's share of m->tint, 0..255 in steps of 32 */
     bool icon_off; /* quiet: the tool icon steps aside for the text line */
     wxm_el_t el[WXM_ELEMS];
 } wxm_frame_t;
 
 /* Frame k (WXM_FPS from the moment's start, 0..WXM_FRAMES-1). Element x, y: box px, the rise included. */
 void wxm_frame(const wxm_moment_t *m, const wxm_layout_t *l, int k, wxm_frame_t *f);
-enum { WXM_DIRTY_SPRITE = 1, WXM_DIRTY_TEXT = 2 };
+/* The print kinds' animation of frame k into f (opa and dy set): the elements and the tint. */
+void wxm_print_frame(const wxm_moment_t *m, int k, wxm_frame_t *f);
+enum { WXM_DIRTY_SPRITE = 1, WXM_DIRTY_TEXT = 2, WXM_DIRTY_TINT = 4 };
 /* What b changes against the frame on screen a (NULL: nothing shown): the sprite box, the text line (with the tool icon
-   in the quiet variant). Frames in order, or cut short by wxm_abort_frame, never change both. */
+   in the quiet variant), the outline's tint. Frames in order, or cut short by wxm_abort_frame, never change both the
+   sprite and the text. */
 int wxm_diff(const wxm_layout_t *l, const wxm_frame_t *a, const wxm_frame_t *b);
 /* Where a moment cut short at frame k goes on: the sprite's and the text's opacity unchanged, on the way out; k < 0
    (nothing shown yet): the last frame. */

@@ -36,7 +36,7 @@ static wx_obs_t rain(int intensity, const char *code)
     return o;
 }
 
-static const char *const KIND[WXM_KINDS] = {"none", "glance", "night", "frost", "heat", "wind", "afterrain", "snow", "rain", "storm"};
+static const char *const KIND[WXM_KINDS] = {"none", "glance", "night", "frost", "heat", "wind", "afterrain", "snow", "rain", "storm", "print_done", "print_attention"};
 
 static wxm_sig_t sig(const wx_obs_t *o, const wxm_sig_t *prev)
 {
@@ -523,11 +523,16 @@ static void test_frames(void)
     CHECK(!f.opa && !f.text_opa && !f.icon_off, "before the first: nothing");
 }
 
-static const wxm_kind_t ALL[] = {WXM_GLANCE, WXM_NIGHT, WXM_FROST, WXM_HEAT, WXM_WIND, WXM_AFTERRAIN, WXM_SNOW, WXM_RAIN, WXM_STORM};
+static const wxm_kind_t ALL[] = {WXM_GLANCE, WXM_NIGHT, WXM_FROST, WXM_HEAT, WXM_WIND, WXM_AFTERRAIN, WXM_SNOW, WXM_RAIN, WXM_STORM, WXM_PRINT_DONE, WXM_PRINT_ATTENTION};
 #define N_ALL ((int)(sizeof ALL / sizeof ALL[0]))
 
 static wxm_moment_t variant(wxm_kind_t k, int v)
 {
+    if (k == WXM_PRINT_DONE || k == WXM_PRINT_ATTENTION) {
+        wxm_moment_t p;
+        wxm_print_moment(k, v & 1, "x", &p);
+        return p;
+    }
     wxm_moment_t m = {.kind = k, .quiet = v & 1, .sun = (v & 2) != 0, .moon = (v & 2) != 0, .moon_phase = 30, .moon_illum = 60};
     snprintf(m.text, sizeof m.text, "x");
     return m;
@@ -585,7 +590,7 @@ static areas_t areas_of(const wxm_moment_t *m, const wxm_layout_t *l, const int 
     for (int i = 0; i < n; i++) {
         wxm_frame(m, l, seq[i], &f);
         int d = wxm_diff(l, any ? &prev : NULL, &f);
-        CHECK(d != (WXM_DIRTY_SPRITE | WXM_DIRTY_TEXT), "%s%s: frame %d redraws the sprite and the text", KIND[m->kind], m->quiet ? " quiet" : "", seq[i]);
+        CHECK((d & (WXM_DIRTY_SPRITE | WXM_DIRTY_TEXT)) != (WXM_DIRTY_SPRITE | WXM_DIRTY_TEXT), "%s%s: frame %d redraws the sprite and the text", KIND[m->kind], m->quiet ? " quiet" : "", seq[i]);
         int px = 0;
         if (d & WXM_DIRTY_SPRITE) a.sprite_frames++, px += WXM_BOX_W * WXM_BOX_H;
         if (d & WXM_DIRTY_TEXT) a.text_frames++, px += WXM_TEXT_W * WXM_TEXT_H;
@@ -872,6 +877,79 @@ static void test_script(void)
     CHECK(wxm_script(&fr, &n) == gc, "frost acts as the glance");
 }
 
+static void test_print_moments(void)
+{
+    wxm_moment_t m;
+    CHECK(!wxm_print_moment(WXM_RAIN, false, "x", &m) && !wxm_print_moment(WXM_NONE, false, "x", &m), "only the print kinds");
+    CHECK(wxm_print_moment(WXM_PRINT_DONE, false, "Print done \xE2\x80\xA2 2 h 14 m", &m) && m.kind == WXM_PRINT_DONE && !m.quiet &&
+              strcmp(m.text, "Print done \xE2\x80\xA2 2 h 14 m") == 0 && m.rgb == 0xFA6831 && m.tint == 0xFA6831,
+          "B3: the text and the Prusa orange for the text and the outline");
+    CHECK(wxm_print_moment(WXM_PRINT_ATTENTION, true, "Printer needs you", &m) && m.quiet && m.rgb == 0xFA6831 && m.tint == 0,
+          "quiet: the text stays orange, the outline keeps its colour");
+    char big[200];
+    memset(big, 'x', sizeof big - 1);
+    big[sizeof big - 1] = 0;
+    CHECK(wxm_print_moment(WXM_PRINT_DONE, false, big, &m) && strlen(m.text) == WXM_TEXT_MAX - 1, "a long text is cut to the line");
+
+    wxm_trigger_t tr;
+    wxm_init(&tr);
+    wxm_note_other(&tr, 100);
+    CHECK(tr.last_at == 100, "another trigger's moment starts the weather gap");
+
+    for (int kind = WXM_PRINT_DONE; kind <= WXM_PRINT_ATTENTION; kind++) {
+        wxm_print_moment((wxm_kind_t)kind, false, "x", &m);
+        wxm_layout_t l;
+        wxm_layout(&m, &l);
+        wxm_frame_t f, prev;
+        int lo = 255, hi = 0, changes = 0, last = -1;
+        for (int k = 0; k < WXM_FRAMES; k++) {
+            wxm_frame(&m, &l, k, &f);
+            CHECK(f.tint % 32 == 0 || f.tint == 255, "%s frame %d: tint %d is a step", KIND[kind], k, f.tint);
+            CHECK(f.tint <= f.opa + 16, "%s frame %d: the outline never leads the sprite (%d vs %d)", KIND[kind], k, f.tint, f.opa);
+            if (f.opa == 0) CHECK(f.tint == 0, "%s frame %d: no tint without the sprite", KIND[kind], k);
+            if (f.opa == 255 && k >= 9 && k < WXM_PRINT_TINT_OUT) {
+                if (f.tint < lo) lo = f.tint;
+                if (f.tint > hi) hi = f.tint;
+            }
+            if (f.tint != last) changes++;
+            last = f.tint;
+            if (k) {
+                int d = wxm_diff(&l, &prev, &f);
+                CHECK(!(d & WXM_DIRTY_SPRITE && d & WXM_DIRTY_TEXT), "%s frame %d: at most two areas", KIND[kind], k);
+                CHECK(((d & WXM_DIRTY_TINT) != 0) == (f.tint != prev.tint), "%s frame %d: the tint bit follows the tint", KIND[kind], k);
+            }
+            prev = f;
+        }
+        wxm_frame(&m, &l, 0, &f);
+        CHECK(f.tint == 0, "%s: starts without tint", KIND[kind]);
+        wxm_frame(&m, &l, WXM_FRAMES - 1, &f);
+        CHECK(f.tint == 0, "%s: ends without tint", KIND[kind]);
+        if (kind == WXM_PRINT_DONE) CHECK(lo == hi && hi == 255, "B3: full orange for the hold (%d..%d)", lo, hi);
+        else CHECK(lo < hi && lo >= 128 && hi == 255, "B4: a slow pulse between %d and %d", lo, hi);
+        CHECK(changes <= 30, "%s: the outline redraws on %d frames at most", KIND[kind], changes);
+        wxm_moment_t q;
+        wxm_print_moment((wxm_kind_t)kind, true, "x", &q);
+        for (int k = 0; k < WXM_FRAMES; k++) {
+            wxm_frame(&q, &l, k, &f);
+            CHECK(f.tint == 0, "%s quiet: no tint", KIND[kind]);
+        }
+    }
+
+    wxm_print_moment(WXM_PRINT_DONE, false, "x", &m);
+    int n;
+    const wxm_cue_t *c = wxm_script(&m, &n);
+    bool happy = false, hop = false;
+    for (int i = 0; i < n; i++) happy |= c[i].op == WXM_EYES && c[i].eyes == WXM_EYES_HAPPY, hop |= c[i].op == WXM_HOP;
+    CHECK(happy && hop, "B3: happy eyes and one hop");
+    int hops = 0;
+    for (int i = 0; i < n; i++) hops += c[i].op == WXM_HOP;
+    CHECK(hops == 1 && c[n - 1].op == WXM_END, "B3: exactly one hop");
+    wxm_print_moment(WXM_PRINT_ATTENTION, false, "x", &m);
+    c = wxm_script(&m, &n);
+    CHECK(c[0].op == WXM_EYES && c[0].eyes == WXM_EYES_ROUND && c[1].op == WXM_GLIDE && c[1].a > 0, "B4: round eyes glance at the printer");
+    CHECK(c[0].t >= (float)WXM_SPRITE_IN / WXM_FPS && c[1].t > c[0].t, "B4: the eyes move once the sprite has faded in");
+}
+
 #define CX 236.0
 #define CY 233.0
 #define BODY_R (233.0 * 0.84)
@@ -955,8 +1033,10 @@ static void test_acting(void)
                     wxm_frame(&m, &l, k, &f);
                     int dy = rim_dy_of(&p);
                     bool squashed = fabs(p.scale_y / p.scale_x - 1) >= 0.015;
-                    bool hop = m.kind == WXM_AFTERRAIN && t - t0 >= 1.2 && t - t0 < 1.2 + BOT_HOP_DURATION_S + 0.05;
+                    double hop_at = m.kind == WXM_AFTERRAIN ? 1.2 : 0.9;
+                    bool hop = (m.kind == WXM_AFTERRAIN || m.kind == WXM_PRINT_DONE) && t - t0 >= hop_at && t - t0 < hop_at + BOT_HOP_DURATION_S + 0.05;
                     int areas = 0;
+                    bool ring = false;
                     if (k >= 0 && k < WXM_FRAMES) {
                         bool rim = (have_rim && dy != rim_dy) || squashed;
                         CHECK(!rim || hop, "%s in mood %d, seed %d, frame %d: the outline moves (dy %d -> %d, %s)", KIND[m.kind], mood, seed, k,
@@ -964,12 +1044,15 @@ static void test_acting(void)
                         areas += rim;
                         areas += have_pose && !bot_pose_same(&p, &last, BODY_R);
                         if (k != last_k) {
-                            areas += wxm_diff(&l, any ? &shown : NULL, &f) != 0;
+                            int d = wxm_diff(&l, any ? &shown : NULL, &f);
+                            areas += (d & (WXM_DIRTY_SPRITE | WXM_DIRTY_TEXT)) != 0;
+                            ring = (d & WXM_DIRTY_TINT) != 0;
                             areas += quiet;
                             shown = f;
                             any = true;
                             last_k = k;
                         }
+                        if (ring) areas = 1;
                         CHECK(areas <= (quiet ? 3 : 2) || hop, "%s in mood %d, seed %d, frame %d: %d redraw areas", KIND[m.kind], mood, seed, k, areas);
                     }
                     rim_dy = dy;
@@ -1222,6 +1305,7 @@ int main(void)
     test_acting_order();
     test_acting();
     test_paint();
+    test_print_moments();
     if (failures) {
         printf("moment: %d failure(s)\n", failures);
         return 1;

@@ -32,6 +32,7 @@ typedef struct {
     bool source_label;
     bool working_ring;
     bool weather_moments;
+    bool print_moments;
     int weather_every_min;
     bool fast_link;
     bool swipe_pages;

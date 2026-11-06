@@ -218,6 +218,11 @@ static void test_settings_values(void)
     CHECK(!k.weather_moments && k.weather_every_min == 0, "weather moments off, no periodic one");
     knob_settings_parse("{\"bot\":{\"weather_moments\":1,\"weather_every_min\":45}}", &k);
     CHECK(k.weather_moments && k.weather_every_min == 45, "weather moments: a non-boolean keeps on, 45 min");
+    CHECK(k.print_moments, "print moments absent: on");
+    knob_settings_parse("{\"bot\":{\"print_moments\":false}}", &k);
+    CHECK(!k.print_moments && k.weather_moments, "print moments off, apart from the weather ones");
+    knob_settings_parse("{\"bot\":{\"print_moments\":0}}", &k);
+    CHECK(k.print_moments, "print moments: a non-boolean keeps on");
     knob_settings_parse("{\"bot\":{\"weather_every_min\":1000}}", &k);
     CHECK(k.weather_every_min == 240, "every clamps to 240: %d", k.weather_every_min);
     knob_settings_parse("{\"bot\":{\"weather_every_min\":-5}}", &k);

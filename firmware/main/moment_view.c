@@ -97,6 +97,7 @@ static void hide_all(void)
 {
     show(s_box, false);
     show(s_text, false);
+    bot_view_set_tint(0, 0);
     lv_area_t a;
     if (s_any && s_shown.icon_off && bot_view_icon_off(false, &a)) bot_view_icon_redraw(&a);
 }
@@ -129,6 +130,7 @@ bool moment_view_start(const wxm_moment_t *m, double t)
         s_retry_at = t + MV_RETRY_S;
         return false;
     }
+    if (m->tint) bot_view_set_tint(m->tint, 0);
     s_cancel = false;
     s_play_at = t + (m->quiet ? 0 : WXM_PRE_S);
     s_state = MV_BAKING;
@@ -147,6 +149,13 @@ static void attach(void)
     }
     lv_label_set_text(s_text, s_m.text);
     lv_obj_set_style_text_color(s_text, lv_color_hex(s_m.rgb), 0);
+    lv_point_t size;
+    lv_text_get_size(&size, s_m.text, &lv_font_montserrat_30, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const lv_font_t *font = size.x > WXM_TEXT_W ? &lv_font_montserrat_24 : &lv_font_montserrat_30;
+    int lh = lv_font_get_line_height(font);
+    lv_obj_set_style_text_font(s_text, font, 0);
+    lv_obj_set_pos(s_text, WXM_TEXT_X, WXM_TEXT_Y + (WXM_TEXT_H - lh) / 2);
+    lv_obj_set_height(s_text, lh);
     s_any = false;
     s_k = -1;
 }
@@ -222,6 +231,7 @@ void moment_view_frame(double t)
     int d = wxm_diff(&s_l, s_any ? &s_shown : NULL, &f);
     if (d & WXM_DIRTY_SPRITE) sprite(&f);
     if (d & WXM_DIRTY_TEXT) text(&f);
+    if (d & WXM_DIRTY_TINT) bot_view_set_tint(s_m.tint, f.tint);
     s_shown = f;
     s_any = true;
     s_k = k;
