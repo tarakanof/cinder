@@ -118,6 +118,15 @@ static EXT_RAM_BSS_ATTR struct {
     bool want, on;
 } s_hint;
 
+static EXT_RAM_BSS_ATTR struct {
+    uint8_t *mask;
+    lv_image_dsc_t img;
+    int x, y, w, h, dy;
+    uint32_t rgb, drawn_rgb;
+    int opa, drawn_opa;
+    bool on;
+} s_tint;
+
 #define OFFLINE_RGB 0x5A5A5A
 #define AGE_W 140
 static lv_obj_t *s_offline;
@@ -572,8 +581,28 @@ static void hint_draw(lv_layer_t *layer)
     lv_draw_image(layer, &d, &a);
 }
 
+static void tint_area(lv_area_t *a)
+{
+    lv_point_t o = origin();
+    int y = s_tint.y + s_tint.dy + o.y;
+    *a = (lv_area_t){s_tint.x + o.x, y, s_tint.x + o.x + s_tint.w - 1, y + s_tint.h - 1};
+}
+
+static void tint_draw(lv_layer_t *layer)
+{
+    lv_draw_image_dsc_t d;
+    lv_draw_image_dsc_init(&d);
+    d.src = &s_tint.img;
+    d.recolor = lv_color_hex(s_tint.rgb);
+    d.opa = (lv_opa_t)s_tint.opa;
+    lv_area_t a;
+    tint_area(&a);
+    lv_draw_image(layer, &d, &a);
+}
+
 static void glint_draw_cb(lv_event_t *e)
 {
+    if (s_tint.on) tint_draw(lv_event_get_layer(e));
     if (s_hint.on) hint_draw(lv_event_get_layer(e));
     if (s_glint_idx < 0) return;
     const glint_step_t *st = &s_glint_cache[s_glint_idx];
@@ -705,10 +734,69 @@ static bool hint_sync(void)
     return true;
 }
 
+static bool tint_mask(void)
+{
+    if (s_tint.mask) return true;
+    const float hw = (float)(RIM_PX / 2), r = (float)s_r, cx = (float)CX, cy = (float)CY, m = hw + 2;
+    s_tint.x = ((int)floorf(cx - r - m)) & ~1;
+    s_tint.y = (int)floorf(cy - r - m);
+    s_tint.w = (((int)ceilf(cx + r + m) - s_tint.x) + 2) & ~1;
+    s_tint.h = (int)ceilf(cy + r + m) - s_tint.y + 1;
+    s_tint.mask = heap_caps_malloc((size_t)(s_tint.w * s_tint.h), MALLOC_CAP_SPIRAM);
+    if (!s_tint.mask) return false;
+    const float in = r - hw - 1, out = r + hw + 1;
+    for (int j = 0; j < s_tint.h; j++)
+        for (int i = 0; i < s_tint.w; i++) {
+            float dx = (float)(s_tint.x + i) + 0.5f - cx, dy = (float)(s_tint.y + j) + 0.5f - cy, d2 = dx * dx + dy * dy;
+            float c = 0;
+            if (d2 >= in * in && d2 <= out * out) {
+                c = 0.5f + hw - fabsf(sqrtf(d2) - r);
+                c = c < 0 ? 0 : c > 1 ? 1 : c;
+            }
+            s_tint.mask[j * s_tint.w + i] = (uint8_t)(c * 255.0f + 0.5f);
+        }
+    s_tint.img = (lv_image_dsc_t){
+        .header = {.magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_A8, .w = (uint32_t)s_tint.w, .h = (uint32_t)s_tint.h,
+                   .stride = (uint32_t)s_tint.w},
+        .data_size = (uint32_t)(s_tint.w * s_tint.h),
+        .data = s_tint.mask,
+    };
+    return true;
+}
+
+void bot_view_set_tint(uint32_t rgb, int opa)
+{
+    s_tint.rgb = rgb;
+    s_tint.opa = opa < 0 ? 0 : opa > 255 ? 255 : opa;
+    if (s_tint.opa > 0) tint_mask();
+}
+
+static bool tint_sync(void)
+{
+    bool on = s_tint.opa > 0 && s_slots.shown == RIM_SLOT_BASE && s_rim_shape == 0 &&
+              !lv_obj_has_flag(s_rim_canvas, LV_OBJ_FLAG_HIDDEN) && s_tint.mask;
+    if (on == s_tint.on && (!on || (s_tint.dy == s_rim_dy && s_tint.drawn_opa == s_tint.opa && s_tint.drawn_rgb == s_tint.rgb))) return false;
+    lv_area_t a;
+    if (s_tint.on) {
+        tint_area(&a);
+        lv_obj_invalidate_area(s_glint, &a);
+    }
+    s_tint.on = on;
+    s_tint.dy = s_rim_dy;
+    s_tint.drawn_opa = s_tint.opa;
+    s_tint.drawn_rgb = s_tint.rgb;
+    if (on) {
+        tint_area(&a);
+        lv_obj_invalidate_area(s_glint, &a);
+    }
+    return true;
+}
+
 bool bot_view_tick(double t, bool defer)
 {
     rim_sync(t);
     bool hint = hint_sync();
+    hint |= tint_sync();
     int lap = glint_enabled() ? -1 : lap_step(t);
     bool on = (glint_enabled() || lap >= 0) && s_slots.shown == RIM_SLOT_BASE;
     if (!on) {

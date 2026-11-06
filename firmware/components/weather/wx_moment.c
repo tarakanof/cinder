@@ -153,6 +153,20 @@ bool wxm_moment_from(wxm_kind_t kind, const wx_obs_t *o, bool quiet, wx_temp_t *
     return true;
 }
 
+bool wxm_print_moment(wxm_kind_t kind, bool quiet, const char *text, wxm_moment_t *m)
+{
+    memset(m, 0, sizeof *m);
+    if (kind != WXM_PRINT_DONE && kind != WXM_PRINT_ATTENTION) return false;
+    m->kind = kind;
+    m->quiet = quiet;
+    snprintf(m->text, sizeof m->text, "%s", text ? text : "");
+    m->rgb = WXM_PRINT_RGB;
+    m->tint = quiet ? 0 : WXM_PRINT_RGB;
+    return true;
+}
+
+void wxm_note_other(wxm_trigger_t *tr, double t) { tr->last_at = t; }
+
 void wxm_init(wxm_trigger_t *tr)
 {
     memset(tr, 0, sizeof *tr);
@@ -245,6 +259,8 @@ static const key_t TWINKLE[] = {{0, 0, 0, 1}, {0.8f, 0, 0, 0.3f}, {1.6f, 0, 0, 1
 static const float GUST_DELAY[4] = {0, -6 * F, -3 * F, -9 * F};
 static const int FLASH[3] = {12, 18, 24};
 
+static const float PRINT_SPARKLE_DELAY[4] = {0, 0.4f, 0.8f, 1.2f};
+
 static int px(float v) { return (int)lroundf(v * WXM_K); }
 static int opa(float o) { return (int)lroundf((o < 0 ? 0 : o > 1 ? 1 : o) * 255); }
 
@@ -262,6 +278,28 @@ static bool flash(int k)
     for (int i = 0; i < 3; i++)
         if (k >= FLASH[i] && k < FLASH[i] + 2) return true;
     return false;
+}
+
+static int tint_step(float v)
+{
+    int q = ((int)lroundf(v) + 16) & ~31;
+    return q > 255 ? 255 : q;
+}
+
+void wxm_print_frame(const wxm_moment_t *m, int k, wxm_frame_t *f)
+{
+    float s = (float)k / WXM_FPS;
+    float env = k < WXM_SPRITE_FROM ? 0 : k < WXM_SPRITE_IN ? (float)(k - WXM_SPRITE_FROM) / (WXM_SPRITE_IN - WXM_SPRITE_FROM)
+                : k < WXM_PRINT_TINT_OUT ? 1 : k < WXM_PRINT_TINT_OUT + 8 ? 1 - (float)(k - WXM_PRINT_TINT_OUT + 1) / 8 : 0;
+    if (m->kind == WXM_PRINT_DONE) {
+        for (int i = 0; i < 4; i++) {
+            float u = fmodf(s * 1.4f + PRINT_SPARKLE_DELAY[i], 1.6f);
+            f->el[1 + i].opa = u < 0.8f ? opa(sinf(u / 0.8f * 3.14159265f)) : 0;
+        }
+    } else {
+        env *= 0.75f + 0.25f * sinf(s * 3.14159265f);
+    }
+    f->tint = m->tint ? tint_step(env * 255.0f) : 0;
 }
 
 void wxm_frame(const wxm_moment_t *m, const wxm_layout_t *l, int k, wxm_frame_t *f)
@@ -289,6 +327,7 @@ void wxm_frame(const wxm_moment_t *m, const wxm_layout_t *l, int k, wxm_frame_t 
     for (int i = 0; i < l->ne && i < WXM_ELEMS; i++)
         f->el[i] = (wxm_el_t){l->el[i].x, l->el[i].y + f->dy, 255};
     wxm_el_t *e = f->el;
+    if (m->kind == WXM_PRINT_DONE || m->kind == WXM_PRINT_ATTENTION) wxm_print_frame(m, k, f);
     switch (m->kind) {
     case WXM_GLANCE:
     case WXM_FROST:
@@ -333,6 +372,7 @@ int wxm_diff(const wxm_layout_t *l, const wxm_frame_t *a, const wxm_frame_t *b)
     if (!a) a = &none;
     int d = 0;
     if (a->text_opa != b->text_opa || a->icon_off != b->icon_off) d |= WXM_DIRTY_TEXT;
+    if (a->tint != b->tint) d |= WXM_DIRTY_TINT;
     if (a->opa != b->opa) return d | WXM_DIRTY_SPRITE;
     if (!b->opa) return d;
     if (a->dy != b->dy) return d | WXM_DIRTY_SPRITE;
@@ -374,6 +414,12 @@ static const wxm_cue_t HEAT[] = {{2 * F, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.4f,
 static const wxm_cue_t NIGHT[] = {
     {F, WXM_GLIDE, -0.1f, -0.07f, 0}, {F, WXM_LID, 0.4f, 0.6f, 0}, {2.2f, WXM_BLINK, 2.2f, 0, 0}, {H, WXM_END, 1, 0.4f, 0},
 };
+static const wxm_cue_t PRINT_DONE[] = {
+    {0.6f, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.9f, WXM_HOP, 0, 0, 0}, {H, WXM_END, 1, 0.3f, 0},
+};
+static const wxm_cue_t PRINT_ATTENTION[] = {
+    {9 * F, WXM_EYES, 0, 0, WXM_EYES_ROUND}, {0.8f, WXM_GLIDE, 0.4f, 0.08f, 0}, {2.4f, WXM_BLINK, 1, 0, 0}, {H, WXM_END, 1, 0.3f, 0},
+};
 static const wxm_cue_t AFTERRAIN[] = {
     {2 * F, WXM_EYES, 0, 0, WXM_EYES_HAPPY}, {0.4f, WXM_GLIDE, 0, 0.12f, 0}, {1.2f, WXM_HOP, 0, 0, 0}, {H, WXM_END, 1, 0.3f, 0},
 };
@@ -393,6 +439,8 @@ const wxm_cue_t *wxm_script(const wxm_moment_t *m, int *n)
     case WXM_HEAT: c = HEAT, *n = NK(HEAT); break;
     case WXM_NIGHT: c = NIGHT, *n = NK(NIGHT); break;
     case WXM_AFTERRAIN: c = AFTERRAIN, *n = NK(AFTERRAIN); break;
+    case WXM_PRINT_DONE: c = PRINT_DONE, *n = NK(PRINT_DONE); break;
+    case WXM_PRINT_ATTENTION: c = PRINT_ATTENTION, *n = NK(PRINT_ATTENTION); break;
     default: break;
     }
     return c;

@@ -10,7 +10,7 @@
 
 typedef struct {
     bot_t *bot;
-    const knob_settings_t *ks; /* read every frame: bot.weather_moments, bot.weather_every_min */
+    const knob_settings_t *ks; /* read every frame: bot.weather_moments, bot.weather_every_min, bot.print_moments */
 } moments_ctx_t;
 
 /* Once in app_main, before the first frame. */
@@ -19,6 +19,9 @@ void moments_init(const moments_ctx_t *ctx);
 void moments_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page);
 /* The music moment, every frame. on: no demo scene or view. */
 void moments_music_tick(double t, bool calm, bool offline, bool bot_page, bool on);
+/* The print moments (B3 done, B4 needs you), every frame without a scene act, also during a demo view: they share
+   moment_view with the weather moments. calm: quiet hours. */
+void moments_print_tick(double t, bool calm, bool bot_page);
 /* Ends the eye acting of a weather or music moment cut short. */
 void moment_unact(double t);
 void music_unact(double t);

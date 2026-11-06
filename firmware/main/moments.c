@@ -1,11 +1,16 @@
 #include "moments.h"
 
+#include <stdio.h>
+
 #include "chase_ctl.h"
 #include "esp_attr.h"
 #include "moment_view.h"
 #include "music_moment.h"
 #include "music_view.h"
 #include "nowplaying_client.h"
+#include "pomo_client.h"
+#include "print_client.h"
+#include "print_moment.h"
 
 static bot_t *s_bot;
 static const knob_settings_t *s_ks;
@@ -20,6 +25,9 @@ static EXT_RAM_BSS_ATTR uint32_t s_mm_gen, s_mm_key;
 static EXT_RAM_BSS_ATTR bot_mood_t s_mm_mood;
 static EXT_RAM_BSS_ATTR bool s_mm_acting;
 static EXT_RAM_BSS_ATTR int s_mm_cue;
+static EXT_RAM_BSS_ATTR pm_trigger_t s_pm;
+static EXT_RAM_BSS_ATTR print_snapshot_t s_ps;
+static bool s_print_owns, s_print_demo;
 
 void moments_init(const moments_ctx_t *ctx)
 {
@@ -27,6 +35,8 @@ void moments_init(const moments_ctx_t *ctx)
     s_ks = ctx->ks;
     wxm_init(&s_wxm);
     mm_init(&s_mm);
+    pm_init(&s_pm);
+    s_print_owns = s_print_demo = false;
 }
 
 void moment_unact(double t)
@@ -87,10 +97,11 @@ void moments_cue_poll(double t)
 __attribute__((noinline)) void moments_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page)
 {
     if (!s_ks->weather_moments && !moment_view_busy()) moment_view_release();
-    if (moment_view_busy() && (!bot_page || !s_ks->weather_moments)) {
+    bool weather_plays = moment_view_busy() && !s_print_owns;
+    if (weather_plays && (!bot_page || !s_ks->weather_moments)) {
         moment_view_stop();
         moment_unact(t);
-    } else if (moment_view_busy() && (s_bot->mood != s_moment_mood || calm)) {
+    } else if (weather_plays && (s_bot->mood != s_moment_mood || calm)) {
         moment_view_abort(t);
         moment_unact(t);
     }
@@ -101,6 +112,7 @@ __attribute__((noinline)) void moments_tick(double t, const wx_obs_t *wx, bool c
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
     if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
         wxm_shown(&s_wxm, &m, t);
+        s_print_owns = false;
         moments_cue_start(&m, t);
     }
     moments_cue_poll(t);
@@ -139,4 +151,52 @@ __attribute__((noinline)) void moments_music_tick(double t, bool calm, bool offl
         else music_unact(t);
     }
     if (music_view_busy()) chase_ctl_hold(true);
+}
+
+static void moment_text(const pm_out_t *o, char *buf, size_t n)
+{
+    if (o->kind == PM_ATTENTION) {
+        snprintf(buf, n, "Printer needs you");
+    } else if (o->took_s >= 0) {
+        char d[16];
+        print_duration_text(o->took_s, d, sizeof d);
+        snprintf(buf, n, "Print done \xE2\x80\xA2 %s", d);
+    } else {
+        snprintf(buf, n, "Print done");
+    }
+}
+
+__attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page)
+{
+    print_client_get(&s_ps);
+    if (s_print_owns && !moment_view_busy()) s_print_owns = false;
+    if (s_print_owns) {
+        if (!bot_page || (!s_print_demo && !s_ks->print_moments)) {
+            moment_view_stop();
+            moment_unact(t);
+        } else if (s_bot->mood != s_moment_mood || (calm && !s_print_demo)) {
+            moment_view_abort(t);
+            moment_unact(t);
+        }
+    }
+    pm_in_t in = {.t = t, .b = s_ps.has ? &s_ps.b : NULL, .have_srv = s_ps.have_srv,
+                  .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0,
+                  .mood = (int)moment_mood(s_bot->mood), .bot_mood = (int)s_bot->mood, .shown = bot_page && !s_bot->asleep,
+                  .busy = moment_view_busy() || music_view_busy() || chase_ctl_busy(), .calm = calm, .on = s_ks->print_moments};
+    pm_out_t out;
+    static EXT_RAM_BSS_ATTR wxm_moment_t m;
+    char text[WXM_TEXT_MAX];
+    if (pm_tick(&s_pm, &in, &out)) {
+        moment_text(&out, text, sizeof text);
+        if (wxm_print_moment(out.kind == PM_DONE ? WXM_PRINT_DONE : WXM_PRINT_ATTENTION, out.quiet, text, &m) &&
+            moment_view_start(&m, t)) {
+            pm_shown(&s_pm, &out, t);
+            if (!out.demo) wxm_note_other(&s_wxm, t);
+            s_print_owns = true;
+            s_print_demo = out.demo;
+            moments_cue_start(&m, t);
+        }
+    }
+    moments_cue_poll(t);
+    chase_ctl_hold(moment_view_busy());
 }
