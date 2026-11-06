@@ -116,13 +116,27 @@ void page_bot_show(bool on)
 static bool s_ota_paused;
 static double s_input_t = -1e9;
 
+static EXT_RAM_BSS_ATTR knob_settings_t s_ks_hold;
+
+static bool print_listed_in_stored_settings(void)
+{
+    const char *ids[PAGES_N];
+    int idx[PAGES_N], home;
+    config_store_settings(&s_ks_hold);
+    int n = knob_settings_page_order(&s_ks_hold, ids, pages_ids(ids, PAGES_N), idx, &home);
+    for (int i = 0; i < n; i++)
+        if (strcmp(PAGES[idx[i]].id, "print") == 0) return true;
+    return false;
+}
+
 static void print_jump_hold(void)
 {
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);
     int pos = pages_find(&s_nav, "print");
-    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline() && config_store_settings_gen() == s_settings_gen;
-    moments_print_jump(now_s(), pos >= 0, pos >= 0 && s_nav.pos == pos, real, true);
+    bool listed = config_store_settings_gen() == s_settings_gen ? pos >= 0 : print_listed_in_stored_settings();
+    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline();
+    moments_print_jump(now_s(), listed, pos >= 0 && s_nav.pos == pos, real, true);
 }
 
 static bool ota_frame(void)

@@ -760,9 +760,11 @@ fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR
     WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-gated-by-pj_blocked-on-Embers-mood-the-usage-screen-and-the-input"
 body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_hold();' && body "$MAINC" idle_frame | grep -qxF '        if (!off) s_input_t = now_s();' &&
     body "$MAINC" ota_frame | grep -qxF '        print_jump_hold();' && body "$MAINC" frame_cb | awk '/^    if \(reset_frame\(t\) \|\| s_setup\) \{$/ {r = NR} /^        print_jump_hold\(\);$/ {h = NR} /^        input_route_drop\(\);$/ {d = NR} END {exit !(r && h == r + 1 && d == h + 1)}' &&
-    body "$MAINC" print_jump_hold | grep -qxF '    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline() && config_store_settings_gen() == s_settings_gen;' &&
+    body "$MAINC" print_jump_hold | grep -qxF '    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline();' &&
     body "$MAINC" print_jump_hold | grep -qxF '    int pos = pages_find(&s_nav, "print");' &&
-    body "$MAINC" print_jump_hold | grep -qxF '    moments_print_jump(now_s(), pos >= 0, pos >= 0 && s_nav.pos == pos, real, true);' ||
+    body "$MAINC" print_jump_hold | grep -qxF '    bool listed = config_store_settings_gen() == s_settings_gen ? pos >= 0 : print_listed_in_stored_settings();' &&
+    body "$MAINC" print_jump_hold | grep -qxF '    moments_print_jump(now_s(), listed, pos >= 0 && s_nav.pos == pos, real, true);' &&
+    body "$MAINC" print_listed_in_stored_settings | grep -qxF '    config_store_settings(&s_ks_hold);' ||
     WIRING="$WIRING print-jump-held-while-the-screen-is-off-the-OTA-face-shows-or-the-reset-screen-and-the-wake-counts-as-input"
 body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
