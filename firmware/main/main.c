@@ -40,6 +40,7 @@
 #include "pomo_view.h"
 #include "print_client.h"
 #include "print_view.h"
+#include "room_page.h"
 #include "nowplaying_client.h"
 #include "nowplaying_view.h"
 #include "ota_client.h"
@@ -76,6 +77,7 @@ static join_label_t s_join_shown;
 static int s_join_code = -1;
 static pages_nav_t s_nav = {.n = 1};
 static uint32_t s_settings_gen;
+static uint32_t s_pages_visible;
 static knob_settings_t *s_ks_lv;
 static lv_obj_t *s_bot_page;
 static double s_last_frame_t;
@@ -184,7 +186,15 @@ static bool ota_frame(void)
 static void settings_frame(double t)
 {
     uint32_t gen = config_store_settings_gen();
-    if (gen == s_settings_gen) return;
+    uint32_t visible = pages_visible();
+    bool moved = visible != s_pages_visible;
+    s_pages_visible = visible;
+    if (gen == s_settings_gen) {
+        if (!moved || !s_settings_gen) return;
+        pages_settings(&s_nav, s_ks_lv, false);
+        dots_refresh(&s_nav);
+        return;
+    }
     bool first = s_settings_gen == 0;
     s_settings_gen = gen;
     config_store_settings(s_ks_lv);
@@ -553,6 +563,7 @@ void app_main(void)
         np_view_create(scr);
         controls_view_create(scr);
         print_view_create(scr);
+        room_page_init(scr);
         usage_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);

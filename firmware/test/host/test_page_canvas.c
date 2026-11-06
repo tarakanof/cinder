@@ -36,7 +36,7 @@ int main(void)
 
     CHECK(!page_canvas_take(PAGE_CANVAS_FREE) && page_canvas_owner() == PAGE_CANVAS_FREE, "nobody is not an owner");
 
-    static const page_canvas_owner_t ALL[] = {PAGE_CANVAS_POMO, PAGE_CANVAS_USAGE, PAGE_CANVAS_WEATHER, PAGE_CANVAS_NP, PAGE_CANVAS_PRINT};
+    static const page_canvas_owner_t ALL[] = {PAGE_CANVAS_POMO, PAGE_CANVAS_USAGE, PAGE_CANVAS_WEATHER, PAGE_CANVAS_NP, PAGE_CANVAS_PRINT, PAGE_CANVAS_ROOM};
     for (int i = 0; i < (int)(sizeof ALL / sizeof ALL[0]); i++) {
         CHECK(page_canvas_take(ALL[i]) == buf && page_canvas_owner() == ALL[i], "owner %d takes it in turn", (int)ALL[i]);
         page_canvas_give(ALL[i]);

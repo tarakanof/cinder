@@ -2,9 +2,11 @@
 
 #include <string.h>
 
+bool room_fresh(int64_t at_ms, int64_t now_ms) { return at_ms > 0 && now_ms >= at_ms && now_ms - at_ms < ROOM_FRESH_MS; }
+
 static bool fresh(int64_t at_ms, int64_t now_ms, uint32_t *age_s)
 {
-    if (at_ms <= 0 || now_ms < at_ms || now_ms - at_ms >= ROOM_FRESH_MS) return false;
+    if (!room_fresh(at_ms, now_ms)) return false;
     *age_s = (uint32_t)((now_ms - at_ms) / 1000);
     return true;
 }

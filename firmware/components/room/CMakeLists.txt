@@ -1,3 +1,5 @@
-idf_component_register(SRCS "room_report.c"
+idf_component_register(SRCS "room_report.c" "room_face.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES sens provision)
+                       REQUIRES sens provision weather)
+
+target_compile_options(${COMPONENT_LIB} PRIVATE -ffp-contract=off)

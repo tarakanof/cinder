@@ -115,7 +115,8 @@ static void test_route(void)
           "day: turns set the stop time, taps are pushes");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("controls")], in), .detents = 2, .pushes = 5, .longs = 3),
           "controls: turns scroll, taps are pushes");
-    CHECK(SAME_IN(pages_route(&PAGES[index_of("room")], in)), "room: no input hook until its page (#307)");
+    CHECK(SAME_IN(pages_route(&PAGES[index_of("room")], in), .detents = 2, .pushes = 5, .longs = 3),
+          "room: turns switch faces; pushes and longs reach it and are ignored there");
     CHECK(PAGES[index_of("room")].flags == PAGE_TURN && PAGES[index_of("room")].visible, "room: a turn page with a visible hook");
     CHECK(PAGES[index_of("bot")].flags & PAGE_GLINT, "bot runs the glint");
     for (int i = 0; i < PAGES_N; i++)
@@ -355,7 +356,7 @@ static void test_ops(void)
         {"bot", "bot+ ", "bot.in ", "bot.frame "},
         {"day", "day+ ", "day.in ", "day.frame "},
         {"weather", "weather+ ", "weather.in ", NULL},
-        {"room", "room+ ", NULL, NULL},
+        {"room", "room+ ", "room.in ", "room.frame "},
         {"nowplaying", "np+ ", "np.in ", "np.frame "},
         {"controls", "ctl+ ", "ctl.in ", "ctl.frame "},
         {"print", "print+ ", "print.in ", "print.frame "},

@@ -233,6 +233,8 @@ bool dim_ctl_presence(bool present)
     return changed;
 }
 
+int dim_ctl_panel_level(void) { return atomic_load(&s_panel_level); }
+
 bool dim_ctl_off(void) { return idle_state() == DIM_IDLE_OFF; }
 
 void dim_ctl_enable(uint8_t current_level) { atomic_store(&s_dim_start, current_level); }
