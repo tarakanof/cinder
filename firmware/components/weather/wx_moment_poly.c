@@ -88,4 +88,3 @@ void wxp_disc(wxp_img_t *im, float cx, float cy, float r, uint32_t rgb)
     }
     wxp_poly(im, p, 24, rgb);
 }
-
