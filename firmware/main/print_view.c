@@ -26,6 +26,7 @@ _Static_assert(SCREEN_W * SCREEN_H * 2 <= PAGE_CANVAS_BYTES, "the face draws on 
 
 #define AMBIENT_S (1.0 / 15)
 #define DONE_DIM_S 600.0
+#define DONE_WAKE_S 180.0
 #define FACE_DIM_OPA 109
 #define HOT_ROWS 3
 #define GLINT_PERIOD_S 3.0
@@ -60,7 +61,8 @@ typedef struct {
     print_pose_t pose;
     print_rect_t hero_box, cache_box;
     uint16_t *lo, *hi;
-    bool cache_ok;
+    bool cache_ok, no_pulse;
+    double input_t;
     int phase;
     int clip, hot_y;
     int glint_y0, glint_y1;
@@ -161,6 +163,7 @@ void page_print_show(bool on)
     if (on && !was) {
         print_faces_open(&M->faces);
         M->drawn = false;
+        M->input_t = 0;
     }
     if (on) {
         attach();
@@ -173,7 +176,9 @@ void page_print_show(bool on)
 void page_print_input(const page_input_t *in, double t)
 {
     (void)t;
-    if (!M || !in->detents) return;
+    if (!M) return;
+    if (in->detents || in->pushes || in->longs || in->touches) M->input_t = pomo_client_now();
+    if (!in->detents) return;
     print_faces_turn(&M->faces, M->snap.has ? &M->b : NULL, in->detents);
 }
 
@@ -261,7 +266,7 @@ static void hero_printer(bool full, double t, bool pulsing)
     M->hero_box = print_hero_box(h);
     if (full || want.look != M->pose.look || want.progress != M->pose.progress) {
         M->pose = want;
-        M->cache_ok = false;
+        M->cache_ok = M->no_pulse = false;
         print_hero_render(h, &want, s_buf, SCREEN_W, SCREEN_H, M->hero_box);
         if (!full) invalidate(M->hero_box);
         M->amb_t = t;
@@ -281,9 +286,11 @@ static void hero_printer(bool full, double t, bool pulsing)
         M->pose.head_x = want.head_x;
         print_hero_render(h, &M->pose, s_buf, SCREEN_W, SCREEN_H, hb);
         invalidate(hb);
-    } else if (pulsing && want.pulse != M->pose.pulse) {
-        M->pose.pulse = want.pulse;
-        if (pulse_cache()) box_blend((want.pulse - 0.35f) / 0.65f);
+    } else if (pulsing && !M->no_pulse && want.pulse != M->pose.pulse) {
+        bool cached = pulse_cache();
+        M->no_pulse = !cached;
+        M->pose.pulse = cached ? want.pulse : 1;
+        if (cached) box_blend((want.pulse - 0.35f) / 0.65f);
         else print_hero_render(h, &M->pose, s_buf, SCREEN_W, SCREEN_H, M->hero_box);
         invalidate(M->hero_box);
     }
@@ -549,7 +556,7 @@ static bool done_dim(int look, double now)
     double t0 = now > 0 && e->kind == PRINT_EV_FINISHED && e->at ? local - (now - (double)e->at) : local;
     if (!M->done_seen || t0 < M->done_t0) M->done_t0 = t0;
     M->done_seen = true;
-    return local - M->done_t0 >= DONE_DIM_S;
+    return local - M->done_t0 >= DONE_DIM_S && (!M->input_t || local - M->input_t >= DONE_WAKE_S);
 }
 
 static bool pics_fit(const print_block_t *b)
@@ -566,7 +573,7 @@ void page_print_frame(const page_frame_t *f)
     if (print_client_take_pics(&np)) {
         print_pics_free(&M->pics);
         M->pics = np;
-        M->drawn = false;
+        if (M->face == PRINT_FACE_K2) M->drawn = false;
     }
     print_client_get(&M->snap);
     const print_block_t *b = NULL;
@@ -590,7 +597,7 @@ void page_print_frame(const page_frame_t *f)
     M->want = txt;
     print_ring_look_t rl;
     print_ring_look((print_look_t)look, &rl);
-    if (!rl.pulse && M->lo) cache_free();
+    if ((!rl.pulse || hero != HERO_PRINTER) && M->lo) cache_free();
     int dim = done_dim(look, now);
     attach();
     bool full = !M->drawn || face != M->face || look != M->look || hero != M->hero;

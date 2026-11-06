@@ -350,6 +350,11 @@ int main(int argc, char **argv)
     s_snap.b.event = (print_event_t){0};
     settle(T0 + 1801);
     CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) == 0, "still dimmed once the finish event ages out of the view");
+    page_print_input(&(page_input_t){.pushes = 1}, s_now);
+    settle(T0 + 1802);
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) > 1000, "a push lifts the dim");
+    settle(T0 + 1802 + 181);
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_DONE)) == 0, "3 min later it dims again");
     page_print_show(false);
     block(PRINT_FINISHED, 100);
     s_snap.b.started_at = (long long)T0 + 5000;

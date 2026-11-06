@@ -93,8 +93,8 @@ static void parse_thumb(const cJSON *o, print_block_t *out)
     long long top, bottom;
     if (!cJSON_IsString(v) || !v->valuestring || !thumb_ok(v->valuestring)) return;
     if (!cJSON_IsArray(rows) || cJSON_GetArraySize(rows) != 2 ||
-        !whole_in(cJSON_GetArrayItem(rows, 0), 0, PRINT_FRAME_PX, &top) ||
-        !whole_in(cJSON_GetArrayItem(rows, 1), 0, PRINT_FRAME_PX, &bottom) || top >= bottom)
+        !whole_in(cJSON_GetArrayItem(rows, 0), PRINT_PIC_Y0, PRINT_PIC_Y1, &top) ||
+        !whole_in(cJSON_GetArrayItem(rows, 1), PRINT_PIC_Y0, PRINT_PIC_Y1, &bottom) || top >= bottom)
         return;
     strcpy(out->thumb_version, v->valuestring);
     out->thumb_top = (int)top;

@@ -115,8 +115,12 @@ static void test_parse_edges(void)
     CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"abc-r1\",\"thumb_rows\":[300,110]}", &b) &&
               !b.thumb_version[0],
           "rows upside down");
-    CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"abc-r1\",\"thumb_rows\":[0,467]}", &b) && !b.thumb_version[0],
-          "rows past the picture");
+    CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"abc-r1\",\"thumb_rows\":[0,466]}", &b) && !b.thumb_version[0],
+          "rows outside the hero box (over the ring and the text)");
+    CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"abc-r1\",\"thumb_rows\":[109,300]}", &b) && !b.thumb_version[0],
+          "a top above the hero box");
+    CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"abc-r1\",\"thumb_rows\":[150,301]}", &b) && !b.thumb_version[0],
+          "a bottom below the hero box");
     CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"abc-r1\",\"thumb_rows\":[110]}", &b) && !b.thumb_version[0],
           "one row");
     CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"a b&v=1\",\"thumb_rows\":[110,300]}", &b) &&
@@ -128,10 +132,10 @@ static void test_parse_edges(void)
               !b.thumb_version[0],
           "thumb_version over 40");
     CHECK(parse("{\"phase\":\"printing\",\"thumb_version\":\"0123456789012345678901234567890123456789\","
-                "\"thumb_rows\":[0,466]}",
+                "\"thumb_rows\":[110,300]}",
                 &b) &&
-              strlen(b.thumb_version) == 40 && b.thumb_top == 0 && b.thumb_bottom == 466,
-          "thumb_version at 40, rows the whole picture");
+              strlen(b.thumb_version) == 40 && b.thumb_top == 110 && b.thumb_bottom == 300,
+          "thumb_version at 40, rows the whole hero box");
 
     CHECK(parse("{\"phase\":\"idle\",\"event\":{\"kind\":\"finished\",\"at\":5}}", &b) && !b.event.id, "event without id");
     CHECK(parse("{\"phase\":\"idle\",\"event\":{\"id\":7,\"kind\":\"exploded\",\"at\":5}}", &b) && b.event.id == 7 &&

@@ -57,7 +57,7 @@ typedef struct {
 struct cJSON;
 /* False with *out zeroed when o is not an object or has no string phase. An unknown phase is PRINT_UNKNOWN; a key of the
    wrong type or out of range is absent; text over its cap is cut at a UTF-8 boundary; thumb_version without valid
-   thumb_rows (0 <= top < bottom <= 466) is dropped, and so are the rows without it. */
+   thumb_rows (inside the hero box: 110 <= top < bottom <= 300) is dropped, and so are the rows without it. */
 bool print_parse(const struct cJSON *o, print_block_t *out);
 print_phase_t print_phase_from_wire(const char *s);
 const char *print_phase_name(print_phase_t p);
@@ -185,6 +185,8 @@ void print_hero_render(const print_hero_t *h, const print_pose_t *p, uint16_t *b
 #define PRINT_PIC_X0 93
 #define PRINT_PIC_X1 373
 #define PRINT_PIC_W (PRINT_PIC_X1 - PRINT_PIC_X0)
+#define PRINT_PIC_Y0 110
+#define PRINT_PIC_Y1 300
 /* Hot line: pixels of row y where the ghost has the model, lit from the left up to share k (0..1). */
 void print_hot_line(const uint16_t *ghost_row, uint16_t *dst_row, int w, float k);
 /* The Done glint over a solid row: brightened by a (0..1). */
