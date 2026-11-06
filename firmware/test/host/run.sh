@@ -747,10 +747,10 @@ done
 [ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 2 ] && [ "$(grep -c 'scene_gate(t, ' "$SCC")" -eq 1 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
     WIRING="$WIRING page_tick-gates-its-input"
-fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool jump_blocked = s_bot\.mood == BOT_WAITING \|\| usage_view_open\(\);$/ {b = NR}
+fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool jump_blocked = \(ember_client_mood\(&jump_mood\) && jump_mood == BOT_WAITING\) \|\| usage_view_open\(\) \|\| held >= 0;$/ {b = NR}
     /^    if \(moments_print_jump\(t, print_pos >= 0, print_pos >= 0 && s_nav\.pos == print_pos, jump_real, jump_blocked\)\) \{$/ {j = NR} /^    bool bot_page = / {p = NR}
     END {exit !(d && b && j && p && d < b && b < j && j < p)}' ||
-    WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-blocked-only-by-a-waiting-agent-or-the-usage-screen"
+    WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-blocked-only-by-a-waiting-agent-the-usage-screen-or-a-held-long-push"
 body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
 body "$CHC" chase_ctl_pause | grep -qxF '    *saved_half = s_half;' && body "$CHC" chase_ctl_pause | tail -2 | head -1 | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||

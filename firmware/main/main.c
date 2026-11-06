@@ -291,7 +291,8 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
 {
     const page_desc_t *pg = pages_current(&s_nav);
     page_input_t in;
-    overlays_hold_tick(pg, input_route_take(&in));
+    long long held = input_route_take(&in);
+    overlays_hold_tick(pg, held);
     usage_view_poll();
 
     bool offline = ember_client_offline();
@@ -309,7 +310,8 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     pages_dispatch(&s_nav, in, t);
     int print_pos = pages_find(&s_nav, "print");
     bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
-    bool jump_blocked = s_bot.mood == BOT_WAITING || usage_view_open();
+    bot_mood_t jump_mood;
+    bool jump_blocked = (ember_client_mood(&jump_mood) && jump_mood == BOT_WAITING) || usage_view_open() || held >= 0;
     if (moments_print_jump(t, print_pos >= 0, print_pos >= 0 && s_nav.pos == print_pos, jump_real, jump_blocked)) {
         page_jump(&s_nav, print_pos, t);
         pg = pages_current(&s_nav);

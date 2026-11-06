@@ -35,7 +35,19 @@ static pj_in_t in_at(double t, const print_block_t *b)
     return (pj_in_t){.t = t, .b = b, .have_srv = true, .srv_now = SRV0 + t, .page_on = true, .real_ok = true};
 }
 
-static bool tick(rig_t *r, pj_in_t in) { return pj_tick(&r->j, &r->seen, &in); }
+static bool pj_one(rig_t *r, pj_in_t in) { return pj_tick(&r->j, &r->seen, &in); }
+
+static bool tick(rig_t *r, pj_in_t in)
+{
+    bool fired = false;
+    for (int i = 0; i < 4; i++) {
+        pj_in_t s = in;
+        s.t += 0.25 * i;
+        s.srv_now += 0.25 * i;
+        fired |= pj_one(r, s);
+    }
+    return fired;
+}
 
 static void test_once_per_id(void)
 {
@@ -194,7 +206,38 @@ static void test_deferred(void)
     w.blocked = true;
     tick(&r, w);
     print_block_t att = blk(PRINT_ATTENTION, PRINT_EV_ATTENTION, ID(200), (long long)SRV0 + 200);
-    CHECK(!tick(&r, in_at(201, &att)), "a later event replaces the held started one");
+    CHECK(tick(&r, in_at(201, &att)), "a later attention event does not cancel it: the print still runs, the jump comes");
+
+    rig_init(&r);
+    CHECK(!tick(&r, in_at(2, NULL)), "clock");
+    w = in_at(21, &st);
+    w.blocked = true;
+    tick(&r, w);
+    print_block_t aged = blk(PRINT_PRINTING, PRINT_EV_NONE, 0, 0);
+    w = in_at(2200, &aged);
+    w.blocked = true;
+    CHECK(!tick(&r, w), "a 35 min wait: the event has aged out of the view, still held");
+    CHECK(tick(&r, in_at(2210, &aged)), "and the jump comes when the wait ends while the print runs");
+}
+
+static void test_settle(void)
+{
+    rig_t r;
+    rig_init(&r);
+    CHECK(!tick(&r, in_at(2, NULL)), "clock");
+    print_block_t st = blk(PRINT_HEATING, PRINT_EV_STARTED, ID(20), (long long)SRV0 + 20);
+    pj_in_t held = in_at(30, &st);
+    held.blocked = true;
+    CHECK(!pj_one(&r, held), "held at 30");
+    CHECK(!pj_one(&r, in_at(30.1, &st)), "the block ended: not at once, the mood and the block of one poll must agree");
+    CHECK(!pj_one(&r, in_at(30.4, &st)), "still settling");
+    CHECK(pj_one(&r, in_at(30.6, &st)), "PJ_SETTLE_S after the block ended it fires");
+    CHECK(!pj_one(&r, in_at(30.7, &st)), "once");
+
+    rig_init(&r);
+    CHECK(!tick(&r, in_at(2, NULL)), "clock");
+    CHECK(!pj_one(&r, in_at(40, &st)), "a new event is not acted on in the frame it is first seen");
+    CHECK(!pj_one(&r, in_at(40.3, &st)) && pj_one(&r, in_at(40.5, &st)), "but PJ_SETTLE_S later");
 }
 
 static void test_turned_away(void)
@@ -251,6 +294,16 @@ static void test_not_real(void)
     scene.real_ok = false;
     CHECK(!tick(&r, scene), "a scene holds a pending jump");
     CHECK(tick(&r, in_at(23, &st)), "and it comes after");
+
+    rig_init(&r);
+    CHECK(!tick(&r, in_at(2, NULL)), "clock");
+    w = in_at(21, &st);
+    w.blocked = true;
+    tick(&r, w);
+    pj_in_t demo_view = in_at(22, NULL);
+    demo_view.real_ok = false;
+    CHECK(!tick(&r, demo_view), "a demo view feeds no real block: the held jump waits");
+    CHECK(tick(&r, in_at(23, &st)), "and comes with the real view");
 }
 
 int main(void)
@@ -263,6 +316,7 @@ int main(void)
     test_deferred();
     test_not_real();
     test_turned_away();
+    test_settle();
     if (failures) {
         printf("print_jump: %d failure(s)\n", failures);
         return 1;
