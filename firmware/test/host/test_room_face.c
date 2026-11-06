@@ -190,6 +190,16 @@ static void test_views(void)
     r.air_validity = ENS160_WARM_UP;
     room_view(&r, NOW, A, 128, &v);
     CHECK(!v.have && !v.warm && strcmp(v.line2, "ppm eCO2") == 0, "an old reading: no reading, not warming up");
+    r.air_ms = 0;
+    room_view(&r, NOW, A, 128, &v);
+    CHECK(!v.have && v.warm && strcmp(v.line2, "warming up") == 0, "no data yet, the status says warm-up: warming up");
+    r.air_validity = ENS160_NORMAL;
+    room_view(&r, NOW, A, 128, &v);
+    CHECK(!v.have && !v.warm && strcmp(v.line2, "ppm eCO2") == 0, "never read: no reading");
+    r.air_validity = ENS160_START_UP;
+    r.has &= ~ROOM_HAS_AIR;
+    room_view(&r, NOW, A, 128, &v);
+    CHECK(!v.have && !v.warm, "no ENS160: not warming up");
     r = snap();
     r.aqi = 0;
     room_view(&r, NOW, A, 128, &v);

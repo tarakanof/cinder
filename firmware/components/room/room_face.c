@@ -186,7 +186,7 @@ static void air(const room_t *r, int64_t now_ms, room_view_t *v)
     strcpy(v->line2, "ppm eCO2");
     v->line2_rgb = ROOM_UNIT_RGB;
     if (!air_have(r, now_ms)) {
-        v->warm = air_reading(r, now_ms) && r->air_validity != ENS160_NORMAL;
+        v->warm = (r->has & ROOM_HAS_AIR) && r->air_validity != ENS160_NORMAL && (r->air_ms <= 0 || room_fresh(r->air_ms, now_ms));
         if (v->warm) strcpy(v->line2, "warming up");
         return;
     }

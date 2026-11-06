@@ -46,7 +46,7 @@ Built (#307, [`features.md`](features.md) "Room page"); the design is the protot
 
 | Face | Build notes |
 |---|---|
-| All three | No hero: the value (96 px, baseline 250) and two lines under it (30 px, 24 px) carry the face. The weather gauge as is: the ring from `wx_paint_ring_lut` (the gauge rasteriser with the face's colour LUT) baked once per face or grey change on a core-1 task, Weather's marker, face dots, arrival and burn-in shift. No ambient motion. No reading, or a 60 s old one: `−−` in grey, the grey track, no marker. Values clamp to 19999, the widest that fits the 300 px band. |
+| All three | No hero: the value (96 px, baseline 250) and two lines under it (30 px, 24 px) carry the face. The weather gauge as is: the ring from `wx_paint_ring_lut` (the gauge rasteriser with the face's colour LUT) baked once per face or grey change on a core-1 task, Weather's marker, face dots, arrival and burn-in shift. No ambient motion. No reading, or a 60 s old one: `−−` in grey, the grey track, no marker. eCO2 and lux clamp to 19999, the largest value whose text fits the 300 px band; the temperature to the AHT2x range. |
 | Climate | Temperature in whole degrees on the temperature scale, ring 16-28°, `16` and `28` end labels; humidity under it. |
 | Air | eCO2 in the band colour of the ENS160's AQI (UBA, 1-5), ring 400-2000 ppm through those colours; `ppm eCO2` and the band word. Warm-up: `−−`, `warming up`, grey ring. |
 | Light | Lux on a log ring 1-2000 lux (dusk blue to daylight); `lux` and the panel's current level `Panel N %`. |

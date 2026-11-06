@@ -849,6 +849,7 @@ CC="${CC:-cc}"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 FPC="-ffp-contract=off"
 for CM in components/weather/CMakeLists.txt components/room/CMakeLists.txt main/CMakeLists.txt; do grep -qF -- "-ffp-contract=off" "$D/../../$CM" || { echo "run.sh: FAIL $CM lost -ffp-contract=off" >&2; exit 1; }; done
+grep -qE '^set_source_files_properties\(.*[ (]room_page\.c .*-ffp-contract=off\)$' "$D/../../main/CMakeLists.txt" || { echo "run.sh: FAIL main/room_page.c lost -ffp-contract=off" >&2; exit 1; }
 "$CC" $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" "-DRS_RACE_POINT(s,at)=rs_race_point(s,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$D/test_bot.c" -lm -lpthread -o "${OUT}_bot"
 "$CC" $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/music_moment.c" "$D/test_music_moment.c" -lm -o "${OUT}_music"
 "$CC" $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"

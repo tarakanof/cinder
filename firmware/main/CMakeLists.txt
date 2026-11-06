@@ -17,4 +17,4 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     endif()
 endif()
 
-set_source_files_properties(temp_face.c PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
+set_source_files_properties(temp_face.c room_page.c PROPERTIES COMPILE_OPTIONS -ffp-contract=off)

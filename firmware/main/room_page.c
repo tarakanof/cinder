@@ -1,4 +1,5 @@
 #include "page_ops.h"
+#include "room_page.h"
 #include "sdkconfig.h"
 
 #if CONFIG_CINDER_ROOM
@@ -43,6 +44,7 @@ _Static_assert(WX_FACE * WX_FACE * 2 <= PAGE_CANVAS_BYTES, "the background paint
 #define SUB_FADE_S 0.48
 #define BAKE_YIELD_US 25000
 #define BAKE_STACK 4096
+#define RETRY_S 5.0
 
 typedef struct {
     char value[16], line2[24], line3[24];
@@ -50,7 +52,7 @@ typedef struct {
     int marker_x, marker_y, sub_opa, line2_y, face, ends;
 } shown_t;
 
-static lv_obj_t *s_root, *s_bg, *s_marker, *s_value, *s_line2, *s_line3, *s_lo, *s_hi;
+static lv_obj_t *s_parent, *s_root, *s_bg, *s_marker, *s_value, *s_line2, *s_line3, *s_lo, *s_hi;
 static TaskHandle_t s_task;
 static atomic_bool s_baking;
 static EXT_RAM_BSS_ATTR wx_ring_t *s_ring;
@@ -58,10 +60,10 @@ static EXT_RAM_BSS_ATTR uint16_t *s_lut, *s_bgbuf;
 static EXT_RAM_BSS_ATTR uint8_t *s_marker_buf;
 static EXT_RAM_BSS_ATTR int s_req_face, s_ring_face, s_bg_face;
 static EXT_RAM_BSS_ATTR bool s_req_grey, s_ring_grey, s_bg_grey, s_open, s_short;
-static EXT_RAM_BSS_ATTR unsigned s_bg_mask;
+static EXT_RAM_BSS_ATTR unsigned s_bg_mask, s_mask;
 static EXT_RAM_BSS_ATTR int64_t s_yield_at;
 static EXT_RAM_BSS_ATTR room_faces_t s_faces;
-static EXT_RAM_BSS_ATTR double s_t;
+static EXT_RAM_BSS_ATTR double s_t, s_retry_t;
 static EXT_RAM_BSS_ATTR wx_shift_t s_shift;
 static EXT_RAM_BSS_ATTR shown_t s_shown;
 static uint8_t s_none[2 * 2 * 3];
@@ -116,16 +118,18 @@ static void bake_task(void *arg)
     }
 }
 
+void room_page_init(lv_obj_t *parent) { s_parent = parent; }
+
 static bool create(void)
 {
     if (s_root) return true;
+    if (!s_parent) return false;
     if (xTaskCreatePinnedToCoreWithCaps(bake_task, "roombake", BAKE_STACK, NULL, 2, &s_task, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
         ESP_LOGE(TAG, "bake task not created: the room page stays black");
         return false;
     }
     s_ring_face = s_bg_face = -1;
-    s_root = lv_obj_create(lv_screen_active());
-    lv_obj_move_background(s_root);
+    s_root = lv_obj_create(s_parent);
     lv_obj_remove_style_all(s_root);
     lv_obj_set_size(s_root, WX_FACE, WX_FACE);
     lv_obj_set_pos(s_root, FACE_X, 0);
@@ -163,9 +167,10 @@ static void release(void)
     s_ring_face = -1;
 }
 
-static bool acquire(void)
+static bool acquire(double t)
 {
     if (s_bgbuf && s_ring && s_lut && s_marker_buf) return true;
+    if (s_short && t < s_retry_t) return false;
     if (!s_ring) s_ring = heap_caps_malloc(sizeof *s_ring, MALLOC_CAP_SPIRAM);
     if (!s_lut) s_lut = heap_caps_malloc(WX_RING_LUT * sizeof *s_lut, MALLOC_CAP_SPIRAM);
     if (!s_marker_buf) s_marker_buf = heap_caps_malloc(WX_MARKER * WX_MARKER * 3, MALLOC_CAP_SPIRAM);
@@ -175,6 +180,7 @@ static bool acquire(void)
         ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black, retrying",
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024), (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
     s_short = !mem;
+    s_retry_t = t + RETRY_S;
     if (!mem || !s_bgbuf) return false;
     wx_img_t mk = {.px = (uint16_t *)s_marker_buf, .a = s_marker_buf + WX_MARKER * WX_MARKER * 2, .w = WX_MARKER, .h = WX_MARKER};
     wx_paint_marker(&mk);
@@ -306,9 +312,9 @@ void page_room_frame(const page_frame_t *f)
     room_t r;
     j2_room_get(&r);
     int64_t now = esp_timer_get_time() / 1000;
-    unsigned mask = room_faces_mask(r.has);
+    unsigned mask = s_mask = room_faces_mask(r.has);
     int face = room_faces_resolve(&s_faces, mask, &r, now);
-    if (face < 0 || !acquire()) {
+    if (face < 0 || !acquire(f->t)) {
         show_obj(s_root, false);
         s_bg_face = -1;
         return;
@@ -334,6 +340,7 @@ void page_room_show(bool on)
         return;
     }
     room_faces_open(&s_faces);
+    s_short = false;
     reset_shown();
     shift_root();
 }
@@ -341,12 +348,14 @@ void page_room_show(bool on)
 void page_room_input(const page_input_t *in, double t)
 {
     (void)t;
-    if (s_open && in->detents) room_faces_turn(&s_faces, room_faces_mask(j2_room_found()), in->detents);
+    if (s_open && in->detents) room_faces_turn(&s_faces, s_mask, in->detents);
 }
 
 bool page_room_visible(void) { return room_faces_mask(j2_room_found()) != 0; }
 
 #else
+
+void room_page_init(lv_obj_t *parent) { (void)parent; }
 
 void page_room_show(bool on) { (void)on; }
 

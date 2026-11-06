@@ -58,7 +58,7 @@ void room_faces_turn(room_faces_t *f, unsigned mask, int detents);
 typedef struct {
     int face;
     bool have;        /* a fresh reading: the value in colour, the marker; else grey "−−", a grey ring, no marker */
-    bool warm;        /* Air: a fresh reading while the ENS160 is not normal */
+    bool warm;        /* Air: the ENS160 not normal, with no data yet or fresh data */
     int value;        /* whole number, clamped so its text fits the 300 px band */
     int aqi;          /* Air with have: 1..5 */
     float frac;       /* the marker on the gauge, 0..1 */

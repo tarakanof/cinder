@@ -1,4 +1,5 @@
 #include <math.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include "page_frame.h"
 #include "page_ops.h"
 #include "room_face.h"
+#include "room_page.h"
 #include "room_report.h"
 #include "src/display/lv_display_private.h"
 #include "wx_temp.h"
@@ -31,21 +33,42 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 static uint16_t s_fb[W * H];
-static int s_areas, s_px, s_bakes;
+static int s_areas, s_px;
+static atomic_int s_bakes;
+static pthread_t s_main;
+static pthread_mutex_t s_gate_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t s_gate_cv = PTHREAD_COND_INITIALIZER;
+static bool s_gate_shut;
 static const char *s_dir;
 static room_t s_room;
 static int s_level = 128;
 static _Atomic int64_t s_now_us = 1000000000;
 static lv_display_t *s_disp;
 
-int64_t esp_timer_get_time(void) { return atomic_load(&s_now_us); }
+int64_t esp_timer_get_time(void)
+{
+    if (!pthread_equal(pthread_self(), s_main)) {
+        pthread_mutex_lock(&s_gate_mu);
+        while (s_gate_shut) pthread_cond_wait(&s_gate_cv, &s_gate_mu);
+        pthread_mutex_unlock(&s_gate_mu);
+    }
+    return atomic_load(&s_now_us);
+}
+
+static void gate(bool shut)
+{
+    pthread_mutex_lock(&s_gate_mu);
+    s_gate_shut = shut;
+    pthread_cond_broadcast(&s_gate_cv);
+    pthread_mutex_unlock(&s_gate_mu);
+}
 void j2_room_get(room_t *out) { *out = s_room; }
 uint32_t j2_room_found(void) { return s_room.has; }
 int dim_ctl_panel_level(void) { return s_level; }
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...)
 {
     (void)level;
-    s_bakes += strcmp(tag, "roompage") == 0 && strncmp(fmt, "ring face", 9) == 0;
+    if (strcmp(tag, "roompage") == 0 && strncmp(fmt, "ring face", 9) == 0) atomic_fetch_add(&s_bakes, 1);
     if (!getenv("RV_LOG")) return;
     va_list ap;
     va_start(ap, fmt);
@@ -209,6 +232,7 @@ static void test_widths(void)
 int main(int argc, char **argv)
 {
     s_dir = argc > 1 ? argv[1] : NULL;
+    s_main = pthread_self();
     lv_init();
     lv_tick_set_cb(tick_ms);
     s_disp = lv_display_create(W, H);
@@ -230,6 +254,10 @@ int main(int argc, char **argv)
     CHECK(page_room_visible(), "a chip with a face: visible");
     page_room_show(false);
     CHECK(lv_obj_get_child_count(scr) == 0, "a hide before the first show creates nothing");
+    page_room_show(true);
+    CHECK(lv_obj_get_child_count(scr) == 0, "a show before room_page_init creates nothing");
+    page_room_show(false);
+    room_page_init(scr);
 
     page_room_show(true);
     CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "the canvas is taken on the first frame, not on show");
@@ -384,6 +412,27 @@ int main(int argc, char **argv)
     CHECK(ink(0, 0, W, H) == 0, "while another page holds the canvas: black");
     page_canvas_give(PAGE_CANVAS_WEATHER);
     CHECK(landed(), "and the face once it is free");
+
+    gate(true);
+    int bakes = atomic_load(&s_bakes);
+    input(1);
+    frame(1.0 / 60);
+    refresh();
+    CHECK(ink(0, 0, W, H) == 0, "a turn while the bake is held: black");
+    page_room_show(false);
+    CHECK(page_canvas_owner() == PAGE_CANVAS_FREE, "a hide during a bake gives the canvas back");
+    s_room.aqi = 2;
+    page_room_show(true);
+    frame(1.0 / 60);
+    refresh();
+    CHECK(ink(0, 0, W, H) == 0, "reopened while that bake runs: black");
+    gate(false);
+    CHECK(landed(), "the held bake lands, then the face the reopened page wants");
+    wx_face_dot_xy(0, 3, &dx, &dy);
+    CHECK(at(dx, dy) == wx_rgb565(WX_DOT_ON), "Climate, not the Light the turn asked for before the hide");
+    CHECK(atomic_load(&s_bakes) == bakes + 2, "the stale Light bake and the Climate one: %d", atomic_load(&s_bakes) - bakes);
+    arrive();
+    CHECK(count(CX - 150, 160, CX + 150, 272, wx_rgb565(wx_temp_rgb(22))) > 400, "22° after the reopen");
 
     if (failures) {
         printf("room_view: %d failure(s)\n", failures);

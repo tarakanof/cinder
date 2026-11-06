@@ -40,6 +40,7 @@
 #include "pomo_view.h"
 #include "print_client.h"
 #include "print_view.h"
+#include "room_page.h"
 #include "nowplaying_client.h"
 #include "nowplaying_view.h"
 #include "ota_client.h"
@@ -562,6 +563,7 @@ void app_main(void)
         np_view_create(scr);
         controls_view_create(scr);
         print_view_create(scr);
+        room_page_init(scr);
         usage_view_create(scr);
         pages_show(&s_nav, 0);
         lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
