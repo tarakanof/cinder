@@ -14,6 +14,7 @@ static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 static int64_t s_us = 1000000;
+static int s_unauthed;
 static int s_status = 200, s_len = 2000, s_px = 466, s_gets, s_wakes, s_live;
 static JRESULT s_jd = JDR_OK;
 static char s_urls[8][256];
@@ -45,6 +46,10 @@ int http_conn_req_opts(http_conn_t *c, const char *url, const http_req_opts_t *o
     snprintf(s_urls[s_gets % 8], sizeof s_urls[0], "%s", url);
     s_gets++;
     s_kind = strstr(url, "kind=ghost") ? "ghost" : "solid";
+    if (!o->auth || o->anon) {
+        s_unauthed++;
+        return 401;
+    }
     if (s_during) s_during(s_gets);
     *o->body_len = s_len > cap ? cap + 1000 : s_len;
     return s_status;
@@ -130,6 +135,7 @@ int main(void)
     CHECK(s_gets == 2 && strcmp(s_urls[0], "http://ember/v1/print/thumb?kind=ghost&v=aaaaaaaaaaaa-r1") == 0 &&
               strcmp(s_urls[1], "http://ember/v1/print/thumb?kind=solid&v=aaaaaaaaaaaa-r1") == 0,
           "ghost then solid with the version: %s %s", s_urls[0], s_urls[1]);
+    CHECK(s_unauthed == 0, "both with the device token (Ember serves the route behind device auth)");
     CHECK(!print_client_pending(), "handed: not due again");
     CHECK(print_client_take_pics(&p) && strcmp(p.version, "aaaaaaaaaaaa-r1") == 0 && p.top == 110 && p.bottom == 300,
           "the pair with its version and rows");

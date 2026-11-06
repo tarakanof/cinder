@@ -145,7 +145,7 @@ typedef struct {
     uint32_t val_col, unit_col, word_col, sub_col, small_col;
 } print_text_t;
 
-/* now: server Unix s (0 unknown); has_off: utc_offset is the weather zone's. The face's text; name, material and
+/* now: server Unix s (0 unknown); has_off: utc_offset is Ember's zone (day block, else weather). The face's text; name, material and
    printer are copied raw (the view folds them to ASCII). */
 void print_text(const print_block_t *b, print_face_t face, double now, bool has_off, int utc_offset, print_text_t *out);
 /* Before the first view: "Connecting"; offline: the last face with "offline" as its sub-line and no file line. */

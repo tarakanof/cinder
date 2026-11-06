@@ -434,6 +434,30 @@ int main(int argc, char **argv)
     CHECK(count(0, 110, W, 300, c565(0x30A0E0)) == 0 && count(0, 110, W, 300, c565(0xE03030)) > 3000,
           "a replaced pair of the same version is drawn whole");
 
+    static const print_phase_t PH[] = {PRINT_OFFLINE, PRINT_IDLE, PRINT_HEATING, PRINT_PREPARING, PRINT_PRINTING,
+                                       PRINT_FINISHING, PRINT_PAUSED, PRINT_ATTENTION, PRINT_FINISHED, PRINT_STOPPED,
+                                       PRINT_ERROR};
+    lv_obj_t *root = lv_obj_get_child(scr, 0);
+    page_print_show(false);
+    page_print_show(true);
+    for (int face = 0; face < 2; face++) {
+        for (int i = 0; i < (int)(sizeof PH / sizeof PH[0]); i++) {
+            block(PH[i], 100);
+            s_snap.b.thumb_version[0] = 0;
+            s_snap.b.has_temps = true;
+            s_snap.b.nozzle = s_snap.b.nozzle_target = s_snap.b.bed = s_snap.b.bed_target = 240;
+            s_snap.b.ends_at = (long long)T0 + 35999;
+            s_snap.b.started_at = (long long)T0 - 35999;
+            s_snap.b.event = (print_event_t){.id = 3, .kind = PRINT_EV_FINISHED, .at = (long long)T0};
+            settle(T0 + 20 + i);
+            for (int k = 3; k <= 4; k++) {
+                const char *txt = lv_label_get_text(lv_obj_get_child(root, k));
+                CHECK(!strstr(txt, "..."), "face K%d, %s: \"%s\" fits unchanged", face + 1, print_phase_name(PH[i]), txt);
+            }
+        }
+        input(1);
+    }
+
     page_print_show(false);
     CHECK(!s_visible && page_canvas_owner() == PAGE_CANVAS_FREE, "hidden: canvas back, client told");
     page_print_show(true);

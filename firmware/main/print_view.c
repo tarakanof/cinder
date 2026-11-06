@@ -35,7 +35,7 @@ _Static_assert(SCREEN_W * SCREEN_H * 2 <= PAGE_CANVAS_BYTES, "the face draws on 
 #define SMALL_W 290
 #define K2_SUB_W 230
 #define K1_WORD_W 400
-#define K2_WORD_W 320
+#define K2_WORD_W 336
 #define SEP " \xE2\x80\xA2 "
 #define UNIT_GAP 8
 
@@ -470,7 +470,7 @@ static void labels(bool k1)
         pos(s_val, x0, top_for(&font_digits_96, vbase));
         pos(s_unit, x0 + vs.x + gap, top_for(&lv_font_montserrat_30, vbase));
     }
-    place(s_word, k1 ? 292 : 368, k1 ? K1_WORD_W : K2_WORD_W);
+    place(s_word, k1 ? 292 : 360, k1 ? K1_WORD_W : K2_WORD_W);
     place(s_sub, k1 ? (wd ? 340 : 344) : 404, k1 ? TEXT_W : K2_SUB_W);
     place(s_small, 380, SMALL_W);
 }

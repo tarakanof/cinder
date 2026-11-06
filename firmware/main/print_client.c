@@ -225,7 +225,7 @@ void print_client_service(http_conn_t *conn, const char *base)
     for (int k = 0; k < 2 && jpg; k++) {
         snprintf(S.url, sizeof S.url, "%s/v1/print/thumb?kind=%s&v=%s", base, KIND[k], v);
         int len = 0;
-        const http_req_opts_t o = {.idempotent = true, .body_len = &len};
+        const http_req_opts_t o = {.idempotent = true, .auth = true, .body_len = &len};
         status = http_conn_req_opts(conn, S.url, &o, (char *)jpg, PRINT_JPEG_MAX);
         if (status != 200 || len >= PRINT_JPEG_MAX) {
             ESP_LOGW(TAG, "picture %s %s: HTTP %d, %d B%s", KIND[k], v, status, len,

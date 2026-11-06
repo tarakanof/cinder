@@ -13,7 +13,7 @@ typedef struct {
     print_block_t b;
     bool have_srv, has_utc_offset;
     double srv_offset;     /* server Unix s = pomo_client_now() + srv_offset */
-    int utc_offset;        /* s, the weather location's */
+    int utc_offset;        /* s, Ember's zone: the day block's, else the weather block's */
 } print_snapshot_t;
 
 /* ghost and solid: PRINT_PIC_W x (bottom - top) RGB565, rows top..bottom of the 466 px picture. */
