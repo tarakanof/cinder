@@ -100,6 +100,29 @@ static void test_settings_idle(void)
     CHECK(memcmp(&d, &k, sizeof d) == 0, "non-numbers ignored");
 }
 
+static void test_settings_room(void)
+{
+    knob_settings_t d, k;
+    knob_settings_defaults(&d);
+    CHECK(!d.room_enabled && d.room_presence_off_s == 300 && KS_ROOM_PRESENCE_OFF_S_DEFAULT == 300 && d.room_presence_wake &&
+              d.room_moments,
+          "defaults: off, 300 s, wake on, moments on");
+    CHECK(knob_settings_parse("{}", &k) && memcmp(&d, &k, sizeof d) == 0, "absent room: the defaults");
+    CHECK(knob_settings_parse("{\"room\":true}", &k) && memcmp(&d, &k, sizeof d) == 0, "room not an object: defaults");
+    knob_settings_parse("{\"room\":{\"enabled\":true,\"presence_off_s\":600,\"presence_wake\":false,\"moments\":false}}", &k);
+    CHECK(k.room_enabled && k.room_presence_off_s == 600 && !k.room_presence_wake && !k.room_moments, "every key");
+    knob_settings_parse("{\"room\":{\"enabled\":true}}", &k);
+    CHECK(k.room_enabled && k.room_presence_off_s == 300 && k.room_presence_wake && k.room_moments, "enabled alone: the rest default");
+    knob_settings_parse("{\"room\":{\"presence_off_s\":0}}", &k);
+    CHECK(!k.room_enabled && k.room_presence_off_s == 0, "0 turns the away rule off");
+    knob_settings_parse("{\"room\":{\"presence_off_s\":999999}}", &k);
+    CHECK(k.room_presence_off_s == KS_ROOM_PRESENCE_OFF_S_MAX && KS_ROOM_PRESENCE_OFF_S_MAX == 86399, "clamped to 86399");
+    knob_settings_parse("{\"room\":{\"presence_off_s\":-5}}", &k);
+    CHECK(k.room_presence_off_s == 0, "below 0: 0");
+    knob_settings_parse("{\"room\":{\"enabled\":1,\"presence_off_s\":\"60\",\"presence_wake\":null,\"moments\":\"no\"}}", &k);
+    CHECK(memcmp(&d, &k, sizeof d) == 0, "wrong types ignored");
+}
+
 static int face_ids(const knob_settings_t *k, const char *want)
 {
     if (k->n_wx_faces != strlen(want)) return 0;
@@ -188,7 +211,7 @@ static void test_settings_values(void)
     CHECK(k.fast_link, "display.fast_link absent = on");
     CHECK(k.swipe_pages, "swipe_pages absent = on");
     int order[8], home;
-    int n = knob_settings_page_order(&k, KNOWN, 3, order, &home);
+    int n = knob_settings_page_order(&k, KNOWN, 3, ~0u, order, &home);
     CHECK(n == 2 && order[0] == 2 && order[1] == 1 && home == 1, "order weather, pomodoro; home pomodoro: n %d", n);
 
     knob_settings_parse("{\"brightness\":{\"level\":999,\"floor\":0,\"startup\":-5},\"poll_ms\":50,"
@@ -271,10 +294,10 @@ static void test_pages(void)
                         "{\"id\":\"Bad\",\"on\":true},{\"id\":\"weather\"}],\"home\":\"media\"}",
                         &k);
     CHECK(k.n_pages == 3 && strcmp(k.pages[0].id, "media") == 0 && k.pages[1].on && !k.pages[2].on, "kept: %d", k.n_pages);
-    n = knob_settings_page_order(&k, KNOWN, 3, order, &home);
+    n = knob_settings_page_order(&k, KNOWN, 3, ~0u, order, &home);
     CHECK(n == 1 && order[0] == 0 && home == 0, "only bot shown; unknown home -> first");
     knob_settings_parse("{\"pages\":[{\"id\":\"bot\",\"on\":false}],\"home\":\"weather\"}", &k);
-    n = knob_settings_page_order(&k, KNOWN, 3, order, &home);
+    n = knob_settings_page_order(&k, KNOWN, 3, ~0u, order, &home);
     CHECK(n == 3 && order[0] == 0 && order[2] == 2 && home == 2, "none on -> all, home weather");
     knob_settings_parse("{\"pages\":[]}", &k);
     CHECK(k.n_pages == 3, "empty pages -> defaults");
@@ -324,6 +347,62 @@ static void test_checkin_body(void)
     CHECK(strstr(out, "\"uptime_s\":5,\"wifi\":{\"disconnects\":0}}"), "wifi unknowns left out: %s", out);
     cJSON *j = cJSON_Parse(out);
     CHECK(j && cJSON_IsObject(cJSON_GetObjectItem(j, "wifi")), "valid JSON");
+    cJSON_Delete(j);
+}
+
+static void test_diag_add_task(void)
+{
+    dev_diag_t d = {.n_tasks = 3};
+    strcpy(d.tasks[0].name, "ember");
+    strcpy(d.tasks[1].name, "rim");
+    strcpy(d.tasks[2].name, "stats");
+    CHECK(dev_diag_add_task(&d, "room", 1800) && d.n_tasks == 4 && strcmp(d.tasks[2].name, "room") == 0 &&
+              d.tasks[2].stack_free == 1800 && strcmp(d.tasks[3].name, "stats") == 0,
+          "room goes between rim and stats");
+    CHECK(!dev_diag_add_task(&d, "room", 1), "a name once");
+    CHECK(dev_diag_add_task(&d, "zz", 7) && strcmp(d.tasks[4].name, "zz") == 0, "last");
+    CHECK(dev_diag_add_task(&d, "a", 7) && strcmp(d.tasks[0].name, "a") == 0 && strcmp(d.tasks[1].name, "ember") == 0, "first");
+    CHECK(!dev_diag_add_task(&d, "bad\"name", 7) && !dev_diag_add_task(&d, "", 7), "invalid names");
+    d.n_tasks = DEV_DIAG_MAX_TASKS;
+    CHECK(!dev_diag_add_task(&d, "x", 7) && d.n_tasks == DEV_DIAG_MAX_TASKS, "full");
+}
+
+static void test_checkin_room(void)
+{
+    char out[768];
+    dev_checkin_t c = {.fw = "1", .rssi = -50, .uptime_s = 9, .config_version = 2};
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(!strstr(out, "room"), "no block without has_room: %s", out);
+    c.has_room = true;
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"fw\":\"1\",\"heap_internal_free\":0,\"heap_internal_largest\":0,\"room\":{},\"rssi\":-50"),
+          "chips found, nothing fresh: an empty block between heap and rssi: %s", out);
+    c.room = (dev_room_t){.has_climate = true, .t_c = 23.44f, .rh = 41.2f, .climate_age_s = 4, .has_air = true, .eco2 = 612,
+                          .tvoc = 85, .aqi = 2, .air = "normal", .air_age_s = 1, .has_light = true, .lux = 312, .light_age_s = 0,
+                          .has_presence = true, .present = true, .presence_age_s = 0};
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"room\":{\"age_s\":{\"air\":1,\"climate\":4,\"light\":0,\"presence\":0},\"air\":\"normal\",\"aqi\":2,"
+                      "\"eco2\":612,\"lux\":312.0,\"present\":true,\"rh\":41.2,\"t_c\":23.4,\"tvoc\":85},\"rssi\""),
+          "every key, sorted: %s", out);
+    c.room = (dev_room_t){.has_light = true, .lux = 0.5f, .light_age_s = 59, .has_presence = true, .present = false, .presence_age_s = 3,
+                          .t_c = 30, .eco2 = 700, .air = "normal"};
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"room\":{\"age_s\":{\"light\":59,\"presence\":3},\"lux\":0.5,\"present\":false},"),
+          "only the sources with has_: %s", out);
+    c.room = (dev_room_t){.has_climate = true, .t_c = 85.5f, .rh = -1, .has_air = true, .eco2 = 399, .tvoc = 65001, .aqi = 0,
+                          .air = "warming", .has_light = true, .lux = 125001};
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"room\":{\"age_s\":{\"air\":0,\"climate\":0,\"light\":0}},"), "out of Ember's range: left out: %s", out);
+    c.room = (dev_room_t){.has_climate = true, .t_c = -40, .rh = 100, .has_air = true, .eco2 = 65000, .tvoc = 0, .aqi = 5,
+                          .air = "start_up", .has_light = true, .lux = 125000};
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(strstr(out, "\"air\":\"start_up\",\"aqi\":5,\"eco2\":65000,\"lux\":125000.0,\"rh\":100.0,\"t_c\":-40.0,\"tvoc\":0}"),
+          "the range ends are in: %s", out);
+    c.room.air = NULL;
+    dev_checkin_body(&c, NULL, out, sizeof out);
+    CHECK(!strstr(out, "\"air\":\""), "no validity name: no air key: %s", out);
+    cJSON *j = cJSON_Parse(out);
+    CHECK(cJSON_IsObject(cJSON_GetObjectItem(j, "room")), "valid JSON");
     cJSON_Delete(j);
 }
 
@@ -398,6 +477,11 @@ static void test_schedule(void)
     CHECK(s.next_ms - t == 60000, "unauthorized: keep trying every 60 s");
     dev_sched_now(&s, t + 5);
     CHECK(dev_sched_due(&s, t + 5), "now");
+
+    CHECK(dev_event_due(-1, 0), "the first event checkin goes at once");
+    CHECK(!dev_event_due(5000, 5000 + 9999) && dev_event_due(5000, 5000 + DEV_EVENT_GAP_MS) && DEV_EVENT_GAP_MS == 10000,
+          "then at most one per 10 s");
+    CHECK(dev_event_due(5000, 4000), "a clock that went back does not hold it");
 }
 
 static void test_link(void)
@@ -741,10 +825,13 @@ int main(void)
     test_settings_values();
     test_settings_quiet();
     test_settings_idle();
+    test_settings_room();
     test_settings_apps();
     test_settings_rotation();
     test_pages();
     test_checkin_body();
+    test_checkin_room();
+    test_diag_add_task();
     test_checkin_diag();
     test_checkin_answer();
     test_schedule();

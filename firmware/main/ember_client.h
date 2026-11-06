@@ -25,6 +25,9 @@ bool ember_client_quiet(void);
 /* Any task. A knob or touch input: true when the panel was off, so the input only wakes it and must be dropped (docs/features.md, idle dim and off). */
 bool ember_client_idle_input(dim_wake_t src);
 
+/* The room task, after every good radar read: the only entry from it into the ember task. A change checks in within 1 s, at most once per DEV_EVENT_GAP_MS (docs/features.md, presence). */
+void ember_client_presence(bool present);
+
 bool ember_client_online(void);
 
 /* Any task. link_state word of Ember's link (level and OFFLINE generation), for stamping presses. */

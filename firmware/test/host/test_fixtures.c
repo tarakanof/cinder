@@ -18,6 +18,7 @@
 #include "pages.h"
 #include "pomo.h"
 #include "pomo_legacy.h"
+#include "room_report.h"
 #include "shown.h"
 #include "wx_faces.h"
 #include "wx_temp.h"
@@ -1051,8 +1052,8 @@ static void test_config_default(void)
     knob_settings_defaults(&d);
     const char *ids[PAGES_N];
     int nk = pages_ids(ids, PAGES_N), a[PAGES_N], b[PAGES_N], ha, hb;
-    int na = knob_settings_page_order(&ks, ids, nk, a, &ha);
-    int nb = knob_settings_page_order(&d, ids, nk, b, &hb);
+    int na = knob_settings_page_order(&ks, ids, nk, pages_visible(), a, &ha);
+    int nb = knob_settings_page_order(&d, ids, nk, pages_visible(), b, &hb);
     CHECK(na == nb && ha == hb && memcmp(a, b, sizeof(int) * (size_t)na) == 0, "server default pages == firmware default");
     d.n_pages = ks.n_pages;
     memcpy(d.pages, ks.pages, sizeof d.pages);
@@ -1084,8 +1085,10 @@ static void test_config_custom(void)
     CHECK(!ks.swipe_pages, "swipe off");
     const char *ids[PAGES_N];
     int order[PAGES_N], home;
-    int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
-    CHECK(n == 3 && order[0] == 6 && order[1] == 0 && order[2] == 3 && home == 0, "shown: pomodoro, bot, nowplaying");
+    int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
+    CHECK(n == 3 && strcmp(PAGES[order[0]].id, "pomodoro") == 0 && order[1] == 0 && strcmp(PAGES[order[2]].id, "nowplaying") == 0 &&
+              home == 0,
+          "shown: pomodoro, bot, nowplaying");
 }
 
 _Static_assert(KS_WX_FACES == WXF_N, "the settings' face list holds one slot per weather face");
@@ -1126,6 +1129,8 @@ static void test_config_v2(void)
                       ks.pomo_break_rgb == 0xFFFFFF && ks.np_dim_after_s == 1800,
                   "%s: apps block at its longest: %d faces, %06X %06X, np %d", names[i], ks.n_wx_faces, (unsigned)ks.pomo_focus_rgb,
                   (unsigned)ks.pomo_break_rgb, ks.np_dim_after_s);
+            CHECK(!ks.room_enabled && ks.room_presence_off_s == 86399 && !ks.room_presence_wake && !ks.room_moments,
+                  "%s: room block at its longest: %d", names[i], ks.room_presence_off_s);
         }
         dev_checkin_result_free(&r);
     }
@@ -1287,15 +1292,15 @@ static const cJSON *at(const cJSON *o, const char *k) { return cJSON_GetObjectIt
 static double num(const cJSON *o, const char *k) { return cJSON_IsNumber(at(o, k)) ? at(o, k)->valuedouble : 0; }
 static const char *str(const cJSON *o, const char *k) { return cJSON_GetStringValue(at(o, k)); }
 
-static const char *const NOT_YET_SENT[] = {".room"};
+static const char *const NOT_YET_SENT[] = {NULL};
 #define N_NOT_YET_SENT ((int)(sizeof NOT_YET_SENT / sizeof NOT_YET_SENT[0]))
 static int not_yet_sent_used[N_NOT_YET_SENT];
 
-static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim", "wx_face_list", "pomo_colors", "np_dim", "lan_pair", "print_moments"};
+static const char *const FEATURES_AHEAD[] = {"wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim", "wx_face_list", "pomo_colors", "np_dim", "lan_pair", "print_moments", "room"};
 #define N_FEATURES_AHEAD ((int)(sizeof FEATURES_AHEAD / sizeof FEATURES_AHEAD[0]))
 static int features_ahead_used[N_FEATURES_AHEAD];
 
-static const char *const PAGES_AHEAD[] = {"day", "controls", "print"};
+static const char *const PAGES_AHEAD[] = {"day", "controls", "print", "room"};
 #define N_PAGES_AHEAD ((int)(sizeof PAGES_AHEAD / sizeof PAGES_AHEAD[0]))
 static int pages_ahead_used[N_PAGES_AHEAD];
 
@@ -1552,6 +1557,16 @@ static void test_checkin_req_full(void)
                        .uptime_s = (int64_t)num(f, "uptime_s"), .config_version = (uint32_t)num(f, "config_version"),
                        .link_mhz = (int)num(f, "link_mhz"), .link_fallback = cJSON_IsTrue(at(f, "link_fallback")),
                        .wifi = &w, .diag = &d};
+    const cJSON *rj = at(f, "room"), *aj = at(rj, "age_s");
+    const int64_t now = 812000;
+    room_t room = {.has = ROOM_HAS_CLIMATE | ROOM_HAS_AIR | ROOM_HAS_LIGHT | ROOM_HAS_PRESENCE | ROOM_HAS_PRESSURE,
+                   .temp_c = (float)num(rj, "t_c"), .rh_pct = (float)num(rj, "rh"), .climate_ms = now - (int64_t)num(aj, "climate") * 1000 - 400,
+                   .aqi = (uint8_t)num(rj, "aqi"), .tvoc_ppb = (uint16_t)num(rj, "tvoc"), .eco2_ppm = (uint16_t)num(rj, "eco2"),
+                   .air_validity = ENS160_NORMAL, .air_ms = now - (int64_t)num(aj, "air") * 1000 - 999, .lux = (float)num(rj, "lux"),
+                   .light_ms = now - (int64_t)num(aj, "light") * 1000, .present = cJSON_IsTrue(at(rj, "present")),
+                   .presence_ms = now - (int64_t)num(aj, "presence") * 1000, .press_hpa = 1013, .pressure_ms = now};
+    CHECK(strcmp(str(rj, "air"), "normal") == 0, "the fixture's air validity");
+    c.has_room = room_report(&room, now, &c.room);
     char out[2048];
     CHECK(dev_checkin_body(&c, &st, out, sizeof out) > 0, "full body fits");
     same_body("checkin_req_full.json", out);

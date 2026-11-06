@@ -40,6 +40,9 @@ void knob_settings_defaults(knob_settings_t *ks)
     ks->pomo_focus_rgb = KS_POMO_FOCUS_DEFAULT;
     ks->pomo_break_rgb = KS_POMO_BREAK_DEFAULT;
     ks->np_dim_after_s = KS_NP_DIM_AFTER_S_DEFAULT;
+    ks->room_presence_off_s = KS_ROOM_PRESENCE_OFF_S_DEFAULT;
+    ks->room_presence_wake = true;
+    ks->room_moments = true;
 }
 
 static void num(const cJSON *obj, const char *key, int lo, int hi, int *dst)
@@ -104,6 +107,12 @@ static void parse_wx_faces(const cJSON *arr, knob_settings_t *ks)
     if (n == 0) return;
     ks->n_wx_faces = (uint8_t)n;
     memcpy(ks->wx_faces, ids, (size_t)n);
+}
+
+static void flag(const cJSON *obj, const char *key, bool *dst)
+{
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(obj, key);
+    if (cJSON_IsBool(v)) *dst = cJSON_IsTrue(v);
 }
 
 static void color(const cJSON *obj, const char *key, uint32_t *dst)
@@ -210,24 +219,32 @@ bool knob_settings_parse(const char *json, knob_settings_t *ks)
         const cJSON *np = cJSON_GetObjectItemCaseSensitive(apps, "nowplaying");
         if (cJSON_IsObject(np)) num(np, "dim_after_s", KS_NP_DIM_AFTER_S_MIN, KS_NP_DIM_AFTER_S_MAX, &ks->np_dim_after_s);
     }
+    const cJSON *room = cJSON_GetObjectItemCaseSensitive(root, "room");
+    if (cJSON_IsObject(room)) {
+        flag(room, "enabled", &ks->room_enabled);
+        num(room, "presence_off_s", 0, KS_ROOM_PRESENCE_OFF_S_MAX, &ks->room_presence_off_s);
+        flag(room, "presence_wake", &ks->room_presence_wake);
+        flag(room, "moments", &ks->room_moments);
+    }
     cJSON_Delete(root);
     return true;
 }
 
-int knob_settings_page_order(const knob_settings_t *ks, const char *const *known, int n_known, int *out, int *home)
+int knob_settings_page_order(const knob_settings_t *ks, const char *const *known, int n_known, uint32_t visible, int *out, int *home)
 {
     int n = 0;
     *home = 0;
     for (int i = 0; i < ks->n_pages; i++) {
         if (!ks->pages[i].on) continue;
         for (int k = 0; k < n_known; k++) {
-            if (strcmp(ks->pages[i].id, known[k]) != 0) continue;
+            if (!(visible >> k & 1u) || strcmp(ks->pages[i].id, known[k]) != 0) continue;
             if (strcmp(known[k], ks->home) == 0) *home = n;
             out[n++] = k;
         }
     }
     if (n == 0) {
         for (int k = 0; k < n_known; k++) {
+            if (!(visible >> k & 1u)) continue;
             if (strcmp(known[k], ks->home) == 0) *home = n;
             out[n++] = k;
         }

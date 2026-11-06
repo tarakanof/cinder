@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 #define DEV_TOKEN_MAX 64
-#define DEV_CHECKIN_BODY_MAX 2304
+#define DEV_CHECKIN_BODY_MAX 2560
 #define DEV_CAPS_PAGE_MAX 16
 #define DEV_CAPS_FEATURE_MAX 32
 
@@ -27,6 +27,23 @@ typedef struct {
     int n_rotations;
 } dev_caps_t;
 
+/* Checkin "room": a source's keys and its age_s only with its has_ flag; a value outside Ember's range is left out. air: "normal", "warm_up", "start_up" or "invalid", else left out. */
+typedef struct {
+    bool has_climate;
+    float t_c, rh;
+    uint32_t climate_age_s;
+    bool has_air;
+    int eco2, tvoc, aqi;
+    const char *air;
+    uint32_t air_age_s;
+    bool has_light;
+    float lux;
+    uint32_t light_age_s;
+    bool has_presence;
+    bool present;
+    uint32_t presence_age_s;
+} dev_room_t;
+
 typedef struct {
     const dev_caps_t *caps;
     const char *fw;
@@ -41,6 +58,8 @@ typedef struct {
     bool link_fallback;
     const struct dev_wifi *wifi;
     const struct dev_diag *diag;
+    bool has_room;
+    dev_room_t room;
 } dev_checkin_t;
 
 typedef struct dev_wifi {
@@ -75,6 +94,9 @@ typedef struct dev_diag {
     const char *idle_state, *idle_wake;
     int idle_input_age_s;
 } dev_diag_t;
+
+/* Adds a task's stack headroom in name order, so stack_free stays sorted; false when the list is full or the name is taken or invalid. */
+bool dev_diag_add_task(dev_diag_t *d, const char *name, uint32_t stack_free);
 
 #define DEV_RR_SW 3
 #define DEV_RR_PANIC 4
@@ -172,6 +194,7 @@ void dev_checkin_result_free(dev_checkin_result_t *r);
 #define DEV_CHECKIN_BACKOFF_MAX_MS 300000
 #define DEV_CHECKIN_MIN_GAP_MS 2000
 #define DEV_CHECKIN_LIVE_MS 5000
+#define DEV_EVENT_GAP_MS 10000
 
 typedef struct {
     int64_t next_ms;
@@ -207,6 +230,8 @@ void dev_sched_done(dev_sched_t *s, dev_checkin_outcome_t o, int64_t now_ms);
 void dev_sched_intervals(dev_sched_t *s, int period_ms, int live_ms, int64_t now_ms);
 void dev_sched_live(dev_sched_t *s, int64_t deadline_ms, int64_t now_ms);
 void dev_sched_now(dev_sched_t *s, int64_t now_ms);
+/* An event checkin (a presence change) may go: none yet (last_ms < 0), or DEV_EVENT_GAP_MS since the last one. */
+bool dev_event_due(int64_t last_ms, int64_t now_ms);
 
 typedef enum { DEV_LINK_OFF, DEV_LINK_CONNECTING, DEV_LINK_OK, DEV_LINK_UNREACHABLE, DEV_LINK_UNAUTHORIZED } dev_link_t;
 

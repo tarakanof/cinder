@@ -229,7 +229,7 @@ static void test_quiet_dim(void)
 
 static void test_idle(void)
 {
-    const dim_idle_rules_t none = {0, 20, 0}, dim = {600, 40, 0}, both = {600, 40, 1800}, off_only = {0, 20, 60};
+    const dim_idle_rules_t none = {0, 20, 0, 0, false}, dim = {600, 40, 0, 0, false}, both = {600, 40, 1800, 0, false}, off_only = {0, 20, 60, 0, false};
     dim_idle_t s;
     dim_idle_init(&s, 1000);
     CHECK(dim_idle_state(&none, &s, 1000 + 90000000LL) == DIM_IDLE_AWAKE, "defaults (0, 20, 0): never idle, however long");
@@ -243,7 +243,7 @@ static void test_idle(void)
     CHECK(dim_idle_state(&both, &s, 1000 + 1800000) == DIM_IDLE_OFF, "at off_after_s: off");
     CHECK(dim_idle_state(&off_only, &s, 1000 + 59999) == DIM_IDLE_AWAKE, "off only: awake until off_after_s");
     CHECK(dim_idle_state(&off_only, &s, 1000 + 60000) == DIM_IDLE_OFF, "off only: straight to off, no dim step");
-    const dim_idle_rules_t inverted = {600, 40, 300};
+    const dim_idle_rules_t inverted = {600, 40, 300, 0, false};
     CHECK(dim_idle_state(&inverted, &s, 1000 + 300000) == DIM_IDLE_OFF, "off_after_s below dim_after_s: off wins");
     CHECK(dim_idle_state(&both, &s, 500) == DIM_IDLE_AWAKE, "a clock that went back: awake");
 
@@ -260,7 +260,7 @@ static void test_idle(void)
     CHECK(dim_idle_level(dim_quiet_level(153, 10, true, 80), DIM_IDLE_AWAKE, &dim) == 80, "quiet alone while awake: 80");
     CHECK(dim_idle_level(dim_quiet_level(153, 10, true, 20), DIM_IDLE_OFF, &both) == 0, "off beats quiet");
     CHECK(dim_idle_level(dim_quiet_level(5, 10, false, 20), DIM_IDLE_DIMMED, &dim) == 10, "base under the floor: the floor, under the idle cap");
-    const dim_idle_rules_t under_floor = {600, 4, 0};
+    const dim_idle_rules_t under_floor = {600, 4, 0, 0, false};
     CHECK(dim_idle_level(dim_quiet_level(153, 10, false, 20), DIM_IDLE_DIMMED, &under_floor) == 4 &&
               dim_idle_floor(10, DIM_IDLE_DIMMED, &under_floor) == 4,
           "idle dim_level below the floor holds, like quiet");
@@ -359,6 +359,102 @@ static void test_idle(void)
     dim_fade_set_target(&f, 153);
     while (dim_fade_tick(&f, &v)) {}
     CHECK(f.cur == 153, "and reaches the new goal");
+}
+
+static void test_presence(void)
+{
+    const dim_idle_rules_t away = {.presence_off_s = 300, .presence_wake = true}, quiet_room = {.presence_off_s = 300},
+                           no_away = {.presence_wake = true}, with_off = {.off_after_s = 600, .presence_off_s = 300, .presence_wake = true};
+    dim_idle_t s;
+    bool woke;
+    dim_idle_init(&s, 0);
+    CHECK(dim_idle_state(&away, &s, 10000000) == DIM_IDLE_AWAKE, "no reading yet (no radar): away never applies");
+    CHECK(dim_idle_presence(&s, &away, 1000, false, &woke) && !woke, "the first reading counts as a change");
+    CHECK(!dim_idle_presence(&s, &away, 1200, false, &woke) && !woke, "the same reading again: no change");
+    CHECK(dim_idle_state(&away, &s, 1000 + 59999) == DIM_IDLE_AWAKE, "away 60 s: awake");
+    s.seen_ms = 1000 + 299999;
+    CHECK(dim_idle_state(&away, &s, 1000 + 299999) == DIM_IDLE_AWAKE, "1 ms before presence_off_s: awake");
+    s.seen_ms = 1000 + 300000;
+    CHECK(dim_idle_state(&away, &s, 1000 + 300000) == DIM_IDLE_OFF && dim_idle_away(&away, &s, 1000 + 300000),
+          "away for presence_off_s: off");
+    CHECK(dim_idle_state(&away, &s, 1000 + 300000 + DIM_PRESENCE_STALE_MS + 1) == DIM_IDLE_AWAKE,
+          "a reading over 60 s old (a lost expander): away no longer applies");
+    CHECK(dim_idle_state(&away, &s, 1000 + 300000 + DIM_PRESENCE_STALE_MS) == DIM_IDLE_OFF, "60 s old still counts");
+    CHECK(dim_idle_state(&no_away, &s, 1000 + 300000) == DIM_IDLE_AWAKE, "presence_off_s 0: never off for away");
+
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &away, 0, false, &woke);
+    s.seen_ms = 400000;
+    dim_idle_wake(&s, 400000, DIM_WAKE_MOOD);
+    CHECK(dim_idle_state(&away, &s, 400000) == DIM_IDLE_OFF, "away beats a mood hold: nobody sees a waiting agent");
+    dim_idle_wake(&s, 400000, DIM_WAKE_OTA_TRIAL);
+    CHECK(dim_idle_state(&away, &s, 400000) == DIM_IDLE_AWAKE, "an OTA trial beats away");
+    s.seen_ms = 400000 + 299999;
+    CHECK(dim_idle_state(&away, &s, 400000 + 299999) == DIM_IDLE_AWAKE && (s.seen_ms = 700000, dim_idle_state(&away, &s, 700000) == DIM_IDLE_OFF),
+          "and restarts the away clock: off presence_off_s after its last hold");
+    dim_idle_wake(&s, 700000, DIM_WAKE_OTA_FACE);
+    CHECK(dim_idle_state(&away, &s, 700000) == DIM_IDLE_AWAKE, "the OTA face beats away");
+    s.seen_ms = 1000000;
+    dim_idle_wake(&s, 1000000, DIM_WAKE_DEMO);
+    CHECK(dim_idle_state(&away, &s, 1000000) == DIM_IDLE_AWAKE, "a demo beats away");
+
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &away, 0, false, &woke);
+    s.seen_ms = 300000;
+    CHECK(dim_idle_input(&s, &away, 300000, DIM_WAKE_TOUCH), "a touch while away and off only wakes the panel");
+    CHECK(dim_idle_state(&away, &s, 300000) == DIM_IDLE_AWAKE && s.wake == DIM_WAKE_TOUCH, "and it is on");
+    s.seen_ms = 599999;
+    CHECK(dim_idle_state(&away, &s, 599999) == DIM_IDLE_AWAKE, "the input restarts the away clock");
+    s.seen_ms = 600000;
+    CHECK(dim_idle_state(&away, &s, 600000) == DIM_IDLE_OFF, "off again presence_off_s after the input");
+    CHECK(dim_idle_input(&s, &away, 600000, DIM_WAKE_ENCODER) && dim_idle_state(&away, &s, 600000) == DIM_IDLE_AWAKE,
+          "the encoder wakes it too");
+
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &away, 0, false, &woke);
+    s.seen_ms = 300000;
+    CHECK(dim_idle_state(&away, &s, 300000) == DIM_IDLE_OFF, "off for away");
+    CHECK(dim_idle_presence(&s, &away, 300500, true, &woke) && woke, "back with presence_wake: a wake");
+    CHECK(dim_idle_state(&away, &s, 300500) == DIM_IDLE_AWAKE && s.wake == DIM_WAKE_PRESENCE && s.last_ms == 300500 &&
+              strcmp(dim_wake_name(s.wake), "presence") == 0,
+          "awake, the source is presence");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, dim_quiet_level(153, 10, true, 20), 0) == 20,
+          "at any hour, at the quiet-hours level while those apply");
+    s.seen_ms = 300500 + 10000000;
+    CHECK(dim_idle_state(&away, &s, 300500 + 10000000) == DIM_IDLE_AWAKE, "present: no away, however long");
+    CHECK(dim_idle_presence(&s, &away, 400000, false, &woke) && !woke, "going away again: a change, no wake");
+    s.seen_ms = 400000 + 299999;
+    CHECK(dim_idle_state(&away, &s, 400000 + 299999) == DIM_IDLE_AWAKE, "the away clock starts when the reading turns away");
+
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &with_off, 0, false, &woke);
+    dim_idle_presence(&s, &with_off, 10000, true, &woke);
+    CHECK(woke && dim_idle_state(&with_off, &s, 10000) == DIM_IDLE_AWAKE, "back while awake: a wake that restarts the idle clock");
+    s.seen_ms = 10000 + 600000;
+    CHECK(dim_idle_state(&with_off, &s, 10000 + 600000) == DIM_IDLE_OFF, "present alone does not hold the panel: idle off still applies");
+    CHECK(!dim_idle_presence(&s, &with_off, 10000 + 600000, true, &woke) && !woke && dim_idle_state(&with_off, &s, 10000 + 600000) == DIM_IDLE_OFF,
+          "a steady presence reading neither wakes nor changes");
+
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &quiet_room, 0, false, &woke);
+    s.seen_ms = 300000;
+    CHECK(dim_idle_presence(&s, &quiet_room, 300500, true, &woke) && !woke, "back without presence_wake: no wake");
+    CHECK(dim_idle_state(&quiet_room, &s, 300500) == DIM_IDLE_OFF && s.latched, "and the panel away turned off stays off");
+    dim_idle_wake(&s, 300600, DIM_WAKE_MOOD);
+    CHECK(dim_idle_state(&quiet_room, &s, 300600) == DIM_IDLE_OFF, "a mood hold does not end it");
+    CHECK(dim_idle_input(&s, &quiet_room, 300700, DIM_WAKE_TOUCH) && dim_idle_state(&quiet_room, &s, 300700) == DIM_IDLE_AWAKE && !s.latched,
+          "an input does");
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &quiet_room, 0, false, &woke);
+    dim_idle_presence(&s, &quiet_room, 100000, true, &woke);
+    CHECK(!woke && !s.latched && dim_idle_state(&quiet_room, &s, 100000) == DIM_IDLE_AWAKE, "back before away turned the panel off: nothing to hold");
+
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &away, 0, false, &woke);
+    dim_idle_presence(&s, &away, 200000, false, &woke);
+    CHECK(!dim_idle_presence(&s, &away, 290000, false, &woke), "a reading after a 90 s gap is no change");
+    s.seen_ms = 290000 + 299999;
+    CHECK(dim_idle_state(&away, &s, 290000 + 299999) == DIM_IDLE_AWAKE, "but the away clock restarts after a stale gap");
 }
 
 static void test_lead(void)
@@ -583,6 +679,7 @@ int main(void)
     test_dim();
     test_quiet_dim();
     test_idle();
+    test_presence();
     if (failures) {
         printf("ember: %d failure(s)\n", failures);
         return 1;

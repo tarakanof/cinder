@@ -16,6 +16,7 @@
 #include "lvgl.h"
 #include "cJSON.h"
 
+#include "app_mods.h"
 #include "bot_behavior.h"
 #include "bot_view.h"
 #include "chase_ctl.h"
@@ -127,7 +128,7 @@ static bool print_listed_in_stored_settings(void)
     const char *ids[PAGES_N];
     int idx[PAGES_N], home;
     config_store_settings(&s_ks_jump);
-    int n = knob_settings_page_order(&s_ks_jump, ids, pages_ids(ids, PAGES_N), idx, &home);
+    int n = knob_settings_page_order(&s_ks_jump, ids, pages_ids(ids, PAGES_N), pages_visible(), idx, &home);
     s_jump_listed = false;
     for (int i = 0; i < n; i++)
         if (strcmp(PAGES[idx[i]].id, "print") == 0) s_jump_listed = true;
@@ -427,6 +428,7 @@ static void frame_cb(lv_timer_t *timer)
     }
 
     settings_frame(t);
+    app_mods_frame(&APP_MODS, t);
     scene_frame(t);
     int steps, swipes;
     input_route_take_steps(&steps, &swipes);

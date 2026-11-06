@@ -185,6 +185,59 @@ static void put_diag(const dev_diag_t *d, char *out, size_t cap, size_t *len)
     put(out, cap, len, "}");
 }
 
+static bool air_valid(const char *s)
+{
+    static const char *const AIR[] = {"normal", "warm_up", "start_up", "invalid"};
+    for (size_t i = 0; s && i < sizeof AIR / sizeof AIR[0]; i++)
+        if (strcmp(s, AIR[i]) == 0) return true;
+    return false;
+}
+
+static bool in_range(float v, float lo, float hi) { return v >= lo && v <= hi; }
+
+static void put_room(const dev_room_t *r, char *out, size_t cap, size_t *len)
+{
+    const char *sep = "";
+#define KEY(k) (put(out, cap, len, "%s\"" k "\":", sep), sep = ",")
+    put(out, cap, len, "{");
+    if (r->has_climate || r->has_air || r->has_light || r->has_presence) {
+        KEY("age_s");
+        const char *s2 = "";
+        put(out, cap, len, "{");
+        if (r->has_air) put(out, cap, len, "%s\"air\":%" PRIu32, s2, r->air_age_s), s2 = ",";
+        if (r->has_climate) put(out, cap, len, "%s\"climate\":%" PRIu32, s2, r->climate_age_s), s2 = ",";
+        if (r->has_light) put(out, cap, len, "%s\"light\":%" PRIu32, s2, r->light_age_s), s2 = ",";
+        if (r->has_presence) put(out, cap, len, "%s\"presence\":%" PRIu32, s2, r->presence_age_s);
+        put(out, cap, len, "}");
+    }
+    if (r->has_air && air_valid(r->air)) KEY("air"), put(out, cap, len, "\"%s\"", r->air);
+    if (r->has_air && r->aqi >= 1 && r->aqi <= 5) KEY("aqi"), put(out, cap, len, "%d", r->aqi);
+    if (r->has_air && r->eco2 >= 400 && r->eco2 <= 65000) KEY("eco2"), put(out, cap, len, "%d", r->eco2);
+    if (r->has_light && in_range(r->lux, 0, 125000)) KEY("lux"), put(out, cap, len, "%.1f", r->lux);
+    if (r->has_presence) KEY("present"), put(out, cap, len, "%s", r->present ? "true" : "false");
+    if (r->has_climate && in_range(r->rh, 0, 100)) KEY("rh"), put(out, cap, len, "%.1f", r->rh);
+    if (r->has_climate && in_range(r->t_c, -40, 85)) KEY("t_c"), put(out, cap, len, "%.1f", r->t_c);
+    if (r->has_air && r->tvoc >= 0 && r->tvoc <= 65000) KEY("tvoc"), put(out, cap, len, "%d", r->tvoc);
+    put(out, cap, len, "}");
+#undef KEY
+}
+
+bool dev_diag_add_task(dev_diag_t *d, const char *name, uint32_t stack_free)
+{
+    if (!name_valid(name) || d->n_tasks < 0 || d->n_tasks >= DEV_DIAG_MAX_TASKS) return false;
+    int at = d->n_tasks;
+    for (int i = 0; i < d->n_tasks; i++) {
+        int c = strcmp(name, d->tasks[i].name);
+        if (c == 0) return false;
+        if (c < 0 && at == d->n_tasks) at = i;
+    }
+    memmove(&d->tasks[at + 1], &d->tasks[at], sizeof d->tasks[0] * (size_t)(d->n_tasks - at));
+    snprintf(d->tasks[at].name, sizeof d->tasks[at].name, "%s", name);
+    d->tasks[at].stack_free = stack_free;
+    d->n_tasks++;
+    return true;
+}
+
 size_t dev_checkin_body(const dev_checkin_t *c, const dev_stats_t *stats, char *out, size_t cap)
 {
     const char *fw = c->fw && json_safe(c->fw) && strlen(c->fw) <= 32 ? c->fw : "";
@@ -209,6 +262,10 @@ size_t dev_checkin_body(const dev_checkin_t *c, const dev_stats_t *stats, char *
     if (c->ota) {
         char ota[320];
         if (ota_report_json(c->ota, ota, sizeof ota)) put(out, cap, &len, ",\"ota\":%s", ota);
+    }
+    if (c->has_room) {
+        put(out, cap, &len, ",\"room\":");
+        put_room(&c->room, out, cap, &len);
     }
     put(out, cap, &len, ",\"rssi\":%d", c->rssi);
     if (stats) {
@@ -503,6 +560,8 @@ void dev_sched_now(dev_sched_t *s, int64_t now_ms)
 {
     if (s->next_ms > now_ms) s->next_ms = now_ms;
 }
+
+bool dev_event_due(int64_t last_ms, int64_t now_ms) { return last_ms < 0 || now_ms - last_ms >= DEV_EVENT_GAP_MS || now_ms < last_ms; }
 
 dev_link_t dev_link_combine(dev_link_t poll, bool has_device, bool checked_in, bool unauthorized)
 {

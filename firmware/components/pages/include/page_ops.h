@@ -27,6 +27,8 @@ void page_controls_frame(const page_frame_t *f);
 void page_print_show(bool on);
 void page_print_input(const page_input_t *in, double t);
 void page_print_frame(const page_frame_t *f);
+void page_room_show(bool on);
+bool page_room_visible(void);
 
 #ifdef __cplusplus
 }

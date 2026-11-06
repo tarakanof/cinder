@@ -51,6 +51,10 @@ typedef struct {
     uint32_t pomo_focus_rgb;
     uint32_t pomo_break_rgb;
     int np_dim_after_s;
+    bool room_enabled;
+    int room_presence_off_s;
+    bool room_presence_wake;
+    bool room_moments;
 } knob_settings_t;
 
 #define KS_QUIET_DIM_DEFAULT 20
@@ -63,6 +67,8 @@ typedef struct {
 #define KS_NP_DIM_AFTER_S_DEFAULT 180
 #define KS_NP_DIM_AFTER_S_MIN 60
 #define KS_NP_DIM_AFTER_S_MAX 1800
+#define KS_ROOM_PRESENCE_OFF_S_DEFAULT 300
+#define KS_ROOM_PRESENCE_OFF_S_MAX 86399
 #define KS_WEATHER_EVERY_MIN_DEFAULT 30
 #define KS_WEATHER_EVERY_MIN_MAX 240
 
@@ -77,7 +83,8 @@ void knob_settings_defaults(knob_settings_t *ks);
 
 bool knob_settings_parse(const char *json, knob_settings_t *ks);
 
-int knob_settings_page_order(const knob_settings_t *ks, const char *const *known, int n_known, int *out, int *home);
+/* out: indexes into known of the listed pages that are on and visible (bit k of visible), in the user's order; with none, every visible known page. home: the position of ks->home in out, else 0. */
+int knob_settings_page_order(const knob_settings_t *ks, const char *const *known, int n_known, uint32_t visible, int *out, int *home);
 
 #ifdef __cplusplus
 }

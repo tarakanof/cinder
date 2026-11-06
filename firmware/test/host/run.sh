@@ -75,8 +75,11 @@ body "$DIMC" dim_ctl_diag | awk '/dim_idle_state\(&s_idle.rules/ {s = NR} /dim_i
     IDLE="$IDLE dim_ctl_diag-reads-state-age-and-wake-in-one-critical-section"
 body "$DIMC" idle_locked | grep -qF 'else if (dim_mood_holds(atomic_load(&s_mood))) dim_idle_wake(&s_idle.clock, now, DIM_WAKE_MOOD);' ||
     IDLE="$IDLE idle_locked-credits-the-mood-hold-to-mood"
-body "$DIMC" idle_touch | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' ||
-    IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner"
+body "$DIMC" idle_lit | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness\(/ {p = NR} /atomic_store\(&s_lit, lit\);/ {s = NR} /ember_client_wake\(\);/ {w = NR} END {exit !(l && p > l && s > p && w > s)}' &&
+    body "$DIMC" idle_lit | sed -n 3p | grep -qxF '    if (is == DIM_IDLE_OFF) return;' && body "$DIMC" idle_touch | grep -qxF '    idle_lit(was, is);' ||
+    IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner-unless-away-keeps-it-off"
+body "$DIMC" dim_ctl_presence | awk '/dim_idle_state_t was = dim_idle_state\(/ {s = NR} /dim_idle_presence\(&s_idle.clock, &s_idle.rules, now, present, &woke\);/ {p = NR} /taskEXIT_CRITICAL/ {x = NR} /^    if \(woke\) idle_lit\(was, is\);$/ {l = NR} END {exit !(s && p > s && x > p && l > x)}' ||
+    IDLE="$IDLE dim_ctl_presence-reads-the-state-before-the-reading-and-lights-the-panel-only-when-it-woke"
 body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_read\(&wake\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
 ! body "$DIMC" fade_step | grep -qE 'idle_state\(\)|idle_wake_log|ESP_LOG' || IDLE="$IDLE fade_step-must-not-log-at-input-rate-on-the-frame-path"
@@ -864,6 +867,10 @@ for CM in components/weather/CMakeLists.txt main/CMakeLists.txt; do grep -qF -- 
 "$CC" $CFLAGS $FPC -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
     "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
 "$CC" $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" -I"$C/include" "$D/test_ember.c" -o "${OUT}_ember"
+AM="$D/../../components/app_mod"
+RM="$D/../../components/room"
+"$CC" $CFLAGS -I"$AM/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$J" "$AM/app_mod.c" "$V/knob_settings.c" "$V/device_api.c" \
+    "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_app_mod.c" -lm -o "${OUT}_app_mod"
 "$CC" $CFLAGS -I"$G/include" "$G/cfg.c" "$G/reset_gesture.c" "$G/press_route.c" "$D/test_cfg.c" -o "${OUT}_cfg"
 "$CC" $CFLAGS -I"$PR/include" "$PR/panel_req.c" "$D/test_panel.c" -o "${OUT}_panel"
 "$CC" $CFLAGS -I"$RT/include" "$RT/knob_rotation.c" "$D/test_rotation.c" -o "${OUT}_rotation"
@@ -873,6 +880,8 @@ HW="$D/../../hwtest/main"
 "$CC" $CFLAGS -I"$SE/include" "$SE/sens_bh1750.c" "$SE/sens_aht.c" "$SE/sens_ens160.c" "$SE/sens_bmp280.c" "$SE/sens_ld2410.c" "$SE/sens_room.c" \
     "$D/test_sens.c" -lm -o "${OUT}_sens"
 "$CC" $CFLAGS -I"$TN/include" "$TN/tone.c" "$D/test_tone.c" -lm -o "${OUT}_tone"
+"$CC" $CFLAGS -I"$RM/include" -I"$SE/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$J" "$RM/room_report.c" "$SE/sens_ens160.c" \
+    "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_room.c" -lm -o "${OUT}_room"
 "$CC" $CFLAGS -I"$HW" -I"$J" "$HW/hwt_line.c" "$J/cJSON.c" "$D/test_hwt.c" -lm -o "${OUT}_hwt"
 "$CC" $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 "$CC" $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
@@ -993,11 +1002,13 @@ fi
 "${OUT}_umbrella"
 "${OUT}_wx_job"
 "${OUT}_ember"
+"${OUT}_app_mod"
 "${OUT}_cfg"
 "${OUT}_panel"
 "${OUT}_rotation"
 "${OUT}_sens"
 "${OUT}_tone"
+"${OUT}_room"
 "${OUT}_hwt"
 "${OUT}_link"
 "${OUT}_refr"
@@ -1061,13 +1072,20 @@ python3 -m unittest discover -q -s "$D/../tools"
 "$CC" $CFLAGS $FPC -I"$RT/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
     -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$H/include" -I"$CT/include" -I"$D/../../components/shown/include" -I"$J" "$K/knob_view.c" "$PRT/print.c" "$DY/day.c" "$U/usage.c" "$U/usage_draw.c" "$DM/demo.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_legacy.c" \
     "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_faces.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$NP/np.c" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" "$O/ota_policy.c" "$PG/pages.c" \
+    -DCONFIG_CINDER_ROOM=1 -I"$RM/include" -I"$SE/include" "$RM/room_report.c" "$SE/sens_ens160.c" \
     "$CP/knob_caps.c" "$H/ember_host.c" "$G/touch_swipe.c" "$G/cfg.c" "$V/claim.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$D/../../components/shown/shown.c" "$CT/controls.c" "$J/cJSON.c" "$D/test_fixtures.c" -lm -o "${OUT}_fixtures"
 "${OUT}_fixtures" "$D/fixtures/ember"
-"$CC" $CFLAGS -I"$RT/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
-    -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
-    "$O/ota_policy.c" "$PG/pages.c" "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_caps.c" -lm \
-    -o "${OUT}_caps"
-"${OUT}_caps"
+for ROOM in 1 0; do
+    "$CC" $CFLAGS -DCONFIG_CINDER_ROOM=$ROOM -I"$RT/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$V/include" -I"$O/include" \
+        -I"$PG/include" -I"$G/include" -I"$CP/include" -I"$J" "$V/device_api.c" "$V/knob_settings.c" "$V/coredump_up.c" \
+        "$O/ota_policy.c" "$PG/pages.c" "$CP/knob_caps.c" "$G/touch_swipe.c" "$D/page_stubs.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_caps.c" -lm \
+        -o "${OUT}_caps$ROOM"
+    echo "caps with CONFIG_CINDER_ROOM=$ROOM:"
+    "${OUT}_caps$ROOM"
+done
+grep -qxF '#if CONFIG_CINDER_ROOM' "$CP/knob_caps.c" && ! grep -q 'sdkconfig' "$CP/knob_caps.c" &&
+    grep -qxF '    target_compile_definitions(${COMPONENT_LIB} PRIVATE CONFIG_CINDER_ROOM=1)' "$CP/CMakeLists.txt" ||
+    { echo "run.sh: FAIL the room caps token is gated on CONFIG_CINDER_ROOM, which the caps component defines from sdkconfig" >&2; exit 1; }
 "$CC" $CFLAGS -I"$RT/include" -I"$PG/include" -I"$V/include" -I"$G/include" -I"$J" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_pages.c" -lm -o "${OUT}_pages"
 "${OUT}_pages" "$D/fixtures/ember"
@@ -1154,6 +1172,29 @@ if [ -n "$CLAIM" ]; then
 fi
 echo "claim wiring: no key, token or code in any log, key from esp_fill_random in PSRAM and never in NVS, claim requests without a token, reply and approval wiped, input, USB set_ember cancel, check-in at once, the code on the join label, every settings write one locked update, factory erase blocks later writes"
 echo "controls wiring: a queued gesture ends the long-poll and the plain-poll wait"
+ROOMW=""
+RMC="$D/../../main/room_mod.c"
+[ "$(grep -c 'app_mods_settings(' "$ECL")" -eq 1 ] && body "$ECL" settings_changed | awk '/^    dim_ctl_settings\(&s_ks\);$/ {d = NR} /^    app_mods_settings\(&APP_MODS, &s_ks\);$/ {m = NR} END {exit !(d && m == d + 1)}' ||
+    ROOMW="$ROOMW settings_changed-hands-the-settings-to-the-modules-on-the-ember-task"
+body "$ECL" checkin | awk '/^    dim_ctl_diag\(&P->diag\);$/ {d = NR} /^    app_mods_diag\(&APP_MODS, &P->diag\);$/ {g = NR} /^    app_mods_checkin\(&APP_MODS, &c\);$/ {c = NR} /dev_checkin_body\(/ {b = NR} END {exit !(d && g > d && c > g && b > c)}' &&
+    [ "$(grep -c 'app_mods_checkin(' "$ECL")" -eq 1 ] && [ "$(grep -c 'app_mods_diag(' "$ECL")" -eq 1 ] ||
+    ROOMW="$ROOMW checkin-asks-the-modules-after-diag_fill-and-before-the-body"
+body "$MAINC" frame_cb | awk '/^    if \(idle_frame\(/ {i = NR} /^    settings_frame\(t\);$/ {s = NR} /^    app_mods_frame\(&APP_MODS, t\);$/ {f = NR} END {exit !(i && s > i && f == s + 1)}' &&
+    [ "$(grep -c 'app_mods_' "$MAINC")" -eq 1 ] || ROOMW="$ROOMW frame_cb-steps-the-modules-once-after-the-settings-and-not-while-off"
+body "$ECL" longpoll_idle | grep -qxF '    if (presence_checkin_due()) return true;' && body "$ECL" loop_wait | grep -qxF '        if (presence_checkin_due()) return;' ||
+    ROOMW="$ROOMW a-presence-change-ends-the-long-poll-and-the-wait"
+body "$ECL" ember_client_presence | grep -qxF '    if (!dim_ctl_presence(present)) return;' && body "$ECL" ember_client_presence | grep -qxF '    atomic_store(&s_presence_moved, true);' &&
+    ! body "$ECL" ember_client_presence | grep -qE 's_sched|dev_sched|s_event_ms' && [ "$(grep -c 's_presence_moved, ' "$ECL")" -eq 2 ] &&
+    body "$ECL" poll_task | grep -A3 -xF '        if (presence_checkin_due()) {' | grep -qxF '            dev_sched_now(&s_sched, s_event_ms);' ||
+    ROOMW="$ROOMW the-room-task-asks-for-a-checkin-by-an-atomic-and-only-the-ember-task-moves-the-schedule"
+! grep -lE 'ember_client_presence\(' "$D"/../../main/*.c | grep -vq '/ember_client\.c$' && grep -qxF '    j2_room_on_presence(ember_client_presence);' "$RMC" ||
+    ROOMW="$ROOMW only-the-room-task-pushes-presence"
+grep -qxF '#if CONFIG_CINDER_ROOM' "$RMC" && grep -qxF '#if CONFIG_CINDER_ROOM' "$D/../../main/app_mods.c" || ROOMW="$ROOMW the-room-module-builds-only-with-CONFIG_CINDER_ROOM"
+if [ -n "$ROOMW" ]; then
+    echo "run.sh: FAIL room module wiring:$ROOMW" >&2
+    exit 1
+fi
+echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and loop_wait (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 "$CC" $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \

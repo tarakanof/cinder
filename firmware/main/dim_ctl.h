@@ -18,6 +18,8 @@ void dim_ctl_frame(void);
 bool dim_ctl_input(dim_wake_t src);
 /* Any task. A wake source that is not input: the mood turning active, the OTA face, a demo. */
 void dim_ctl_wake(dim_wake_t src);
+/* Any task (the room task, through ember_client_presence). A presence reading: true when it changed; coming back can wake the panel (docs/features.md, presence). */
+bool dim_ctl_presence(bool present);
 /* Any task. The idle rules have the panel off: the LVGL task skips rendering. */
 bool dim_ctl_off(void);
 

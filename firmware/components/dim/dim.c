@@ -96,12 +96,24 @@ int dim_quiet_floor(int floor, bool quiet, int dim_level) { return quiet && dim_
 
 void dim_idle_init(dim_idle_t *s, int64_t now_ms)
 {
-    s->last_ms = now_ms;
-    s->wake = DIM_WAKE_NONE;
+    *s = (dim_idle_t){.last_ms = now_ms, .wake = DIM_WAKE_NONE, .away_ms = now_ms};
+}
+
+static bool presence_fresh(const dim_idle_t *s, int64_t now_ms)
+{
+    return s->seen && now_ms >= s->seen_ms && now_ms - s->seen_ms <= DIM_PRESENCE_STALE_MS;
+}
+
+bool dim_idle_away(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms)
+{
+    if (r->presence_off_s <= 0 || !presence_fresh(s, now_ms)) return false;
+    if (s->latched) return true;
+    return !s->present && now_ms - s->away_ms >= (int64_t)r->presence_off_s * 1000;
 }
 
 dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms)
 {
+    if (dim_idle_away(r, s, now_ms)) return DIM_IDLE_OFF;
     int64_t idle = now_ms - s->last_ms;
     if (r->off_after_s > 0 && idle >= (int64_t)r->off_after_s * 1000) return DIM_IDLE_OFF;
     if (r->dim_after_s > 0 && idle >= (int64_t)r->dim_after_s * 1000) return DIM_IDLE_DIMMED;
@@ -113,6 +125,30 @@ void dim_idle_wake(dim_idle_t *s, int64_t now_ms, dim_wake_t src)
     if (now_ms < s->last_ms) return;
     s->last_ms = now_ms;
     s->wake = src;
+    if (src == DIM_WAKE_MOOD || now_ms < s->away_ms) return;
+    s->away_ms = now_ms;
+    s->latched = false;
+}
+
+bool dim_idle_presence(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, bool present, bool *woke)
+{
+    *woke = false;
+    bool fresh = presence_fresh(s, now_ms);
+    bool changed = !s->seen || s->present != present;
+    bool back = s->seen && !s->present && present;
+    bool away = dim_idle_away(r, s, now_ms);
+    s->seen = true;
+    s->seen_ms = now_ms;
+    s->present = present;
+    if (!present && (changed || !fresh)) s->away_ms = now_ms;
+    if (!back) return changed;
+    if (r->presence_wake) {
+        dim_idle_wake(s, now_ms, DIM_WAKE_PRESENCE);
+        *woke = true;
+    } else if (away) {
+        s->latched = true;
+    }
+    return changed;
 }
 
 bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, dim_wake_t src)
@@ -124,7 +160,7 @@ bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, di
 
 const char *dim_wake_name(dim_wake_t w)
 {
-    static const char *const N[] = {"", "touch", "encoder", "mood", "demo", "ota_face", "ota_trial"};
+    static const char *const N[] = {"", "touch", "encoder", "mood", "demo", "ota_face", "ota_trial", "presence"};
     return w >= 0 && w < (int)(sizeof N / sizeof N[0]) ? N[w] : "";
 }
 
