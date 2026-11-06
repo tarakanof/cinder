@@ -1304,6 +1304,30 @@ static void box_at(const wxm_layout_t *l, int layer, int bx, int by, uint32_t rg
     CHECK(al > 240 && near(got, rgb, 8), "%s at box (%d, %d): %06X alpha %d, want %06X", what, bx, by, (unsigned)got, al, (unsigned)rgb);
 }
 
+static void test_change_due(void)
+{
+    wxm_trigger_t tr;
+    wxm_init(&tr);
+    wx_obs_t dry = obs("2", 12), wet = rain(2, "61");
+    wxm_moment_t m;
+    wxm_in_t in = {.t = 100, .obs = &dry, .on = true};
+    wxm_tick(&tr, &in, &m);
+    CHECK(!wxm_change_due(&tr, &dry, 100), "no change queued: not due");
+    in.t = 101;
+    in.obs = &wet;
+    wxm_tick(&tr, &in, &m);
+    CHECK(tr.pending == WXM_RAIN, "rain starts off the page: queued");
+    CHECK(wxm_change_due(&tr, &wet, 101), "queued with fresh data: due");
+    CHECK(!wxm_change_due(&tr, NULL, 101), "without weather data it cannot play: not due");
+    wx_obs_t old = wet;
+    old.valid = false;
+    CHECK(!wxm_change_due(&tr, &old, 101), "stale data: not due");
+    tr.kind_at[WXM_RAIN] = 101 - WXM_SAME_S + 1;
+    CHECK(!wxm_change_due(&tr, &wet, 101), "inside its same-kind wait: not due");
+    tr.kind_at[WXM_RAIN] = 101 - WXM_SAME_S;
+    CHECK(wxm_change_due(&tr, &wet, 101), "the wait over: due");
+}
+
 static void test_room_moments(void)
 {
     wxm_moment_t m;
@@ -1338,9 +1362,9 @@ static void test_room_moments(void)
             for (int e = 0; e < l.ne; e++) {
                 const wxm_layer_t *y = &l.layer[l.el[e].layer];
                 const wxm_el_t *q = &f.el[e];
-                if (!f.opa || !q->opa) continue;
                 CHECK(q->x >= 0 && q->y >= 0 && q->x + y->w <= WXM_BOX_W && q->y + y->h <= WXM_BOX_H,
                       "%s frame %d element %d at (%d,%d) %dx%d: inside the sprite box", KIND[kind], k, e, q->x, q->y, y->w, y->h);
+                if (!f.opa || !q->opa) continue;
                 if (e == 0) CHECK(q->x == l.el[0].x && q->opa == 255, "%s frame %d: the window stays put", KIND[kind], k);
                 else moved += q->x != l.el[e].x;
                 if (e > 0 && e < 4) CHECK(q->x >= l.el[e].x && q->x + y->w <= l.el[0].x + 2, "%s frame %d: left air drifts right, short of the window", KIND[kind], k);
@@ -1348,6 +1372,9 @@ static void test_room_moments(void)
             }
         }
         CHECK(moved > 100, "%s: the air moves (%d element frames off rest)", KIND[kind], moved);
+        wxm_frame_t f;
+        wxm_frame(&m, &l, 0, &f);
+        CHECK(f.dy == WXM_RISE, "%s: frame 0 checked at the full %d px rise", KIND[kind], f.dy);
     }
 
     wxm_layout_t l;
@@ -1399,6 +1426,7 @@ int main(void)
     test_acting();
     test_paint();
     test_print_moments();
+    test_change_due();
     test_room_moments();
     if (failures) {
         printf("moment: %d failure(s)\n", failures);

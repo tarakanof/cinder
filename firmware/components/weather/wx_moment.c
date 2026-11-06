@@ -232,6 +232,11 @@ bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m)
     return true;
 }
 
+bool wxm_change_due(const wxm_trigger_t *tr, const wx_obs_t *o, double t)
+{
+    return tr->pending != WXM_NONE && t - tr->kind_at[tr->pending] >= WXM_SAME_S && fresh(o);
+}
+
 void wxm_shown(wxm_trigger_t *tr, const wxm_moment_t *m, double t)
 {
     if (tr->pending == m->kind) tr->pending = WXM_NONE;

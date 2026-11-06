@@ -1795,6 +1795,55 @@ static void test_room_moments(void)
     CHECK(at > 0 && MV.last.kind == WXM_RAIN, "a queued weather change still beats the room afterwards");
 
     room_fresh(4);
+    ks.weather_moments = true;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &wet, false, false);
+    t0 = T;
+    at = run_room(NULL, false, true, 30);
+    CHECK(at > 0 && at < t0 + WXM_SETTLE_S + 1 && MV.last.kind == WXM_ROOM_STALE,
+          "a queued weather change that has no weather data to play with does not hold the room back (%.1f)", at - t0);
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+
+    room_fresh(1);
+    ks.weather_moments = true;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    at = run_room(&wet, false, true, 30);
+    CHECK(at > 0 && MV.last.kind == WXM_RAIN, "rain plays");
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+    for (double end = T + WXM_GAP_S + 30; T < end && MV.starts < 2; T += 0.5) moments_tick(T, &dry, false, true);
+    CHECK(MV.starts == 2 && MV.last.kind == WXM_AFTERRAIN, "after rain plays");
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &wet, false, false);
+    RA.aqi = 4;
+    t0 = T;
+    at = run_room(&wet, false, true, WXM_GAP_S + 30);
+    CHECK(at > 0 && at < t0 + WXM_GAP_S + 1 && MV.last.kind == WXM_ROOM_STALE,
+          "rain again inside its 30 min wait: the stale air does not wait for it (%.1f, kind %d)", at - t0, MV.last.kind);
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+
+    room_fresh(4);
+    ks.weather_moments = true;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    MV.ok = false;
+    for (int i = 0; i < 20; i++, T += 0.5) moments_tick(T, &wet, false, true);
+    int tries = MV.starts;
+    moments_tick(T, &wet, false, true);
+    CHECK(MV.starts == tries + 1, "a playable weather change whose start fails keeps the slot: only it tries (%d)", MV.starts - tries);
+    MV.ok = true;
+    moments_tick(T, &wet, false, true);
+    CHECK(MV.busy && MV.last.kind == WXM_RAIN, "and plays first once it can");
+    moment_view_stop();
+    moment_unact(T);
+
+    room_fresh(4);
     bot_set_mood(&bot, BOT_WORKING, T);
     at = run_room(NULL, false, true, 30);
     CHECK(at > 0 && MV.last.kind == WXM_ROOM_STALE && MV.last.quiet && !bot.acting, "working: the quiet variant, no acting");

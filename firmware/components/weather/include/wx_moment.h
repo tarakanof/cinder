@@ -146,6 +146,9 @@ void wxm_note_other(wxm_trigger_t *tr, double t);
    every_s from then. The same-kind cooldown holds for periodic ones too. */
 bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m);
 void wxm_shown(wxm_trigger_t *tr, const wxm_moment_t *m, double t);
+/* A queued change moment that wxm_tick would play now if its gates allowed: past its same-kind wait, with fresh data o.
+   Other triggers yield to it. */
+bool wxm_change_due(const wxm_trigger_t *tr, const wx_obs_t *o, double t);
 
 /* Layers: RGB565A8 images in the arena at byte offset at, box px (the sprite box at WXM_BOX_X/Y). Elements: a layer
    drawn at x, y at rest, in draw order; one layer may be drawn by several elements (the raindrops, the flakes). */
