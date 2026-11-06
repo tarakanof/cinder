@@ -46,6 +46,15 @@ config CINDER_EMBER_POLL_MS
         Default for the knob setting poll_ms (1000-10000) until Ember sends the knob's
         settings in a checkin.
 
+config CINDER_ROOM
+    bool "Room sensors on J2 (room module, presence, checkin room block)"
+    default n
+    help
+        Builds the room module (docs/features.md, room sensors): with the knob setting
+        room.enabled it starts the J2 room task, sends the checkin's room block, adds the
+        room caps token and lets presence turn the panel off and wake it. Off: none of
+        this is built; the room page row stays in the table but never shows.
+
 config CINDER_OTA_TEST
     bool "OTA rollback test build (never for release)"
     default n

@@ -46,12 +46,16 @@ int dim_quiet_level(int level, int floor, bool quiet, int dim_level);
 
 int dim_quiet_floor(int floor, bool quiet, int dim_level);
 
-/* Idle rules from the knob config (docs/features.md, idle dim and off): 0 disables dim or off; seconds. */
+/* Idle rules from the knob config (docs/features.md, idle dim and off; presence): 0 disables dim, off or away; seconds. */
 typedef struct {
     int dim_after_s;
     int dim_level;
     int off_after_s;
+    int presence_off_s;
+    bool presence_wake;
 } dim_idle_rules_t;
+
+#define DIM_PRESENCE_STALE_MS 60000
 
 typedef enum { DIM_IDLE_AWAKE, DIM_IDLE_DIMMED, DIM_IDLE_OFF } dim_idle_state_t;
 
@@ -62,16 +66,19 @@ typedef enum {
     DIM_WAKE_MOOD,
     DIM_WAKE_DEMO,
     DIM_WAKE_OTA_FACE,
-    DIM_WAKE_OTA_TRIAL
+    DIM_WAKE_OTA_TRIAL,
+    DIM_WAKE_PRESENCE
 } dim_wake_t;
 
-/* last_ms is the time of the last input or wake source on the caller's clock, wake the source that set it. Callers serialise access. */
+/* last_ms is the time of the last input or wake source on the caller's clock, wake the source that set it. away_ms: the away clock, restarted by going away and by every wake but the mood's. seen_ms: the last presence reading. Callers serialise access. */
 typedef struct {
     int64_t last_ms;
     dim_wake_t wake;
+    bool seen, present, latched;
+    int64_t seen_ms, away_ms;
 } dim_idle_t;
 
-/* Checkin diag.idle.wake: "touch", "encoder", "mood", "demo", "ota_face", "ota_trial", "" for none. */
+/* Checkin diag.idle.wake: "touch", "encoder", "mood", "demo", "ota_face", "ota_trial", "presence", "" for none. */
 const char *dim_wake_name(dim_wake_t w);
 
 /* Checkin diag.idle.state: "awake", "dim", "off". */
@@ -84,10 +91,19 @@ void dim_idle_init(dim_idle_t *s, int64_t now_ms);
 
 dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms);
 
+/* Away has the panel off: nobody near for presence_off_s, or back without presence_wake after that, while the last reading is at most DIM_PRESENCE_STALE_MS old. */
+bool dim_idle_away(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms);
+
+/* A presence reading: true when it changed (the first one counts). *woke when someone came back with presence_wake on: a DIM_WAKE_PRESENCE wake. A reading after a stale gap restarts the away clock and ends the latch. */
+bool dim_idle_presence(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, bool present, bool *woke);
+
+/* New idle rules: a change to the presence rules ends the away latch (back without presence_wake). */
+void dim_idle_set_rules(dim_idle_t *s, dim_idle_rules_t *r, const dim_idle_rules_t *next);
+
 /* The panel stays awake while the bot is working, waiting, erroring or done; mood is the knob's current one, -1 offline or no data (docs/features.md, idle dim and screen off). */
 bool dim_mood_holds(int mood);
 
-/* A wake source that is not input (the OTA face, a demo): restarts the clock, nothing is swallowed. */
+/* A wake source that is not input (the OTA face, a demo): restarts the clock, and the away clock unless it is the mood; nothing is swallowed. */
 void dim_idle_wake(dim_idle_t *s, int64_t now_ms, dim_wake_t src);
 
 /* An input: true when the panel was off, so the input only wakes it and must not reach a page. Restarts the clock either way. */

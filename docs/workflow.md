@@ -39,14 +39,18 @@ Issue numbers written as #N or cinder#N refer to the original private repository
 - **New caps feature tokens.** `NOT_YET_SENT` matches object keys only; `caps.features` is
   an array. A token in Ember's feature registry that the firmware sends before
   `checkin_req_caps.json` lists it goes in `FEATURES_AHEAD[]` in `test_fixtures.c`
-  (`wx_faces` since 0.9.51, `wx_moments` since 0.9.65, `demo` since 0.9.66, `np_cover` since 0.9.84, `usage` since #208, `shown` since #245, `idle_dim` since #256, `wx_face_list`, `pomo_colors` and `np_dim` since #257, `lan_pair` since #258, `print_moments` since #322): the test drops it from the firmware's list before comparing,
+  (`wx_faces` since 0.9.51, `wx_moments` since 0.9.65, `demo` since 0.9.66, `np_cover` since 0.9.84, `usage` since #208, `shown` since #245, `idle_dim` since #256, `wx_face_list`, `pomo_colors` and `np_dim` since #257, `lan_pair` since #258, `print_moments` since #322, `room` since #306): the test drops it from the firmware's list before comparing,
   fails when a caps body does not carry it exactly once or no caps fixture is checked, and
   fails once the fixture has it (then remove
   the entry in the sync commit).
 - **New page ids.** `test_pages.c` requires the page table to equal Ember's default page list (`config_default.json`), so a
   new page lands after Ember's. An Ember default page the table does not have yet goes in `PAGES_LATER[]` in
-  `test_pages.c` (`room` since Ember v0.85.0, until #307); the firmware PR that adds the page removes the entry. A table page that `checkin_req_caps.json` does not list yet goes in `PAGES_AHEAD[]` in
-  `test_fixtures.c` (`day` since #283, `controls` since #144); it fails once the fixture lists it, then remove the entry in the sync commit.
+  `test_pages.c` (empty since #306 added the `room` row); the firmware PR that adds the page removes the entry. A table page that `checkin_req_caps.json` does not list yet goes in `PAGES_AHEAD[]` in
+  `test_fixtures.c` (`day` since #283, `controls` since #144, `print` since #321, `room` since #306); it fails once the fixture lists it, then remove the entry in the sync commit.
+  A row can exist before its page shows: its `visible` hook keeps it out of the turn list (`pages_visible`), with the table indexes unchanged.
+- **Build flags in host tests.** Host builds have no `sdkconfig.h`, so a component that gates on a `CONFIG_*` flag gets it
+  from its `CMakeLists.txt` (`target_compile_definitions`), and `run.sh` passes it with `-D`: `test_fixtures` builds with
+  `-DCONFIG_CINDER_ROOM=1` (it checks the `room` token in `FEATURES_AHEAD`), and `test_caps` runs once with the flag on and once off.
   `caps.pages` compares as a set, as Ember does.
 - Feature and fix PRs leave `PROJECT_VER` in `firmware/CMakeLists.txt` alone. A
   separate release PR (`chore(release): X.Y.Z`) bumps it once for everything merged

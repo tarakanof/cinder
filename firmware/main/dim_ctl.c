@@ -70,9 +70,12 @@ static dim_idle_state_t idle_state(void)
 void dim_ctl_settings(const knob_settings_t *ks)
 {
     taskENTER_CRITICAL(&s_mux);
-    s_idle.rules = (dim_idle_rules_t){.dim_after_s = ks->idle_dim_after_s,
-                                      .dim_level = ks->idle_dim_level,
-                                      .off_after_s = ks->idle_off_after_s};
+    const dim_idle_rules_t next = {.dim_after_s = ks->idle_dim_after_s,
+                                   .dim_level = ks->idle_dim_level,
+                                   .off_after_s = ks->idle_off_after_s,
+                                   .presence_off_s = ks->room_enabled ? ks->room_presence_off_s : 0,
+                                   .presence_wake = ks->room_enabled && ks->room_presence_wake};
+    dim_idle_set_rules(&s_idle.clock, &s_idle.rules, &next);
     s_idle.floor = ks->floor;
     s_idle.quiet_dim = ks->quiet_dim;
     s_idle.ready = true;
@@ -187,6 +190,18 @@ void dim_ctl_frame(void)
     fade_step();
 }
 
+static void idle_lit(dim_idle_state_t was, dim_idle_state_t is)
+{
+    if (is == DIM_IDLE_OFF) return;
+    int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_panel_level));
+    if (lit >= 0) {
+        panel_check_brightness((uint8_t)lit);
+        atomic_store(&s_panel_level, lit);
+        atomic_store(&s_lit, lit);
+    }
+    if (was != DIM_IDLE_AWAKE) ember_client_wake();
+}
+
 static bool idle_touch(bool input, dim_wake_t src)
 {
     int64_t now = idle_ms();
@@ -195,20 +210,28 @@ static bool idle_touch(bool input, dim_wake_t src)
     bool swallow = false;
     if (input) swallow = dim_idle_input(&s_idle.clock, &s_idle.rules, now, src);
     else dim_idle_wake(&s_idle.clock, now, src);
+    dim_idle_state_t is = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
     taskEXIT_CRITICAL(&s_mux);
-    int lit = dim_idle_light(was, atomic_load(&s_awake_level), atomic_load(&s_panel_level));
-    if (lit >= 0) {
-        panel_check_brightness((uint8_t)lit);
-        atomic_store(&s_panel_level, lit);
-        atomic_store(&s_lit, lit);
-    }
-    if (was != DIM_IDLE_AWAKE) ember_client_wake();
+    idle_lit(was, is);
     return swallow;
 }
 
 bool dim_ctl_input(dim_wake_t src) { return idle_touch(true, src); }
 
 void dim_ctl_wake(dim_wake_t src) { (void)idle_touch(false, src); }
+
+bool dim_ctl_presence(bool present)
+{
+    int64_t now = idle_ms();
+    bool woke;
+    taskENTER_CRITICAL(&s_mux);
+    dim_idle_state_t was = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
+    bool changed = dim_idle_presence(&s_idle.clock, &s_idle.rules, now, present, &woke);
+    dim_idle_state_t is = dim_idle_state(&s_idle.rules, &s_idle.clock, now);
+    taskEXIT_CRITICAL(&s_mux);
+    if (woke) idle_lit(was, is);
+    return changed;
+}
 
 bool dim_ctl_off(void) { return idle_state() == DIM_IDLE_OFF; }
 

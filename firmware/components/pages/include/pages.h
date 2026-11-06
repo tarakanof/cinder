@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "knob_settings.h"
 
@@ -8,7 +9,7 @@
 extern "C" {
 #endif
 
-#define PAGES_N 7
+#define PAGES_N 8
 #define PAGE_TAP_ZONES 4
 
 /* PAGE_TOUCH_RAW: taps reach the page as touches (all taps; taps[z]: those in ts_zone_t z), wakes and hswipes (> 0 left, < 0 right), not as pushes. PAGE_TURN: the page takes detents. PAGE_GLINT: the working glint and chase run. */
@@ -28,6 +29,7 @@ typedef struct {
     void (*show)(bool on);
     void (*input)(const page_input_t *in, double t);
     void (*frame)(const page_frame_t *f);
+    bool (*visible)(void);
 } page_desc_t;
 
 extern const page_desc_t PAGES[PAGES_N];
@@ -38,6 +40,9 @@ typedef struct {
 } pages_nav_t;
 
 int pages_ids(const char **out, int max);
+
+/* Bit i: PAGES[i] may enter the turn list (no visible hook, or it says so); knob_settings_page_order takes it with the full table. */
+uint32_t pages_visible(void);
 
 page_input_t pages_route(const page_desc_t *p, page_input_t in);
 

@@ -64,7 +64,11 @@ esp_err_t j2_pcf_read(uint8_t addr, uint8_t *port);
 esp_err_t j2_room_start(const j2_pins_t *pins);
 void j2_room_stop(void);
 bool j2_room_running(void);
+/* The room task's stack headroom in bytes, -1 when it does not run; call from the task that starts and stops it. */
+int j2_room_stack_free(void);
 void j2_room_get(room_t *out);
+/* cb runs on the room task after every good radar read, with the debounced presence; NULL clears it. Set it before j2_room_start. */
+void j2_room_on_presence(void (*cb)(bool present));
 /* ROOM_HAS_* bits of the chips the last detection found. */
 uint32_t j2_room_found(void);
 

@@ -44,6 +44,12 @@ STUB_PAGE(np, "np")
 STUB_PAGE(day, "day")
 STUB_PAGE(print, "print")
 
+bool page_stub_room_visible;
+
+void page_room_show(bool on) { note(on ? "room+" : "room-"); }
+
+bool page_room_visible(void) { return page_stub_room_visible; }
+
 void page_weather_show(bool on) { note(on ? "weather+" : "weather-"); }
 
 void page_weather_input(const page_input_t *in, double t)

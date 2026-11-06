@@ -38,6 +38,7 @@ static atomic_bool s_done;
 static atomic_uint s_found;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static room_t s_room;
+static void (*_Atomic s_presence_cb)(bool present);
 
 static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
 
@@ -106,6 +107,8 @@ static void poll_presence(room_ctx_t *c, int64_t t)
     bool raw = pcf8574_bit(port, c->pins.radar_bit);
     bool changed = room_presence_feed(&c->presence, raw, t);
     publish(set_presence, &(presence_up_t){raw, changed, c->presence.present, t});
+    void (*cb)(bool) = atomic_load(&s_presence_cb);
+    if (cb) cb(c->presence.present);
 }
 
 typedef struct {
@@ -273,6 +276,8 @@ void j2_room_stop(void)
 
 bool j2_room_running(void) { return s_task != NULL; }
 
+int j2_room_stack_free(void) { return s_task ? (int)uxTaskGetStackHighWaterMark(s_task) : -1; }
+
 void j2_room_get(room_t *out)
 {
     taskENTER_CRITICAL(&s_mux);
@@ -281,3 +286,5 @@ void j2_room_get(room_t *out)
 }
 
 uint32_t j2_room_found(void) { return atomic_load(&s_found); }
+
+void j2_room_on_presence(void (*cb)(bool present)) { atomic_store(&s_presence_cb, cb); }

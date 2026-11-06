@@ -58,8 +58,13 @@ static void test_firmware_caps(void)
     const char *pages[PAGES_N];
     for (int i = 0; i < PAGES_N; i++) pages[i] = PAGES[i].id;
     CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "pages"), pages, PAGES_N), "pages in table order");
-    const char *const features[] = {"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals", "wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim", "wx_face_list", "pomo_colors", "np_dim", "lan_pair", "print_moments"};
-    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), features, 17), "features");
+    const char *const features[] = {"view_wait", "np_control", "ota_rollback", "coredump", "stats_intervals", "wx_faces", "wx_moments", "demo", "np_cover", "usage", "shown", "idle_dim", "wx_face_list", "pomo_colors", "np_dim", "lan_pair", "print_moments", "room"};
+#if CONFIG_CINDER_ROOM
+    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), features, 18), "features, room last with CONFIG_CINDER_ROOM: %s", out);
+#else
+    CHECK(ids_are(cJSON_GetObjectItemCaseSensitive(cj, "features"), features, 17), "features, no room without CONFIG_CINDER_ROOM: %s", out);
+#endif
+    CHECK(strstr(out, "\"weather\",\"room\",\"nowplaying\"") != NULL, "the room page id in every build: %s", out);
     const cJSON *view = cJSON_GetObjectItemCaseSensitive(cj, "view");
     CHECK(cJSON_GetArraySize(view) == 2 && cJSON_GetArrayItem(view, 0)->valueint == 1 &&
               cJSON_GetArrayItem(view, 1)->valueint == 1,
@@ -182,7 +187,12 @@ static void test_worst_case_body(void)
     fill(fw, 32, '1');
     dev_checkin_t c = {.caps = &caps, .fw = fw, .fw_build = build, .ota = &ota, .ip = "255.255.255.255", .rssi = -127,
                        .heap_internal_free = UINT32_MAX, .heap_internal_largest = UINT32_MAX, .uptime_s = INT64_MAX,
-                       .config_version = UINT32_MAX, .link_mhz = 80, .link_fallback = true, .wifi = &w, .diag = &d};
+                       .config_version = UINT32_MAX, .link_mhz = 80, .link_fallback = true, .wifi = &w, .diag = &d,
+                       .has_room = true,
+                       .room = {.has_climate = true, .t_c = -39.95f, .rh = 99.95f, .climate_age_s = UINT32_MAX, .has_air = true,
+                                .eco2 = 65000, .tvoc = 65000, .aqi = 5, .air = "start_up", .air_age_s = UINT32_MAX,
+                                .has_light = true, .lux = 124999.95f, .light_age_s = UINT32_MAX, .has_presence = true,
+                                .present = false, .presence_age_s = UINT32_MAX}};
     char out[DEV_CHECKIN_BODY_MAX];
     size_t n = dev_checkin_body(&c, &st, out, sizeof out);
     CHECK(n > 0, "worst-case body with caps fits DEV_CHECKIN_BODY_MAX");
@@ -190,7 +200,10 @@ static void test_worst_case_body(void)
     CHECK(n + 256 < DEV_CHECKIN_BODY_MAX, "256 B headroom: %zu", n);
     cJSON *j = cJSON_Parse(out);
     CHECK(cJSON_IsObject(j), "worst case parses");
+    CHECK(cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "room")) == 9, "the worst case carries every room key: %s", out);
     cJSON_Delete(j);
+    c.has_room = false;
+    printf("caps: worst-case checkin body without room %zu B\n", dev_checkin_body(&c, &st, out, sizeof out));
 }
 
 int main(void)

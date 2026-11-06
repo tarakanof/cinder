@@ -25,6 +25,7 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 | **Media** | volume arc, play/pause icon, BLE link state | BLE HID (below) |
 | **Controls** | Sends turn, push and long push to the target Mac through Ember; off by default (built, `features.md` "Controls page") | `POST /v1/controls/action` |
 | **Print** | The printer's job: K1 Progress (time left, ready time, a drawn CORE One) and K2 Materialise (the model's picture filling in); off by default (built, `features.md` "Print page") | the view's `print` block, `GET /v1/print/thumb` |
+| **Room** | Climate, air and light faces from the J2 sensors (#307); the table row exists since #306 but never enters the turn list, and it needs `CONFIG_CINDER_ROOM` and `room.enabled` (`features.md` "Room module") | the knob's own `j2` snapshot, no view block |
 | **Usage** | 5 h / weekly gauges per Claude or Codex account: screens behind a tap on the bot face, not a page (built, `features.md` "Usage screens") | the view's `usage` block |
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |
 | Debug | Wi-Fi, BLE, heap, Ember health | `GET /v1/clock/health` |

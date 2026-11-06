@@ -42,7 +42,7 @@ static char *load(const char *name)
 
 static void test_ids(void)
 {
-    static const char *const WANT[] = {"bot", "day", "weather", "nowplaying", "controls", "print", "pomodoro"};
+    static const char *const WANT[] = {"bot", "day", "weather", "room", "nowplaying", "controls", "print", "pomodoro"};
     enum { N_WANT = sizeof WANT / sizeof WANT[0] };
     CHECK(PAGES_N == N_WANT && PAGES_N <= KS_MAX_PAGES, "page count %d", PAGES_N);
     const char *ids[PAGES_N + 2];
@@ -69,7 +69,7 @@ static void test_defaults(void)
     knob_settings_defaults(&d);
     const char *ids[PAGES_N];
     int order[PAGES_N], home = -1;
-    int n = knob_settings_page_order(&d, ids, pages_ids(ids, PAGES_N), order, &home);
+    int n = knob_settings_page_order(&d, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
     CHECK(n == d.n_pages, "every default page is in the table: %d of %d", n, d.n_pages);
     for (int i = 0; i < n; i++) CHECK(order[i] == i, "default page %d is table entry %d", i, order[i]);
     CHECK(home == 0 && strcmp(PAGES[0].id, d.home) == 0, "boot page (table entry 0) is the default home");
@@ -87,8 +87,8 @@ static void test_unknown_kept_not_shown(void)
     CHECK(ks.n_pages == 3 && strcmp(ks.pages[0].id, "media") == 0, "unknown id kept");
     const char *ids[PAGES_N];
     int order[PAGES_N], home = -1;
-    int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), order, &home);
-    CHECK(n == 2 && order[0] == 3 && order[1] == 0 && home == 0, "shown: nowplaying, bot; home falls back: n %d", n);
+    int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
+    CHECK(n == 2 && order[0] == index_of("nowplaying") && order[1] == 0 && home == 0, "shown: nowplaying, bot; home falls back: n %d", n);
 }
 
 #define SAME_IN(a, ...) same_in(a, (page_input_t){__VA_ARGS__})
@@ -115,6 +115,8 @@ static void test_route(void)
           "day: turns set the stop time, taps are pushes");
     CHECK(SAME_IN(pages_route(&PAGES[index_of("controls")], in), .detents = 2, .pushes = 5, .longs = 3),
           "controls: turns scroll, taps are pushes");
+    CHECK(SAME_IN(pages_route(&PAGES[index_of("room")], in)), "room: no input hook until its page (#307)");
+    CHECK(PAGES[index_of("room")].flags == PAGE_TURN && PAGES[index_of("room")].visible, "room: a turn page with a visible hook");
     CHECK(PAGES[index_of("bot")].flags & PAGE_GLINT, "bot runs the glint");
     for (int i = 0; i < PAGES_N; i++)
         if (strcmp(PAGES[i].id, "bot") != 0) CHECK(!(PAGES[i].flags & PAGE_GLINT), "%s: no glint", PAGES[i].id);
@@ -194,16 +196,16 @@ static void test_switch(void)
     pages_nav_t nav = nav_at(index_of("bot"));
     page_log_reset();
     pages_show(&nav, index_of("nowplaying"));
-    CHECK(strcmp(page_log, "bot- day- weather- ctl- print- pomo- np+ ") == 0 && nav.page == index_of("nowplaying"),
+    CHECK(strcmp(page_log, "bot- day- weather- room- ctl- print- pomo- np+ ") == 0 && nav.page == index_of("nowplaying"),
           "bot -> nowplaying hides the rest first, so the page canvas is free for the shown page: %s", page_log);
     page_log_reset();
     pages_hide_all();
-    CHECK(strcmp(page_log, "bot- day- weather- np- ctl- print- pomo- ") == 0, "pause hides every page: %s", page_log);
+    CHECK(strcmp(page_log, "bot- day- weather- room- np- ctl- print- pomo- ") == 0, "pause hides every page: %s", page_log);
     nav = (pages_nav_t){.order = {index_of("nowplaying"), index_of("bot")}, .n = 2, .pos = 1, .page = 0};
     page_log_reset();
     pages_resume(&nav);
     CHECK_NAV(nav);
-    CHECK(strcmp(page_log, "day- weather- np- ctl- print- pomo- bot+ ") == 0 && nav.page == index_of("bot"),
+    CHECK(strcmp(page_log, "day- weather- room- np- ctl- print- pomo- bot+ ") == 0 && nav.page == index_of("bot"),
           "resume shows order[pos]: %s", page_log);
 
     for (int i = 0; i < PAGES_N; i++) {
@@ -220,11 +222,11 @@ static void test_switch(void)
     page_log_reset();
     pages_settings(&nav, &ks, true);
     CHECK_NAV(nav);
-    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "day- weather- np- ctl- print- pomo- bot+ ") == 0,
+    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "day- weather- room- np- ctl- print- pomo- bot+ ") == 0,
           "first settings show home: %s", page_log);
     page_log_reset();
     CHECK(pages_step(&nav, 1) && nav.pos == 1 && nav.page == index_of("day") &&
-              strcmp(page_log, "bot- weather- np- ctl- print- pomo- day+ ") == 0,
+              strcmp(page_log, "bot- weather- room- np- ctl- print- pomo- day+ ") == 0,
           "step forward: %s", page_log);
     CHECK_NAV(nav);
     CHECK(pages_step(&nav, -2) && nav.pos == 2 && nav.page == index_of("weather"), "step back wraps");
@@ -250,7 +252,7 @@ static void test_switch(void)
     CHECK(pages_find(&jn, "print") == 1 && pages_find(&jn, "pomodoro") == 2 && pages_find(&jn, "bot") == 0, "find: the position in the list");
     CHECK(pages_find(&jn, "weather") == -1 && pages_find(&jn, "nope") == -1, "find: a page that is off or unknown is -1");
     page_log_reset();
-    CHECK(pages_goto(&jn, 1) && jn.pos == 1 && jn.page == index_of("print") && strcmp(page_log, "bot- day- weather- np- ctl- pomo- print+ ") == 0,
+    CHECK(pages_goto(&jn, 1) && jn.pos == 1 && jn.page == index_of("print") && strcmp(page_log, "bot- day- weather- room- np- ctl- pomo- print+ ") == 0,
           "goto shows the page at that position: %s", page_log);
     CHECK_NAV(jn);
     page_log_reset();
@@ -266,7 +268,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 2 && nav.pos == 1 && nav.page == index_of("pomodoro") &&
-              strcmp(page_log, "bot- day- weather- np- ctl- print- pomo+ ") == 0,
+              strcmp(page_log, "bot- day- weather- room- np- ctl- print- pomo+ ") == 0,
           "shown page disabled: fall back to home: pos %d %s", nav.pos, page_log);
 
     knob_settings_parse("{\"pages\":[{\"id\":\"nowplaying\",\"on\":true},{\"id\":\"pomodoro\",\"on\":false}],"
@@ -276,7 +278,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 1 && nav.pos == 0 && nav.page == index_of("nowplaying") &&
-              strcmp(page_log, "bot- day- weather- ctl- print- pomo- np+ ") == 0,
+              strcmp(page_log, "bot- day- weather- room- ctl- print- pomo- np+ ") == 0,
           "unknown home: first shown page: %s", page_log);
     page_log_reset();
     CHECK(!pages_step(&nav, 1) && page_log[0] == 0, "one page: no step");
@@ -310,6 +312,41 @@ static void test_switch(void)
           "the user's page turned off mid-scene: home becomes theirs, the scene keeps showing: %s", page_log);
 }
 
+static void test_visible(void)
+{
+    int room = index_of("room");
+    page_stub_room_visible = false;
+    uint32_t all = (1u << PAGES_N) - 1;
+    CHECK(pages_visible() == (all & ~(1u << room)), "room is never visible here: %#x", (unsigned)pages_visible());
+    for (int i = 0; i < PAGES_N; i++)
+        if (i != room) CHECK(!PAGES[i].visible, "%s: always visible", PAGES[i].id);
+    knob_settings_t ks;
+    knob_settings_parse("{\"pages\":[{\"id\":\"bot\",\"on\":true},{\"id\":\"room\",\"on\":true},{\"id\":\"weather\",\"on\":true}],"
+                        "\"home\":\"weather\"}",
+                        &ks);
+    const char *ids[PAGES_N];
+    int order[PAGES_N], home = -1;
+    int n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
+    CHECK(n == 2 && order[0] == 0 && order[1] == index_of("weather") && home == 1,
+          "a room page that is on stays out, the rest keep their table indexes: n %d home %d", n, home);
+    knob_settings_parse("{\"pages\":[{\"id\":\"room\",\"on\":true}],\"home\":\"room\"}", &ks);
+    n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
+    CHECK(n == PAGES_N - 1 && home == 0, "room alone counts as no page: the fallback lists every visible page: %d", n);
+    for (int i = 0; i < n; i++) CHECK(order[i] != room, "the fallback leaves room out: %d", order[i]);
+    knob_settings_parse("{\"pages\":[{\"id\":\"bot\",\"on\":false}],\"home\":\"room\"}", &ks);
+    n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
+    CHECK(n == PAGES_N - 1 && home == 0 && order[0] == 0, "no page on, home room: the fallback without room, home falls back: %d", n);
+    pages_nav_t nav = {.n = 1};
+    knob_settings_parse("{\"pages\":[{\"id\":\"room\",\"on\":true},{\"id\":\"bot\",\"on\":true}],\"home\":\"room\"}", &ks);
+    page_log_reset();
+    pages_settings(&nav, &ks, true);
+    CHECK(nav.n == 1 && nav.page == 0 && pages_find(&nav, "room") < 0, "pages_settings: room never enters the turn list");
+    page_stub_room_visible = true;
+    n = knob_settings_page_order(&ks, ids, pages_ids(ids, PAGES_N), pages_visible(), order, &home);
+    CHECK(n == 2 && order[0] == room && order[1] == 0 && home == 0, "once room may show (#307), it takes its place: n %d", n);
+    page_stub_room_visible = false;
+}
+
 static void test_ops(void)
 {
     static const struct {
@@ -318,6 +355,7 @@ static void test_ops(void)
         {"bot", "bot+ ", "bot.in ", "bot.frame "},
         {"day", "day+ ", "day.in ", "day.frame "},
         {"weather", "weather+ ", "weather.in ", NULL},
+        {"room", "room+ ", NULL, NULL},
         {"nowplaying", "np+ ", "np.in ", "np.frame "},
         {"controls", "ctl+ ", "ctl.in ", "ctl.frame "},
         {"print", "print+ ", "print.in ", "print.frame "},
@@ -342,8 +380,8 @@ static void test_ops(void)
     }
 }
 
-static const char *const PAGES_LATER[] = {"room"};
-enum { N_PAGES_LATER = sizeof PAGES_LATER / sizeof PAGES_LATER[0] };
+static const char *const PAGES_LATER[] = {NULL};
+enum { N_PAGES_LATER = sizeof PAGES_LATER / sizeof PAGES_LATER[0] - 1 };
 
 static int page_later(const char *id)
 {
@@ -356,7 +394,7 @@ static void test_ember_fixtures(void)
 {
     for (int i = 0; i < PAGES_N; i++) {
         if (!PAGES[i].view_block) {
-            CHECK(strcmp(PAGES[i].id, "controls") == 0, "%s: no view block", PAGES[i].id);
+            CHECK(strcmp(PAGES[i].id, "controls") == 0 || strcmp(PAGES[i].id, "room") == 0, "%s: no view block", PAGES[i].id);
             continue;
         }
         const char *golden = strcmp(PAGES[i].view_block, "day") == 0     ? "view_day_on.json"
@@ -375,7 +413,7 @@ static void test_ember_fixtures(void)
     j = load("config_default.json");
     cJSON *c = j ? cJSON_Parse(j) : NULL;
     const cJSON *pages = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(c, "config"), "pages");
-    int i = 0, later = 0, later_seen[N_PAGES_LATER] = {0};
+    int i = 0, later = 0, later_seen[N_PAGES_LATER + 1] = {0};
     const cJSON *pg;
     cJSON_ArrayForEach(pg, pages) {
         const cJSON *id = cJSON_GetObjectItemCaseSensitive(pg, "id");
@@ -409,6 +447,7 @@ int main(int argc, char **argv)
     test_route();
     test_dispatch();
     test_switch();
+    test_visible();
     test_ops();
     test_ember_fixtures();
     if (failures) {

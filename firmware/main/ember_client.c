@@ -16,6 +16,7 @@
 #include "diag.h"
 #include "dim.h"
 #include "dim_ctl.h"
+#include "app_mods.h"
 #include "ember_host.h"
 #include "ember_legacy.h"
 #include "esp_event.h"
@@ -398,6 +399,16 @@ static bool demo_moved(void)
 }
 
 static atomic_int s_wake_fd = -1;
+static atomic_bool s_presence_moved;
+static int64_t s_event_ms = -1;
+static atomic_bool s_unauthorized;
+
+static bool presence_checkin_due(void)
+{
+    if (!atomic_load(&s_presence_moved) || !P || !atomic_load(&s_online) || !config_store_has_device()) return false;
+    if (atomic_load(&s_unauthorized) || ota_client_checkin_blocked()) return false;
+    return dev_event_allowed(&P->sched, s_event_ms, esp_timer_get_time() / 1000);
+}
 
 static bool wake_take(void *ctx, int wait_ms, void *item)
 {
@@ -421,6 +432,7 @@ static void loop_wait(int ms, char *buf)
         int32_t left = (int32_t)(end - xTaskGetTickCount());
         if (left <= 0) return;
         if (ota_client_mark_pending()) return;
+        if (presence_checkin_due()) return;
         if (buf && demo_moved()) return;
         if (buf && atomic_load(&s_online) && day_client_pending()) return;
         if (buf && atomic_load(&s_online) && print_client_pending()) return;
@@ -454,6 +466,7 @@ static void settings_changed(int64_t *next_bright_us)
     bool followed = s_ks.follow_ember;
     config_store_settings(&s_ks);
     dim_ctl_settings(&s_ks);
+    app_mods_settings(&APP_MODS, &s_ks);
     diag_set_level((ks_diag_t)s_ks.diagnostics);
     if (!s_ks.follow_ember) dim_ctl_want(s_ks.level);
     else if (!P->vp.legacy) view_brightness();
@@ -469,7 +482,6 @@ static void poll_settings(int64_t *next_bright_us)
     settings_changed(next_bright_us);
 }
 
-static atomic_bool s_unauthorized;
 static atomic_bool s_checked_in;
 static bool s_rotated;
 static bool s_deep_warned;
@@ -711,6 +723,9 @@ static void checkin(char *buf)
     c.ota = &orep;
     diag_fill(&P->diag);
     dim_ctl_diag(&P->diag);
+    atomic_store(&s_presence_moved, false);
+    app_mods_diag(&APP_MODS, &P->diag);
+    app_mods_checkin(&APP_MODS, &c);
     dev_stats_t *st = &P->stats;
     bool live = s_sched.live_until_ms > now_ms();
     bool with_stats = diag_due(stats_interval_s() * 1000, s_sched.period_ms, live) && diag_sample(st);
@@ -890,6 +905,7 @@ static bool longpoll_idle(void *ctx, int *next_slice_ms)
     if (day_client_pending()) return true;
     if (print_client_pending()) return true;
     if (controls_client_pending()) return true;
+    if (presence_checkin_due()) return true;
     if (demo_moved()) return true;
     int64_t now = esp_timer_get_time() / 1000;
     taskENTER_CRITICAL(&s_shown_mux);
@@ -1203,6 +1219,10 @@ static void poll_task(void *arg)
         }
         if (!P->vp.legacy) pomo_client_log_state();
         apply_intervals();
+        if (online && presence_checkin_due()) {
+            s_event_ms = now_ms();
+            dev_sched_now(&s_sched, s_event_ms);
+        }
         if (online && config_store_has_device() && dev_sched_due(&s_sched, now_ms()) && !ota_client_checkin_blocked()) {
             checkin(buf);
             alive();
@@ -1270,6 +1290,13 @@ void ember_client_forget_wifi(void)
         nvs_commit(h);
         nvs_close(h);
     }
+}
+
+void ember_client_presence(bool present)
+{
+    if (!dim_ctl_presence(present)) return;
+    atomic_store(&s_presence_moved, true);
+    ember_client_wake();
 }
 
 bool ember_client_online(void) { return atomic_load(&s_online); }

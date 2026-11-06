@@ -7,15 +7,17 @@
 #include "touch_swipe.h"
 
 _Static_assert(PAGE_TAP_ZONES == TS_ZONES, "page_input_t.taps is indexed by ts_zone_t");
+_Static_assert(PAGES_N <= 32, "pages_visible is a 32-bit mask");
 
 const page_desc_t PAGES[PAGES_N] = {
-    {"bot", "mood", PAGE_TOUCH_RAW | PAGE_TURN | PAGE_GLINT, page_bot_show, page_bot_input, page_bot_frame},
-    {"day", "day", PAGE_TURN, page_day_show, page_day_input, page_day_frame},
-    {"weather", "weather", PAGE_TURN, page_weather_show, page_weather_input, NULL},
-    {"nowplaying", "nowplaying", PAGE_TOUCH_RAW | PAGE_TURN, page_np_show, page_np_input, page_np_frame},
-    {"controls", NULL, PAGE_TURN, page_controls_show, page_controls_input, page_controls_frame},
-    {"print", "print", PAGE_TURN, page_print_show, page_print_input, page_print_frame},
-    {"pomodoro", "pomo", 0, page_pomo_show, page_pomo_input, page_pomo_frame},
+    {"bot", "mood", PAGE_TOUCH_RAW | PAGE_TURN | PAGE_GLINT, page_bot_show, page_bot_input, page_bot_frame, NULL},
+    {"day", "day", PAGE_TURN, page_day_show, page_day_input, page_day_frame, NULL},
+    {"weather", "weather", PAGE_TURN, page_weather_show, page_weather_input, NULL, NULL},
+    {"room", NULL, PAGE_TURN, page_room_show, NULL, NULL, page_room_visible},
+    {"nowplaying", "nowplaying", PAGE_TOUCH_RAW | PAGE_TURN, page_np_show, page_np_input, page_np_frame, NULL},
+    {"controls", NULL, PAGE_TURN, page_controls_show, page_controls_input, page_controls_frame, NULL},
+    {"print", "print", PAGE_TURN, page_print_show, page_print_input, page_print_frame, NULL},
+    {"pomodoro", "pomo", 0, page_pomo_show, page_pomo_input, page_pomo_frame, NULL},
 };
 
 int pages_ids(const char **out, int max)
@@ -23,6 +25,14 @@ int pages_ids(const char **out, int max)
     int n = 0;
     for (int i = 0; i < PAGES_N && n < max; i++) out[n++] = PAGES[i].id;
     return n;
+}
+
+uint32_t pages_visible(void)
+{
+    uint32_t m = 0;
+    for (int i = 0; i < PAGES_N; i++)
+        if (!PAGES[i].visible || PAGES[i].visible()) m |= 1u << i;
+    return m;
 }
 
 page_input_t pages_route(const page_desc_t *p, page_input_t in)
@@ -84,7 +94,7 @@ void pages_settings(pages_nav_t *nav, const knob_settings_t *ks, bool first)
     int idx[PAGES_N], home;
     int own = first ? -1 : nav->order[nav->pos];
     bool shown = first || nav->page == own;
-    nav->n = knob_settings_page_order(ks, ids, pages_ids(ids, PAGES_N), idx, &home);
+    nav->n = knob_settings_page_order(ks, ids, pages_ids(ids, PAGES_N), pages_visible(), idx, &home);
     int pos = -1;
     for (int i = 0; i < nav->n; i++) {
         nav->order[i] = idx[i];
