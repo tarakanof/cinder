@@ -15,9 +15,9 @@ extern "C" {
 #define PM_SETTLE_S 3.0
 #define PM_DEMO_ID_LIMIT 4294967296LL
 
-/* The newest real event id a consumer has taken. Each consumer of print.event owns one, so the moments and the page's
-   jump on `started` (cinder#324) never take an event from each other. Demo ids (Ember "Demo mode": below 2^32) are
-   never read from it or written to it. */
+/* The newest real event id any consumer of print.event has taken. One store for all: the moments take `finished` and
+   `attention` events, the page's jump (print_jump.h, cinder#324) takes `started`, and ids only grow, so neither takes an
+   event from the other. Demo ids (Ember "Demo mode": below 2^32) are never read from it or written to it. */
 typedef struct {
     long long id;
 } print_seen_t;

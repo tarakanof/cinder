@@ -183,6 +183,12 @@ long long print_took_s(const print_block_t *b)
     return b->event.at - b->started_at;
 }
 
+bool print_phase_active(print_phase_t p)
+{
+    return p == PRINT_HEATING || p == PRINT_PREPARING || p == PRINT_PRINTING || p == PRINT_FINISHING || p == PRINT_PAUSED ||
+           p == PRINT_ATTENTION;
+}
+
 print_look_t print_look(const print_block_t *b)
 {
     if (!b) return PRINT_LOOK_NONE;
@@ -320,6 +326,15 @@ static bool change_soon(const print_block_t *b, double now, int *min)
     return true;
 }
 
+static bool ready_temps(const print_block_t *b, print_text_t *t)
+{
+    if (!b->has_temps) return false;
+    if (b->bed > PRINT_WARM_C) sub(t, PRINT_COL_HEAT, "bed %d\xC2\xB0", b->bed);
+    else if (b->nozzle > PRINT_WARM_C) sub(t, PRINT_COL_HEAT, "nozzle %d\xC2\xB0", b->nozzle);
+    else return false;
+    return true;
+}
+
 static void progress_text(const print_block_t *b, print_face_t face, double now, bool has_off, int off, print_text_t *t)
 {
     int min = print_left_min(b, now);
@@ -373,8 +388,13 @@ void print_text(const print_block_t *b, print_face_t face, double now, bool has_
         sub(t, PRINT_COL_DIMWORD, "%s", b->printer);
         break;
     case PRINT_LOOK_IDLE:
-        word(t, "Idle", PRINT_COL_SUB);
-        sub(t, PRINT_COL_SMALL, "%s", b->printer);
+        if (b->phase != PRINT_IDLE) {
+            word(t, "Idle", PRINT_COL_SUB);
+            sub(t, PRINT_COL_SMALL, "%s", b->printer);
+            break;
+        }
+        word(t, "Ready", PRINT_COL_TEXT);
+        if (!ready_temps(b, t)) sub(t, PRINT_COL_SMALL, "%s", b->printer);
         break;
     case PRINT_LOOK_HEATING:
         if (!b->has_temps) {

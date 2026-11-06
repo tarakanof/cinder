@@ -51,6 +51,12 @@ void pages_resume(pages_nav_t *nav);
 
 bool pages_step(pages_nav_t *nav, int steps);
 
+/* The position of page id in the user's list, -1 when it is not listed (off). */
+int pages_find(const pages_nav_t *nav, const char *id);
+
+/* Shows the page at position pos of the list; false (nothing changes) when pos is out of range or already the user's. */
+bool pages_goto(pages_nav_t *nav, int pos);
+
 /* The user's page is order[pos]; while another shows (a demo scene) it is kept or replaced by home, but not shown. */
 void pages_settings(pages_nav_t *nav, const knob_settings_t *ks, bool first);
 

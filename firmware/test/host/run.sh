@@ -890,6 +890,8 @@ NP="$D/../../components/nowplaying"
 "${OUT}_print" "$D/fixtures/ember"
 "$CC" $CFLAGS -I"$PRT/include" "$PRT/print.c" "$PRT/print_moment.c" "$J/cJSON.c" "$D/test_print_moment.c" -lm -I"$J" -o "${OUT}_print_moment"
 "${OUT}_print_moment"
+"$CC" $CFLAGS -I"$PRT/include" "$PRT/print.c" "$PRT/print_moment.c" "$PRT/print_jump.c" "$J/cJSON.c" "$D/test_print_jump.c" -lm -I"$J" -o "${OUT}_print_jump"
+"${OUT}_print_jump"
 "$CC" $CFLAGS $FPC -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$N/include" -I"$NP/include" -I"$J" \
     "$K/knob_view.c" "$PRT/print.c" "$DY/day.c" "$U/usage.c" "$W/wx_clock.c" "$U/usage_draw.c" "$DM/demo.c" "$K/view_step.c" "$P/pomo.c" "$LS/link_state.c" "$W/weather_face.c" "$N/view_policy.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$NP/np_vinyl.c" "$J/cJSON.c" \
     "$D/test_demo.c" -lm -o "${OUT}_demo"
@@ -1151,7 +1153,7 @@ WT="$D/../../components/wake_turn"
 "${OUT}_input_route"
 "$CC" $CFLAGS $FPC -I"$D/scene_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D" -I"$D/../../main" -I"$C/include" -I"$W/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" \
     -I"$H/include" -I"$M/include" -I"$LS/include" -I"$N/include" -I"$NP/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$SS/include" -I"$J" \
-    "$SCC" "$MOC" "$CHC" "$PRT/print.c" "$PRT/print_moment.c" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
+    "$SCC" "$MOC" "$CHC" "$PRT/print.c" "$PRT/print_moment.c" "$PRT/print_jump.c" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" \
     "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$J/cJSON.c" "$D/test_scene.c" -lm -o "${OUT}_scene"
 "${OUT}_scene"

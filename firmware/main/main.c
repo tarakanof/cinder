@@ -321,6 +321,14 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     if (!scene_on() || scene_act_kind() == DEMO_ACT_NONE)
         moments_print_tick(t, calm, bot_page, !scene_on() && !ds.view_on && !scene_resuming() && !offline, scene_on());
 
+    int print_pos = pages_find(&s_nav, "print");
+    bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
+    bool jump_blocked = s_bot.mood == BOT_WAITING || s_bot.asleep || usage_view_open();
+    if (moments_print_jump(t, print_pos >= 0, jump_real, jump_blocked)) {
+        page_jump(&s_nav, print_pos, t);
+        pg = pages_current(&s_nav);
+    }
+
     float gdeg;
     bool glint = (pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg);
     chase_ctl_in_t ci = {.t = t, .glint = glint, .calm = calm, .scene = scene_on(), .scene_req = scene_chase_take(), .eyes = s_last_pose.eyes};

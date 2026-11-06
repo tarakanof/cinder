@@ -28,12 +28,6 @@ void pm_init(pm_trigger_t *tr)
     tr->mood_was = -1;
 }
 
-static bool job_runs(print_phase_t p)
-{
-    return p == PRINT_HEATING || p == PRINT_PREPARING || p == PRINT_PRINTING || p == PRINT_FINISHING || p == PRINT_PAUSED ||
-           p == PRINT_ATTENTION;
-}
-
 static void take_event(pm_trigger_t *tr, const pm_in_t *in)
 {
     const print_block_t *b = in->b;
@@ -70,7 +64,7 @@ bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out)
     print_phase_t phase = in->b ? in->b->phase : PRINT_UNKNOWN;
     if (in->real_ok && phase != PRINT_ATTENTION) tr->armed = false;
     if (in->real_ok && tr->pend == PM_DONE &&
-        (job_runs(phase) || (in->have_srv && in->srv_now - (double)tr->pend_at > PM_FRESH_S)))
+        (print_phase_active(phase) || (in->have_srv && in->srv_now - (double)tr->pend_at > PM_FRESH_S)))
         tr->pend = PM_NONE;
     if (tr->demo_pend != PM_NONE && (in->real_ok || !in->b || in->b->event.id != tr->demo_pend_id)) tr->demo_pend = PM_NONE;
     memset(out, 0, sizeof *out);
