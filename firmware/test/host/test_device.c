@@ -478,10 +478,20 @@ static void test_schedule(void)
     dev_sched_now(&s, t + 5);
     CHECK(dev_sched_due(&s, t + 5), "now");
 
-    CHECK(dev_event_due(-1, 0), "the first event checkin goes at once");
-    CHECK(!dev_event_due(5000, 5000 + 9999) && dev_event_due(5000, 5000 + DEV_EVENT_GAP_MS) && DEV_EVENT_GAP_MS == 10000,
+    dev_sched_t e;
+    dev_sched_init(&e, 0);
+    CHECK(dev_event_allowed(&e, -1, 0), "the first event checkin goes at once");
+    CHECK(!dev_event_allowed(&e, 5000, 5000 + 9999) && dev_event_allowed(&e, 5000, 5000 + DEV_EVENT_GAP_MS) && DEV_EVENT_GAP_MS == 10000,
           "then at most one per 10 s");
-    CHECK(dev_event_due(5000, 4000), "a clock that went back does not hold it");
+    CHECK(dev_event_allowed(&e, 5000, 4000), "a clock that went back does not hold it");
+    dev_sched_done(&e, DEV_CHECKIN_FAILED, 1000);
+    CHECK(!dev_event_allowed(&e, -1, 2000) && !dev_event_allowed(&e, -1, 1000 + 59999), "a failure backoff holds event checkins");
+    dev_sched_done(&e, DEV_CHECKIN_FAILED, 61000);
+    CHECK(!dev_event_allowed(&e, -1, 100000), "for every step of it");
+    dev_sched_done(&e, DEV_CHECKIN_OK, 181000);
+    CHECK(dev_event_allowed(&e, -1, 181000), "a good checkin ends it");
+    dev_sched_done(&e, DEV_CHECKIN_UNAUTHORIZED, 190000);
+    CHECK(dev_event_allowed(&e, -1, 190000), "401 is no backoff: the ember task holds events on s_unauthorized itself");
 }
 
 static void test_link(void)

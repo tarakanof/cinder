@@ -70,11 +70,12 @@ static dim_idle_state_t idle_state(void)
 void dim_ctl_settings(const knob_settings_t *ks)
 {
     taskENTER_CRITICAL(&s_mux);
-    s_idle.rules = (dim_idle_rules_t){.dim_after_s = ks->idle_dim_after_s,
-                                      .dim_level = ks->idle_dim_level,
-                                      .off_after_s = ks->idle_off_after_s,
-                                      .presence_off_s = ks->room_enabled ? ks->room_presence_off_s : 0,
-                                      .presence_wake = ks->room_enabled && ks->room_presence_wake};
+    const dim_idle_rules_t next = {.dim_after_s = ks->idle_dim_after_s,
+                                   .dim_level = ks->idle_dim_level,
+                                   .off_after_s = ks->idle_off_after_s,
+                                   .presence_off_s = ks->room_enabled ? ks->room_presence_off_s : 0,
+                                   .presence_wake = ks->room_enabled && ks->room_presence_wake};
+    dim_idle_set_rules(&s_idle.clock, &s_idle.rules, &next);
     s_idle.floor = ks->floor;
     s_idle.quiet_dim = ks->quiet_dim;
     s_idle.ready = true;

@@ -561,7 +561,11 @@ void dev_sched_now(dev_sched_t *s, int64_t now_ms)
     if (s->next_ms > now_ms) s->next_ms = now_ms;
 }
 
-bool dev_event_due(int64_t last_ms, int64_t now_ms) { return last_ms < 0 || now_ms - last_ms >= DEV_EVENT_GAP_MS || now_ms < last_ms; }
+bool dev_event_allowed(const dev_sched_t *s, int64_t last_ms, int64_t now_ms)
+{
+    if (s->backoff_ms) return false;
+    return last_ms < 0 || now_ms - last_ms >= DEV_EVENT_GAP_MS || now_ms < last_ms;
+}
 
 dev_link_t dev_link_combine(dev_link_t poll, bool has_device, bool checked_in, bool unauthorized)
 {

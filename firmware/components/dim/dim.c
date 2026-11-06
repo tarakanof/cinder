@@ -140,6 +140,7 @@ bool dim_idle_presence(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms,
     s->seen = true;
     s->seen_ms = now_ms;
     s->present = present;
+    if (!fresh) s->latched = false;
     if (!present && (changed || !fresh)) s->away_ms = now_ms;
     if (!back) return changed;
     if (r->presence_wake) {
@@ -149,6 +150,12 @@ bool dim_idle_presence(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms,
         s->latched = true;
     }
     return changed;
+}
+
+void dim_idle_set_rules(dim_idle_t *s, dim_idle_rules_t *r, const dim_idle_rules_t *next)
+{
+    if (r->presence_off_s != next->presence_off_s || r->presence_wake != next->presence_wake) s->latched = false;
+    *r = *next;
 }
 
 bool dim_idle_input(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, dim_wake_t src)

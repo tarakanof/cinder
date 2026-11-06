@@ -418,8 +418,12 @@ static void test_presence(void)
     CHECK(dim_idle_state(&away, &s, 300500) == DIM_IDLE_AWAKE && s.wake == DIM_WAKE_PRESENCE && s.last_ms == 300500 &&
               strcmp(dim_wake_name(s.wake), "presence") == 0,
           "awake, the source is presence");
-    CHECK(dim_idle_light(DIM_IDLE_OFF, dim_quiet_level(153, 10, true, 20), 0) == 20,
-          "at any hour, at the quiet-hours level while those apply");
+    int quiet_awake = dim_quiet_level(153, 10, true, 20);
+    CHECK(dim_idle_light(DIM_IDLE_OFF, quiet_awake, 0) == 20 &&
+              dim_idle_level(quiet_awake, dim_idle_state(&away, &s, 300500), &away) == 20 &&
+              dim_idle_floor(dim_quiet_floor(10, true, 20), dim_idle_state(&away, &s, 300500), &away) == 10,
+          "at any hour, lit and held at the quiet-hours level while those apply, not the day level");
+    CHECK(dim_idle_light(DIM_IDLE_OFF, dim_quiet_level(153, 10, false, 20), 0) == 153, "outside quiet hours: the day level");
     s.seen_ms = 300500 + 10000000;
     CHECK(dim_idle_state(&away, &s, 300500 + 10000000) == DIM_IDLE_AWAKE, "present: no away, however long");
     CHECK(dim_idle_presence(&s, &away, 400000, false, &woke) && !woke, "going away again: a change, no wake");
@@ -444,6 +448,25 @@ static void test_presence(void)
     CHECK(dim_idle_state(&quiet_room, &s, 300600) == DIM_IDLE_OFF, "a mood hold does not end it");
     CHECK(dim_idle_input(&s, &quiet_room, 300700, DIM_WAKE_TOUCH) && dim_idle_state(&quiet_room, &s, 300700) == DIM_IDLE_AWAKE && !s.latched,
           "an input does");
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &quiet_room, 0, false, &woke);
+    s.seen_ms = 300000;
+    dim_idle_presence(&s, &quiet_room, 300100, true, &woke);
+    CHECK(s.latched && dim_idle_state(&quiet_room, &s, 300100 + DIM_PRESENCE_STALE_MS + 1) == DIM_IDLE_AWAKE,
+          "latched, then the readings stop: the panel comes back");
+    CHECK(!dim_idle_presence(&s, &quiet_room, 300100 + DIM_PRESENCE_STALE_MS + 1, true, &woke) && !s.latched &&
+              dim_idle_state(&quiet_room, &s, 300100 + DIM_PRESENCE_STALE_MS + 1) == DIM_IDLE_AWAKE,
+          "and a reading after the gap ends the latch instead of turning it off again");
+    dim_idle_rules_t rules = quiet_room;
+    dim_idle_init(&s, 0);
+    dim_idle_presence(&s, &rules, 0, false, &woke);
+    s.seen_ms = 300000;
+    dim_idle_presence(&s, &rules, 300100, true, &woke);
+    dim_idle_set_rules(&s, &rules, &quiet_room);
+    CHECK(s.latched, "the same rules again keep the latch");
+    dim_idle_set_rules(&s, &rules, &away);
+    CHECK(!s.latched && rules.presence_wake && dim_idle_state(&rules, &s, 300200) == DIM_IDLE_AWAKE,
+          "turning presence_wake on (or room off and on) ends it");
     dim_idle_init(&s, 0);
     dim_idle_presence(&s, &quiet_room, 0, false, &woke);
     dim_idle_presence(&s, &quiet_room, 100000, true, &woke);

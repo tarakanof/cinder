@@ -95,3 +95,11 @@ jobs:
           . "$IDF_PATH/export.sh" >/dev/null
           export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache" CCACHE_BASEDIR="$GITHUB_WORKSPACE"
           idf.py -C hwtest -B build-hwtest build
+      - name: Build with the room module (CONFIG_CINDER_ROOM=y, never published)
+        run: |
+          . "$IDF_PATH/export.sh" >/dev/null
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache" CCACHE_BASEDIR="$GITHUB_WORKSPACE"
+          printf 'CONFIG_CINDER_ROOM=y\n' > "$RUNNER_TEMP/room.defaults"
+          idf.py -B build-room -D SDKCONFIG=build-room/sdkconfig -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;$RUNNER_TEMP/room.defaults" build
+          grep -qx 'CONFIG_CINDER_ROOM=y' build-room/sdkconfig
+          python3 tools/secret_scan.py build-room/cinder.bin build-room/cinder.elf

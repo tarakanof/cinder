@@ -94,8 +94,11 @@ dim_idle_state_t dim_idle_state(const dim_idle_rules_t *r, const dim_idle_t *s, 
 /* Away has the panel off: nobody near for presence_off_s, or back without presence_wake after that, while the last reading is at most DIM_PRESENCE_STALE_MS old. */
 bool dim_idle_away(const dim_idle_rules_t *r, const dim_idle_t *s, int64_t now_ms);
 
-/* A presence reading: true when it changed (the first one counts). *woke when someone came back with presence_wake on: a DIM_WAKE_PRESENCE wake. */
+/* A presence reading: true when it changed (the first one counts). *woke when someone came back with presence_wake on: a DIM_WAKE_PRESENCE wake. A reading after a stale gap restarts the away clock and ends the latch. */
 bool dim_idle_presence(dim_idle_t *s, const dim_idle_rules_t *r, int64_t now_ms, bool present, bool *woke);
+
+/* New idle rules: a change to the presence rules ends the away latch (back without presence_wake). */
+void dim_idle_set_rules(dim_idle_t *s, dim_idle_rules_t *r, const dim_idle_rules_t *next);
 
 /* The panel stays awake while the bot is working, waiting, erroring or done; mood is the knob's current one, -1 offline or no data (docs/features.md, idle dim and screen off). */
 bool dim_mood_holds(int mood);

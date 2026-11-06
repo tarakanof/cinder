@@ -230,8 +230,8 @@ void dev_sched_done(dev_sched_t *s, dev_checkin_outcome_t o, int64_t now_ms);
 void dev_sched_intervals(dev_sched_t *s, int period_ms, int live_ms, int64_t now_ms);
 void dev_sched_live(dev_sched_t *s, int64_t deadline_ms, int64_t now_ms);
 void dev_sched_now(dev_sched_t *s, int64_t now_ms);
-/* An event checkin (a presence change) may go: none yet (last_ms < 0), or DEV_EVENT_GAP_MS since the last one. */
-bool dev_event_due(int64_t last_ms, int64_t now_ms);
+/* An event checkin (a presence change) may go: not in a failure backoff, and none yet (last_ms < 0) or DEV_EVENT_GAP_MS since the last one. */
+bool dev_event_allowed(const dev_sched_t *s, int64_t last_ms, int64_t now_ms);
 
 typedef enum { DEV_LINK_OFF, DEV_LINK_CONNECTING, DEV_LINK_OK, DEV_LINK_UNREACHABLE, DEV_LINK_UNAUTHORIZED } dev_link_t;
 

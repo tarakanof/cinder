@@ -80,6 +80,11 @@ body "$DIMC" idle_lit | awk '/dim_idle_light\(/ {l = NR} /panel_check_brightness
     IDLE="$IDLE idle_touch-lights-the-panel-itself-then-posts-the-level-to-the-fade-owner-unless-away-keeps-it-off"
 body "$DIMC" dim_ctl_presence | awk '/dim_idle_state_t was = dim_idle_state\(/ {s = NR} /dim_idle_presence\(&s_idle.clock, &s_idle.rules, now, present, &woke\);/ {p = NR} /taskEXIT_CRITICAL/ {x = NR} /^    if \(woke\) idle_lit\(was, is\);$/ {l = NR} END {exit !(s && p > s && x > p && l > x)}' ||
     IDLE="$IDLE dim_ctl_presence-reads-the-state-before-the-reading-and-lights-the-panel-only-when-it-woke"
+body "$DIMC" dim_ctl_apply | grep -qxF '    int awake = s_bright_want < 0 ? -1 : dim_quiet_level(s_bright_want, s_idle.floor, s_quiet_dim, s_idle.quiet_dim);' &&
+    body "$DIMC" dim_ctl_apply | grep -qxF '    atomic_store(&s_awake_level, awake);' &&
+    body "$DIMC" idle_lit | grep -qF 'dim_idle_light(was, atomic_load(&s_awake_level), ' ||
+    IDLE="$IDLE a-wake-lights-the-panel-at-the-quiet-capped-awake-level"
+body "$DIMC" dim_ctl_settings | grep -qxF '    dim_idle_set_rules(&s_idle.clock, &s_idle.rules, &next);' || IDLE="$IDLE dim_ctl_settings-ends-the-away-latch-on-a-rules-change"
 body "$DIMC" fade_step | awk '/int taken = atomic_exchange\(&s_lit, -1\);/ {t = NR} /dim_idle_state_t idle = idle_read\(&wake\);/ {i = NR} /int lit = dim_fade_take\(&s_fade, taken, idle\);/ {x = NR} /panel_check_brightness\(\(uint8_t\)lit\);/ {p = NR} /dim_ctl_apply\(\);/ {b = NR} END {exit !(t && i > t && x > i && p > x && b > p)}' ||
     IDLE="$IDLE fade_step-the-owner-takes-the-lit-level-before-the-idle-state"
 ! body "$DIMC" fade_step | grep -qE 'idle_state\(\)|idle_wake_log|ESP_LOG' || IDLE="$IDLE fade_step-must-not-log-at-input-rate-on-the-frame-path"
@@ -1185,8 +1190,10 @@ body "$ECL" longpoll_idle | grep -qxF '    if (presence_checkin_due()) return tr
     ROOMW="$ROOMW a-presence-change-ends-the-long-poll-and-the-wait"
 body "$ECL" ember_client_presence | grep -qxF '    if (!dim_ctl_presence(present)) return;' && body "$ECL" ember_client_presence | grep -qxF '    atomic_store(&s_presence_moved, true);' &&
     ! body "$ECL" ember_client_presence | grep -qE 's_sched|dev_sched|s_event_ms' && [ "$(grep -c 's_presence_moved, ' "$ECL")" -eq 2 ] &&
+    body "$ECL" checkin | awk '/^    atomic_store\(&s_presence_moved, false\);$/ {f = NR} /^    app_mods_checkin\(&APP_MODS, &c\);$/ {c = NR} END {exit !(f && c > f)}' &&
+    body "$ECL" presence_checkin_due | grep -qF 'ota_client_checkin_blocked()' && body "$ECL" presence_checkin_due | grep -qF 'dev_event_allowed(&P->sched, ' &&
     body "$ECL" poll_task | grep -A3 -xF '        if (presence_checkin_due()) {' | grep -qxF '            dev_sched_now(&s_sched, s_event_ms);' ||
-    ROOMW="$ROOMW the-room-task-asks-for-a-checkin-by-an-atomic-and-only-the-ember-task-moves-the-schedule"
+    ROOMW="$ROOMW the-room-task-asks-for-a-checkin-by-an-atomic-every-checkin-clears-it-and-only-the-ember-task-moves-the-schedule-outside-backoff"
 ! grep -lE 'ember_client_presence\(' "$D"/../../main/*.c | grep -vq '/ember_client\.c$' && grep -qxF '    j2_room_on_presence(ember_client_presence);' "$RMC" ||
     ROOMW="$ROOMW only-the-room-task-pushes-presence"
 grep -qxF '#if CONFIG_CINDER_ROOM' "$RMC" && grep -qxF '#if CONFIG_CINDER_ROOM' "$D/../../main/app_mods.c" || ROOMW="$ROOMW the-room-module-builds-only-with-CONFIG_CINDER_ROOM"

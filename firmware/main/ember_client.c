@@ -401,10 +401,13 @@ static bool demo_moved(void)
 static atomic_int s_wake_fd = -1;
 static atomic_bool s_presence_moved;
 static int64_t s_event_ms = -1;
+static atomic_bool s_unauthorized;
 
 static bool presence_checkin_due(void)
 {
-    return atomic_load(&s_presence_moved) && dev_event_due(s_event_ms, esp_timer_get_time() / 1000);
+    if (!atomic_load(&s_presence_moved) || !P || !atomic_load(&s_online) || !config_store_has_device()) return false;
+    if (atomic_load(&s_unauthorized) || ota_client_checkin_blocked()) return false;
+    return dev_event_allowed(&P->sched, s_event_ms, esp_timer_get_time() / 1000);
 }
 
 static bool wake_take(void *ctx, int wait_ms, void *item)
@@ -479,7 +482,6 @@ static void poll_settings(int64_t *next_bright_us)
     settings_changed(next_bright_us);
 }
 
-static atomic_bool s_unauthorized;
 static atomic_bool s_checked_in;
 static bool s_rotated;
 static bool s_deep_warned;
@@ -721,6 +723,7 @@ static void checkin(char *buf)
     c.ota = &orep;
     diag_fill(&P->diag);
     dim_ctl_diag(&P->diag);
+    atomic_store(&s_presence_moved, false);
     app_mods_diag(&APP_MODS, &P->diag);
     app_mods_checkin(&APP_MODS, &c);
     dev_stats_t *st = &P->stats;
@@ -1217,7 +1220,6 @@ static void poll_task(void *arg)
         if (!P->vp.legacy) pomo_client_log_state();
         apply_intervals();
         if (presence_checkin_due()) {
-            atomic_store(&s_presence_moved, false);
             s_event_ms = now_ms();
             dev_sched_now(&s_sched, s_event_ms);
         }
