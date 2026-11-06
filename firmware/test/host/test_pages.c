@@ -42,7 +42,7 @@ static char *load(const char *name)
 
 static void test_ids(void)
 {
-    static const char *const WANT[] = {"bot", "day", "weather", "nowplaying", "controls", "pomodoro"};
+    static const char *const WANT[] = {"bot", "day", "weather", "nowplaying", "controls", "print", "pomodoro"};
     enum { N_WANT = sizeof WANT / sizeof WANT[0] };
     CHECK(PAGES_N == N_WANT && PAGES_N <= KS_MAX_PAGES, "page count %d", PAGES_N);
     const char *ids[PAGES_N + 2];
@@ -194,16 +194,16 @@ static void test_switch(void)
     pages_nav_t nav = nav_at(index_of("bot"));
     page_log_reset();
     pages_show(&nav, index_of("nowplaying"));
-    CHECK(strcmp(page_log, "bot- day- weather- ctl- pomo- np+ ") == 0 && nav.page == index_of("nowplaying"),
+    CHECK(strcmp(page_log, "bot- day- weather- ctl- print- pomo- np+ ") == 0 && nav.page == index_of("nowplaying"),
           "bot -> nowplaying hides the rest first, so the page canvas is free for the shown page: %s", page_log);
     page_log_reset();
     pages_hide_all();
-    CHECK(strcmp(page_log, "bot- day- weather- np- ctl- pomo- ") == 0, "pause hides every page: %s", page_log);
+    CHECK(strcmp(page_log, "bot- day- weather- np- ctl- print- pomo- ") == 0, "pause hides every page: %s", page_log);
     nav = (pages_nav_t){.order = {index_of("nowplaying"), index_of("bot")}, .n = 2, .pos = 1, .page = 0};
     page_log_reset();
     pages_resume(&nav);
     CHECK_NAV(nav);
-    CHECK(strcmp(page_log, "day- weather- np- ctl- pomo- bot+ ") == 0 && nav.page == index_of("bot"),
+    CHECK(strcmp(page_log, "day- weather- np- ctl- print- pomo- bot+ ") == 0 && nav.page == index_of("bot"),
           "resume shows order[pos]: %s", page_log);
 
     for (int i = 0; i < PAGES_N; i++) {
@@ -220,11 +220,11 @@ static void test_switch(void)
     page_log_reset();
     pages_settings(&nav, &ks, true);
     CHECK_NAV(nav);
-    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "day- weather- np- ctl- pomo- bot+ ") == 0,
+    CHECK(nav.n == 3 && nav.pos == 0 && nav.page == index_of("bot") && strcmp(page_log, "day- weather- np- ctl- print- pomo- bot+ ") == 0,
           "first settings show home: %s", page_log);
     page_log_reset();
     CHECK(pages_step(&nav, 1) && nav.pos == 1 && nav.page == index_of("day") &&
-              strcmp(page_log, "bot- weather- np- ctl- pomo- day+ ") == 0,
+              strcmp(page_log, "bot- weather- np- ctl- print- pomo- day+ ") == 0,
           "step forward: %s", page_log);
     CHECK_NAV(nav);
     CHECK(pages_step(&nav, -2) && nav.pos == 2 && nav.page == index_of("weather"), "step back wraps");
@@ -253,7 +253,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 2 && nav.pos == 1 && nav.page == index_of("pomodoro") &&
-              strcmp(page_log, "bot- day- weather- np- ctl- pomo+ ") == 0,
+              strcmp(page_log, "bot- day- weather- np- ctl- print- pomo+ ") == 0,
           "shown page disabled: fall back to home: pos %d %s", nav.pos, page_log);
 
     knob_settings_parse("{\"pages\":[{\"id\":\"nowplaying\",\"on\":true},{\"id\":\"pomodoro\",\"on\":false}],"
@@ -263,7 +263,7 @@ static void test_switch(void)
     pages_settings(&nav, &ks, false);
     CHECK_NAV(nav);
     CHECK(nav.n == 1 && nav.pos == 0 && nav.page == index_of("nowplaying") &&
-              strcmp(page_log, "bot- day- weather- ctl- pomo- np+ ") == 0,
+              strcmp(page_log, "bot- day- weather- ctl- print- pomo- np+ ") == 0,
           "unknown home: first shown page: %s", page_log);
     page_log_reset();
     CHECK(!pages_step(&nav, 1) && page_log[0] == 0, "one page: no step");
@@ -307,6 +307,7 @@ static void test_ops(void)
         {"weather", "weather+ ", "weather.in ", NULL},
         {"nowplaying", "np+ ", "np.in ", "np.frame "},
         {"controls", "ctl+ ", "ctl.in ", "ctl.frame "},
+        {"print", "print+ ", "print.in ", "print.frame "},
         {"pomodoro", "pomo+ ", "pomo.in ", "pomo.frame "},
     };
     for (int w = 0; w < (int)(sizeof WANT / sizeof WANT[0]); w++) {
@@ -328,6 +329,16 @@ static void test_ops(void)
     }
 }
 
+static const char *const PAGES_LATER[] = {"room"};
+enum { N_PAGES_LATER = sizeof PAGES_LATER / sizeof PAGES_LATER[0] };
+
+static int page_later(const char *id)
+{
+    for (int k = 0; k < N_PAGES_LATER; k++)
+        if (strcmp(PAGES_LATER[k], id) == 0) return k;
+    return -1;
+}
+
 static void test_ember_fixtures(void)
 {
     for (int i = 0; i < PAGES_N; i++) {
@@ -335,7 +346,9 @@ static void test_ember_fixtures(void)
             CHECK(strcmp(PAGES[i].id, "controls") == 0, "%s: no view block", PAGES[i].id);
             continue;
         }
-        const char *golden = strcmp(PAGES[i].view_block, "day") == 0 ? "view_day_on.json" : "view_full.json";
+        const char *golden = strcmp(PAGES[i].view_block, "day") == 0     ? "view_day_on.json"
+                             : strcmp(PAGES[i].view_block, "print") == 0 ? "view_print.json"
+                                                                         : "view_full.json";
         char *j = load(golden);
         cJSON *v = j ? cJSON_Parse(j) : NULL;
         CHECK(cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(v, PAGES[i].view_block)), "%s: view block %s in %s",
@@ -349,14 +362,23 @@ static void test_ember_fixtures(void)
     j = load("config_default.json");
     cJSON *c = j ? cJSON_Parse(j) : NULL;
     const cJSON *pages = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(c, "config"), "pages");
-    CHECK(cJSON_GetArraySize(pages) == PAGES_N, "Ember default page list has every table page");
-    int i = 0;
+    int i = 0, later = 0, later_seen[N_PAGES_LATER] = {0};
     const cJSON *pg;
     cJSON_ArrayForEach(pg, pages) {
         const cJSON *id = cJSON_GetObjectItemCaseSensitive(pg, "id");
+        int l = cJSON_IsString(id) ? page_later(id->valuestring) : -1;
+        if (l >= 0) {
+            CHECK(index_of(id->valuestring) < 0, "%s is in the table now, drop it from PAGES_LATER", id->valuestring);
+            later_seen[l]++;
+            later++;
+            continue;
+        }
         CHECK(i < PAGES_N && cJSON_IsString(id) && strcmp(id->valuestring, PAGES[i].id) == 0, "Ember page %d", i);
         i++;
     }
+    CHECK(i == PAGES_N && cJSON_GetArraySize(pages) == PAGES_N + later, "Ember default page list has every table page");
+    for (int k = 0; k < N_PAGES_LATER; k++)
+        CHECK(later_seen[k] == 1, "PAGES_LATER %s is not in Ember's default page list once", PAGES_LATER[k]);
     cJSON_Delete(c);
     free(j);
 }

@@ -24,6 +24,9 @@ void page_day_frame(const page_frame_t *f);
 void page_controls_show(bool on);
 void page_controls_input(const page_input_t *in, double t);
 void page_controls_frame(const page_frame_t *f);
+void page_print_show(bool on);
+void page_print_input(const page_input_t *in, double t);
+void page_print_frame(const page_frame_t *f);
 
 #ifdef __cplusplus
 }

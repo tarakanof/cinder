@@ -44,7 +44,8 @@ Issue numbers written as #N or cinder#N refer to the original private repository
   fails once the fixture has it (then remove
   the entry in the sync commit).
 - **New page ids.** `test_pages.c` requires the page table to equal Ember's default page list (`config_default.json`), so a
-  new page lands after Ember's. A table page that `checkin_req_caps.json` does not list yet goes in `PAGES_AHEAD[]` in
+  new page lands after Ember's. An Ember default page the table does not have yet goes in `PAGES_LATER[]` in
+  `test_pages.c` (`room` since Ember v0.85.0, until #307); the firmware PR that adds the page removes the entry. A table page that `checkin_req_caps.json` does not list yet goes in `PAGES_AHEAD[]` in
   `test_fixtures.c` (`day` since #283, `controls` since #144); it fails once the fixture lists it, then remove the entry in the sync commit.
   `caps.pages` compares as a set, as Ember does.
 - Feature and fix PRs leave `PROJECT_VER` in `firmware/CMakeLists.txt` alone. A
@@ -66,6 +67,10 @@ idf.py build
 python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 ```
 
+- CI builds the host tests with GCC (the `espressif/idf` image); macOS's `cc` is clang, which misses some of GCC's
+  `-Werror` warnings (`-Wformat-truncation`). `run.sh` takes `CC`: with Homebrew GCC, run
+  `IDF_PATH=<esp-idf> CC=gcc-16 test/host/run.sh` without the IDF activate script (its PATH puts another `as` first,
+  which GCC cannot use) before pushing C changes.
 - The title font test needs `managed_components/lvgl__lvgl` (LVGL's font decoder). Without
   it `run.sh` skips that test with a warning and runs the rest; run `idf.py reconfigure` or a
   build first to include it.
