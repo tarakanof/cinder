@@ -22,7 +22,7 @@ static print_block_t blk(print_phase_t ph, print_ev_kind_t kind, long long id, l
 
 static pm_in_t in_at(double t, const print_block_t *b)
 {
-    return (pm_in_t){.t = t, .b = b, .have_srv = true, .srv_now = SRV0 + t, .mood = 0, .bot_mood = 0, .shown = true, .on = true};
+    return (pm_in_t){.t = t, .b = b, .have_srv = true, .srv_now = SRV0 + t, .mood = 0, .bot_mood = 0, .shown = true, .on = true, .real_ok = true};
 }
 
 static bool tick(pm_trigger_t *tr, pm_in_t in, pm_out_t *o) { return pm_tick(tr, &in, o); }
@@ -254,6 +254,51 @@ static void test_demo(void)
     in.b = NULL;
     in.shown = true;
     CHECK(!pm_tick(&tr, &in, &o), "a demo that ended before it could play is dropped");
+
+    pm_init(&tr);
+    settled(&tr, 0);
+    print_block_t realatt = blk(PRINT_ATTENTION, PRINT_EV_ATTENTION, (long long)REAL_ID, (long long)SRV0);
+    CHECK(tick(&tr, in_at(5, &realatt), &o) && !o.demo, "a real B4 armed");
+    pm_shown(&tr, &o, 5);
+    print_block_t dd = blk(PRINT_FINISHED, PRINT_EV_FINISHED, 99, 1782043200);
+    pm_in_t di = in_at(6, &dd);
+    di.real_ok = false;
+    CHECK(pm_tick(&tr, &di, &o) && o.demo && o.kind == PM_DONE, "a demo B3 plays over a real B4 without the real gate");
+    pm_shown(&tr, &o, 6);
+    di.t = 7;
+    di.b = NULL;
+    pm_tick(&tr, &di, &o);
+    di.t = 8;
+    di.b = &dd;
+    dd.event.id = 100;
+    dd.phase = PRINT_ATTENTION;
+    pm_tick(&tr, &di, &o);
+    CHECK(tr.armed && tr.next_at == 125, "demo blocks, and scenes without a print block, leave the real B4 armed and on its schedule");
+    CHECK(tick(&tr, in_at(125, &realatt), &o) && !o.demo, "and the real repeat comes");
+
+    pm_init(&tr);
+    settled(&tr, 0);
+    print_block_t heldb = blk(PRINT_FINISHED, PRINT_EV_FINISHED, (long long)REAL_ID, (long long)SRV0);
+    pm_in_t hi = in_at(2, &heldb);
+    hi.busy = true;
+    pm_tick(&tr, &hi, &o);
+    print_block_t da2 = blk(PRINT_ATTENTION, PRINT_EV_ATTENTION, 55, 1782043200);
+    di = in_at(3, &da2);
+    di.real_ok = false;
+    di.busy = true;
+    pm_tick(&tr, &di, &o);
+    CHECK(tr.pend == PM_DONE, "a demo with a running-job phase does not drop a held real B3");
+    hi = in_at(8, &heldb);
+    CHECK(pm_tick(&tr, &hi, &o) && !o.demo && o.kind == PM_DONE, "which plays when the demo is over");
+
+    pm_init(&tr);
+    settled(&tr, 0);
+    pm_in_t gap = in_at(5, &heldb);
+    gap.real_ok = false;
+    CHECK(!pm_tick(&tr, &gap, &o) && tr.seen.id == 0, "between scenes a real event is neither played nor marked");
+    CHECK(pm_tick(&tr, &(pm_in_t){.t = 10, .b = &heldb, .have_srv = true, .srv_now = SRV0 + 10, .shown = true, .on = true, .real_ok = true}, &o) ||
+              tr.pend == PM_DONE,
+          "and is taken once the real view is back");
 
     pm_init(&tr);
     settled(&tr, 0);

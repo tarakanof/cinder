@@ -19,9 +19,10 @@ void moments_init(const moments_ctx_t *ctx);
 void moments_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page);
 /* The music moment, every frame. on: no demo scene or view. */
 void moments_music_tick(double t, bool calm, bool offline, bool bot_page, bool on);
-/* The print moments (B3 done, B4 needs you), every frame without a scene act, also during a demo view: they share
-   moment_view with the weather moments. calm: quiet hours. */
-void moments_print_tick(double t, bool calm, bool bot_page);
+/* The print moments (B3 done, B4 needs you), every frame unless a scene has an act, also during an act-less scene: they
+   share moment_view with the weather moments. calm: quiet hours. real_ok: no scene, demo view or gap between scenes, so
+   real events may play; without it only a demo event does. */
+void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok);
 /* Ends the eye acting of a weather or music moment cut short. */
 void moment_unact(double t);
 void music_unact(double t);

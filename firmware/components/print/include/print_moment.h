@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* The bot's print moments: B3 (done) and B4 (needs you). Pure; the glue is main/print_moments.c. */
+/* The bot's print moments: B3 (done) and B4 (needs you). Pure; the glue is moments_print_tick in main/moments.c. */
 
 #define PM_FRESH_S 300.0
 #define PM_REPEAT_S 120.0
@@ -54,6 +54,7 @@ typedef struct {
     bool busy;               /* a moment plays or bakes, or a glint chase runs */
     bool calm;               /* quiet hours */
     bool on;                 /* bot.print_moments */
+    bool real_ok;            /* the block is the real view and real moments may play (no scene, demo view or gap between scenes) */
 } pm_in_t;
 
 typedef struct {
@@ -63,7 +64,7 @@ typedef struct {
 } pm_out_t;
 
 void pm_init(pm_trigger_t *tr);
-/* Every frame. True and out filled when a moment is due now; pm_shown records it. A demo event plays at once on the bot
+/* Every frame. True and out filled when a moment is due now; pm_shown records it. Real events, B4's repeat and the phase rules only run with real_ok. A demo event plays at once on the bot
    page whatever `on`, the settle, quiet hours and the mood say, and leaves the real memory and B4's repeat alone. */
 bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out);
 void pm_shown(pm_trigger_t *tr, const pm_out_t *out, double t);

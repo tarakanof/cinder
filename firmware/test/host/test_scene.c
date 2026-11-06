@@ -1412,12 +1412,14 @@ static void print_set(print_phase_t phase, print_ev_kind_t kind, long long id, l
     (void)demo;
 }
 
+static bool real_ok = true;
+
 static double print_run(bool calm, bool page, double s)
 {
     for (double end = T + s; T < end; T += 0.25) {
         pomo_now = T;
         PS.srv_offset = SRV - T;
-        moments_print_tick(T, calm, page);
+        moments_print_tick(T, calm, page, real_ok);
         if (MV.starts) return T;
     }
     return -1;
@@ -1434,7 +1436,7 @@ static void test_print_moments(void)
     CHECK(MV.last.kind == WXM_PRINT_DONE && !MV.last.quiet && MV.last.tint == WXM_PRINT_RGB && bot.acting, "the full variant with acting");
     CHECK(strcmp(MV.last.text, "Print done \xE2\x80\xA2 2 h 14 m") == 0, "the text carries the job length: %s", MV.last.text);
     MV.tau = 0.1;
-    moments_print_tick(T, false, true);
+    moments_print_tick(T, false, true, real_ok);
     CHECK(MV.busy && MV.stops == 0 && MV.aborts == 0, "it plays on");
     ks.weather_moments = false;
     wx_obs_t o = obs("2", 12, 0);
@@ -1446,9 +1448,9 @@ static void test_print_moments(void)
     step(0.25);
     int starts = MV.starts;
     MV.busy = false;
-    moments_print_tick(T, false, true);
+    moments_print_tick(T, false, true, real_ok);
     step(30);
-    moments_print_tick(T, false, true);
+    moments_print_tick(T, false, true, real_ok);
     CHECK(MV.starts == starts, "the same event id plays once");
     MV.busy = true;
     moments_tick(T, &o, true, true);
@@ -1494,33 +1496,50 @@ static void test_print_moments(void)
     print_run(false, true, 10);
     bot_set_mood(&bot, BOT_WAITING, T);
     step(0.1);
-    moments_print_tick(T, false, true);
+    moments_print_tick(T, false, true, real_ok);
     CHECK(!MV.busy && MV.aborts == 1, "a mood change cuts it short");
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     print_run(false, true, 10);
-    moments_print_tick(T, true, true);
+    moments_print_tick(T, true, true, real_ok);
     CHECK(!MV.busy && MV.aborts == 1, "quiet hours cut it short");
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     print_run(false, true, 10);
-    moments_print_tick(T, false, false);
+    moments_print_tick(T, false, false, real_ok);
     CHECK(!MV.busy && MV.stops == 1, "leaving the bot page stops it");
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     print_run(false, true, 10);
     ks.print_moments = false;
-    moments_print_tick(T, false, true);
+    moments_print_tick(T, false, true, real_ok);
     CHECK(!MV.busy && MV.stops == 1, "switching the setting off stops it");
 
     fresh();
+    real_ok = false;
+    print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
+    CHECK(print_run(false, true, 20) < 0, "no real moment during a scene, a demo view or the gap after one");
+    real_ok = true;
+    CHECK(print_run(false, true, 20) > 0, "and it plays once the real view is back");
+
+    fresh();
     ks.print_moments = false;
+    real_ok = false;
     print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
     CHECK(print_run(true, true, 1) >= 0 && MV.last.kind == WXM_PRINT_ATTENTION, "a demo plays at once, whatever the setting and quiet hours say");
-    moments_print_tick(T, true, true);
+    moments_print_tick(T, true, true, real_ok);
     CHECK(MV.busy && MV.aborts == 0, "and quiet hours do not cut it");
-    moments_print_tick(T, true, false);
+    moments_print_tick(T, true, false, real_ok);
     CHECK(!MV.busy && MV.stops == 1, "but leaving the bot page does");
+    real_ok = true;
+    fresh();
+    real_ok = false;
+    print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
+    print_run(false, true, 1);
+    real_ok = true;
+    moments_print_tick(T, false, true, real_ok);
+    CHECK(!MV.busy && MV.aborts == 1, "a demo moment still playing when the scene is over is cut short");
+    real_ok = true;
 
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);

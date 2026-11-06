@@ -703,6 +703,10 @@ fbody "$MAINC" page_tick | awk '/^    bot_read_moment\(&s_bot, moment_view_busy\
     /^    moments_music_tick\(t, calm, offline, bot_page, !scene_on\(\) && !ds\.view_on && !scene_resuming\(\)\);$/ {m = NR}
     /chase_ctl_frame\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && g < p)}' ||
     WIRING="$WIRING page_tick-runs-the-music-tick-after-the-weather-moment-before-the-chase-and-the-pose"
+fbody "$MAINC" page_tick | awk '/^    moments_music_tick\(/ {m = NR} /^    if \(!scene_on\(\) \|\| scene_act_kind\(\) == DEMO_ACT_NONE\)$/ {c = NR}
+    /^        moments_print_tick\(t, calm, bot_page, !scene_on\(\) && !ds\.view_on && !scene_resuming\(\)\);$/ {p = NR} /chase_ctl_frame\(/ {g = NR}
+    END {exit !(m && c == m + 1 && p == c + 1 && p < g)}' ||
+    WIRING="$WIRING page_tick-runs-the-print-tick-after-the-music-tick-in-an-act-less-scene-too-with-real-moments-only-outside-scenes"
 fbody "$MAINC" page_tick | awk '/^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} /^    f\.pose\.eye_dy -= music_view_eye_px\(t\) \/ bot_view_radius_px\(\);$/ {e = NR}
     /^    pages_frame\(&s_nav, &f\);$/ {p = NR} END {exit !(s && e == s + 1 && p > e)}' || WIRING="$WIRING page_tick-adds-the-bob-to-the-pose-before-the-frame"
 for L in 'music_view_hold(true);' 'music_unact(now_s());' 'music_view_hold(false);'; do

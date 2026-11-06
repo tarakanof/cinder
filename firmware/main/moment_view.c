@@ -130,6 +130,7 @@ bool moment_view_start(const wxm_moment_t *m, double t)
         s_retry_at = t + MV_RETRY_S;
         return false;
     }
+    if (m->tint) bot_view_set_tint(m->tint, 0);
     s_cancel = false;
     s_play_at = t + (m->quiet ? 0 : WXM_PRE_S);
     s_state = MV_BAKING;

@@ -79,6 +79,7 @@ static void moment_cue(const wxm_cue_t *c, double t)
 
 void moments_cue_start(const wxm_moment_t *m, double t)
 {
+    s_print_owns = false;
     s_moment_mood = s_bot->mood;
     s_cues = wxm_script(m, &s_cue_n);
     s_cue = 0;
@@ -112,7 +113,6 @@ __attribute__((noinline)) void moments_tick(double t, const wx_obs_t *wx, bool c
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
     if (wxm_tick(&s_wxm, &in, &m) && moment_view_start(&m, t)) {
         wxm_shown(&s_wxm, &m, t);
-        s_print_owns = false;
         moments_cue_start(&m, t);
     }
     moments_cue_poll(t);
@@ -166,12 +166,15 @@ static void moment_text(const pm_out_t *o, char *buf, size_t n)
     }
 }
 
-__attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page)
+__attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok)
 {
     print_client_get(&s_ps);
     if (s_print_owns && !moment_view_busy()) s_print_owns = false;
     if (s_print_owns) {
-        if (!bot_page || (!s_print_demo && !s_ks->print_moments)) {
+        if (s_print_demo && real_ok) {
+            moment_view_abort(t);
+            moment_unact(t);
+        } else if (!bot_page || (!s_print_demo && !s_ks->print_moments)) {
             moment_view_stop();
             moment_unact(t);
         } else if (s_bot->mood != s_moment_mood || (calm && !s_print_demo)) {
@@ -182,7 +185,8 @@ __attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_
     pm_in_t in = {.t = t, .b = s_ps.has ? &s_ps.b : NULL, .have_srv = s_ps.have_srv,
                   .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0,
                   .mood = (int)moment_mood(s_bot->mood), .bot_mood = (int)s_bot->mood, .shown = bot_page && !s_bot->asleep,
-                  .busy = moment_view_busy() || music_view_busy() || chase_ctl_busy(), .calm = calm, .on = s_ks->print_moments};
+                  .busy = moment_view_busy() || music_view_busy() || chase_ctl_busy(), .calm = calm, .on = s_ks->print_moments,
+                  .real_ok = real_ok};
     pm_out_t out;
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
     char text[WXM_TEXT_MAX];
@@ -192,11 +196,11 @@ __attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_
             moment_view_start(&m, t)) {
             pm_shown(&s_pm, &out, t);
             if (!out.demo) wxm_note_other(&s_wxm, t);
+            moments_cue_start(&m, t);
             s_print_owns = true;
             s_print_demo = out.demo;
-            moments_cue_start(&m, t);
         }
     }
     moments_cue_poll(t);
-    chase_ctl_hold(moment_view_busy());
+    if (moment_view_busy()) chase_ctl_hold(true);
 }

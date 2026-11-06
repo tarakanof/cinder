@@ -40,7 +40,7 @@ static void take_event(pm_trigger_t *tr, const pm_in_t *in)
         tr->demo_took_s = print_took_s(b);
         return;
     }
-    if (!in->have_srv || !print_seen_new(&tr->seen, e)) return;
+    if (!in->real_ok || !in->have_srv || !print_seen_new(&tr->seen, e)) return;
     print_seen_mark(&tr->seen, e);
     if (!in->on || in->srv_now - (double)e->at > PM_FRESH_S) return;
     if (k == PM_DONE) {
@@ -63,8 +63,9 @@ bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out)
     }
     take_event(tr, in);
     print_phase_t phase = in->b ? in->b->phase : PRINT_UNKNOWN;
-    if (phase != PRINT_ATTENTION) tr->armed = false;
-    if (tr->pend == PM_DONE && (job_runs(phase) || (in->have_srv && in->srv_now - (double)tr->pend_at > PM_FRESH_S)))
+    if (in->real_ok && phase != PRINT_ATTENTION) tr->armed = false;
+    if (in->real_ok && tr->pend == PM_DONE &&
+        (job_runs(phase) || (in->have_srv && in->srv_now - (double)tr->pend_at > PM_FRESH_S)))
         tr->pend = PM_NONE;
     if (tr->demo_pend != PM_NONE && (!in->b || in->b->event.id != tr->demo_id)) tr->demo_pend = PM_NONE;
     memset(out, 0, sizeof *out);
@@ -76,7 +77,7 @@ bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out)
         out->took_s = tr->demo_took_s;
         return true;
     }
-    if (!in->on || in->calm || in->mood == 2 || t - tr->steady_at < PM_SETTLE_S) return false;
+    if (!in->real_ok || !in->on || in->calm || in->mood == 2 || t - tr->steady_at < PM_SETTLE_S) return false;
     if (tr->pend == PM_DONE) {
         out->kind = PM_DONE;
         out->took_s = tr->pend_took_s;

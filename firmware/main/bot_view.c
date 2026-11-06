@@ -768,7 +768,7 @@ void bot_view_set_tint(uint32_t rgb, int opa)
 {
     s_tint.rgb = rgb;
     s_tint.opa = opa < 0 ? 0 : opa > 255 ? 255 : opa;
-    if (s_tint.opa > 0) tint_mask();
+    if (rgb) tint_mask();
 }
 
 static bool tint_sync(void)
