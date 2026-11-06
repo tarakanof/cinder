@@ -15,7 +15,7 @@ extern "C" {
 
 typedef struct {
     bool pend;
-    double ready_at;   /* monotonic s: a jump fires no sooner, so the mood and the block of one view poll agree */
+    double ready_at;   /* monotonic s; no jump fires before it */
     bool have_boot;
     double boot_srv;   /* server Unix s at this boot: the first clock seen minus the uptime then */
 } pj_t;
@@ -32,6 +32,7 @@ typedef struct {
 } pj_in_t;
 
 typedef struct {
+    bool bot_listed;    /* the bot page is in the list: only then does the view carry Ember's mood */
     bool mood_known;    /* Ember's mood is known: unknown (a failed poll, no Wi-Fi) blocks */
     bool waiting;       /* Ember's mood is waiting */
     bool usage_open;
@@ -39,7 +40,7 @@ typedef struct {
     double t, input_t;  /* monotonic s now and at the last input */
 } pj_gate_t;
 
-/* The in.blocked of pj_in_t: the agent mood unknown or waiting, the usage screen open, input down or within PJ_QUIET_S. */
+/* The in.blocked of pj_in_t: with the bot page listed, the agent mood unknown or waiting; the usage screen open, input down or within PJ_QUIET_S. */
 bool pj_blocked(const pj_gate_t *g);
 void pj_init(pj_t *j);
 /* Every frame; true once per `started` event id, when the page should switch now. Held while blocked or not real_ok, firing PJ_SETTLE_S after that ends; an event from before this boot never fires. Design: docs/features.md "Print page". */

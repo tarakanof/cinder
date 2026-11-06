@@ -750,8 +750,13 @@ fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pus
 fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool jump_blocked = pj_blocked\(&gate\);$/ {b = NR}
     /^    if \(moments_print_jump\(t, print_pos >= 0, print_pos >= 0 && s_nav\.pos == print_pos, jump_real, jump_blocked\)\) \{$/ {j = NR} /^    bool bot_page = / {p = NR}
     END {exit !(d && b && j && p && d < b && b < j && j < p)}' &&
-    fbody "$MAINC" page_tick | grep -qxF '    pj_gate_t gate = {.mood_known = ember_client_mood(&jump_mood), .waiting = jump_mood == BOT_WAITING,' &&
-    fbody "$MAINC" page_tick | grep -qxF '                      .usage_open = usage_view_open(), .down = input_route_held(), .t = t, .input_t = s_input_t};' ||
+    fbody "$MAINC" page_tick | grep -qxF '    pj_gate_t gate = {.bot_listed = pages_find(&s_nav, "bot") >= 0, .mood_known = ember_client_mood(&jump_mood),' &&
+    fbody "$MAINC" page_tick | grep -qxF '                      .waiting = jump_mood == BOT_WAITING, .usage_open = usage_view_open(), .down = input_route_held(),' &&
+    fbody "$MAINC" page_tick | grep -qxF '                      .t = t, .input_t = s_input_t};' &&
+    fbody "$MAINC" page_tick | grep -qxF '    bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;' &&
+    fbody "$MAINC" page_tick | grep -qxF '    if (held >= 0 || in.detents || in.pushes || in.longs || in.touches || in.wakes || in.hswipes) s_input_t = t;' &&
+    body "$MAINC" frame_cb | grep -qxF '    if (steps || swipes) s_input_t = t;' &&
+    fbody "$MAINC" page_tick | awk '/^    if \(moments_print_jump\(/ {j = NR} /^        page_jump\(&s_nav, print_pos, t\);$/ {p = NR} /^        pg = pages_current\(&s_nav\);$/ {g = NR} END {exit !(j && p == j + 1 && g == p + 1)}' ||
     WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-gated-by-pj_blocked-on-Embers-mood-the-usage-screen-and-the-input"
 body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_hold();' && body "$MAINC" idle_frame | grep -qxF '        if (!off) s_input_t = now_s();' &&
     body "$MAINC" ota_frame | grep -qxF '        print_jump_hold();' && body "$MAINC" frame_cb | awk '/^    if \(reset_frame\(t\) \|\| s_setup\) \{$/ {r = NR} /^        print_jump_hold\(\);$/ {h = NR} /^        input_route_drop\(\);$/ {d = NR} END {exit !(r && h == r + 1 && d == h + 1)}' &&

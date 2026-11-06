@@ -324,8 +324,9 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     int print_pos = pages_find(&s_nav, "print");
     bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
     bot_mood_t jump_mood = BOT_IDLE;
-    pj_gate_t gate = {.mood_known = ember_client_mood(&jump_mood), .waiting = jump_mood == BOT_WAITING,
-                      .usage_open = usage_view_open(), .down = input_route_held(), .t = t, .input_t = s_input_t};
+    pj_gate_t gate = {.bot_listed = pages_find(&s_nav, "bot") >= 0, .mood_known = ember_client_mood(&jump_mood),
+                      .waiting = jump_mood == BOT_WAITING, .usage_open = usage_view_open(), .down = input_route_held(),
+                      .t = t, .input_t = s_input_t};
     bool jump_blocked = pj_blocked(&gate);
     if (moments_print_jump(t, print_pos >= 0, print_pos >= 0 && s_nav.pos == print_pos, jump_real, jump_blocked)) {
         page_jump(&s_nav, print_pos, t);

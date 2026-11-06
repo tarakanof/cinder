@@ -266,7 +266,7 @@ static void test_turned_away(void)
 
 static void test_gate(void)
 {
-    pj_gate_t g = {.mood_known = true, .t = 100, .input_t = 50};
+    pj_gate_t g = {.bot_listed = true, .mood_known = true, .t = 100, .input_t = 50};
     CHECK(!pj_blocked(&g), "idle, known mood, no input: open");
     g.mood_known = false;
     CHECK(pj_blocked(&g), "an unknown mood (a failed poll, no Wi-Fi) blocks: a waiting agent may be behind it");
@@ -274,6 +274,14 @@ static void test_gate(void)
     g.waiting = true;
     CHECK(pj_blocked(&g), "a waiting agent blocks");
     g.waiting = false;
+    g.bot_listed = false;
+    g.mood_known = false;
+    CHECK(!pj_blocked(&g), "the bot page off: the view carries no mood, so no agent can be waited for");
+    g.waiting = true;
+    CHECK(!pj_blocked(&g), "and a stale waiting mood from before the bot page went off is no reason either");
+    g.waiting = false;
+    g.bot_listed = true;
+    g.mood_known = true;
     g.usage_open = true;
     CHECK(pj_blocked(&g), "the usage screen blocks");
     g.usage_open = false;
