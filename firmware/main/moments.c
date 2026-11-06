@@ -114,7 +114,7 @@ static void room_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page, bo
                   .on = on, .weather_first = s_ks->weather_moments && wxm_change_due(&s_wxm, wx, t), .last_at = s_wxm.last_at};
     rm_out_t out;
     static EXT_RAM_BSS_ATTR wxm_moment_t m;
-    if (rm_tick(&s_rm, &in, &out) && wxm_room_moment(out.kind, out.quiet, room_aqi_rgb(out.aqi), &m) && moment_view_start(&m, t)) {
+    if (rm_tick(&s_rm, &in, &out) && wxm_room_moment(out.kind, out.quiet, room_air_rgb(out.aqi), &m) && moment_view_start(&m, t)) {
         rm_shown(&s_rm, &out, t);
         wxm_note_other(&s_wxm, t);
         moments_cue_start(&m, t);

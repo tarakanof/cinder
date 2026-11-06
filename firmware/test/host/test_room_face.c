@@ -274,9 +274,40 @@ static void test_ring(void)
     free(ref);
 }
 
+static void test_air_now(void)
+{
+    room_t r = snap();
+    int aqi = -1;
+    CHECK(room_air_now(&r, NOW, &aqi) && aqi == 2, "normal and fresh: the AQI (%d)", aqi);
+    static const ens160_validity_t NOT[] = {ENS160_WARM_UP, ENS160_START_UP, ENS160_INVALID};
+    for (int i = 0; i < 3; i++) {
+        r.air_validity = NOT[i];
+        aqi = -1;
+        CHECK(!room_air_now(&r, NOW, &aqi) && aqi == -1, "validity %d: no air for the moments", NOT[i]);
+    }
+    r = snap();
+    r.air_ms = NOW - ROOM_FRESH_MS;
+    CHECK(!room_air_now(&r, NOW, &aqi), "60 s old: none");
+    r.air_ms = NOW - ROOM_FRESH_MS + 1;
+    CHECK(room_air_now(&r, NOW, &aqi), "just under 60 s: still");
+    r.air_ms = 0;
+    CHECK(!room_air_now(&r, NOW, &aqi), "never read: none");
+    r = snap();
+    r.has &= ~ROOM_HAS_AIR;
+    CHECK(!room_air_now(&r, NOW, &aqi), "no ENS160 found: none");
+    r = snap();
+    for (int a = 0; a <= 7; a++) {
+        r.aqi = (uint8_t)a;
+        aqi = -1;
+        CHECK(room_air_now(&r, NOW, &aqi) == (a >= 1 && a <= 5) && (a < 1 || a > 5 || aqi == a), "AQI %d: only 1..5 count", a);
+        CHECK(room_air_now(&r, NOW, &aqi) == (room_air_poor(&r, NOW, false) || (a >= 1 && a <= 3)), "AQI %d: the page's reading rule", a);
+    }
+}
+
 int main(void)
 {
     test_list();
+    test_air_now();
     test_auto();
     test_views();
     test_ring();

@@ -29,12 +29,3 @@ bool room_report(const room_t *r, int64_t now_ms, dev_room_t *out)
     out->present = r->present;
     return true;
 }
-
-bool room_air_now(const room_t *r, int64_t now_ms, int *aqi)
-{
-    uint32_t age_s;
-    if (!(r->has & ROOM_HAS_AIR) || !fresh(r->air_ms, now_ms, &age_s) || r->air_validity != ENS160_NORMAL || r->aqi < 1 || r->aqi > 5)
-        return false;
-    *aqi = r->aqi;
-    return true;
-}

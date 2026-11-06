@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "room_face.h"
 #include "wx_moment.h"
 
 #ifdef __cplusplus
@@ -12,14 +13,8 @@ extern "C" {
 /* The bot's room moments: stale air (WXM_ROOM_STALE) and fresh air after it (WXM_ROOM_FRESH). Pure; the glue is in
    main/moments.c, the sprite and the timeline are the weather moments'. */
 
-#define RM_STALE_AQI 4
-#define RM_FRESH_AQI 2
-
-/* The ENS160 AQI band colour (1 excellent .. 5 unhealthy); grey outside 1..5. */
-uint32_t room_aqi_rgb(int aqi);
-
 typedef struct {
-    bool stale;         /* the air is stale: from RM_STALE_AQI, kept until RM_FRESH_AQI */
+    bool stale;         /* the air is stale: from ROOM_AQI_POOR, kept until ROOM_AQI_CLEAR */
     bool owed;          /* a stale-air moment played while it lasts: fresh air follows when it ends */
     bool fresh;         /* a fresh-air moment is queued */
     double fresh_at;

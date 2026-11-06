@@ -44,13 +44,6 @@ static void settle(void)
     for (double end = T + WXM_SETTLE_S + 1; T < end; T += 0.5) tick(&out);
 }
 
-static void test_colours(void)
-{
-    static const uint32_t BAND[5] = {0x4FD6CC, 0x50CCAA, 0xF0E641, 0xFF5050, 0xD03060};
-    for (int a = 1; a <= 5; a++) CHECK(room_aqi_rgb(a) == BAND[a - 1], "AQI %d: %06X", a, (unsigned)room_aqi_rgb(a));
-    CHECK(room_aqi_rgb(0) == 0x8E8E93 && room_aqi_rgb(6) == 0x8E8E93, "outside 1..5: grey");
-}
-
 static void test_stale(void)
 {
     rm_out_t out;
@@ -320,7 +313,6 @@ static void test_gates(void)
 
 int main(void)
 {
-    test_colours();
     test_stale();
     test_fresh();
     test_hysteresis();

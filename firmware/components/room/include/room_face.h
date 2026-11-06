@@ -40,6 +40,8 @@ int room_face_step(unsigned mask, int face, int steps);
 /* A fresh, normal air reading with an AQI of 1-5: poor from ROOM_AQI_POOR, and while shown (Air on screen by the auto
    rule) until it falls to ROOM_AQI_CLEAR. No such reading: not poor. now_ms: the snapshot's esp_timer ms. */
 bool room_air_poor(const room_t *r, int64_t now_ms, bool shown);
+/* The same fresh, normal 1-5 reading for the bot's room moments: true with its AQI. */
+bool room_air_now(const room_t *r, int64_t now_ms, int *aqi);
 /* Air while poor and found, else Climate when found, else the mask's first face; -1 for an empty mask. */
 int room_face_auto(unsigned mask, bool poor);
 

@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "j2.h"
+#include "room_face.h"
 #include "room_report.h"
 
 static const char *TAG = "room";

@@ -3,12 +3,6 @@
 #include <math.h>
 #include <string.h>
 
-uint32_t room_aqi_rgb(int aqi)
-{
-    static const uint32_t BAND[5] = {0x4FD6CC, 0x50CCAA, 0xF0E641, 0xFF5050, 0xD03060};
-    return aqi >= 1 && aqi <= 5 ? BAND[aqi - 1] : 0x8E8E93;
-}
-
 static void forget(rm_trigger_t *tr)
 {
     tr->stale = tr->owed = tr->fresh = false;
@@ -37,10 +31,10 @@ bool rm_tick(rm_trigger_t *tr, const rm_in_t *in, rm_out_t *out)
         forget(tr);
         return false;
     }
-    if (in->valid && !tr->stale && in->aqi >= RM_STALE_AQI) {
+    if (in->valid && !tr->stale && in->aqi >= ROOM_AQI_POOR) {
         tr->stale = true;
         tr->fresh = false;
-    } else if (in->valid && tr->stale && in->aqi <= RM_FRESH_AQI) {
+    } else if (in->valid && tr->stale && in->aqi <= ROOM_AQI_CLEAR) {
         tr->stale = false;
         if (tr->owed) {
             tr->fresh = true;
@@ -52,8 +46,8 @@ bool rm_tick(rm_trigger_t *tr, const rm_in_t *in, rm_out_t *out)
     if (!in->valid || in->blocked || in->weather_first || !in->shown || in->mood == WXM_BUSY || t - tr->steady_at < WXM_SETTLE_S ||
         t - in->last_at < WXM_GAP_S)
         return false;
-    if (tr->stale && in->aqi >= RM_STALE_AQI && t - tr->stale_at >= WXM_SAME_S) out->kind = WXM_ROOM_STALE;
-    else if (tr->fresh && in->aqi <= RM_FRESH_AQI) out->kind = WXM_ROOM_FRESH;
+    if (tr->stale && in->aqi >= ROOM_AQI_POOR && t - tr->stale_at >= WXM_SAME_S) out->kind = WXM_ROOM_STALE;
+    else if (tr->fresh && in->aqi <= ROOM_AQI_CLEAR) out->kind = WXM_ROOM_FRESH;
     else return false;
     out->quiet = in->mood == WXM_WORKING;
     out->aqi = in->aqi;

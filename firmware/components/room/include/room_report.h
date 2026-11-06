@@ -16,9 +16,6 @@ extern "C" {
 bool room_fresh(int64_t at_ms, int64_t now_ms);
 /* The checkin room block from a j2 snapshot at now_ms (the snapshot's esp_timer ms): false, and no block, when no chip was found. A source is in only while its reading is under ROOM_FRESH_MS old. */
 bool room_report(const room_t *r, int64_t now_ms, dev_room_t *out);
-/* The air reading the bot's room moments use: true with the ENS160 AQI (1..5) while the air reading is under
-   ROOM_FRESH_MS old and its validity is normal. */
-bool room_air_now(const room_t *r, int64_t now_ms, int *aqi);
 
 #ifdef __cplusplus
 }
