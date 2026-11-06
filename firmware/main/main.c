@@ -116,24 +116,24 @@ void page_bot_show(bool on)
 static bool s_ota_paused;
 static double s_input_t = -1e9;
 
-static EXT_RAM_BSS_ATTR knob_settings_t s_ks_hold;
-static uint32_t s_hold_gen;
-static bool s_hold_have, s_hold_listed;
+static EXT_RAM_BSS_ATTR knob_settings_t s_ks_jump;
+static uint32_t s_jump_gen;
+static bool s_jump_have, s_jump_listed;
 
 static bool print_listed_in_stored_settings(void)
 {
     uint32_t gen = config_store_settings_gen();
-    if (s_hold_have && gen == s_hold_gen) return s_hold_listed;
+    if (s_jump_have && gen == s_jump_gen) return s_jump_listed;
     const char *ids[PAGES_N];
     int idx[PAGES_N], home;
-    config_store_settings(&s_ks_hold);
-    int n = knob_settings_page_order(&s_ks_hold, ids, pages_ids(ids, PAGES_N), idx, &home);
-    s_hold_listed = false;
+    config_store_settings(&s_ks_jump);
+    int n = knob_settings_page_order(&s_ks_jump, ids, pages_ids(ids, PAGES_N), idx, &home);
+    s_jump_listed = false;
     for (int i = 0; i < n; i++)
-        if (strcmp(PAGES[idx[i]].id, "print") == 0) s_hold_listed = true;
-    s_hold_gen = gen;
-    s_hold_have = true;
-    return s_hold_listed;
+        if (strcmp(PAGES[idx[i]].id, "print") == 0) s_jump_listed = true;
+    s_jump_gen = gen;
+    s_jump_have = true;
+    return s_jump_listed;
 }
 
 static void print_jump_hold(void)
