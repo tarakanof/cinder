@@ -38,7 +38,7 @@ typedef struct {
     bool shown;         /* the bot page is on screen and the bot is awake */
     bool blocked;       /* a moment plays or bakes, a music moment plays or played < 5 min ago, a chase, quiet hours */
     bool on;            /* room.enabled and room.moments */
-    bool weather_first; /* a weather change moment is queued: it goes first */
+    bool weather_first; /* a weather change moment could play now (wxm_change_due): it goes first */
     double last_at;     /* the last moment of any trigger (wxm_trigger_t.last_at) */
 } rm_in_t;
 

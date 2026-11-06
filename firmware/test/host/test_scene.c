@@ -1746,6 +1746,31 @@ static void test_room_moments(void)
     moment_unact(T);
 
     room_fresh(4);
+    ks.weather_moments = true;
+    at = run_room(NULL, false, true, 30);
+    CHECK(at > 0 && MV.last.kind == WXM_ROOM_STALE, "a room moment with weather moments on");
+    step(0.5);
+    ks.room_moments = false;
+    moments_tick(T, NULL, false, true);
+    CHECK(!MV.busy && MV.stops == 1, "room.moments off stops it, whatever weather moments say");
+    moment_unact(T);
+    ks.room_moments = true;
+    RA.aqi = 1;
+    MV.stops = 0;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    for (double end = T + WXM_GAP_S + 30; T < end && MV.last.kind != WXM_RAIN; T += 0.5) moments_tick(T, &wet, false, true);
+    CHECK(MV.busy && MV.last.kind == WXM_RAIN, "then a weather moment plays");
+    step(0.5);
+    ks.room_moments = false;
+    moments_tick(T, &wet, false, true);
+    CHECK(MV.busy && MV.stops == 0, "room.moments off leaves a weather moment alone, also after a room moment played");
+    ks.room_moments = true;
+    ks.weather_moments = false;
+    moments_tick(T, &wet, false, true);
+    CHECK(!MV.busy && MV.stops == 1, "weather moments off stop it, room moments on or not");
+    moment_unact(T);
+
+    room_fresh(4);
     ks.weather_moments = false;
     moments_tick(T, &dry, false, true);
     CHECK(MV.releases == 0, "weather moments off, room moments on: the arena stays");
