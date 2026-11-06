@@ -307,6 +307,13 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_set_calm(&s_bot, calm, t);
     if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
+    int print_pos = pages_find(&s_nav, "print");
+    bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
+    bool jump_blocked = s_bot.mood == BOT_WAITING || usage_view_open();
+    if (moments_print_jump(t, print_pos >= 0, print_pos >= 0 && s_nav.pos == print_pos, jump_real, jump_blocked)) {
+        page_jump(&s_nav, print_pos, t);
+        pg = pages_current(&s_nav);
+    }
     bool bot_page = pg->frame == page_bot_frame && !usage_view_open();
     bot_mood_t em;
     bot_wait_scene(&s_bot, scene_on() ? scene_n() : 0, t);
@@ -320,14 +327,6 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     moments_music_tick(t, calm, offline, bot_page, !scene_on() && !ds.view_on && !scene_resuming());
     if (!scene_on() || scene_act_kind() == DEMO_ACT_NONE)
         moments_print_tick(t, calm, bot_page, !scene_on() && !ds.view_on && !scene_resuming() && !offline, scene_on());
-
-    int print_pos = pages_find(&s_nav, "print");
-    bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
-    bool jump_blocked = s_bot.mood == BOT_WAITING || s_bot.asleep || usage_view_open();
-    if (moments_print_jump(t, print_pos >= 0, jump_real, jump_blocked)) {
-        page_jump(&s_nav, print_pos, t);
-        pg = pages_current(&s_nav);
-    }
 
     float gdeg;
     bool glint = (pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg);

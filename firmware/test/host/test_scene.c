@@ -1600,12 +1600,14 @@ static void test_print_moments(void)
     CHECK(print_run(false, true, 10) > 0, "then play");
 }
 
+static bool on_page;
+
 static bool jump_run(bool page_on, bool blocked, double s)
 {
     for (double end = T + s; T < end; T += 0.25) {
         pomo_now = T;
         PS.srv_offset = SRV - T;
-        if (moments_print_jump(T, page_on, real_ok, blocked)) return true;
+        if (moments_print_jump(T, page_on, on_page, real_ok, blocked)) return true;
     }
     return false;
 }
@@ -1651,6 +1653,14 @@ static void test_print_jump(void)
     CHECK(print_run(false, true, 10) > 0, "a finish taken by the moments");
     print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
     CHECK(!jump_run(true, false, 5), "an older started id is not new to the shared store");
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(!jump_run(true, true, 5), "blocked");
+    on_page = true;
+    CHECK(!jump_run(true, true, 2), "the user is on the print page now");
+    on_page = false;
+    CHECK(!jump_run(true, false, 5), "and the wait ending brings nothing");
 }
 
 static void test_orbit_task(void)

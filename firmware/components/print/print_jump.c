@@ -11,11 +11,11 @@ bool pj_tick(pj_t *j, print_seen_t *seen, const pj_in_t *in)
         j->have_boot = true;
         j->boot_srv = in->srv_now - in->t;
     }
-    if (j->pend && (!b || !in->page_on || b->event.id != j->pend_id || !print_phase_active(b->phase))) j->pend = false;
+    if (j->pend && (!b || !in->page_on || in->on_page || b->event.id != j->pend_id || !print_phase_active(b->phase))) j->pend = false;
     if (b && in->real_ok && in->have_srv && b->event.kind == PRINT_EV_STARTED && print_seen_new(seen, &b->event)) {
+        print_seen_mark(seen, &b->event);
         bool before_boot = (double)b->event.at + 1.0 <= j->boot_srv;
-        bool fresh = print_seen_take(seen, &b->event, true, in->srv_now);
-        if (fresh && !before_boot && in->page_on && print_phase_active(b->phase)) {
+        if (!before_boot && in->page_on && !in->on_page && print_phase_active(b->phase)) {
             j->pend = true;
             j->pend_id = b->event.id;
         }

@@ -197,6 +197,30 @@ static void test_deferred(void)
     CHECK(!tick(&r, in_at(201, &att)), "a later event replaces the held started one");
 }
 
+static void test_turned_away(void)
+{
+    rig_t r;
+    rig_init(&r);
+    CHECK(!tick(&r, in_at(2, NULL)), "clock");
+    print_block_t st = blk(PRINT_HEATING, PRINT_EV_STARTED, ID(20), (long long)SRV0 + 20);
+    pj_in_t held = in_at(21, &st);
+    held.blocked = true;
+    CHECK(!tick(&r, held), "held behind a wait");
+    pj_in_t there = held;
+    there.on_page = true;
+    CHECK(!tick(&r, there), "the user turned to the print page meanwhile");
+    CHECK(!tick(&r, in_at(40, &st)), "and away again: the wait ending brings nothing");
+
+    rig_init(&r);
+    CHECK(!tick(&r, in_at(2, NULL)), "clock");
+    pj_in_t at = in_at(21, &st);
+    at.on_page = true;
+    CHECK(!tick(&r, at) && r.seen.id == ID(20), "a start while the user is on the print page: spent, nothing to do");
+    CHECK(!tick(&r, in_at(22, &st)), "and not held for later");
+    print_block_t next = blk(PRINT_HEATING, PRINT_EV_STARTED, ID(900), (long long)SRV0 + 900);
+    CHECK(tick(&r, in_at(901, &next)), "the next id jumps");
+}
+
 static void test_not_real(void)
 {
     rig_t r;
@@ -210,7 +234,8 @@ static void test_not_real(void)
 
     rig_init(&r);
     CHECK(!tick(&r, in_at(2, NULL)), "clock");
-    CHECK(!tick(&r, scene) && !tick(&r, in_at(400, &st)) && r.seen.id == ID(20), "back after 5 min: marked, no jump");
+    CHECK(!tick(&r, scene) && tick(&r, in_at(400, &st)) && r.seen.id == ID(20), "back after 5 min, still inside Ember's 30 min and the print runs: it jumps");
+    CHECK(!tick(&r, in_at(401, &st)), "once");
 
     rig_init(&r);
     CHECK(!tick(&r, in_at(2, NULL)), "clock");
@@ -237,6 +262,7 @@ int main(void)
     test_page_off();
     test_deferred();
     test_not_real();
+    test_turned_away();
     if (failures) {
         printf("print_jump: %d failure(s)\n", failures);
         return 1;

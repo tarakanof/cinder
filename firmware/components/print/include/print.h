@@ -137,10 +137,10 @@ typedef struct {
 } print_ring_look_t;
 void print_ring_look(print_look_t l, print_ring_look_t *out);
 
-/* val "" = no big value; word "" = no state word. Colours RGB888. */
 /* The Ready face names a temperature only above this (degrees C): the bed's, else the nozzle's; a printer that is off is at room temperature. */
 #define PRINT_WARM_C 40
 
+/* val "" = no big value; word "" = no state word. Colours RGB888. */
 typedef struct {
     char val[16];
     char unit[16];

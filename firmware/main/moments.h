@@ -25,9 +25,10 @@ void moments_music_tick(double t, bool calm, bool offline, bool bot_page, bool o
    demo scene runs). */
 void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok, bool scene);
 /* The jump to the print page when a print starts (cinder#324), every frame. page_on: the print page is in the page list.
-   real_ok: as for moments_print_tick. blocked: an agent waits, the bot sleeps or the usage screen is open. True once per
-   `started` event id when the page should switch now; the event store is the print moments' (print_moment.h). */
-bool moments_print_jump(double t, bool page_on, bool real_ok, bool blocked);
+   on_page: it is the user's page now. real_ok: as for moments_print_tick. blocked: an agent waits or the usage screen is
+   open. True once per `started` event id when the page should switch now; the event store is the print moments'
+   (print_moment.h). */
+bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool blocked);
 /* Ends the eye acting of a weather or music moment cut short. */
 void moment_unact(double t);
 void music_unact(double t);

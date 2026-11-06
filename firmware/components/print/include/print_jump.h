@@ -25,16 +25,18 @@ typedef struct {
     bool have_srv;
     double srv_now;         /* server Unix s; real events are judged by it */
     bool page_on;           /* the print page is in the page list */
+    bool on_page;           /* the print page is the user's page now: there is nothing to jump to, and a held jump is spent */
     bool real_ok;           /* the block is the real view (no scene, demo view, gap between scenes or offline link) */
-    bool blocked;           /* an agent waits, the bot sleeps or the usage screen is open: the jump waits */
+    bool blocked;           /* an agent waits or the usage screen is open: the jump waits */
 } pj_in_t;
 
 void pj_init(pj_t *j);
-/* Every frame. True once per `started` event id, when the page should switch to the print page now. An event is taken at
-   first sight (print_seen_take: marked, and fresh only within PM_FRESH_S of its `at`), but one that happened before
-   this boot never jumps: a reboot while the print runs does not bring the page back. A taken event waits while
-   `blocked` and fires when that ends if its job is still under way and it is still the view's event; the page being
-   off, a demo event or a later event drops it. */
+/* Every frame. True once per `started` event id, when the page should switch to the print page now. A new event is
+   marked in the shared store at first sight (not only when fresh: the jump is for a print that is still running, and
+   Ember keeps the event 30 min), but one that happened before this boot never jumps: a reboot while the print runs does
+   not bring the page back. A taken event waits while `blocked` and fires when that ends if its job is still under way
+   and it is still the view's event; the page off or already shown, a demo event, a later event, the block going away or
+   the print ending drops it. */
 bool pj_tick(pj_t *j, print_seen_t *seen, const pj_in_t *in);
 
 #ifdef __cplusplus

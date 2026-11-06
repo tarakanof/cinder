@@ -169,11 +169,11 @@ static void moment_text(const pm_out_t *o, char *buf, size_t n)
     }
 }
 
-bool moments_print_jump(double t, bool page_on, bool real_ok, bool blocked)
+bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool blocked)
 {
     print_client_get(&s_ps);
     pj_in_t in = {.t = t, .b = s_ps.has ? &s_ps.b : NULL, .have_srv = s_ps.have_srv,
-                  .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0, .page_on = page_on, .real_ok = real_ok,
+                  .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0, .page_on = page_on, .on_page = on_page, .real_ok = real_ok,
                   .blocked = blocked};
     return pj_tick(&s_pj, &s_pm.seen, &in);
 }
