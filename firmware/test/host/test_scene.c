@@ -1795,6 +1795,17 @@ static void test_room_moments(void)
     CHECK(at > 0 && MV.last.kind == WXM_RAIN, "a queued weather change still beats the room afterwards");
 
     room_fresh(4);
+    ks.weather_moments = false;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    t0 = T;
+    at = run_room(&wet, false, true, 30);
+    CHECK(at > 0 && at < t0 + WXM_SETTLE_S + 1 && MV.last.kind == WXM_ROOM_STALE,
+          "weather moments off: a rain change the weather trigger still tracks does not hold the room back (%.1f)", at - t0);
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+
+    room_fresh(4);
     ks.weather_moments = true;
     for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
     for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &wet, false, false);
@@ -1871,6 +1882,23 @@ static void test_room_moments(void)
     MU.busy = true;
     CHECK(run_room(NULL, false, true, 60) < 0, "a music moment playing: none");
     MU.busy = false;
+    room_fresh(4);
+    music_started();
+    MU.busy = false;
+    MU.tau = -1;
+    music_unact(T);
+    t0 = T;
+    at = run_room(NULL, false, true, MM_GAP_S + 30);
+    CHECK(at >= t0 + MM_GAP_S - 10 && MV.last.kind == WXM_ROOM_STALE, "a music moment that played under 5 min ago: it waits (%.1f)", at - t0);
+    moment_view_stop();
+    moment_unact(T);
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_WORKING, T);
+    chase_frame(true, false);
+    chase_ctl_request(GC_STYLE_FULL, 0, 10);
+    chase_frame(true, false);
+    CHECK(chase_ctl_busy(), "a chase runs");
+    CHECK(run_room(NULL, false, true, 60) < 0, "a glint chase: none");
     room_fresh(4);
     RA.valid = false;
     CHECK(run_room(NULL, false, true, 60) < 0 && RA.calls > 0, "warm-up (no valid air): none");

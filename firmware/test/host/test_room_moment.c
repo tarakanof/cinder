@@ -158,6 +158,61 @@ static void test_fresh(void)
           "a queued fresh-air moment drops when the air turns stale again, and that spell played nothing, so none is owed");
 }
 
+static void test_hysteresis(void)
+{
+    rm_out_t out;
+    reset();
+    in.aqi = 4;
+    settle();
+    run(10, &out, true);
+    in.aqi = 3;
+    CHECK(run(40 * 60, &out, true) < 0, "40 min at AQI 3: no repeat, no fresh air");
+    in.aqi = 2;
+    CHECK(run(10, &out, true) >= 0 && out.kind == WXM_ROOM_FRESH, "then AQI 2 ends the spell: fresh air (3 kept it stale)");
+
+    reset();
+    in.aqi = 4;
+    settle();
+    double t0 = run(10, &out, true);
+    in.aqi = 3;
+    run(60, &out, true);
+    in.aqi = 4;
+    CHECK(run(WXM_SAME_S - 120, &out, true) < 0, "back to 4 inside the 30 min: nothing yet");
+    in.aqi = 2;
+    double at = run(10, &out, true);
+    CHECK(at >= 0 && out.kind == WXM_ROOM_FRESH && at - t0 < WXM_SAME_S, "the spell went on through 3 and back: fresh air still owed (%.1f)", at - t0);
+
+    reset();
+    in.aqi = 4;
+    settle();
+    run(10, &out, true);
+    in.aqi = 2;
+    in.blocked = true;
+    run(10, &out, false);
+    in.blocked = false;
+    in.aqi = 3;
+    T += WXM_GAP_S;
+    CHECK(run(60, &out, true) < 0, "fresh air queued, the AQI back at 3: not while it is not 2 or better");
+    in.aqi = 2;
+    CHECK(run(10, &out, true) >= 0 && out.kind == WXM_ROOM_FRESH, "at 2 again it plays (3 did not make it stale)");
+
+    reset();
+    in.aqi = 4;
+    settle();
+    run(10, &out, true);
+    in.aqi = 2;
+    in.blocked = true;
+    run(10, &out, false);
+    in.blocked = false;
+    in.valid = false;
+    in.aqi = 0;
+    T += WXM_GAP_S;
+    CHECK(run(60, &out, true) < 0, "fresh air queued, the reading gone (the glue's AQI 0): nothing");
+    in.valid = true;
+    in.aqi = 1;
+    CHECK(run(10, &out, true) >= 0 && out.kind == WXM_ROOM_FRESH && out.aqi == 1, "a valid reading again: it plays");
+}
+
 static void test_warm_up(void)
 {
     rm_out_t out;
@@ -268,6 +323,7 @@ int main(void)
     test_colours();
     test_stale();
     test_fresh();
+    test_hysteresis();
     test_warm_up();
     test_moods();
     test_gates();
