@@ -849,7 +849,7 @@ CC="${CC:-cc}"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 FPC="-ffp-contract=off"
 for CM in components/weather/CMakeLists.txt components/room/CMakeLists.txt main/CMakeLists.txt; do grep -qF -- "-ffp-contract=off" "$D/../../$CM" || { echo "run.sh: FAIL $CM lost -ffp-contract=off" >&2; exit 1; }; done
-grep -qE '^set_source_files_properties\(.*[ (]room_page\.c .*-ffp-contract=off\)$' "$D/../../main/CMakeLists.txt" || { echo "run.sh: FAIL main/room_page.c lost -ffp-contract=off" >&2; exit 1; }
+grep -qE '^set_source_files_properties\((.* )?"?room_page\.c"? .*-ffp-contract=off\)$' "$D/../../main/CMakeLists.txt" || { echo "run.sh: FAIL main/room_page.c lost -ffp-contract=off" >&2; exit 1; }
 "$CC" $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" "-DRS_RACE_POINT(s,at)=rs_race_point(s,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$D/test_bot.c" -lm -lpthread -o "${OUT}_bot"
 "$CC" $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/music_moment.c" "$D/test_music_moment.c" -lm -o "${OUT}_music"
 "$CC" $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
@@ -990,6 +990,8 @@ if [ -d "$LV" ]; then
         -I"$PG/include" -I"$V/include" -I"$G/include" -I"$P/include" -I"$LS/include" -I"$N/include" -I"$J" "$PCV/page_canvas.c" "$D/../../main/print_view.c" "$D/../../main/font_digits_96.c" \
         "$PRT/print.c" "$PRT/print_draw.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$J/cJSON.c" "$D/test_print_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_print_view"
     mkdir -p "$OUT_DIR/room_cfg" && : > "$OUT_DIR/room_cfg/sdkconfig.h"
+    "$CC" $CFLAGS $LVDEF -fsyntax-only -I"$OUT_DIR/room_cfg" -I"$LV" -I"$D/../../main" -I"$PG/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$C/include" -I"$J" \
+        "$D/../../main/room_page.c"
     "$CC" $CFLAGS $FPC $LVDEF -DCONFIG_CINDER_ROOM=1 -I"$OUT_DIR/room_cfg" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$RM/include" -I"$SE/include" \
         -I"$D/../../components/j2/include" -I"$W/include" -I"$PCV/include" -I"$PG/include" -I"$C/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$M/include" -I"$J" \
         "$PCV/page_canvas.c" "$D/../../main/room_page.c" "$D/../../main/font_digits_96.c" "$D/../../main/font_face_36.c" "$RM/room_face.c" "$RM/room_report.c" "$SE/sens_ens160.c" \

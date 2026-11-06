@@ -180,7 +180,7 @@ static bool acquire(double t)
         ESP_LOGE(TAG, "no PSRAM for the face (%u KB free, largest %u KB): black, retrying",
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024), (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024));
     s_short = !mem;
-    s_retry_t = t + RETRY_S;
+    if (!mem) s_retry_t = t + RETRY_S;
     if (!mem || !s_bgbuf) return false;
     wx_img_t mk = {.px = (uint16_t *)s_marker_buf, .a = s_marker_buf + WX_MARKER * WX_MARKER * 2, .w = WX_MARKER, .h = WX_MARKER};
     wx_paint_marker(&mk);
