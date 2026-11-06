@@ -769,6 +769,12 @@ void bot_view_set_tint(uint32_t rgb, int opa)
     s_tint.rgb = rgb;
     s_tint.opa = opa < 0 ? 0 : opa > 255 ? 255 : opa;
     if (rgb) tint_mask();
+    if (s_tint.opa == 0 && s_tint.on) {
+        lv_area_t a;
+        tint_area(&a);
+        lv_obj_invalidate_area(s_glint, &a);
+        s_tint.on = false;
+    }
 }
 
 static bool tint_sync(void)

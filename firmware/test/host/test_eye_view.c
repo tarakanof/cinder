@@ -396,6 +396,17 @@ static int orange_px(double *cy)
     return n;
 }
 
+static int warm_px(void)
+{
+    int n = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            uint16_t v = s_fb[y * W + x];
+            n += (int)((v >> 11) << 3) - (int)((v & 31) << 3) >= 60;
+        }
+    return n;
+}
+
 static int tint_frames(lv_display_t *d, bot_mood_t m, double t0, double offset_y, double *cy, int want)
 {
     bot_pose_t p = {.mood = m, .face = m, .eyes = BOT_EYES_DASH, .gaze_y = 0.2, .scale_x = 1, .scale_y = 1, .hop_dy = offset_y};
@@ -430,6 +441,8 @@ static void test_tint(lv_display_t *d, const char *dir)
     double cyh;
     int half = tint_frames(d, BOT_IDLE, 650, 0, &cyh, 0);
     CHECK(half < on / 2, "half opacity: the pure orange thins out (%d px against %d)", half, on);
+    int warm = warm_px();
+    CHECK(warm > on * 3 / 4, "half opacity: the whole rim has moved part way to orange (%d warm px against %d)", warm, on);
     bot_view_set_tint(0xFA6831, 255);
     int hopped = tint_frames(d, BOT_IDLE, 680, 0.12, &cy1, 6000);
     CHECK(hopped > 6000 && fabs(cy1 - cy0) >= 5, "a hop moves the tint with the rim (y %.1f against %.1f)", cy1, cy0);

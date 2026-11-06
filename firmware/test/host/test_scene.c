@@ -1463,6 +1463,14 @@ static void test_print_moments(void)
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     CHECK(print_run(false, false, 20) < 0, "off the bot page: none");
+
+    fresh();
+    bot_sleep(&bot, T);
+    step(1);
+    bot_pose(&bot, T);
+    print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
+    CHECK(bot.asleep && print_run(false, true, 20) < 0, "an asleep bot: no real moment");
+
     CHECK(print_run(true, true, 20) < 0, "quiet hours: none");
 
     fresh();
