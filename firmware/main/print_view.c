@@ -492,7 +492,7 @@ static const char *last_sep(const char *s)
 static void fit(char *s, size_t cap, const lv_font_t *f, int w)
 {
     if (!s[0] || text_w(s, f) <= w) return;
-    char out[2 * PRINT_NAME_MAX + 8], tail[2 * PRINT_NAME_MAX + 8] = "";
+    char tail[2 * PRINT_NAME_MAX + 8] = "", out[2 * sizeof tail + 4];
     const char *sep = last_sep(s);
     size_t n = sep ? (size_t)(sep - s) : strlen(s);
     if (sep) strlcpy(tail, sep, sizeof tail);
@@ -503,7 +503,7 @@ static void fit(char *s, size_t cap, const lv_font_t *f, int w)
             size_t k = n;
             while (k > 0 && s[k - 1] == ' ') k--;
             snprintf(out, sizeof out, "%.*s...%s", (int)k, s, tail);
-            if (text_w(out, f) <= w) {
+            if (strlen(out) < cap && text_w(out, f) <= w) {
                 strlcpy(s, out, cap);
                 return;
             }

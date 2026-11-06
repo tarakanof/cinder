@@ -67,6 +67,10 @@ idf.py build
 python3 tools/secret_scan.py build/cinder.bin build/cinder.elf
 ```
 
+- CI builds the host tests with GCC (the `espressif/idf` image); macOS's `cc` is clang, which misses some of GCC's
+  `-Werror` warnings (`-Wformat-truncation`). `run.sh` takes `CC`: with Homebrew GCC, run
+  `IDF_PATH=<esp-idf> CC=gcc-16 test/host/run.sh` without the IDF activate script (its PATH puts another `as` first,
+  which GCC cannot use) before pushing C changes.
 - The title font test needs `managed_components/lvgl__lvgl` (LVGL's font decoder). Without
   it `run.sh` skips that test with a warning and runs the rest; run `idf.py reconfigure` or a
   build first to include it.
