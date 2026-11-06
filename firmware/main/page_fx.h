@@ -10,6 +10,9 @@ void page_fx_create(void);
 void wipe_start(int dir, double t);
 /* Steps the page; no wipe and no dots when it stays. */
 void page_go(pages_nav_t *nav, int steps, double t);
+/* Switches to the page at position pos of the list (a jump, not a turn): the wipe goes the shorter way round the list (forward on a tie); no
+   wipe and no dots when the user's page is already there. */
+void page_jump(pages_nav_t *nav, int pos, double t);
 /* Every frame: ends the dots and moves the wipe. */
 void page_fx_frame(double t);
 /* The page list changed: rebuilds dots that show. */

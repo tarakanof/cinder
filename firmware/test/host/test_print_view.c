@@ -145,6 +145,17 @@ static int ink(int x0, int y0, int x1, int y1)
     return n;
 }
 
+static int warm(int x0, int y0, int x1, int y1)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            int r = (s_fb[y * W + x] >> 11) * 255 / 31, b = (s_fb[y * W + x] & 31) * 255 / 31;
+            n += r >= 36 && r < 120 && r - b >= 6;
+        }
+    return n;
+}
+
 #define T0 1782043200.0
 
 static void block(print_phase_t ph, int progress)
@@ -314,6 +325,42 @@ int main(int argc, char **argv)
     frame(T0 + 2.1);
     refresh();
     CHECK(s_areas == 1, "and back on K1: %d areas", s_areas);
+
+    block(PRINT_IDLE, 0);
+    s_snap.b = (print_block_t){.phase = PRINT_IDLE};
+    strcpy(s_snap.b.printer, "CORE One");
+    input(1);
+    input(-1);
+    settle(T0 + 3);
+    save("k1-ready");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_FIL)) == 0, "Ready K1: an empty bed, no part");
+    CHECK(warm(FX + 233 - 45, 92, FX + 233 + 45, 130) > 300, "Ready K1: the chamber light is on, warm white");
+    CHECK(ink(80, 262, 390, 312) > 600 && count(80, 262, 390, 312, c565(PRINT_COL_TEXT)) > 150, "Ready K1: the word in white");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_HEAT)) == 0, "Ready K1: nothing hot while the printer is cold");
+    CHECK(count(FX + 233 - 10, 0, FX + 233 + 10, 20, c565(PRINT_COL_ACCENT)) == 0, "Ready K1: the ring is empty");
+    refresh();
+    frame(T0 + 3.3);
+    refresh();
+    CHECK(s_areas == 0, "Ready K1: the head is parked, nothing moves: %d areas", s_areas);
+    s_snap.b.has_temps = true;
+    s_snap.b.nozzle = 31;
+    s_snap.b.bed = 62;
+    s_snap.b.nozzle_target = s_snap.b.bed_target = 0;
+    settle(T0 + 4);
+    save("k1-ready-warm");
+    CHECK(count(80, 312, 390, 360, c565(PRINT_COL_HEAT)) > 40, "Ready K1, bed 62: the temperature in the sub-line");
+    s_snap.b.has_temps = false;
+    settle(T0 + 4.5);
+    CHECK(count(80, 312, 390, 360, c565(PRINT_COL_HEAT)) == 0, "and the printer's name again when it is cold");
+    input(1);
+    settle(T0 + 5);
+    save("k2-ready");
+    CHECK(count(0, 0, W, H, c565(PRINT_COL_FIL)) == 0 && ink(70, 330, 400, 390) > 600, "Ready K2: the same, no picture");
+    s_snap.b.has_temps = true;
+    settle(T0 + 5.5);
+    save("k2-ready-warm");
+    CHECK(count(70, 380, 400, 440, c565(PRINT_COL_HEAT)) > 40, "Ready K2, bed 62: the temperature in the sub-line");
+    input(-1);
 
     block(PRINT_HEATING, 0);
     s_snap.b.has_temps = true;

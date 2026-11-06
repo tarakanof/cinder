@@ -274,6 +274,38 @@ static void test_phase_face(void)
     print_text(NULL, PRINT_FACE_K1, 0, false, 0, &t);
     CHECK(strcmp(t.word, "Printer off") == 0 && t.word_col == PRINT_COL_DIMWORD && !t.val[0], "no block: dim Printer off");
 
+    for (int face = 0; face < PRINT_FACES; face++) {
+        print_block_t r = {.phase = PRINT_IDLE};
+        strcpy(r.printer, "CORE One");
+        print_text(&r, (print_face_t)face, 0, false, 0, &t);
+        CHECK(strcmp(t.word, "Ready") == 0 && t.word_col == PRINT_COL_TEXT && !t.val[0] && !t.small[0], "idle K%d: Ready, %s", face + 1, t.word);
+        CHECK(strcmp(t.sub, "CORE One") == 0 && t.sub_col == PRINT_COL_SMALL, "idle K%d, cold: the printer's name, %s", face + 1, t.sub);
+        r.has_temps = true;
+        r.nozzle = 40;
+        r.bed = 40;
+        print_text(&r, (print_face_t)face, 0, false, 0, &t);
+        CHECK(strcmp(t.sub, "CORE One") == 0, "idle K%d, exactly 40: still the name, %s", face + 1, t.sub);
+        r.bed = 41;
+        print_text(&r, (print_face_t)face, 0, false, 0, &t);
+        CHECK(strcmp(t.sub, "bed 41\xC2\xB0") == 0 && t.sub_col == PRINT_COL_HEAT, "idle K%d, bed above 40: %s", face + 1, t.sub);
+        r.bed = 25;
+        r.nozzle = 215;
+        print_text(&r, (print_face_t)face, 0, false, 0, &t);
+        CHECK(strcmp(t.sub, "nozzle 215\xC2\xB0") == 0, "idle K%d, nozzle above 40: %s", face + 1, t.sub);
+        r.bed = 60;
+        print_text(&r, (print_face_t)face, 0, false, 0, &t);
+        CHECK(strcmp(t.sub, "bed 60\xC2\xB0") == 0, "idle K%d, both: the bed first, as on the TC001: %s", face + 1, t.sub);
+        r.has_temps = false;
+        r.bed = r.nozzle = 200;
+        print_text(&r, (print_face_t)face, 0, false, 0, &t);
+        CHECK(strcmp(t.sub, "CORE One") == 0, "idle K%d: temperatures only count when all four came", face + 1);
+        CHECK(print_ring_frac(&r) == 0, "idle: the ring stays empty");
+    }
+    print_block_t unk = {.phase = PRINT_UNKNOWN};
+    strcpy(unk.printer, "CORE One");
+    print_text(&unk, PRINT_FACE_K1, 0, false, 0, &t);
+    CHECK(strcmp(t.word, "Idle") == 0, "an unknown phase is not Ready: %s", t.word);
+
     print_block_t b = {.phase = PRINT_HEATING, .has_progress = true, .has_temps = true, .nozzle = 182, .nozzle_target = 240,
                        .bed = 72, .bed_target = 85};
     strcpy(b.name, "bracket_v3");

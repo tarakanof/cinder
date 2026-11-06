@@ -1600,6 +1600,69 @@ static void test_print_moments(void)
     CHECK(print_run(false, true, 10) > 0, "then play");
 }
 
+static bool on_page;
+
+static bool jump_run(bool page_on, bool blocked, double s)
+{
+    for (double end = T + s; T < end; T += 0.25) {
+        pomo_now = T;
+        PS.srv_offset = SRV - T;
+        if (moments_print_jump(T, page_on, on_page, real_ok, blocked)) return true;
+    }
+    return false;
+}
+
+static void test_print_jump(void)
+{
+    long long id = (long long)SRV * 1000;
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(jump_run(true, false, 5), "a started event jumps");
+    CHECK(!jump_run(true, false, 5), "once");
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(!jump_run(false, false, 5) && !jump_run(true, false, 5), "the page off: none, and the event is spent");
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(!jump_run(true, true, 30), "blocked: none");
+    CHECK(jump_run(true, false, 1), "and it comes when the block ends");
+
+    fresh();
+    real_ok = false;
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(!jump_run(true, false, 5), "no jump during a scene, a demo view or while offline");
+    real_ok = true;
+    CHECK(jump_run(true, false, 1), "and it comes once the real view is back");
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, 3502309358LL, 1782043200LL, true);
+    CHECK(!jump_run(true, false, 5), "a demo event never jumps");
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(jump_run(true, false, 5), "the jump took the started event");
+    print_set(PRINT_FINISHED, PRINT_EV_FINISHED, id + 7200000, (long long)SRV + 7200, false);
+    CHECK(print_run(false, true, 10) > 0 && MV.last.kind == WXM_PRINT_DONE, "the print moments' store still gives the finish its moment");
+    CHECK(!jump_run(true, false, 5), "and a finish is no jump");
+
+    fresh();
+    print_set(PRINT_FINISHED, PRINT_EV_FINISHED, id + 7200000, (long long)SRV + 7200, false);
+    CHECK(print_run(false, true, 10) > 0, "a finish taken by the moments");
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(!jump_run(true, false, 5), "an older started id is not new to the shared store");
+
+    fresh();
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, id, (long long)SRV, false);
+    CHECK(!jump_run(true, true, 5), "blocked");
+    on_page = true;
+    CHECK(!jump_run(true, true, 2), "the user is on the print page now");
+    on_page = false;
+    CHECK(!jump_run(true, false, 5), "and the wait ending brings nothing");
+}
+
 static void test_orbit_task(void)
 {
     fresh();
@@ -1644,6 +1707,7 @@ int main(void)
     test_music_cut();
     test_music_repeat();
     test_print_moments();
+    test_print_jump();
     test_orbit_task();
     if (failures) {
         printf("scene: %d failures\n", failures);

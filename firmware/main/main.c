@@ -60,6 +60,7 @@
 #include "usage_view.h"
 #include "moment_view.h"
 #include "moments.h"
+#include "print_jump.h"
 #include "music_view.h"
 #include "shown.h"
 #include "wx_shift.h"
@@ -113,10 +114,42 @@ void page_bot_show(bool on)
 }
 
 static bool s_ota_paused;
+static double s_input_t = -1e9;
+
+static EXT_RAM_BSS_ATTR knob_settings_t s_ks_jump;
+static uint32_t s_jump_gen;
+static bool s_jump_have, s_jump_listed;
+
+static bool print_listed_in_stored_settings(void)
+{
+    uint32_t gen = config_store_settings_gen();
+    if (s_jump_have && gen == s_jump_gen) return s_jump_listed;
+    const char *ids[PAGES_N];
+    int idx[PAGES_N], home;
+    config_store_settings(&s_ks_jump);
+    int n = knob_settings_page_order(&s_ks_jump, ids, pages_ids(ids, PAGES_N), idx, &home);
+    s_jump_listed = false;
+    for (int i = 0; i < n; i++)
+        if (strcmp(PAGES[idx[i]].id, "print") == 0) s_jump_listed = true;
+    s_jump_gen = gen;
+    s_jump_have = true;
+    return s_jump_listed;
+}
+
+static void print_jump_hold(void)
+{
+    ember_demo_status_t ds;
+    ember_client_demo_status(&ds);
+    int pos = pages_find(&s_nav, "print");
+    bool listed = config_store_settings_gen() == s_settings_gen ? pos >= 0 : print_listed_in_stored_settings();
+    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline();
+    moments_print_jump(now_s(), listed, pos >= 0 && s_nav.pos == pos, real, true);
+}
 
 static bool ota_frame(void)
 {
     if (ota_face_frame()) {
+        print_jump_hold();
         if (!s_ota_paused) {
             s_ota_paused = true;
             ember_client_demo_input();
@@ -291,7 +324,9 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
 {
     const page_desc_t *pg = pages_current(&s_nav);
     page_input_t in;
-    overlays_hold_tick(pg, input_route_take(&in));
+    long long held = input_route_take(&in);
+    overlays_hold_tick(pg, held);
+    if (held >= 0 || in.detents || in.pushes || in.longs || in.touches || in.wakes || in.hswipes) s_input_t = t;
     usage_view_poll();
 
     bool offline = ember_client_offline();
@@ -307,6 +342,17 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_set_calm(&s_bot, calm, t);
     if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};
     pages_dispatch(&s_nav, in, t);
+    int print_pos = pages_find(&s_nav, "print");
+    bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
+    bot_mood_t jump_mood = BOT_IDLE;
+    pj_gate_t gate = {.bot_listed = pages_find(&s_nav, "bot") >= 0, .mood_known = ember_client_mood(&jump_mood),
+                      .waiting = jump_mood == BOT_WAITING, .usage_open = usage_view_open(), .down = input_route_held(),
+                      .t = t, .input_t = s_input_t};
+    bool jump_blocked = pj_blocked(&gate);
+    if (moments_print_jump(t, print_pos >= 0, print_pos >= 0 && s_nav.pos == print_pos, jump_real, jump_blocked)) {
+        page_jump(&s_nav, print_pos, t);
+        pg = pages_current(&s_nav);
+    }
     bool bot_page = pg->frame == page_bot_frame && !usage_view_open();
     bot_mood_t em;
     bot_wait_scene(&s_bot, scene_on() ? scene_n() : 0, t);
@@ -348,10 +394,12 @@ static bool idle_frame(lv_display_t *disp)
     if (off != held) {
         held = off;
         lv_display_enable_invalidation(disp, !off);
+        if (!off) s_input_t = now_s();
         if (!off) lv_obj_invalidate(lv_screen_active());
         ESP_LOGI(TAG, "screen %s", off ? "off: rendering paused" : "on: rendering resumed");
     }
     if (off) s_last_frame_t = 0;
+    if (off) print_jump_hold();
     return off;
 }
 
@@ -373,6 +421,7 @@ static void frame_cb(lv_timer_t *timer)
     screen_snap_frame();
     if (!s_setup && ota_frame()) return;
     if (reset_frame(t) || s_setup) {
+        print_jump_hold();
         input_route_drop();
         return;
     }
@@ -381,6 +430,7 @@ static void frame_cb(lv_timer_t *timer)
     scene_frame(t);
     int steps, swipes;
     input_route_take_steps(&steps, &swipes);
+    if (steps || swipes) s_input_t = t;
     if (scene_gate(t, steps || swipes)) steps = swipes = 0;
     if (s_ks_lv->swipe_pages) steps += swipes;
     if (steps) page_go(&s_nav, steps, t);

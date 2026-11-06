@@ -62,6 +62,8 @@ bool print_parse(const struct cJSON *o, print_block_t *out);
 print_phase_t print_phase_from_wire(const char *s);
 const char *print_phase_name(print_phase_t p);
 print_ev_kind_t print_ev_kind_from_wire(const char *s);
+/* A job is under way: heating through attention. Not idle, offline, finished, stopped, error or unknown. */
+bool print_phase_active(print_phase_t p);
 
 /* Seconds left at server time now; -1 without ends_at. Never negative otherwise. */
 long long print_left_s(const print_block_t *b, double now);
@@ -134,6 +136,9 @@ typedef struct {
     bool pulse;   /* the hero pulses (attention, error) */
 } print_ring_look_t;
 void print_ring_look(print_look_t l, print_ring_look_t *out);
+
+/* Degrees C: the Ready face names the bed's temperature, else the nozzle's, above this. */
+#define PRINT_WARM_C 40
 
 /* val "" = no big value; word "" = no state word. Colours RGB888. */
 typedef struct {

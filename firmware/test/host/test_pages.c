@@ -246,6 +246,19 @@ static void test_switch(void)
     CHECK(pages_step(&nav, -1) && nav.pos == 0 && nav.page == index_of("weather"), "step back: %d", nav.page);
     CHECK_NAV(nav);
 
+    pages_nav_t jn = (pages_nav_t){.order = {index_of("bot"), index_of("print"), index_of("pomodoro")}, .n = 3, .pos = 0, .page = index_of("bot")};
+    CHECK(pages_find(&jn, "print") == 1 && pages_find(&jn, "pomodoro") == 2 && pages_find(&jn, "bot") == 0, "find: the position in the list");
+    CHECK(pages_find(&jn, "weather") == -1 && pages_find(&jn, "nope") == -1, "find: a page that is off or unknown is -1");
+    page_log_reset();
+    CHECK(pages_goto(&jn, 1) && jn.pos == 1 && jn.page == index_of("print") && strcmp(page_log, "bot- day- weather- np- ctl- pomo- print+ ") == 0,
+          "goto shows the page at that position: %s", page_log);
+    CHECK_NAV(jn);
+    page_log_reset();
+    CHECK(!pages_goto(&jn, 1) && page_log[0] == 0, "goto the user's page: nothing");
+    CHECK(!pages_goto(&jn, -1) && !pages_goto(&jn, 3) && jn.pos == 1 && page_log[0] == 0, "goto out of range: nothing");
+    CHECK(pages_goto(&jn, 0) && jn.pos == 0 && jn.page == index_of("bot"), "goto back");
+    CHECK_NAV(jn);
+
     knob_settings_parse("{\"pages\":[{\"id\":\"weather\",\"on\":false},{\"id\":\"bot\",\"on\":true},"
                         "{\"id\":\"pomodoro\",\"on\":true}],\"home\":\"pomodoro\"}",
                         &ks);

@@ -24,6 +24,8 @@ void moments_music_tick(double t, bool calm, bool offline, bool bot_page, bool o
    real events may play and B4 repeats (not offline either); without it only a demo event does, and only while scene (a
    demo scene runs). */
 void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok, bool scene);
+/* The jump to the print page on a new `started` event, every frame; true when the page should switch now (pj_tick). page_on: the page is in the list; on_page: it is the user's page; real_ok: as for moments_print_tick. */
+bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool blocked);
 /* Ends the eye acting of a weather or music moment cut short. */
 void moment_unact(double t);
 void music_unact(double t);

@@ -1,6 +1,7 @@
 #include "pages.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #include "page_ops.h"
 #include "touch_swipe.h"
@@ -57,6 +58,21 @@ bool pages_step(pages_nav_t *nav, int steps)
 {
     int pos = ts_page_step(nav->pos, nav->n, steps);
     if (pos == nav->pos) return false;
+    nav->pos = pos;
+    pages_show(nav, nav->order[pos]);
+    return true;
+}
+
+int pages_find(const pages_nav_t *nav, const char *id)
+{
+    for (int i = 0; i < nav->n; i++)
+        if (strcmp(PAGES[nav->order[i]].id, id) == 0) return i;
+    return -1;
+}
+
+bool pages_goto(pages_nav_t *nav, int pos)
+{
+    if (pos < 0 || pos >= nav->n || pos == nav->pos) return false;
     nav->pos = pos;
     pages_show(nav, nav->order[pos]);
     return true;

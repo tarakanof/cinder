@@ -10,6 +10,7 @@
 #include "nowplaying_client.h"
 #include "pomo_client.h"
 #include "print_client.h"
+#include "print_jump.h"
 #include "print_moment.h"
 
 static bot_t *s_bot;
@@ -26,6 +27,7 @@ static EXT_RAM_BSS_ATTR bot_mood_t s_mm_mood;
 static EXT_RAM_BSS_ATTR bool s_mm_acting;
 static EXT_RAM_BSS_ATTR int s_mm_cue;
 static EXT_RAM_BSS_ATTR pm_trigger_t s_pm;
+static EXT_RAM_BSS_ATTR pj_t s_pj;
 static EXT_RAM_BSS_ATTR print_snapshot_t s_ps;
 static bool s_print_owns, s_print_demo;
 
@@ -36,6 +38,7 @@ void moments_init(const moments_ctx_t *ctx)
     wxm_init(&s_wxm);
     mm_init(&s_mm);
     pm_init(&s_pm);
+    pj_init(&s_pj);
     s_print_owns = s_print_demo = false;
 }
 
@@ -164,6 +167,15 @@ static void moment_text(const pm_out_t *o, char *buf, size_t n)
     } else {
         snprintf(buf, n, "Print done");
     }
+}
+
+bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool blocked)
+{
+    print_client_get(&s_ps);
+    pj_in_t in = {.t = t, .b = s_ps.has ? &s_ps.b : NULL, .have_srv = s_ps.have_srv,
+                  .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0, .page_on = page_on, .on_page = on_page, .real_ok = real_ok,
+                  .blocked = blocked};
+    return pj_tick(&s_pj, &s_pm.seen, &in);
 }
 
 __attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok, bool scene)

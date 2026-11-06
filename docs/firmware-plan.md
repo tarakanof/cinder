@@ -52,7 +52,7 @@ The Wi-Fi **now-playing** page (Ember#280) uses the Media column over Ember inst
 
 The **day** page: push on Off = clock in with the last stop time; turn = today's stop time ±15 min (the start time ±5 min on the offer); push = break / resume; long push = clock out (dismiss the offer); taps are pushes; each face names its controls on its top line. See `features.md` "Day clock page".
 
-The **print** page: turn = the other face (K1 ↔ K2, face dots at the bottom); push, tap and long push do nothing. It opens on K1 every time. See `features.md` "Print page".
+The **print** page: turn = the other face (K1 ↔ K2, face dots at the bottom); push, tap and long push do nothing. It opens on K1 every time. A new `started` event id brings the knob here once while the page is on. See `features.md` "Print page".
 
 The **controls** page: turn = `turn` with the detents since the last send (at most 4 sends/s), push or tap = `push`, long push = `long_push` (ring "Mac action"); the actions live on the Mac. Double push is not sent: it would delay every push. See `features.md` "Controls page".
 

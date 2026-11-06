@@ -114,6 +114,15 @@ bool pages_step(pages_nav_t *nav, int steps)
     return s_step_ok;
 }
 
+static bool s_goto_ok;
+static int s_goto_pos = -1;
+bool pages_goto(pages_nav_t *nav, int pos)
+{
+    s_goto_pos = pos;
+    if (s_goto_ok) nav->pos = pos;
+    return s_goto_ok;
+}
+
 static const char *s_day_label;
 const char *day_view_hold_label(void) { return s_day_label; }
 void page_day_frame(const page_frame_t *f) { (void)f; }
@@ -227,6 +236,40 @@ static void test_page_go(lv_obj_t *wipe)
     CHECK(!top_with(2, 3) && !top_with(1, 3), "one page: no dots");
     dots_refresh(&nav);
     page_fx_frame(90);
+}
+
+static void test_page_jump(lv_obj_t *wipe)
+{
+    pages_nav_t nav = {.n = 4, .pos = 1};
+    s_goto_ok = false;
+    int inv = wipe->invalid;
+    page_jump(&nav, 1, 200);
+    CHECK(s_goto_pos == 1 && wipe->invalid == inv && !top_with(4, 3), "a jump to the user's page: no wipe, no dots");
+
+    s_goto_ok = true;
+    page_jump(&nav, 3, 210);
+    CHECK(s_goto_pos == 3 && nav.pos == 3 && wipe->invalid == inv + 1 && top_with(4, 3), "a jump ahead starts the wipe and the dots");
+    CHECK(drawn(wipe) > 0 && s_last_y1 < 100, "forward: from the top, y1 %d", s_last_y1);
+    lv_obj_t *dots = top_with(4, 3);
+    CHECK(dots && dots->kids[3]->bg == 0xFFFFFF && dots->kids[1]->bg == 0x4A4A4A, "the jump's page has the white dot");
+    page_fx_frame(230);
+
+    page_jump(&nav, 2, 300);
+    page_fx_frame(300.1);
+    CHECK(drawn(wipe) > 0 && s_last_y1 > 100, "one back: from the bottom, y1 %d", s_last_y1);
+    page_fx_frame(330);
+
+    nav.pos = 3;
+    page_jump(&nav, 0, 400);
+    page_fx_frame(400.1);
+    CHECK(drawn(wipe) > 0 && s_last_y1 < 100, "last to first is one step round the list: from the top, y1 %d", s_last_y1);
+    page_fx_frame(430);
+
+    nav.pos = 0;
+    page_jump(&nav, 3, 500);
+    page_fx_frame(500.1);
+    CHECK(drawn(wipe) > 0 && s_last_y1 > 100, "first to last is one step back round the list: from the bottom, y1 %d", s_last_y1);
+    page_fx_frame(530);
 }
 
 static void test_fx_pause(lv_obj_t *wipe)
@@ -422,6 +465,7 @@ int main(void)
     CHECK(s_top.n == 3, "wipe, reset, hold on the top layer, in that order");
     lv_obj_t *reset = s_top.kids[1], *hold = s_top.kids[2];
     test_page_go(wipe);
+    test_page_jump(wipe);
     test_fx_pause(wipe);
     test_reset(reset);
     test_hold(hold);
