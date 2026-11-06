@@ -121,7 +121,7 @@ static void print_jump_hold(void)
     ember_demo_status_t ds;
     ember_client_demo_status(&ds);
     int pos = pages_find(&s_nav, "print");
-    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline();
+    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline() && config_store_settings_gen() == s_settings_gen;
     moments_print_jump(now_s(), pos >= 0, pos >= 0 && s_nav.pos == pos, real, true);
 }
 
