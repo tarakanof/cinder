@@ -25,7 +25,7 @@ Ember drives the TC001 by pushing 32×8 pixel frames to stock awtrix-ng firmware
 | **Media** | volume arc, play/pause icon, BLE link state | BLE HID (below) |
 | **Controls** | Sends turn, push and long push to the target Mac through Ember; off by default (built, `features.md` "Controls page") | `POST /v1/controls/action` |
 | **Print** | The printer's job: K1 Progress (time left, ready time, a drawn CORE One) and K2 Materialise (the model's picture filling in); off by default (built, `features.md` "Print page") | the view's `print` block, `GET /v1/print/thumb` |
-| **Room** | Climate, air and light faces from the J2 sensors (#307); the table row exists since #306 but never enters the turn list, and it needs `CONFIG_CINDER_ROOM` and `room.enabled` (`features.md` "Room module") | the knob's own `j2` snapshot, no view block |
+| **Room** | Climate, air and light faces from the J2 sensors, one per chip found (built, #307, `features.md` "Room page"); it needs `CONFIG_CINDER_ROOM`, `room.enabled` and a climate, air or light chip, else it never enters the turn list; off by default in Ember's list | the knob's own `j2` snapshot, no view block |
 | **Usage** | 5 h / weekly gauges per Claude or Codex account: screens behind a tap on the bot face, not a page (built, `features.md` "Usage screens") | the view's `usage` block |
 | **Idle** | dim black clock + weather, pixel shift | `GET /v1/weather/state`, `/v1/meetings/state` |
 | Debug | Wi-Fi, BLE, heap, Ember health | `GET /v1/clock/health` |
@@ -58,6 +58,8 @@ The **print** page: turn = the other face (K1 ↔ K2, face dots at the bottom); 
 The **controls** page: turn = `turn` with the detents since the last send (at most 4 sends/s), push or tap = `push`, long push = `long_push` (ring "Mac action"); the actions live on the Mac. Double push is not sent: it would delay every push. See `features.md` "Controls page".
 
 The **weather** page: turn = next / previous weather face (it opens on the most relevant one); push does nothing. See `features.md` "Weather face switching".
+
+The **room** page: turn = next / previous room face (Climate, Air, Light, as found; it opens on Air while the air is poor, else Climate); push does nothing. See `features.md` "Room page".
 
 ## Ember (Wi-Fi)
 
