@@ -121,6 +121,10 @@ void wxm_layout(const wxm_moment_t *m, wxm_layout_t *l)
     case WXM_PRINT_ATTENTION:
         wxm_print_layout(m, l);
         break;
+    case WXM_ROOM_STALE:
+    case WXM_ROOM_FRESH:
+        wxm_room_layout(m, l);
+        break;
     default: break;
     }
 }
@@ -578,6 +582,10 @@ int wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void
     if (yield) yield();
     if (m->kind == WXM_PRINT_DONE || m->kind == WXM_PRINT_ATTENTION) {
         wxm_print_paint(m, l, arena, yield);
+        return 0;
+    }
+    if (m->kind == WXM_ROOM_STALE || m->kind == WXM_ROOM_FRESH) {
+        wxm_room_paint(m, l, arena, yield);
         return 0;
     }
     switch (m->kind) {

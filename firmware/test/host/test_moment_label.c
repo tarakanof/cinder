@@ -125,6 +125,12 @@ int main(void)
     wx_obs_t o = obs(95, 0, -1, 20);
     if (wxm_moment_from(WXM_STORM, &o, false, &scratch, &m)) check(f30, &m);
     if (wxm_moment_from(WXM_AFTERRAIN, &o, false, &scratch, &m)) check(f30, &m);
+    for (int kind = WXM_ROOM_STALE; kind <= WXM_ROOM_FRESH; kind++) {
+        CHECK(wxm_room_moment((wxm_kind_t)kind, false, 0xFF5050, &m), "room kind %d", kind);
+        check(f30, &m);
+        bool all;
+        printf("moment label: \"%s\" %d px at 30 px\n", m.text, text_w(f30, m.text, &all));
+    }
     CHECK(s_n > 100000, "texts checked: %d", s_n);
     CHECK(lv_font_get_line_height(f30) <= WXM_TEXT_H, "the 30 px line fits the %d px text box: %d", WXM_TEXT_H,
           lv_font_get_line_height(f30));

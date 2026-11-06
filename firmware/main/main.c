@@ -63,6 +63,7 @@
 #include "moment_view.h"
 #include "moments.h"
 #include "print_jump.h"
+#include "room_mod.h"
 #include "music_view.h"
 #include "shown.h"
 #include "wx_shift.h"
@@ -576,7 +577,7 @@ void app_main(void)
     overlays_create();
     join_view_create();
     chase_ctl_init(esp_random());
-    moments_init(&(moments_ctx_t){.bot = &s_bot, .ks = s_ks_lv});
+    moments_init(&(moments_ctx_t){.bot = &s_bot, .ks = s_ks_lv, .room_air = ROOM_MOD_AIR});
     scene_init(&(scene_ctx_t){.bot = &s_bot, .nav = &s_nav});
     lv_timer_create(frame_cb, 16, handles.disp);
     lv_display_add_event_cb(handles.disp, stats_refr_cb, LV_EVENT_REFR_START, NULL);

@@ -47,8 +47,13 @@ extern "C" {
 #define WXM_STORM_RGB 0xF0D040
 #define WXM_PRINT_RGB 0xFA6831
 #define WXM_PRINT_FIL 0xFF6A2A
+#define WXM_ROOM_FRAME 0xF4F4F2
+#define WXM_ROOM_PANE 0x141416
+#define WXM_ROOM_STALE_AIR 0x6FA8DC
+#define WXM_ROOM_FRESH_AIR 0x50CCAA
 
-/* Change moments rank in this order (STORM highest); GLANCE and NIGHT are only periodic. */
+/* Change moments rank in this order (STORM highest); GLANCE and NIGHT are only periodic. The print and room kinds have
+   their own triggers. */
 typedef enum {
     WXM_NONE,
     WXM_GLANCE,
@@ -62,6 +67,8 @@ typedef enum {
     WXM_STORM,
     WXM_PRINT_DONE,
     WXM_PRINT_ATTENTION,
+    WXM_ROOM_STALE,
+    WXM_ROOM_FRESH,
     WXM_KINDS
 } wxm_kind_t;
 
@@ -99,6 +106,9 @@ wxm_kind_t wxm_now_kind(const wx_obs_t *o, wx_temp_t *t);
 /* A print moment (WXM_PRINT_DONE, WXM_PRINT_ATTENTION) with its text; false for any other kind. Quiet: sprite and text
    only, the outline keeps its colour. */
 bool wxm_print_moment(wxm_kind_t kind, bool quiet, const char *text, wxm_moment_t *m);
+/* A room moment (WXM_ROOM_STALE, WXM_ROOM_FRESH) with its text in rgb (the AQI band colour); false for any other kind.
+   It needs no weather. */
+bool wxm_room_moment(wxm_kind_t kind, bool quiet, uint32_t rgb, wxm_moment_t *m);
 /* Fills m for kind from the observation; false without fresh data. t: scratch. */
 bool wxm_moment_from(wxm_kind_t kind, const wx_obs_t *o, bool quiet, wx_temp_t *t, wxm_moment_t *m);
 
@@ -136,6 +146,9 @@ void wxm_note_other(wxm_trigger_t *tr, double t);
    every_s from then. The same-kind cooldown holds for periodic ones too. */
 bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m);
 void wxm_shown(wxm_trigger_t *tr, const wxm_moment_t *m, double t);
+/* A queued change moment that wxm_tick would play now if its gates allowed: past its same-kind wait, with fresh data o.
+   Other triggers yield to it. */
+bool wxm_change_due(const wxm_trigger_t *tr, const wx_obs_t *o, double t);
 
 /* Layers: RGB565A8 images in the arena at byte offset at, box px (the sprite box at WXM_BOX_X/Y). Elements: a layer
    drawn at x, y at rest, in draw order; one layer may be drawn by several elements (the raindrops, the flakes). */
@@ -161,6 +174,9 @@ int wxm_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void
 /* The print kinds' layers and paint (wx_moment_print.c); wxm_layout and wxm_paint call them. Nothing is refused. */
 void wxm_print_layout(const wxm_moment_t *m, wxm_layout_t *l);
 void wxm_print_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void));
+/* The room kinds' window and air lines (wx_moment_room.c), the same way. */
+void wxm_room_layout(const wxm_moment_t *m, wxm_layout_t *l);
+void wxm_room_paint(const wxm_moment_t *m, const wxm_layout_t *l, uint8_t *arena, void (*yield)(void));
 #define WXM_CLOUDS 5
 int wxm_clouds(const wx_cloud_t *out[WXM_CLOUDS]);
 
@@ -181,6 +197,8 @@ typedef struct {
 void wxm_frame(const wxm_moment_t *m, const wxm_layout_t *l, int k, wxm_frame_t *f);
 /* The print kinds' animation of frame k into f (opa and dy set): the elements and the tint. */
 void wxm_print_frame(const wxm_moment_t *m, int k, wxm_frame_t *f);
+/* The room kinds' air lines at frame k into f (opa and dy set): they drift towards the window and fade. */
+void wxm_room_frame(const wxm_moment_t *m, int k, wxm_frame_t *f);
 enum { WXM_DIRTY_SPRITE = 1, WXM_DIRTY_TEXT = 2, WXM_DIRTY_TINT = 4 };
 /* What b changes against the frame on screen a (NULL: nothing shown): the sprite box, the text line (with the tool icon
    in the quiet variant), the outline's tint. Frames in order, or cut short by wxm_abort_frame, never change both the

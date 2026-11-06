@@ -165,6 +165,17 @@ bool wxm_print_moment(wxm_kind_t kind, bool quiet, const char *text, wxm_moment_
     return true;
 }
 
+bool wxm_room_moment(wxm_kind_t kind, bool quiet, uint32_t rgb, wxm_moment_t *m)
+{
+    memset(m, 0, sizeof *m);
+    if (kind != WXM_ROOM_STALE && kind != WXM_ROOM_FRESH) return false;
+    m->kind = kind;
+    m->quiet = quiet;
+    snprintf(m->text, sizeof m->text, "%s", kind == WXM_ROOM_STALE ? "Open a window" : "Air is fresh again");
+    m->rgb = rgb;
+    return true;
+}
+
 void wxm_note_other(wxm_trigger_t *tr, double t) { tr->last_at = t; }
 
 void wxm_init(wxm_trigger_t *tr)
@@ -219,6 +230,11 @@ bool wxm_tick(wxm_trigger_t *tr, const wxm_in_t *in, wxm_moment_t *m)
         return false;
     }
     return true;
+}
+
+bool wxm_change_due(const wxm_trigger_t *tr, const wx_obs_t *o, double t)
+{
+    return tr->pending != WXM_NONE && t - tr->kind_at[tr->pending] >= WXM_SAME_S && fresh(o);
 }
 
 void wxm_shown(wxm_trigger_t *tr, const wxm_moment_t *m, double t)
@@ -302,6 +318,39 @@ void wxm_print_frame(const wxm_moment_t *m, int k, wxm_frame_t *f)
     f->tint = m->tint ? tint_step(env * 255.0f) : 0;
 }
 
+#define AIR_PERIOD 1.2f
+#define AIR_DRIFT 5.0f
+
+static const float AIR_DELAY[3] = {0, 0.4f, 0.8f};
+
+static void air_at(float u, float *dx, float *o)
+{
+    static const float T[4] = {0, 0.25f, 0.85f, 1.1f}, X[4] = {0, 1, 4, AIR_DRIFT}, O[4] = {0, 1, 1, 0};
+    *dx = AIR_DRIFT;
+    *o = 0;
+    for (int i = 1; i < 4; i++)
+        if (u < T[i]) {
+            float f = (u - T[i - 1]) / (T[i] - T[i - 1]);
+            *dx = X[i - 1] + (X[i] - X[i - 1]) * f;
+            *o = O[i - 1] + (O[i] - O[i - 1]) * f;
+            return;
+        }
+}
+
+void wxm_room_frame(const wxm_moment_t *m, int k, wxm_frame_t *f)
+{
+    (void)m;
+    float s = (float)k / WXM_FPS;
+    for (int side = 0; side < 2; side++)
+        for (int i = 0; i < 3; i++) {
+            float dx, o;
+            air_at(fmodf(s + AIR_DELAY[i] + (side ? 0.2f : 0), AIR_PERIOD), &dx, &o);
+            wxm_el_t *e = &f->el[1 + side * 3 + i];
+            e->x += (side ? -1 : 1) * (int)lroundf(dx);
+            e->opa = opa(o);
+        }
+}
+
 void wxm_frame(const wxm_moment_t *m, const wxm_layout_t *l, int k, wxm_frame_t *f)
 {
     memset(f, 0, sizeof *f);
@@ -328,6 +377,7 @@ void wxm_frame(const wxm_moment_t *m, const wxm_layout_t *l, int k, wxm_frame_t 
         f->el[i] = (wxm_el_t){l->el[i].x, l->el[i].y + f->dy, 255};
     wxm_el_t *e = f->el;
     if (m->kind == WXM_PRINT_DONE || m->kind == WXM_PRINT_ATTENTION) wxm_print_frame(m, k, f);
+    if (m->kind == WXM_ROOM_STALE || m->kind == WXM_ROOM_FRESH) wxm_room_frame(m, k, f);
     switch (m->kind) {
     case WXM_GLANCE:
     case WXM_FROST:
@@ -441,6 +491,8 @@ const wxm_cue_t *wxm_script(const wxm_moment_t *m, int *n)
     case WXM_AFTERRAIN: c = AFTERRAIN, *n = NK(AFTERRAIN); break;
     case WXM_PRINT_DONE: c = PRINT_DONE, *n = NK(PRINT_DONE); break;
     case WXM_PRINT_ATTENTION: c = PRINT_ATTENTION, *n = NK(PRINT_ATTENTION); break;
+    case WXM_ROOM_STALE: c = GLANCE, *n = NK(GLANCE); break;
+    case WXM_ROOM_FRESH: c = AFTERRAIN, *n = NK(AFTERRAIN); break;
     default: break;
     }
     return c;

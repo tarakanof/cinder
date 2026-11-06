@@ -12,6 +12,7 @@
 #include "print_client.h"
 #include "print_jump.h"
 #include "print_moment.h"
+#include "room_moment.h"
 
 static bot_t *s_bot;
 static const knob_settings_t *s_ks;
@@ -30,16 +31,21 @@ static EXT_RAM_BSS_ATTR pm_trigger_t s_pm;
 static EXT_RAM_BSS_ATTR pj_t s_pj;
 static EXT_RAM_BSS_ATTR print_snapshot_t s_ps;
 static bool s_print_owns, s_print_demo;
+static bool (*s_room_air)(int *aqi);
+static EXT_RAM_BSS_ATTR rm_trigger_t s_rm;
+static bool s_room_owns;
 
 void moments_init(const moments_ctx_t *ctx)
 {
     s_bot = ctx->bot;
     s_ks = ctx->ks;
+    s_room_air = ctx->room_air;
     wxm_init(&s_wxm);
     mm_init(&s_mm);
     pm_init(&s_pm);
     pj_init(&s_pj);
-    s_print_owns = s_print_demo = false;
+    rm_init(&s_rm);
+    s_print_owns = s_print_demo = s_room_owns = false;
 }
 
 void moment_unact(double t)
@@ -82,7 +88,7 @@ static void moment_cue(const wxm_cue_t *c, double t)
 
 void moments_cue_start(const wxm_moment_t *m, double t)
 {
-    s_print_owns = false;
+    s_print_owns = s_room_owns = false;
     s_moment_mood = s_bot->mood;
     s_cues = wxm_script(m, &s_cue_n);
     s_cue = 0;
@@ -98,14 +104,34 @@ void moments_cue_poll(double t)
     while (tau >= 0 && s_cue < s_cue_n && tau >= s_cues[s_cue].t) moment_cue(&s_cues[s_cue++], t);
 }
 
+static void room_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page, bool on)
+{
+    int aqi = 0;
+    bool valid = on && s_room_air(&aqi);
+    rm_in_t in = {.t = t, .valid = valid, .aqi = aqi, .mood = moment_mood(s_bot->mood), .bot_mood = (int)s_bot->mood,
+                  .shown = bot_page && !s_bot->asleep,
+                  .blocked = moment_view_busy() || music_view_busy() || mm_recent(&s_mm, t) || calm || chase_ctl_busy(),
+                  .on = on, .weather_first = s_ks->weather_moments && wxm_change_due(&s_wxm, wx, t), .last_at = s_wxm.last_at};
+    rm_out_t out;
+    static EXT_RAM_BSS_ATTR wxm_moment_t m;
+    if (rm_tick(&s_rm, &in, &out) && wxm_room_moment(out.kind, out.quiet, room_air_rgb(out.aqi), &m) && moment_view_start(&m, t)) {
+        rm_shown(&s_rm, &out, t);
+        wxm_note_other(&s_wxm, t);
+        moments_cue_start(&m, t);
+        s_room_owns = true;
+    }
+}
+
 __attribute__((noinline)) void moments_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page)
 {
-    if (!s_ks->weather_moments && !moment_view_busy()) moment_view_release();
-    bool weather_plays = moment_view_busy() && !s_print_owns;
-    if (weather_plays && (!bot_page || !s_ks->weather_moments)) {
+    bool room = s_room_air && s_ks->room_enabled && s_ks->room_moments;
+    if (!s_ks->weather_moments && !room && !moment_view_busy()) moment_view_release();
+    bool plays = moment_view_busy() && !s_print_owns;
+    bool on = s_room_owns ? room : s_ks->weather_moments;
+    if (plays && (!bot_page || !on)) {
         moment_view_stop();
         moment_unact(t);
-    } else if (weather_plays && (s_bot->mood != s_moment_mood || calm)) {
+    } else if (plays && (s_bot->mood != s_moment_mood || calm)) {
         moment_view_abort(t);
         moment_unact(t);
     }
@@ -118,6 +144,7 @@ __attribute__((noinline)) void moments_tick(double t, const wx_obs_t *wx, bool c
         wxm_shown(&s_wxm, &m, t);
         moments_cue_start(&m, t);
     }
+    if (s_room_air) room_tick(t, wx, calm, bot_page, room);
     moments_cue_poll(t);
     chase_ctl_hold(moment_view_busy());
 }

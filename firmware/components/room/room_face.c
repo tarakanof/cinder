@@ -75,6 +75,13 @@ static bool air_have(const room_t *r, int64_t now_ms)
     return air_reading(r, now_ms) && r->air_validity == ENS160_NORMAL && r->aqi >= 1 && r->aqi <= 5;
 }
 
+bool room_air_now(const room_t *r, int64_t now_ms, int *aqi)
+{
+    if (!air_have(r, now_ms)) return false;
+    *aqi = r->aqi;
+    return true;
+}
+
 bool room_air_poor(const room_t *r, int64_t now_ms, bool shown)
 {
     if (!air_have(r, now_ms)) return false;
