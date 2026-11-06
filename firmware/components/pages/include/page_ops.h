@@ -28,6 +28,8 @@ void page_print_show(bool on);
 void page_print_input(const page_input_t *in, double t);
 void page_print_frame(const page_frame_t *f);
 void page_room_show(bool on);
+void page_room_input(const page_input_t *in, double t);
+void page_room_frame(const page_frame_t *f);
 bool page_room_visible(void);
 
 #ifdef __cplusplus

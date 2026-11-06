@@ -43,10 +43,9 @@ STUB_PAGE(pomo, "pomo")
 STUB_PAGE(np, "np")
 STUB_PAGE(day, "day")
 STUB_PAGE(print, "print")
+STUB_PAGE(room, "room")
 
 bool page_stub_room_visible;
-
-void page_room_show(bool on) { note(on ? "room+" : "room-"); }
 
 bool page_room_visible(void) { return page_stub_room_visible; }
 

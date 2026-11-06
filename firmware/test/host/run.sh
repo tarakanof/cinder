@@ -848,7 +848,7 @@ echo "mood beat wiring: page_tick feeds the outline job right before the pose an
 CC="${CC:-cc}"
 CFLAGS="-std=c11 -D_DEFAULT_SOURCE -DCJSON_NESTING_LIMIT=32 -Wall -Wextra -Werror -O1"
 FPC="-ffp-contract=off"
-for CM in components/weather/CMakeLists.txt main/CMakeLists.txt; do grep -qF -- "-ffp-contract=off" "$D/../../$CM" || { echo "run.sh: FAIL $CM lost -ffp-contract=off" >&2; exit 1; }; done
+for CM in components/weather/CMakeLists.txt components/room/CMakeLists.txt main/CMakeLists.txt; do grep -qF -- "-ffp-contract=off" "$D/../../$CM" || { echo "run.sh: FAIL $CM lost -ffp-contract=off" >&2; exit 1; }; done
 "$CC" $CFLAGS "-DRJ_RACE_POINT(j,at)=rj_race_point(j,at)" "-DRS_RACE_POINT(s,at)=rs_race_point(s,at)" -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/glint_chase.c" "$C/tool_marks.c" "$C/label_wipe.c" "$C/orbit_table.c" "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$D/test_bot.c" -lm -lpthread -o "${OUT}_bot"
 "$CC" $CFLAGS -I"$C/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/music_moment.c" "$D/test_music_moment.c" -lm -o "${OUT}_music"
 "$CC" $CFLAGS -I"$C/include" -I"$P/include" -I"$LS/include" "$C/bot_raster.c" "$P/pomo.c" "$LS/link_state.c" "$P/pomo_ring.c" "$D/test_pomo.c" -lm -o "${OUT}_pomo"
@@ -887,6 +887,9 @@ HW="$D/../../hwtest/main"
 "$CC" $CFLAGS -I"$TN/include" "$TN/tone.c" "$D/test_tone.c" -lm -o "${OUT}_tone"
 "$CC" $CFLAGS -I"$RM/include" -I"$SE/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$J" "$RM/room_report.c" "$SE/sens_ens160.c" \
     "$V/device_api.c" "$V/coredump_up.c" "$O/ota_policy.c" "$RT/knob_rotation.c" "$J/cJSON.c" "$D/test_room.c" -lm -o "${OUT}_room"
+"$CC" $CFLAGS $FPC -I"$RM/include" -I"$SE/include" -I"$W/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$J" "$RM/room_face.c" "$RM/room_report.c" \
+    "$SE/sens_ens160.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" \
+    "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_room_face.c" -lm -o "${OUT}_room_face"
 "$CC" $CFLAGS -I"$HW" -I"$J" "$HW/hwt_line.c" "$J/cJSON.c" "$D/test_hwt.c" -lm -o "${OUT}_hwt"
 "$CC" $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 "$CC" $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
@@ -985,6 +988,12 @@ if [ -d "$LV" ]; then
     "$CC" $CFLAGS $FPC $LVDEF -DHOST_HEAP_FAIL -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$PRT/include" -I"$NP/include" -I"$PCV/include" -I"$C/include" \
         -I"$PG/include" -I"$V/include" -I"$G/include" -I"$P/include" -I"$LS/include" -I"$N/include" -I"$J" "$PCV/page_canvas.c" "$D/../../main/print_view.c" "$D/../../main/font_digits_96.c" \
         "$PRT/print.c" "$PRT/print_draw.c" "$NP/np.c" "$NP/np_draw.c" "$NP/np_ctl.c" "$NP/np_cover.c" "$J/cJSON.c" "$D/test_print_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_print_view"
+    mkdir -p "$OUT_DIR/room_cfg" && : > "$OUT_DIR/room_cfg/sdkconfig.h"
+    "$CC" $CFLAGS $FPC $LVDEF -DCONFIG_CINDER_ROOM=1 -I"$OUT_DIR/room_cfg" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$RM/include" -I"$SE/include" \
+        -I"$D/../../components/j2/include" -I"$W/include" -I"$PCV/include" -I"$PG/include" -I"$C/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$M/include" -I"$J" \
+        "$PCV/page_canvas.c" "$D/../../main/room_page.c" "$D/../../main/font_digits_96.c" "$D/../../main/font_face_36.c" "$RM/room_face.c" "$RM/room_report.c" "$SE/sens_ens160.c" \
+        "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" \
+        "$D/test_room_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_room_view"
     "$CC" $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$CT/include" "$D/../../main/controls_view.c" "$D/test_controls_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_controls_view"
     "$CC" $CFLAGS $LVDEF -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" "$D/../../main/music_view.c" "$C/music_moment.c" \
         "$D/test_music_view.c" $(ls "$OUT_DIR"/lv/*.o | grep -v 'lv_mem_core_clib\.c\.o$') -lm -lpthread -o "${OUT}_music_view"
@@ -1014,6 +1023,7 @@ fi
 "${OUT}_sens"
 "${OUT}_tone"
 "${OUT}_room"
+"${OUT}_room_face"
 "${OUT}_hwt"
 "${OUT}_link"
 "${OUT}_refr"
@@ -1062,8 +1072,9 @@ if [ "$TITLE_FONT" = 1 ]; then
     "${OUT}_pomo_view"
     "${OUT}_controls_view" ${CONTROLS_VIEW_SHOTS:+"$CONTROLS_VIEW_SHOTS"}
     "${OUT}_print_view" ${PRINT_VIEW_SHOTS:+"$PRINT_VIEW_SHOTS"}
+    "${OUT}_room_view" ${ROOM_VIEW_SHOTS:+"$ROOM_VIEW_SHOTS"}
 else
-    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing, music moment and usage view tests: $LV missing; run idf.py reconfigure once" >&2
+    echo "run.sh: SKIPPED title and face font, forecast, wind, days, sun, air and moment label tests and the LVGL eye, now-playing, music moment, usage and room view tests: $LV missing; run idf.py reconfigure once" >&2
 fi
 python3 -m unittest discover -q -s "$D/../tools"
 "$CC" $CFLAGS -I"$O/include" -I"$J" "$O/ota_policy.c" "$J/cJSON.c" "$D/test_ota_rec.c" -lm -o "${OUT}_ota_rec"
@@ -1197,11 +1208,20 @@ body "$ECL" ember_client_presence | grep -qxF '    if (!dim_ctl_presence(present
 ! grep -lE 'ember_client_presence\(' "$D"/../../main/*.c | grep -vq '/ember_client\.c$' && grep -qxF '    j2_room_on_presence(ember_client_presence);' "$RMC" ||
     ROOMW="$ROOMW only-the-room-task-pushes-presence"
 grep -qxF '#if CONFIG_CINDER_ROOM' "$RMC" && grep -qxF '#if CONFIG_CINDER_ROOM' "$D/../../main/app_mods.c" || ROOMW="$ROOMW the-room-module-builds-only-with-CONFIG_CINDER_ROOM"
+RPC="$D/../../main/room_page.c"
+grep -qxF '#if CONFIG_CINDER_ROOM' "$RPC" && awk '/^#else$/ {e = 1} e && /^bool page_room_visible\(void\) \{ return false; \}$/ {ok = 1} END {exit !ok}' "$RPC" ||
+    ROOMW="$ROOMW the-room-page-is-never-visible-without-CONFIG_CINDER_ROOM"
+body "$MAINC" settings_frame | grep -qxF '    uint32_t visible = pages_visible();' &&
+    body "$MAINC" settings_frame | grep -A4 -xF '    if (gen == s_settings_gen) {' | grep -qxF '        pages_settings(&s_nav, s_ks_lv, false);' ||
+    ROOMW="$ROOMW settings_frame-reorders-the-pages-when-the-visible-mask-changes"
+body "$RPC" bake_task | grep -qxF '        wx_paint_ring_lut(s_ring, s_lut);' && [ "$(grep -c 'wx_paint_ring_lut(' "$RPC")" -eq 1 ] &&
+    ! grep -qE 'wx_paint_ring_lut\(|annulus\(' "$D/../../components/room/room_face.c" ||
+    ROOMW="$ROOMW the-room-ring-bakes-on-its-task-with-the-weather-rasteriser"
 if [ -n "$ROOMW" ]; then
     echo "run.sh: FAIL room module wiring:$ROOMW" >&2
     exit 1
 fi
-echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic"
+echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic; the room page shows only with the flag, its ring bakes off the LVGL task with the weather rasteriser, a new visible mask reorders the pages"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and loop_wait (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 "$CC" $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \

@@ -44,6 +44,8 @@ uint16_t wx_rgb565(uint32_t rgb);
 void wx_paint_clear(wx_img_t *im);
 /* Gauge ring lo..hi on the temperature scale; grey: the no-data track. lut: caller scratch. */
 void wx_paint_ring(wx_ring_t *r, int lo, int hi, bool grey, uint16_t lut[WX_RING_LUT]);
+/* The gauge ring in a caller's colours: lut[0] at the gauge start, lut[WX_RING_LUT - 1] at its end. */
+void wx_paint_ring_lut(wx_ring_t *r, const uint16_t lut[WX_RING_LUT]);
 /* Writes the ring's runs into a WX_FACE x WX_FACE background; nothing else reaches the annulus. */
 void wx_ring_blit(const wx_ring_t *r, uint16_t *bg);
 void wx_paint_rays(wx_img_t *im);

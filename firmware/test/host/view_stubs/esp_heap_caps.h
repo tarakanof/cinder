@@ -25,3 +25,5 @@ static inline void heap_caps_free(void *p) { host_heap_freed(p); free(p); }
 #else
 static inline void heap_caps_free(void *p) { free(p); }
 #endif
+static inline size_t heap_caps_get_free_size(unsigned caps) { (void)caps; return 0; }
+static inline size_t heap_caps_get_largest_free_block(unsigned caps) { (void)caps; return 0; }

@@ -13,6 +13,7 @@ typedef enum {
     PAGE_CANVAS_WEATHER,
     PAGE_CANVAS_NP,
     PAGE_CANVAS_PRINT,
+    PAGE_CANVAS_ROOM,
 } page_canvas_owner_t;
 
 /* LVGL task only (page_canvas_init and the first pages_show run in app_main under the LVGL lock); a buffer under PAGE_CANVAS_BYTES is refused: every take then returns NULL. */

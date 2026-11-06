@@ -20,6 +20,8 @@ bool dim_ctl_input(dim_wake_t src);
 void dim_ctl_wake(dim_wake_t src);
 /* Any task (the room task, through ember_client_presence). A presence reading: true when it changed; coming back can wake the panel (docs/features.md, presence). */
 bool dim_ctl_presence(bool present);
+/* Any task. The panel's level now, 0-255 (mid-fade too), -1 before the first frame. */
+int dim_ctl_panel_level(void);
 /* Any task. The idle rules have the panel off: the LVGL task skips rendering. */
 bool dim_ctl_off(void);
 

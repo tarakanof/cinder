@@ -116,6 +116,8 @@ void wx_paint_ring_rain(wx_ring_t *r, int intensity, bool grey, uint16_t lut[WX_
     ring_raster(r, lut);
 }
 
+void wx_paint_ring_lut(wx_ring_t *r, const uint16_t lut[WX_RING_LUT]) { ring_raster(r, lut); }
+
 typedef float (*ring_px_fn)(const void *ctx, float fx, float fy, float r2, uint16_t *col);
 
 static void annulus(wx_ring_t *r, ring_px_fn fn, const void *ctx)
