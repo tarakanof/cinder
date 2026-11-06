@@ -36,7 +36,7 @@ static wx_obs_t rain(int intensity, const char *code)
     return o;
 }
 
-static const char *const KIND[WXM_KINDS] = {"none", "glance", "night", "frost", "heat", "wind", "afterrain", "snow", "rain", "storm", "print_done", "print_attention"};
+static const char *const KIND[WXM_KINDS] = {"none", "glance", "night", "frost", "heat", "wind", "afterrain", "snow", "rain", "storm", "print_done", "print_attention", "room_stale", "room_fresh"};
 
 static wxm_sig_t sig(const wx_obs_t *o, const wxm_sig_t *prev)
 {
@@ -523,7 +523,8 @@ static void test_frames(void)
     CHECK(!f.opa && !f.text_opa && !f.icon_off, "before the first: nothing");
 }
 
-static const wxm_kind_t ALL[] = {WXM_GLANCE, WXM_NIGHT, WXM_FROST, WXM_HEAT, WXM_WIND, WXM_AFTERRAIN, WXM_SNOW, WXM_RAIN, WXM_STORM, WXM_PRINT_DONE, WXM_PRINT_ATTENTION};
+static const wxm_kind_t ALL[] = {WXM_GLANCE, WXM_NIGHT, WXM_FROST, WXM_HEAT, WXM_WIND, WXM_AFTERRAIN, WXM_SNOW, WXM_RAIN, WXM_STORM, WXM_PRINT_DONE, WXM_PRINT_ATTENTION,
+                                 WXM_ROOM_STALE, WXM_ROOM_FRESH};
 #define N_ALL ((int)(sizeof ALL / sizeof ALL[0]))
 
 static wxm_moment_t variant(wxm_kind_t k, int v)
@@ -532,6 +533,11 @@ static wxm_moment_t variant(wxm_kind_t k, int v)
         wxm_moment_t p;
         wxm_print_moment(k, v & 1, "x", &p);
         return p;
+    }
+    if (k == WXM_ROOM_STALE || k == WXM_ROOM_FRESH) {
+        wxm_moment_t r;
+        wxm_room_moment(k, v & 1, 0xFF5050, &r);
+        return r;
     }
     wxm_moment_t m = {.kind = k, .quiet = v & 1, .sun = (v & 2) != 0, .moon = (v & 2) != 0, .moon_phase = 30, .moon_illum = 60};
     snprintf(m.text, sizeof m.text, "x");
@@ -1033,8 +1039,9 @@ static void test_acting(void)
                     wxm_frame(&m, &l, k, &f);
                     int dy = rim_dy_of(&p);
                     bool squashed = fabs(p.scale_y / p.scale_x - 1) >= 0.015;
-                    double hop_at = m.kind == WXM_AFTERRAIN ? 1.2 : 0.9;
-                    bool hop = (m.kind == WXM_AFTERRAIN || m.kind == WXM_PRINT_DONE) && t - t0 >= hop_at && t - t0 < hop_at + BOT_HOP_DURATION_S + 0.05;
+                    double hop_at = m.kind == WXM_AFTERRAIN || m.kind == WXM_ROOM_FRESH ? 1.2 : 0.9;
+                    bool hop = (m.kind == WXM_AFTERRAIN || m.kind == WXM_PRINT_DONE || m.kind == WXM_ROOM_FRESH) && t - t0 >= hop_at &&
+                               t - t0 < hop_at + BOT_HOP_DURATION_S + 0.05;
                     int areas = 0;
                     bool ring = false;
                     if (k >= 0 && k < WXM_FRAMES) {
@@ -1287,6 +1294,92 @@ static void test_paint(void)
     }
 }
 
+static void box_at(const wxm_layout_t *l, int layer, int bx, int by, uint32_t rgb, const char *what)
+{
+    const wxm_layer_t *y = &l->layer[layer];
+    int i = (by - y->y) * y->w + (bx - y->x);
+    uint16_t c = ((const uint16_t *)(s_arena + y->at))[i];
+    int al = s_arena[y->at + y->w * y->h * 2 + i];
+    uint32_t got = ((uint32_t)((c >> 11) & 31) << 19) | ((uint32_t)((c >> 5) & 63) << 10) | ((uint32_t)(c & 31) << 3);
+    CHECK(al > 240 && near(got, rgb, 8), "%s at box (%d, %d): %06X alpha %d, want %06X", what, bx, by, (unsigned)got, al, (unsigned)rgb);
+}
+
+static void test_room_moments(void)
+{
+    wxm_moment_t m;
+    CHECK(!wxm_room_moment(WXM_RAIN, false, 0, &m) && !wxm_room_moment(WXM_PRINT_DONE, false, 0, &m) && !wxm_room_moment(WXM_NONE, false, 0, &m),
+          "only the room kinds");
+    CHECK(wxm_room_moment(WXM_ROOM_STALE, false, 0xD03060, &m) && m.kind == WXM_ROOM_STALE && !m.quiet && strcmp(m.text, "Open a window") == 0 &&
+              m.rgb == 0xD03060 && m.tint == 0 && !m.sun && !m.moon,
+          "stale air: \"%s\" in the band colour, no tint", m.text);
+    CHECK(wxm_room_moment(WXM_ROOM_FRESH, true, 0x50CCAA, &m) && m.quiet && strcmp(m.text, "Air is fresh again") == 0 && m.rgb == 0x50CCAA,
+          "fresh air: \"%s\"", m.text);
+
+    int biggest = 0;
+    for (int a = 0; a < N_ALL; a++)
+        for (int v = 0; v < 4; v++) {
+            wxm_moment_t x = variant(ALL[a], v);
+            wxm_layout_t l;
+            wxm_layout(&x, &l);
+            if (l.total > biggest) biggest = l.total;
+        }
+    for (int kind = WXM_ROOM_STALE; kind <= WXM_ROOM_FRESH; kind++) {
+        wxm_room_moment((wxm_kind_t)kind, false, 0xFF5050, &m);
+        wxm_layout_t l;
+        wxm_layout(&m, &l);
+        CHECK(l.nl == 4 && l.ne == 7, "%s: the window and three air lines, each line twice (%d layers, %d elements)", KIND[kind], l.nl, l.ne);
+        printf("room moment %s: %d B of the %d B arena, %d B left (the biggest kind needs %d B)\n", KIND[kind], l.total, WXM_ARENA,
+               WXM_ARENA - l.total, biggest);
+        CHECK(l.total <= WXM_ARENA / 4, "%s: %d B", KIND[kind], l.total);
+        int moved = 0;
+        for (int k = 0; k < WXM_FRAMES; k++) {
+            wxm_frame_t f;
+            wxm_frame(&m, &l, k, &f);
+            for (int e = 0; e < l.ne; e++) {
+                const wxm_layer_t *y = &l.layer[l.el[e].layer];
+                const wxm_el_t *q = &f.el[e];
+                if (!f.opa || !q->opa) continue;
+                CHECK(q->x >= 0 && q->y >= 0 && q->x + y->w <= WXM_BOX_W && q->y + y->h <= WXM_BOX_H,
+                      "%s frame %d element %d at (%d,%d) %dx%d: inside the sprite box", KIND[kind], k, e, q->x, q->y, y->w, y->h);
+                if (e == 0) CHECK(q->x == l.el[0].x && q->opa == 255, "%s frame %d: the window stays put", KIND[kind], k);
+                else moved += q->x != l.el[e].x;
+                if (e > 0 && e < 4) CHECK(q->x >= l.el[e].x && q->x + y->w <= l.el[0].x + 2, "%s frame %d: left air drifts right, short of the window", KIND[kind], k);
+                if (e >= 4) CHECK(q->x <= l.el[e].x && q->x >= l.el[0].x + l.layer[0].w - 2, "%s frame %d: right air drifts left, short of the window", KIND[kind], k);
+            }
+        }
+        CHECK(moved > 100, "%s: the air moves (%d element frames off rest)", KIND[kind], moved);
+    }
+
+    wxm_layout_t l;
+    m = variant(WXM_ROOM_STALE, 0);
+    paint(&m, &l);
+    const wxm_layer_t *w = &l.layer[0];
+    box_at(&l, 0, 45, 40, WXM_ROOM_FRAME, "the window's left side");
+    box_at(&l, 0, 77, 11, WXM_ROOM_FRAME, "the window's top");
+    box_at(&l, 0, 77, 30, WXM_ROOM_FRAME, "the upright bar");
+    box_at(&l, 0, 60, 43, WXM_ROOM_FRAME, "the cross bar");
+    box_at(&l, 0, 60, 25, WXM_ROOM_PANE, "a pane");
+    box_at(&l, 0, 95, 62, WXM_ROOM_PANE, "the bottom right pane");
+    box_at(&l, 1, l.layer[1].x + 12, l.layer[1].y + 3, WXM_ROOM_STALE_AIR, "an air line");
+    box_at(&l, 2, l.layer[2].x + 2, l.layer[2].y + 3, WXM_ROOM_STALE_AIR, "the long line's round end");
+    {
+        int i = 0 * w->w + 0;
+        CHECK(s_arena[w->at + w->w * w->h * 2 + i] == 0, "the window layer's corner is clear");
+        i = 3 * l.layer[1].w + 0;
+        CHECK(s_arena[l.layer[1].at + l.layer[1].w * l.layer[1].h * 2 + i] == 0, "the air line's padding is clear");
+    }
+    m = variant(WXM_ROOM_FRESH, 0);
+    paint(&m, &l);
+    box_at(&l, 1, l.layer[1].x + 12, l.layer[1].y + 3, WXM_ROOM_FRESH_AIR, "fresh air's line");
+    box_at(&l, 0, 45, 40, WXM_ROOM_FRAME, "the same window");
+
+    int n;
+    wxm_moment_t g = variant(WXM_GLANCE, 0), a = variant(WXM_AFTERRAIN, 0), st = variant(WXM_ROOM_STALE, 0), fr = variant(WXM_ROOM_FRESH, 0);
+    const wxm_cue_t *gc = wxm_script(&g, &n), *ac = wxm_script(&a, &n);
+    CHECK(wxm_script(&st, &n) == gc, "stale air acts as the glance: a look up at the window, a blink");
+    CHECK(wxm_script(&fr, &n) == ac, "fresh air acts as after rain: happy eyes and a hop");
+}
+
 int main(void)
 {
     bot_shape_init();
@@ -1306,6 +1399,7 @@ int main(void)
     test_acting();
     test_paint();
     test_print_moments();
+    test_room_moments();
     if (failures) {
         printf("moment: %d failure(s)\n", failures);
         return 1;

@@ -778,6 +778,64 @@ static void test_orbit(lv_display_t *d)
     orbit_frame(d, &p, t0 + 3);
 }
 
+static int near_px(uint32_t rgb, int x0, int y0, int x1, int y1)
+{
+    int r0 = (rgb >> 16) & 0xFF, g0 = (rgb >> 8) & 0xFF, b0 = rgb & 0xFF, n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            uint16_t v = s_fb[y * W + x];
+            int r = (v >> 11) << 3, g = ((v >> 5) & 63) << 2, b = (v & 31) << 3;
+            n += abs(r - r0) <= 24 && abs(g - g0) <= 24 && abs(b - b0) <= 24;
+        }
+    return n;
+}
+
+static void test_room_shots(lv_display_t *d, const char *dir)
+{
+    static const struct {
+        wxm_kind_t kind;
+        uint32_t text, air;
+        bot_eyes_t eyes;
+        double gy;
+        const char *name;
+    } R[] = {{WXM_ROOM_STALE, 0xFF5050, WXM_ROOM_STALE_AIR, BOT_EYES_DASH, 0.25, "room-stale"},
+             {WXM_ROOM_FRESH, 0x50CCAA, WXM_ROOM_FRESH_AIR, BOT_EYES_HAPPY, 0.12, "room-fresh"}};
+    bot_view_set_host(&(ember_host_info_t){.color = -1});
+    for (size_t r = 0; r < sizeof R / sizeof R[0]; r++) {
+        bot_pose_t p = {.mood = BOT_IDLE, .face = BOT_IDLE, .eyes = R[r].eyes, .gaze_y = R[r].gy, .scale_x = 1, .scale_y = 1};
+        double tm = 900 + 20 * (double)r;
+        orbit_frame(d, &p, tm);
+        wxm_moment_t m;
+        CHECK(wxm_room_moment(R[r].kind, false, R[r].text, &m) && moment_view_start(&m, tm), "%s: starts", R[r].name);
+        double tau = -1, t0 = tm + WXM_PRE_S;
+        for (int i = 0; i < 2000 && tau < 0; i++) {
+            tau = moment_view_poll(t0);
+            if (tau < 0) usleep(2000);
+        }
+        CHECK(tau >= 0, "%s: baked and plays after the pre-roll", R[r].name);
+        int text = 0, frame = 0, air = 0, ghost = 0, x0, y0;
+        for (int k = 0; k <= WXM_FRAMES; k++) {
+            double t = t0 + (k + 0.5) / WXM_FPS;
+            orbit_frame(d, &p, t);
+            moment_view_frame(t);
+            lv_refr_now(d);
+            if (k == 30) {
+                text = near_px(R[r].text, WXM_TEXT_X, WXM_TEXT_Y, WXM_TEXT_X + WXM_TEXT_W, WXM_TEXT_Y + WXM_TEXT_H);
+                frame = near_px(WXM_ROOM_FRAME, WXM_BOX_X, WXM_BOX_Y, WXM_BOX_X + WXM_BOX_W, WXM_BOX_Y + WXM_BOX_H);
+                air = near_px(R[r].air, WXM_BOX_X, WXM_BOX_Y, WXM_BOX_X + WXM_BOX_W, WXM_BOX_Y + WXM_BOX_H);
+                save_ppm(dir, R[r].name);
+            }
+            ghost += redraw_diff(d, &x0, &y0);
+        }
+        printf("eye view: %s: text %d px, window %d px, air %d px, %d px differ from full redraws\n", R[r].name, text, frame, air, ghost);
+        CHECK(text > 400 && frame > 800 && air > 100, "%s: the text in its colour, the window and the air on screen (%d, %d, %d)", R[r].name, text, frame, air);
+        CHECK(!ghost && !moment_view_busy(), "%s: every frame equals a full redraw and it ends (%d px)", R[r].name, ghost);
+        CHECK(!near_px(WXM_ROOM_FRAME, WXM_BOX_X, WXM_BOX_Y, WXM_BOX_X + WXM_BOX_W, WXM_BOX_Y + WXM_BOX_H) &&
+                  !near_px(R[r].text, WXM_TEXT_X, WXM_TEXT_Y, WXM_TEXT_X + WXM_TEXT_W, WXM_TEXT_Y + WXM_TEXT_H),
+              "%s: nothing left after the end", R[r].name);
+    }
+}
+
 int main(int argc, char **argv)
 {
     lv_init();
@@ -844,6 +902,7 @@ int main(int argc, char **argv)
     test_hint(d, argc > 1 ? argv[1] : NULL);
     test_tint(d, argc > 1 ? argv[1] : NULL);
     test_orbit(d);
+    test_room_shots(d, argc > 1 ? argv[1] : NULL);
     test_join_label(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);
     return failures ? 1 : 0;

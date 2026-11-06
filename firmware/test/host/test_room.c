@@ -57,9 +57,43 @@ static void test_report(void)
           "the fake snapshot through the checkin body: %s", body);
 }
 
+static void test_air_now(void)
+{
+    const int64_t now = 1000000;
+    room_t r = snapshot(now);
+    int aqi = -1;
+    CHECK(!room_air_now(&r, now, &aqi) && aqi == -1, "warm-up: no air for the moments");
+    r.air_validity = ENS160_NORMAL;
+    CHECK(room_air_now(&r, now, &aqi) && aqi == 2, "normal and fresh: the AQI (%d)", aqi);
+    r.air_validity = ENS160_START_UP;
+    CHECK(!room_air_now(&r, now, &aqi), "start-up: none");
+    r.air_validity = ENS160_INVALID;
+    CHECK(!room_air_now(&r, now, &aqi), "invalid: none");
+    r = snapshot(now);
+    r.air_validity = ENS160_NORMAL;
+    r.air_ms = now - ROOM_FRESH_MS;
+    CHECK(!room_air_now(&r, now, &aqi), "60 s old: none");
+    r.air_ms = now - ROOM_FRESH_MS + 1;
+    CHECK(room_air_now(&r, now, &aqi), "just under 60 s: still");
+    r.air_ms = 0;
+    CHECK(!room_air_now(&r, now, &aqi), "never read: none");
+    r = snapshot(now);
+    r.air_validity = ENS160_NORMAL;
+    r.has &= ~ROOM_HAS_AIR;
+    CHECK(!room_air_now(&r, now, &aqi), "no ENS160 found: none");
+    r = snapshot(now);
+    r.air_validity = ENS160_NORMAL;
+    for (int a = 0; a <= 7; a++) {
+        r.aqi = (uint8_t)a;
+        aqi = -1;
+        CHECK(room_air_now(&r, now, &aqi) == (a >= 1 && a <= 5) && (a < 1 || a > 5 || aqi == a), "AQI %d: only 1..5 count", a);
+    }
+}
+
 int main(void)
 {
     test_report();
+    test_air_now();
     if (failures) {
         printf("room: %d failure(s)\n", failures);
         return 1;

@@ -1,5 +1,7 @@
 #include "room_mod.h"
 
+#include <stddef.h>
+
 #include "sdkconfig.h"
 
 #if CONFIG_CINDER_ROOM
@@ -50,6 +52,15 @@ static void room_diag(dev_diag_t *d)
     if (free_b >= 0) dev_diag_add_task(d, "room", (uint32_t)free_b);
 }
 
+static bool room_air(int *aqi)
+{
+    room_t r;
+    j2_room_get(&r);
+    return room_air_now(&r, esp_timer_get_time() / 1000, aqi);
+}
+
+bool (*const ROOM_MOD_AIR)(int *aqi) = room_air;
+
 const app_mod_t ROOM_MOD = {
     .name = "room",
     .start = room_start,
@@ -58,5 +69,9 @@ const app_mod_t ROOM_MOD = {
     .settings = room_settings,
     .diag = room_diag,
 };
+
+#else
+
+bool (*const ROOM_MOD_AIR)(int *aqi) = NULL;
 
 #endif

@@ -10,12 +10,13 @@
 
 typedef struct {
     bot_t *bot;
-    const knob_settings_t *ks; /* read every frame: bot.weather_moments, bot.weather_every_min, bot.print_moments */
+    const knob_settings_t *ks; /* read every frame: bot.weather_moments, bot.weather_every_min, bot.print_moments, room.* */
+    bool (*room_air)(int *aqi); /* the room air for the room moments (ROOM_MOD_AIR); NULL without CONFIG_CINDER_ROOM */
 } moments_ctx_t;
 
 /* Once in app_main, before the first frame. */
 void moments_init(const moments_ctx_t *ctx);
-/* The weather moment, every frame without a demo. wx NULL: none yet. */
+/* The weather and room moments, every frame without a demo. wx NULL: none yet. */
 void moments_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page);
 /* The music moment, every frame. on: no demo scene or view. */
 void moments_music_tick(double t, bool calm, bool offline, bool bot_page, bool on);

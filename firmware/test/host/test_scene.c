@@ -1682,6 +1682,200 @@ static void test_orbit_task(void)
     CHECK(TK.deletes == 0, "a task that never started is not deleted");
 }
 
+typedef struct {
+    bool valid;
+    int aqi, calls;
+} room_air_t;
+
+static room_air_t RA;
+
+static bool fake_air(int *aqi)
+{
+    RA.calls++;
+    if (RA.valid) *aqi = RA.aqi;
+    return RA.valid;
+}
+
+static void room_fresh(int aqi)
+{
+    fresh();
+    moments_init(&(moments_ctx_t){.bot = &bot, .ks = &ks, .room_air = fake_air});
+    ks.weather_every_min = 0;
+    ks.room_enabled = ks.room_moments = true;
+    RA = (room_air_t){.valid = true, .aqi = aqi};
+}
+
+static double run_room(const wx_obs_t *o, bool calm, bool page, double s)
+{
+    int starts = MV.starts;
+    for (double end = T + s; T < end; T += 0.5) {
+        moments_tick(T, o, calm, page);
+        if (MV.starts > starts) return T;
+    }
+    return -1;
+}
+
+static void test_room_moments(void)
+{
+    wx_obs_t dry = obs("2", 12, 0), wet = obs("61", 12, 2);
+
+    room_fresh(4);
+    double t0 = T, at = run_room(NULL, false, true, 30);
+    CHECK(at >= t0 + WXM_SETTLE_S && at < t0 + WXM_SETTLE_S + 1, "no weather data: stale air after the settle (%.1f)", at - t0);
+    CHECK(MV.last.kind == WXM_ROOM_STALE && strcmp(MV.last.text, "Open a window") == 0 && MV.last.rgb == 0xFF5050 && !MV.last.quiet && bot.acting,
+          "resting: the full variant in the AQI 4 colour, with acting (\"%s\" %06X)", MV.last.text, (unsigned)MV.last.rgb);
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+    RA.aqi = 2;
+    t0 = T;
+    at = run_room(NULL, false, true, WXM_GAP_S + 30);
+    CHECK(at >= t0 + WXM_GAP_S - 1 && MV.last.kind == WXM_ROOM_FRESH && strcmp(MV.last.text, "Air is fresh again") == 0 && MV.last.rgb == 0x50CCAA,
+          "AQI 2 after it: fresh air after the 5 min gap (%.1f, \"%s\")", at - t0, MV.last.text);
+
+    room_fresh(5);
+    ks.weather_moments = false;
+    at = run_room(&dry, false, true, 30);
+    CHECK(at > 0 && MV.last.kind == WXM_ROOM_STALE && MV.last.rgb == 0xD03060, "weather moments off: room moments still play, AQI 5 colour");
+    step(1);
+    moments_tick(T, &dry, false, true);
+    CHECK(MV.busy && MV.stops == 0 && MV.aborts == 0, "weather moments off do not stop a room moment");
+    ks.room_moments = false;
+    moments_tick(T, &dry, false, true);
+    CHECK(!MV.busy && MV.stops == 1, "room.moments off stops it");
+    moment_unact(T);
+
+    room_fresh(4);
+    ks.weather_moments = false;
+    moments_tick(T, &dry, false, true);
+    CHECK(MV.releases == 0, "weather moments off, room moments on: the arena stays");
+    ks.room_moments = false;
+    moments_tick(T, &dry, false, true);
+    CHECK(MV.releases == 1, "both off: it goes");
+    ks.room_moments = true;
+    ks.room_enabled = false;
+    MV.releases = 0;
+    moments_tick(T, &dry, false, true);
+    CHECK(MV.releases == 1, "room.enabled off counts as off");
+    CHECK(run_room(&dry, false, true, 60) < 0, "and plays none");
+
+    room_fresh(4);
+    ks.weather_moments = true;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    t0 = T;
+    for (; T < t0 + 10 && !MV.starts; T += 0.5) moments_tick(T, &wet, false, true);
+    CHECK(MV.starts == 1 && MV.last.kind == WXM_RAIN, "a weather change and stale air due together: the weather goes first (%d)", MV.last.kind);
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+    t0 = T;
+    at = run_room(&wet, false, true, WXM_GAP_S + 30);
+    CHECK(at >= t0 + WXM_GAP_S - 1 && MV.last.kind == WXM_ROOM_STALE, "the stale air waits for the next slot, 5 min on (%.1f)", at - t0);
+
+    room_fresh(4);
+    ks.weather_moments = true;
+    ks.weather_every_min = 1;
+    t0 = run_room(&dry, false, true, 30);
+    CHECK(t0 > 0 && MV.last.kind == WXM_ROOM_STALE, "stale air before the periodic weather moment");
+    MV.busy = false;
+    MV.tau = -1;
+    moment_unact(T);
+    at = run_room(&dry, false, true, WXM_GAP_S + 90);
+    CHECK(at >= t0 + WXM_GAP_S - 1 && MV.last.kind == WXM_GLANCE, "the periodic weather moment waits 5 min after a room one (%.1f, kind %d)", at - t0,
+          MV.last.kind);
+
+    room_fresh(4);
+    ks.weather_moments = true;
+    for (int i = 0; i < 4; i++, T += 0.5) moments_tick(T, &dry, false, false);
+    bot_set_mood(&bot, BOT_WAITING, T);
+    for (int i = 0; i < 20; i++, T += 0.5) moments_tick(T, &wet, false, true);
+    CHECK(!MV.starts, "a waiting bot holds both");
+    bot_set_mood(&bot, BOT_IDLE, T);
+    at = run_room(&wet, false, true, 30);
+    CHECK(at > 0 && MV.last.kind == WXM_RAIN, "a queued weather change still beats the room afterwards");
+
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_WORKING, T);
+    at = run_room(NULL, false, true, 30);
+    CHECK(at > 0 && MV.last.kind == WXM_ROOM_STALE && MV.last.quiet && !bot.acting, "working: the quiet variant, no acting");
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_ERROR, T);
+    CHECK(run_room(NULL, false, true, 60) < 0, "error: none");
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_WAITING, T);
+    CHECK(run_room(NULL, false, true, 60) < 0, "waiting: none");
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_DONE, T);
+    CHECK(run_room(NULL, false, true, 60) > 0 && !MV.last.quiet, "done: the full variant");
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_SLEEPY, T);
+    CHECK(run_room(NULL, false, true, 60) > 0 && !MV.last.quiet, "sleepy: the full variant");
+    room_fresh(4);
+    bot_set_mood(&bot, BOT_SLEEPY, T);
+    bot_sleep(&bot, T);
+    CHECK(run_room(NULL, false, true, 60) < 0, "asleep: none");
+    room_fresh(4);
+    CHECK(run_room(NULL, false, false, 60) < 0, "off the bot page: none");
+    room_fresh(4);
+    CHECK(run_room(NULL, true, true, 60) < 0, "quiet hours with calm: none");
+    room_fresh(4);
+    MU.busy = true;
+    CHECK(run_room(NULL, false, true, 60) < 0, "a music moment playing: none");
+    MU.busy = false;
+    room_fresh(4);
+    RA.valid = false;
+    CHECK(run_room(NULL, false, true, 60) < 0 && RA.calls > 0, "warm-up (no valid air): none");
+
+    room_fresh(4);
+    run_room(NULL, false, true, 30);
+    bot_act_begin(&ref, T);
+    step(0.8);
+    bot_set_mood(&bot, BOT_DONE, T);
+    bot_set_mood(&ref, BOT_DONE, T);
+    moments_tick(T, NULL, false, true);
+    CHECK(!MV.busy && MV.aborts == 1 && MV.stops == 0, "a mood change cuts a room moment short");
+    bot_act_drop(&ref, T);
+    poses_same_for("and drops the acting", 0.5);
+    room_fresh(4);
+    run_room(NULL, false, true, 30);
+    step(0.5);
+    moments_tick(T, NULL, true, true);
+    CHECK(!MV.busy && MV.aborts == 1, "calm cuts it short");
+    moment_unact(T);
+    room_fresh(4);
+    run_room(NULL, false, true, 30);
+    step(0.5);
+    moments_tick(T, NULL, false, false);
+    CHECK(!MV.busy && MV.stops == 1, "leaving the bot page stops it");
+    moment_unact(T);
+    room_fresh(4);
+    run_room(NULL, false, true, 30);
+    step(0.5);
+    moments_print_tick(T, false, true, true, false);
+    CHECK(MV.busy && MV.aborts == 0 && MV.stops == 0, "the print tick leaves a room moment alone");
+    moment_view_stop();
+    moment_unact(T);
+
+    room_fresh(4);
+    MV.ok = false;
+    run_room(NULL, false, true, 30);
+    for (double end = T + 1; T < end; T += 0.1) moments_tick(T, NULL, false, true);
+    CHECK(MV.starts > 3, "a room start that fails is offered again (%d)", MV.starts);
+    MV.ok = true;
+    int starts = MV.starts;
+    moments_tick(T, NULL, false, true);
+    CHECK(MV.starts == starts + 1 && MV.busy && MV.last.kind == WXM_ROOM_STALE, "and starts as soon as it can");
+    moment_view_stop();
+    moment_unact(T);
+
+    room_fresh(4);
+    moments_init(&(moments_ctx_t){.bot = &bot, .ks = &ks});
+    RA.calls = 0;
+    ks.weather_moments = false;
+    CHECK(run_room(NULL, false, true, 120) < 0 && RA.calls == 0, "no room build (room_air NULL): no room moments, nothing asked");
+    CHECK(MV.releases > 0, "and weather moments off free the arena as before");
+}
+
 int main(void)
 {
     moment_unact(0);
@@ -1708,6 +1902,7 @@ int main(void)
     test_music_repeat();
     test_print_moments();
     test_print_jump();
+    test_room_moments();
     test_orbit_task();
     if (failures) {
         printf("scene: %d failures\n", failures);

@@ -662,7 +662,7 @@ done
 body "$BVC" bot_view_create | grep -qxF '    offline_glyph_raster(s_offline_a8);' &&
     grep -qxF 'static EXT_RAM_BSS_ATTR uint8_t s_offline_a8[OFFLINE_GLYPH_W * OFFLINE_GLYPH_H];' "$BVC" &&
     [ "$(grep -c 'offline_glyph_raster(' "$BVC")" -eq 1 ] || WIRING="$WIRING offline-glyph-rastered-once-into-PSRAM"
-body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'moments_init(&(moments_ctx_t){.bot = &s_bot, .ks = s_ks_lv});' &&
+body "$MAINC" app_main | grep -qF 'moment_view_create(s_bot_page);' && body "$MAINC" app_main | grep -qF 'moments_init(&(moments_ctx_t){.bot = &s_bot, .ks = s_ks_lv, .room_air = ROOM_MOD_AIR});' &&
     body "$MOC" moments_init | grep -qxF '    wxm_init(&s_wxm);' && body "$MOC" moments_init | grep -qxF '    mm_init(&s_mm);' ||
     WIRING="$WIRING app_main-creates-the-moments"
 grep -qF 'static EXT_RAM_BSS_ATTR wxm_trigger_t s_wxm;' "$MOC" || WIRING="$WIRING trigger-in-PSRAM"
@@ -867,11 +867,11 @@ grep -qE '^set_source_files_properties\((.* )?"?room_page\.c"? .*-ffp-contract=o
 "$CC" $CFLAGS $FPC -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_sun.c" -lm -o "${OUT}_sun"
 "$CC" $CFLAGS $FPC -I"$W/include" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_air.c" -lm -o "${OUT}_air"
 "$CC" $CFLAGS $FPC -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
-    "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
+    "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/wx_moment_poly.c" "$W/wx_moment_room.c" "$D/test_moment.c" -lm -o "${OUT}_moment"
 "$CC" $CFLAGS $FPC -I"$W/include" -I"$D" -include "$D/moment_pixel.h" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" \
-    "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$D/test_moment_paint.c" -lm -o "${OUT}_moment_paint"
+    "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/wx_moment_poly.c" "$W/wx_moment_room.c" "$D/test_moment_paint.c" -lm -o "${OUT}_moment_paint"
 "$CC" $CFLAGS $FPC -I"$C/include" -I"$W/include" "$C/bot_behavior.c" "$C/bot_shape.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
-    "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
+    "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/wx_moment_poly.c" "$W/wx_moment_room.c" "$D/test_cloud.c" -lm -o "${OUT}_cloud"
 "$CC" $CFLAGS -I"$H/include" -I"$M/include" "$H/ember_host.c" "$M/dim.c" -I"$C/include" "$D/test_ember.c" -o "${OUT}_ember"
 AM="$D/../../components/app_mod"
 RM="$D/../../components/room"
@@ -891,6 +891,7 @@ HW="$D/../../hwtest/main"
 "$CC" $CFLAGS $FPC -I"$RM/include" -I"$SE/include" -I"$W/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$J" "$RM/room_face.c" "$RM/room_report.c" \
     "$SE/sens_ens160.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" \
     "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$D/test_room_face.c" -lm -o "${OUT}_room_face"
+"$CC" $CFLAGS -I"$RM/include" -I"$W/include" "$RM/room_moment.c" "$D/test_room_moment.c" -lm -o "${OUT}_room_moment"
 "$CC" $CFLAGS -I"$HW" -I"$J" "$HW/hwt_line.c" "$J/cJSON.c" "$D/test_hwt.c" -lm -o "${OUT}_hwt"
 "$CC" $CFLAGS -I"$LS/include" "$LS/link_state.c" "$LS/join_label.c" "$D/test_link.c" -o "${OUT}_link"
 "$CC" $CFLAGS -I"$RS/include" "$RS/refr_stats.c" "$D/test_refr.c" -o "${OUT}_refr"
@@ -973,7 +974,7 @@ if [ -d "$LV" ]; then
     find "$LV/src" -name '*.c' -print0 | CC="$CC" LVDEF="$LVDEF" LV="$LV" LVO="$OUT_DIR/lv" xargs -0 -P 8 -n 1 \
         sh -c '"$CC" -std=c11 -O1 -w $LVDEF -I"$LV" -c "$1" -o "$LVO/$(printf "%s" "$1" | tr / _).o"' sh
     "$CC" $CFLAGS $FPC $LVDEF -I"$D/view_stubs" -I"$LV" -I"$D/../../main" -I"$C/include" -I"$H/include" -I"$U/include" -I"$W/include" -I"$LS/include" -I"$SS/include" -I"$D/idf_stubs" "$D/../../main/bot_view.c" "$D/../../main/moment_view.c" "$U/usage_draw.c" "$W/wx_clock.c" \
-        "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
+        "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/wx_moment_poly.c" "$W/wx_moment_room.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" \
         "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_air.c" \
         "$C/bot_behavior.c" "$C/bot_shape.c" "$C/bot_raster.c" "$C/ring_glint.c" "$C/arc_text.c" "$C/tool_marks.c" "$C/label_wipe.c" \
         "$C/rim_job.c" "$C/rim_beat.c" "$C/rim_slots.c" "$C/offline_glyph.c" "$H/ember_host.c" "$LS/join_label.c" "$D/../../main/join_view.c" "$D/test_eye_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_eye_view"
@@ -1027,6 +1028,7 @@ fi
 "${OUT}_tone"
 "${OUT}_room"
 "${OUT}_room_face"
+"${OUT}_room_moment"
 "${OUT}_hwt"
 "${OUT}_link"
 "${OUT}_refr"
@@ -1220,11 +1222,14 @@ body "$MAINC" settings_frame | grep -qxF '    uint32_t visible = pages_visible()
 body "$RPC" bake_task | grep -qxF '        wx_paint_ring_lut(s_ring, s_lut);' && [ "$(grep -c 'wx_paint_ring_lut(' "$RPC")" -eq 1 ] &&
     ! grep -qE 'wx_paint_ring_lut\(|annulus\(' "$D/../../components/room/room_face.c" ||
     ROOMW="$ROOMW the-room-ring-bakes-on-its-task-with-the-weather-rasteriser"
+awk '/^#else$/ {e = NR} /^bool \(\*const ROOM_MOD_AIR\)\(int \*aqi\) = NULL;$/ {n = NR} /^#endif$/ {d = NR} END {exit !(e && n > e && d > n)}' "$RMC" &&
+    [ "$(grep -c 'ROOM_MOD_AIR' "$MAINC")" -eq 1 ] && ! grep -q 'CONFIG_CINDER_ROOM\|j2_room\|room_mod' "$MOC" ||
+    ROOMW="$ROOMW room-moments-get-their-air-only-through-moments_init-and-none-without-CONFIG_CINDER_ROOM"
 if [ -n "$ROOMW" ]; then
     echo "run.sh: FAIL room module wiring:$ROOMW" >&2
     exit 1
 fi
-echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic; the room page shows only with the flag, its ring bakes off the LVGL task with the weather rasteriser, a new visible mask reorders the pages"
+echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic; the room page shows only with the flag, its ring bakes off the LVGL task with the weather rasteriser, a new visible mask reorders the pages; the room moments read the air only through moments_init (NULL without the flag)"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and loop_wait (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 "$CC" $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \
@@ -1243,10 +1248,10 @@ WT="$D/../../components/wake_turn"
     "$D/test_input_route.c" -lm -o "${OUT}_input_route"
 "${OUT}_input_route"
 "$CC" $CFLAGS $FPC -I"$D/scene_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D" -I"$D/../../main" -I"$C/include" -I"$W/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" \
-    -I"$H/include" -I"$M/include" -I"$LS/include" -I"$N/include" -I"$NP/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$SS/include" -I"$J" \
-    "$SCC" "$MOC" "$CHC" "$PRT/print.c" "$PRT/print_moment.c" "$PRT/print_jump.c" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
+    -I"$H/include" -I"$M/include" -I"$LS/include" -I"$N/include" -I"$NP/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$SS/include" -I"$RM/include" -I"$J" \
+    "$SCC" "$MOC" "$CHC" "$PRT/print.c" "$PRT/print_moment.c" "$PRT/print_jump.c" "$RM/room_moment.c" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" \
-    "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$J/cJSON.c" "$D/test_scene.c" -lm -o "${OUT}_scene"
+    "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/wx_moment_poly.c" "$W/wx_moment_room.c" "$J/cJSON.c" "$D/test_scene.c" -lm -o "${OUT}_scene"
 "${OUT}_scene"
 "$CC" $CFLAGS -I"$D/page_ops_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D/../../main" -I"$C/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" -I"$H/include" -I"$M/include" \
     -I"$LS/include" -I"$N/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$CT/include" -I"$J" "$PFC" "$OVC" "$D/../../main/pomo_page.c" \
