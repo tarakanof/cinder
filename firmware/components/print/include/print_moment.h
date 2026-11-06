@@ -51,6 +51,7 @@ typedef struct {
     int mood;                /* 0 rest, 1 working (quiet variant), 2 busy (waiting, error) */
     int bot_mood;            /* the bot's own mood: any change restarts the settle */
     bool shown;              /* the bot page is on screen and the bot is awake */
+    bool page;               /* the bot page is on screen, the bot asleep or not: a demo wakes it */
     bool busy;               /* a moment plays or bakes, or a glint chase runs */
     bool calm;               /* quiet hours */
     bool on;                 /* bot.print_moments */

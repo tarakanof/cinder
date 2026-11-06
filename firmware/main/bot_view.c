@@ -593,8 +593,8 @@ static void tint_draw(lv_layer_t *layer)
     lv_draw_image_dsc_t d;
     lv_draw_image_dsc_init(&d);
     d.src = &s_tint.img;
-    d.recolor = lv_color_hex(s_tint.rgb);
-    d.opa = (lv_opa_t)s_tint.opa;
+    d.recolor = lv_color_hex(s_tint.drawn_rgb);
+    d.opa = (lv_opa_t)s_tint.drawn_opa;
     lv_area_t a;
     tint_area(&a);
     lv_draw_image(layer, &d, &a);

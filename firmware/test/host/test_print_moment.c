@@ -22,7 +22,14 @@ static print_block_t blk(print_phase_t ph, print_ev_kind_t kind, long long id, l
 
 static pm_in_t in_at(double t, const print_block_t *b)
 {
-    return (pm_in_t){.t = t, .b = b, .have_srv = true, .srv_now = SRV0 + t, .mood = 0, .bot_mood = 0, .shown = true, .on = true, .real_ok = true};
+    return (pm_in_t){.t = t, .b = b, .have_srv = true, .srv_now = SRV0 + t, .mood = 0, .bot_mood = 0, .shown = true, .page = true, .on = true, .real_ok = true};
+}
+
+static pm_in_t in_at_demo(double t, const print_block_t *b)
+{
+    pm_in_t in = in_at(t, b);
+    in.real_ok = false;
+    return in;
 }
 
 static bool tick(pm_trigger_t *tr, pm_in_t in, pm_out_t *o) { return pm_tick(tr, &in, o); }
@@ -131,20 +138,32 @@ static void test_priority(void)
     in.srv_now = SRV0 + 10;
     CHECK(pm_tick(&tr, &in, &o) && o.quiet, "while agents work: the quiet variant");
 
+    static const struct {
+        const char *what;
+        int gate;
+    } GATES[] = {{"nothing off the bot page or while asleep", 0}, {"nothing while another moment plays", 1},
+                 {"nothing in quiet hours", 2}, {"nothing with bot.print_moments off", 3}};
+    for (int g = 0; g < 4; g++) {
+        pm_init(&tr);
+        settled(&tr, 0);
+        in = in_at(1, &b);
+        CHECK(!pm_tick(&tr, &in, &o), "gate %d: the event is taken but not due before the settle", g);
+        in = in_at(5, &b);
+        if (GATES[g].gate == 0) in.shown = false, in.page = false;
+        if (GATES[g].gate == 1) in.busy = true;
+        if (GATES[g].gate == 2) in.calm = true;
+        if (GATES[g].gate == 3) in.on = false;
+        CHECK(!pm_tick(&tr, &in, &o), "%s", GATES[g].what);
+        in = in_at(10, &b);
+        pm_tick(&tr, &in, &o);
+        in = in_at(14, &b);
+        CHECK(pm_tick(&tr, &in, &o) && o.kind == PM_DONE, "%s: the same input plays once the gate opens", GATES[g].what);
+    }
     pm_init(&tr);
     settled(&tr, 0);
     in = in_at(5, &b);
-    in.shown = false;
-    CHECK(!pm_tick(&tr, &in, &o), "nothing off the bot page or while asleep");
-    in = in_at(5, &b);
     in.busy = true;
-    CHECK(!pm_tick(&tr, &in, &o), "nothing while another moment plays");
-    in = in_at(5, &b);
-    in.calm = true;
-    CHECK(!pm_tick(&tr, &in, &o), "nothing in quiet hours");
-    in = in_at(5, &b);
-    in.on = false;
-    CHECK(!pm_tick(&tr, &in, &o), "nothing with bot.print_moments off");
+    pm_tick(&tr, &in, &o);
     in = in_at(400, &b);
     CHECK(!pm_tick(&tr, &in, &o), "a B3 held back over 5 min is dropped");
 
@@ -233,6 +252,7 @@ static void test_demo(void)
     pm_init(&tr);
     print_block_t d = blk(PRINT_FINISHED, PRINT_EV_FINISHED, 3502309358LL, 1782043200);
     pm_in_t in = in_at(0.1, &d);
+    in.real_ok = false;
     in.on = false;
     in.calm = true;
     in.mood = 2;
@@ -250,7 +270,18 @@ static void test_demo(void)
     CHECK(!pm_tick(&tr, &in, &o), "a demo waits while a moment plays");
     in.busy = false;
     in.shown = false;
+    in.page = false;
     CHECK(!pm_tick(&tr, &in, &o), "and for the bot page");
+    in.page = true;
+    d.event.id = 3502309361LL;
+    CHECK(pm_tick(&tr, &in, &o) && o.demo, "a demo plays with the bot asleep on the bot page: the act wakes it");
+    in.page = false;
+    d.event.id = 3502309362LL;
+    pm_tick(&tr, &in, &o);
+    in.page = true;
+    in.real_ok = true;
+    CHECK(!pm_tick(&tr, &in, &o), "a demo that did not get to play is dropped once the real view is back");
+    in.real_ok = false;
     in.b = NULL;
     in.shown = true;
     CHECK(!pm_tick(&tr, &in, &o), "a demo that ended before it could play is dropped");
@@ -306,7 +337,7 @@ static void test_demo(void)
     print_block_t da = blk(PRINT_ATTENTION, PRINT_EV_ATTENTION, 77, 1782043200);
     CHECK(tick(&tr, in_at(5, &real), &o) && !o.demo, "a real B4");
     pm_shown(&tr, &o, 5);
-    CHECK(tick(&tr, in_at(6, &da), &o) && o.demo && o.kind == PM_ATTENTION, "a demo B4 on top");
+    CHECK(tick(&tr, in_at_demo(6, &da), &o) && o.demo && o.kind == PM_ATTENTION, "a demo B4 on top");
     pm_shown(&tr, &o, 6);
     CHECK(!tick(&tr, in_at(100, &real), &o), "the real event is not replayed when the demo ends");
     CHECK(tick(&tr, in_at(125, &real), &o) && !o.demo, "and the real repeat keeps its schedule (5 + 120 s)");

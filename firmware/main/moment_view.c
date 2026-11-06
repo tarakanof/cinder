@@ -151,7 +151,11 @@ static void attach(void)
     lv_obj_set_style_text_color(s_text, lv_color_hex(s_m.rgb), 0);
     lv_point_t size;
     lv_text_get_size(&size, s_m.text, &lv_font_montserrat_30, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    lv_obj_set_style_text_font(s_text, size.x > WXM_TEXT_W ? &lv_font_montserrat_24 : &lv_font_montserrat_30, 0);
+    const lv_font_t *font = size.x > WXM_TEXT_W ? &lv_font_montserrat_24 : &lv_font_montserrat_30;
+    int lh = lv_font_get_line_height(font);
+    lv_obj_set_style_text_font(s_text, font, 0);
+    lv_obj_set_pos(s_text, WXM_TEXT_X, WXM_TEXT_Y + (WXM_TEXT_H - lh) / 2);
+    lv_obj_set_height(s_text, lh);
     s_any = false;
     s_k = -1;
 }

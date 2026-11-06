@@ -67,17 +67,17 @@ bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out)
     if (in->real_ok && tr->pend == PM_DONE &&
         (job_runs(phase) || (in->have_srv && in->srv_now - (double)tr->pend_at > PM_FRESH_S)))
         tr->pend = PM_NONE;
-    if (tr->demo_pend != PM_NONE && (!in->b || in->b->event.id != tr->demo_id)) tr->demo_pend = PM_NONE;
+    if (tr->demo_pend != PM_NONE && (in->real_ok || !in->b || in->b->event.id != tr->demo_id)) tr->demo_pend = PM_NONE;
     memset(out, 0, sizeof *out);
     out->quiet = in->mood == 1;
-    if (!in->shown || in->busy) return false;
-    if (tr->demo_pend != PM_NONE) {
+    if (in->busy) return false;
+    if (tr->demo_pend != PM_NONE && in->page) {
         out->kind = tr->demo_pend;
         out->demo = true;
         out->took_s = tr->demo_took_s;
         return true;
     }
-    if (!in->real_ok || !in->on || in->calm || in->mood == 2 || t - tr->steady_at < PM_SETTLE_S) return false;
+    if (!in->shown || !in->real_ok || !in->on || in->calm || in->mood == 2 || t - tr->steady_at < PM_SETTLE_S) return false;
     if (tr->pend == PM_DONE) {
         out->kind = PM_DONE;
         out->took_s = tr->pend_took_s;

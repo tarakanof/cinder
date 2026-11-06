@@ -382,6 +382,63 @@ static void test_hint(lv_display_t *d, const char *dir)
     printf("eye view: limit hint %d px on the rim, gone when off\n", on);
 }
 
+static int orange_px(double *cy)
+{
+    int n = 0;
+    double sy = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            uint16_t v = s_fb[y * W + x];
+            int r = (v >> 11) << 3, g = ((v >> 5) & 63) << 2, b = (v & 31) << 3;
+            if (r >= 200 && g >= 70 && g <= 140 && b <= 90) n++, sy += y;
+        }
+    *cy = n ? sy / n : 0;
+    return n;
+}
+
+static int tint_frames(lv_display_t *d, bot_mood_t m, double t0, double offset_y, double *cy, int want)
+{
+    bot_pose_t p = {.mood = m, .face = m, .eyes = BOT_EYES_DASH, .gaze_y = 0.2, .scale_x = 1, .scale_y = 1, .hop_dy = offset_y};
+    int n = 0;
+    for (int i = 0; i < 2000; i++) {
+        double t = t0 + i * 0.01;
+        bot_view_rim_feed(m, false, true);
+        bot_view_update(&p, t);
+        bot_view_rim_pose(&p, t);
+        bot_view_tick(t, false);
+        lv_refr_now(d);
+        n = orange_px(cy);
+        if (want ? n > want : n < 20) return n;
+        usleep(5000);
+    }
+    return n;
+}
+
+static void test_tint(lv_display_t *d, const char *dir)
+{
+    bot_view_set_host(&(ember_host_info_t){.color = -1});
+    CHECK(shown_rim(d, BOT_IDLE), "the idle outline before the tint");
+    double cy0, cy1;
+    int none = tint_frames(d, BOT_IDLE, 600, 0, &cy0, 0);
+    CHECK(none < 20, "no tint: no orange on the rim (%d px)", none);
+    bot_view_set_tint(0xFA6831, 255);
+    int on = tint_frames(d, BOT_IDLE, 620, 0, &cy0, 6000);
+    CHECK(on > 6000 && on < 16000, "the tint: the whole round rim in Prusa orange: %d px", on);
+    CHECK(fabs(cy0 - H / 2.0) < 6, "centred on the rim (y %.1f)", cy0);
+    save_ppm(dir, "bot-tint");
+    bot_view_set_tint(0xFA6831, 128);
+    double cyh;
+    int half = tint_frames(d, BOT_IDLE, 650, 0, &cyh, 0);
+    CHECK(half < on / 2, "half opacity: the pure orange thins out (%d px against %d)", half, on);
+    bot_view_set_tint(0xFA6831, 255);
+    int hopped = tint_frames(d, BOT_IDLE, 680, 0.12, &cy1, 6000);
+    CHECK(hopped > 6000 && fabs(cy1 - cy0) >= 5, "a hop moves the tint with the rim (y %.1f against %.1f)", cy1, cy0);
+    bot_view_set_tint(0, 0);
+    int off = tint_frames(d, BOT_IDLE, 710, 0, &cy0, 0);
+    CHECK(off < 20, "cleared: the rim back to its mood colour (%d px)", off);
+    printf("eye view: outline tint %d px on the rim, %d at half, gone when cleared\n", on, half);
+}
+
 static lv_obj_t *s_page;
 static uint16_t s_base[W * H], s_inc[W * H];
 
@@ -772,6 +829,7 @@ int main(int argc, char **argv)
     test_rim_hue(d);
     test_label(d);
     test_hint(d, argc > 1 ? argv[1] : NULL);
+    test_tint(d, argc > 1 ? argv[1] : NULL);
     test_orbit(d);
     test_join_label(d);
     printf(failures ? "%d FAILED\n" : "eye view: all tests passed\n", failures);

@@ -191,8 +191,6 @@ static void np_set(const char *title, np_play_t state, bool demo)
 
 static print_snapshot_t PS;
 static double pomo_now = 1000;
-static int tints;
-static uint32_t tint_rgb;
 
 void print_client_get(print_snapshot_t *out) { *out = PS; }
 double pomo_client_now(void) { return pomo_now; }
@@ -1533,6 +1531,15 @@ static void test_print_moments(void)
     CHECK(!MV.busy && MV.stops == 1, "but leaving the bot page does");
     real_ok = true;
     fresh();
+    bot_sleep(&bot, T);
+    step(1);
+    bot_pose(&bot, T);
+    real_ok = false;
+    print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
+    CHECK(bot.asleep && print_run(false, true, 1) >= 0 && MV.busy, "a demo plays with the bot asleep");
+    CHECK(!bot.asleep || bot.acting, "and the act rouses it");
+    real_ok = true;
+    fresh();
     real_ok = false;
     print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
     print_run(false, true, 1);
@@ -1556,8 +1563,6 @@ static void test_print_moments(void)
     CHECK(print_run(false, true, 10) < 0, "a music moment plays: wait");
     MU.busy = false;
     CHECK(print_run(false, true, 10) > 0, "then play");
-    (void)tints;
-    (void)tint_rgb;
 }
 
 static void test_orbit_task(void)
