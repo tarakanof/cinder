@@ -1417,7 +1417,7 @@ static double print_run(bool calm, bool page, double s)
     for (double end = T + s; T < end; T += 0.25) {
         pomo_now = T;
         PS.srv_offset = SRV - T;
-        moments_print_tick(T, calm, page, real_ok);
+        moments_print_tick(T, calm, page, real_ok, !real_ok);
         if (MV.starts) return T;
     }
     return -1;
@@ -1434,7 +1434,7 @@ static void test_print_moments(void)
     CHECK(MV.last.kind == WXM_PRINT_DONE && !MV.last.quiet && MV.last.tint == WXM_PRINT_RGB && bot.acting, "the full variant with acting");
     CHECK(strcmp(MV.last.text, "Print done \xE2\x80\xA2 2 h 14 m") == 0, "the text carries the job length: %s", MV.last.text);
     MV.tau = 0.1;
-    moments_print_tick(T, false, true, real_ok);
+    moments_print_tick(T, false, true, real_ok, !real_ok);
     CHECK(MV.busy && MV.stops == 0 && MV.aborts == 0, "it plays on");
     ks.weather_moments = false;
     wx_obs_t o = obs("2", 12, 0);
@@ -1446,9 +1446,9 @@ static void test_print_moments(void)
     step(0.25);
     int starts = MV.starts;
     MV.busy = false;
-    moments_print_tick(T, false, true, real_ok);
+    moments_print_tick(T, false, true, real_ok, !real_ok);
     step(30);
-    moments_print_tick(T, false, true, real_ok);
+    moments_print_tick(T, false, true, real_ok, !real_ok);
     CHECK(MV.starts == starts, "the same event id plays once");
     MV.busy = true;
     moments_tick(T, &o, true, true);
@@ -1494,24 +1494,51 @@ static void test_print_moments(void)
     print_run(false, true, 10);
     bot_set_mood(&bot, BOT_WAITING, T);
     step(0.1);
-    moments_print_tick(T, false, true, real_ok);
+    moments_print_tick(T, false, true, real_ok, !real_ok);
     CHECK(!MV.busy && MV.aborts == 1, "a mood change cuts it short");
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     print_run(false, true, 10);
-    moments_print_tick(T, true, true, real_ok);
+    moments_print_tick(T, true, true, real_ok, !real_ok);
     CHECK(!MV.busy && MV.aborts == 1, "quiet hours cut it short");
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     print_run(false, true, 10);
-    moments_print_tick(T, false, false, real_ok);
+    moments_print_tick(T, false, false, real_ok, !real_ok);
     CHECK(!MV.busy && MV.stops == 1, "leaving the bot page stops it");
     fresh();
     print_set(PRINT_FINISHED, PRINT_EV_FINISHED, real, (long long)SRV, false);
     print_run(false, true, 10);
     ks.print_moments = false;
-    moments_print_tick(T, false, true, real_ok);
+    moments_print_tick(T, false, true, real_ok, !real_ok);
     CHECK(!MV.busy && MV.stops == 1, "switching the setting off stops it");
+
+    fresh();
+    print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
+    {
+        int before = MV.starts;
+        for (int i = 0; i < 8; i++) {
+            T += 0.25;
+            moments_print_tick(T, false, true, true, false);
+        }
+        CHECK(MV.starts == before, "a demo block seen outside a scene (before it starts) plays nothing and is not spent");
+        real_ok = false;
+        CHECK(print_run(false, true, 1) >= 0 && MV.busy, "and plays once the scene runs");
+        real_ok = true;
+    }
+
+    fresh();
+    print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, real, (long long)SRV, false);
+    print_run(false, true, 10);
+    MV.busy = false;
+    MV.starts = 0;
+    for (double end = T + PM_REPEAT_S + 10; T < end; T += 0.25) {
+        pomo_now = T;
+        PS.srv_offset = SRV - T;
+        moments_print_tick(T, false, true, false, false);
+    }
+    CHECK(MV.starts == 0, "no B4 repeat while the link is offline (the stale block says attention)");
+    CHECK(print_run(false, true, 2) > 0, "it repeats once the link is back");
 
     fresh();
     real_ok = false;
@@ -1525,9 +1552,9 @@ static void test_print_moments(void)
     real_ok = false;
     print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
     CHECK(print_run(true, true, 1) >= 0 && MV.last.kind == WXM_PRINT_ATTENTION, "a demo plays at once, whatever the setting and quiet hours say");
-    moments_print_tick(T, true, true, real_ok);
+    moments_print_tick(T, true, true, real_ok, !real_ok);
     CHECK(MV.busy && MV.aborts == 0, "and quiet hours do not cut it");
-    moments_print_tick(T, true, false, real_ok);
+    moments_print_tick(T, true, false, real_ok, !real_ok);
     CHECK(!MV.busy && MV.stops == 1, "but leaving the bot page does");
     real_ok = true;
     fresh();
@@ -1537,14 +1564,14 @@ static void test_print_moments(void)
     real_ok = false;
     print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
     CHECK(bot.asleep && print_run(false, true, 1) >= 0 && MV.busy, "a demo plays with the bot asleep");
-    CHECK(!bot.asleep || bot.acting, "and the act rouses it");
+    CHECK(!bot.asleep, "and the act rouses it");
     real_ok = true;
     fresh();
     real_ok = false;
     print_set(PRINT_ATTENTION, PRINT_EV_ATTENTION, 3502309358LL, 1782043200LL, true);
     print_run(false, true, 1);
     real_ok = true;
-    moments_print_tick(T, false, true, real_ok);
+    moments_print_tick(T, false, true, real_ok, !real_ok);
     CHECK(!MV.busy && MV.aborts == 1, "a demo moment still playing when the scene is over is cut short");
     real_ok = true;
 

@@ -50,6 +50,14 @@ static void test_seen(void)
     CHECK(print_seen_new(&s, &real), "a real id is new");
     print_seen_mark(&s, &real);
     CHECK(!print_seen_new(&s, &real), "the same id is not new");
+    print_seen_t t;
+    print_seen_init(&t);
+    CHECK(!print_seen_take(&t, &real, false, 0) && t.id == 0, "take: not without Ember's clock, and not marked");
+    CHECK(print_seen_take(&t, &real, true, SRV0 + 299) && t.id == real.id, "take: a fresh event, marked");
+    CHECK(!print_seen_take(&t, &real, true, SRV0 + 1), "take: not twice");
+    print_seen_t u;
+    print_seen_init(&u);
+    CHECK(!print_seen_take(&u, &real, true, SRV0 + 301) && u.id == real.id, "take: an old event is marked but not fresh");
     CHECK(print_seen_new(&s, &later), "a later id is new");
     print_seen_mark(&s, &demo);
     print_seen_mark(&s, &none);
@@ -327,8 +335,8 @@ static void test_demo(void)
     pm_in_t gap = in_at(5, &heldb);
     gap.real_ok = false;
     CHECK(!pm_tick(&tr, &gap, &o) && tr.seen.id == 0, "between scenes a real event is neither played nor marked");
-    CHECK(pm_tick(&tr, &(pm_in_t){.t = 10, .b = &heldb, .have_srv = true, .srv_now = SRV0 + 10, .shown = true, .on = true, .real_ok = true}, &o) ||
-              tr.pend == PM_DONE,
+    CHECK(pm_tick(&tr, &(pm_in_t){.t = 10, .b = &heldb, .have_srv = true, .srv_now = SRV0 + 10, .shown = true, .on = true, .real_ok = true}, &o) &&
+              o.kind == PM_DONE && !o.demo,
           "and is taken once the real view is back");
 
     pm_init(&tr);

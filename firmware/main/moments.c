@@ -166,7 +166,7 @@ static void moment_text(const pm_out_t *o, char *buf, size_t n)
     }
 }
 
-__attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok)
+__attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok, bool scene)
 {
     print_client_get(&s_ps);
     if (s_print_owns && !moment_view_busy()) s_print_owns = false;
@@ -185,7 +185,7 @@ __attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_
     pm_in_t in = {.t = t, .b = s_ps.has ? &s_ps.b : NULL, .have_srv = s_ps.have_srv,
                   .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0,
                   .mood = (int)moment_mood(s_bot->mood), .bot_mood = (int)s_bot->mood, .shown = bot_page && !s_bot->asleep,
-                  .page = bot_page, .busy = moment_view_busy() || music_view_busy() || chase_ctl_busy(), .calm = calm, .on = s_ks->print_moments,
+                  .page = bot_page && scene, .busy = moment_view_busy() || music_view_busy() || chase_ctl_busy(), .calm = calm, .on = s_ks->print_moments,
                   .real_ok = real_ok};
     pm_out_t out;
     static EXT_RAM_BSS_ATTR wxm_moment_t m;

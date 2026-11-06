@@ -319,7 +319,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     bot_read_moment(&s_bot, moment_view_busy(), t);
     moments_music_tick(t, calm, offline, bot_page, !scene_on() && !ds.view_on && !scene_resuming());
     if (!scene_on() || scene_act_kind() == DEMO_ACT_NONE)
-        moments_print_tick(t, calm, bot_page, !scene_on() && !ds.view_on && !scene_resuming());
+        moments_print_tick(t, calm, bot_page, !scene_on() && !ds.view_on && !scene_resuming() && !offline, scene_on());
 
     float gdeg;
     bool glint = (pg->flags & PAGE_GLINT) && !usage_view_open() && bot_view_glint_deg(t, &gdeg);

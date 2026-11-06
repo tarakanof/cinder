@@ -9,6 +9,13 @@ bool print_event_is_demo(const print_event_t *e) { return e->id > 0 && e->id < P
 
 bool print_seen_new(const print_seen_t *s, const print_event_t *e) { return e->id >= PM_DEMO_ID_LIMIT && e->id > s->id; }
 
+bool print_seen_take(print_seen_t *s, const print_event_t *e, bool have_srv, double srv_now)
+{
+    if (!have_srv || !print_seen_new(s, e)) return false;
+    print_seen_mark(s, e);
+    return srv_now - (double)e->at <= PM_FRESH_S;
+}
+
 void print_seen_mark(print_seen_t *s, const print_event_t *e)
 {
     if (print_seen_new(s, e)) s->id = e->id;
@@ -35,14 +42,12 @@ static void take_event(pm_trigger_t *tr, const pm_in_t *in)
     pm_kind_t k = e->kind == PRINT_EV_FINISHED ? PM_DONE : PM_ATTENTION;
     if (print_event_is_demo(e)) {
         if (e->id == tr->demo_id) return;
-        tr->demo_id = e->id;
         tr->demo_pend = k;
+        tr->demo_pend_id = e->id;
         tr->demo_took_s = print_took_s(b);
         return;
     }
-    if (!in->real_ok || !in->have_srv || !print_seen_new(&tr->seen, e)) return;
-    print_seen_mark(&tr->seen, e);
-    if (!in->on || in->srv_now - (double)e->at > PM_FRESH_S) return;
+    if (!in->real_ok || !print_seen_take(&tr->seen, e, in->have_srv, in->srv_now) || !in->on) return;
     if (k == PM_DONE) {
         tr->pend = PM_DONE;
         tr->pend_at = e->at;
@@ -67,7 +72,7 @@ bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out)
     if (in->real_ok && tr->pend == PM_DONE &&
         (job_runs(phase) || (in->have_srv && in->srv_now - (double)tr->pend_at > PM_FRESH_S)))
         tr->pend = PM_NONE;
-    if (tr->demo_pend != PM_NONE && (in->real_ok || !in->b || in->b->event.id != tr->demo_id)) tr->demo_pend = PM_NONE;
+    if (tr->demo_pend != PM_NONE && (in->real_ok || !in->b || in->b->event.id != tr->demo_pend_id)) tr->demo_pend = PM_NONE;
     memset(out, 0, sizeof *out);
     out->quiet = in->mood == 1;
     if (in->busy) return false;
@@ -94,6 +99,7 @@ bool pm_tick(pm_trigger_t *tr, const pm_in_t *in, pm_out_t *out)
 void pm_shown(pm_trigger_t *tr, const pm_out_t *out, double t)
 {
     if (out->demo) {
+        tr->demo_id = tr->demo_pend_id;
         tr->demo_pend = PM_NONE;
         return;
     }
