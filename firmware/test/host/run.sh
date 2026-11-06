@@ -1192,7 +1192,7 @@ body "$ECL" ember_client_presence | grep -qxF '    if (!dim_ctl_presence(present
     ! body "$ECL" ember_client_presence | grep -qE 's_sched|dev_sched|s_event_ms' && [ "$(grep -c 's_presence_moved, ' "$ECL")" -eq 2 ] &&
     body "$ECL" checkin | awk '/^    atomic_store\(&s_presence_moved, false\);$/ {f = NR} /^    app_mods_checkin\(&APP_MODS, &c\);$/ {c = NR} END {exit !(f && c > f)}' &&
     body "$ECL" presence_checkin_due | grep -qF 'ota_client_checkin_blocked()' && body "$ECL" presence_checkin_due | grep -qF 'dev_event_allowed(&P->sched, ' &&
-    body "$ECL" poll_task | grep -A3 -xF '        if (presence_checkin_due()) {' | grep -qxF '            dev_sched_now(&s_sched, s_event_ms);' ||
+    body "$ECL" poll_task | grep -A3 -xF '        if (online && presence_checkin_due()) {' | grep -qxF '            dev_sched_now(&s_sched, s_event_ms);' ||
     ROOMW="$ROOMW the-room-task-asks-for-a-checkin-by-an-atomic-every-checkin-clears-it-and-only-the-ember-task-moves-the-schedule-outside-backoff"
 ! grep -lE 'ember_client_presence\(' "$D"/../../main/*.c | grep -vq '/ember_client\.c$' && grep -qxF '    j2_room_on_presence(ember_client_presence);' "$RMC" ||
     ROOMW="$ROOMW only-the-room-task-pushes-presence"

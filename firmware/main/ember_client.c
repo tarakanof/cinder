@@ -1219,7 +1219,7 @@ static void poll_task(void *arg)
         }
         if (!P->vp.legacy) pomo_client_log_state();
         apply_intervals();
-        if (presence_checkin_due()) {
+        if (online && presence_checkin_due()) {
             s_event_ms = now_ms();
             dev_sched_now(&s_sched, s_event_ms);
         }
