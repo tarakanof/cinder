@@ -24,10 +24,7 @@ void moments_music_tick(double t, bool calm, bool offline, bool bot_page, bool o
    real events may play and B4 repeats (not offline either); without it only a demo event does, and only while scene (a
    demo scene runs). */
 void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok, bool scene);
-/* The jump to the print page when a print starts (cinder#324), every frame. page_on: the print page is in the page list.
-   on_page: it is the user's page now. real_ok: as for moments_print_tick. blocked: an agent waits, the usage screen is
-   open or a long push is held. True once per `started` event id when the page should switch now; the event store is the print moments'
-   (print_moment.h). */
+/* The jump to the print page on a new `started` event, every frame; true when the page should switch now (pj_tick). page_on: the page is in the list; on_page: it is the user's page; real_ok: as for moments_print_tick. */
 bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool blocked);
 /* Ends the eye acting of a weather or music moment cut short. */
 void moment_unact(double t);

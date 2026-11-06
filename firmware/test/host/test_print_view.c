@@ -145,6 +145,17 @@ static int ink(int x0, int y0, int x1, int y1)
     return n;
 }
 
+static int warm(int x0, int y0, int x1, int y1)
+{
+    int n = 0;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            int r = (s_fb[y * W + x] >> 11) * 255 / 31, b = (s_fb[y * W + x] & 31) * 255 / 31;
+            n += r >= 36 && r < 120 && r - b >= 6;
+        }
+    return n;
+}
+
 #define T0 1782043200.0
 
 static void block(print_phase_t ph, int progress)
@@ -323,7 +334,7 @@ int main(int argc, char **argv)
     settle(T0 + 3);
     save("k1-ready");
     CHECK(count(0, 0, W, H, c565(PRINT_COL_FIL)) == 0, "Ready K1: an empty bed, no part");
-    CHECK(count(0, 60, W, 220, c565(0xFFF3E0)) > 0 || ink(FX + 190, 80, FX + 280, 150) > 800, "Ready K1: the chamber light is on");
+    CHECK(warm(FX + 233 - 45, 92, FX + 233 + 45, 130) > 300, "Ready K1: the chamber light is on, warm white");
     CHECK(ink(80, 262, 390, 312) > 600 && count(80, 262, 390, 312, c565(PRINT_COL_TEXT)) > 150, "Ready K1: the word in white");
     CHECK(count(0, 0, W, H, c565(PRINT_COL_HEAT)) == 0, "Ready K1: nothing hot while the printer is cold");
     CHECK(count(FX + 233 - 10, 0, FX + 233 + 10, 20, c565(PRINT_COL_ACCENT)) == 0, "Ready K1: the ring is empty");

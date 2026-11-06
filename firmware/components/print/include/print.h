@@ -137,7 +137,7 @@ typedef struct {
 } print_ring_look_t;
 void print_ring_look(print_look_t l, print_ring_look_t *out);
 
-/* The Ready face names a temperature only above this (degrees C): the bed's, else the nozzle's; a printer that is off is at room temperature. */
+/* Degrees C: the Ready face names the bed's temperature, else the nozzle's, above this. */
 #define PRINT_WARM_C 40
 
 /* val "" = no big value; word "" = no state word. Colours RGB888. */

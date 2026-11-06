@@ -113,10 +113,22 @@ void page_bot_show(bool on)
 }
 
 static bool s_ota_paused;
+#define JUMP_QUIET_S 1.0
+static double s_input_t = -1e9;
+
+static void print_jump_hold(void)
+{
+    ember_demo_status_t ds;
+    ember_client_demo_status(&ds);
+    int pos = pages_find(&s_nav, "print");
+    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline();
+    moments_print_jump(now_s(), pos >= 0, pos >= 0 && s_nav.pos == pos, real, true);
+}
 
 static bool ota_frame(void)
 {
     if (ota_face_frame()) {
+        print_jump_hold();
         if (!s_ota_paused) {
             s_ota_paused = true;
             ember_client_demo_input();
@@ -293,6 +305,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     page_input_t in;
     long long held = input_route_take(&in);
     overlays_hold_tick(pg, held);
+    if (held >= 0 || in.detents || in.pushes || in.longs || in.touches || in.wakes || in.hswipes) s_input_t = t;
     usage_view_poll();
 
     bool offline = ember_client_offline();
@@ -311,7 +324,7 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     int print_pos = pages_find(&s_nav, "print");
     bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
     bot_mood_t jump_mood;
-    bool jump_blocked = (ember_client_mood(&jump_mood) && jump_mood == BOT_WAITING) || usage_view_open() || held >= 0;
+    bool jump_blocked = (ember_client_mood(&jump_mood) && jump_mood == BOT_WAITING) || usage_view_open() || input_route_held() || t - s_input_t < JUMP_QUIET_S;
     if (moments_print_jump(t, print_pos >= 0, print_pos >= 0 && s_nav.pos == print_pos, jump_real, jump_blocked)) {
         page_jump(&s_nav, print_pos, t);
         pg = pages_current(&s_nav);
@@ -361,6 +374,7 @@ static bool idle_frame(lv_display_t *disp)
         ESP_LOGI(TAG, "screen %s", off ? "off: rendering paused" : "on: rendering resumed");
     }
     if (off) s_last_frame_t = 0;
+    if (off) print_jump_hold();
     return off;
 }
 
@@ -390,6 +404,7 @@ static void frame_cb(lv_timer_t *timer)
     scene_frame(t);
     int steps, swipes;
     input_route_take_steps(&steps, &swipes);
+    if (steps || swipes) s_input_t = t;
     if (scene_gate(t, steps || swipes)) steps = swipes = 0;
     if (s_ks_lv->swipe_pages) steps += swipes;
     if (steps) page_go(&s_nav, steps, t);
