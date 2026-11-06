@@ -764,7 +764,8 @@ body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_hold();' && body "
     body "$MAINC" print_jump_hold | grep -qxF '    int pos = pages_find(&s_nav, "print");' &&
     body "$MAINC" print_jump_hold | grep -qxF '    bool listed = config_store_settings_gen() == s_settings_gen ? pos >= 0 : print_listed_in_stored_settings();' &&
     body "$MAINC" print_jump_hold | grep -qxF '    moments_print_jump(now_s(), listed, pos >= 0 && s_nav.pos == pos, real, true);' &&
-    body "$MAINC" print_listed_in_stored_settings | grep -qxF '    config_store_settings(&s_ks_hold);' ||
+    body "$MAINC" print_listed_in_stored_settings | grep -qxF '    config_store_settings(&s_ks_hold);' &&
+    body "$MAINC" print_listed_in_stored_settings | grep -qxF '    if (s_hold_have && gen == s_hold_gen) return s_hold_listed;' ||
     WIRING="$WIRING print-jump-held-while-the-screen-is-off-the-OTA-face-shows-or-the-reset-screen-and-the-wake-counts-as-input"
 body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"

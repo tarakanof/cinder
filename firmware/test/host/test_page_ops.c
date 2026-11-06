@@ -254,10 +254,22 @@ static void test_page_jump(lv_obj_t *wipe)
     CHECK(dots && dots->kids[3]->bg == 0xFFFFFF && dots->kids[1]->bg == 0x4A4A4A, "the jump's page has the white dot");
     page_fx_frame(230);
 
-    page_jump(&nav, 0, 300);
+    page_jump(&nav, 2, 300);
     page_fx_frame(300.1);
-    CHECK(drawn(wipe) > 0 && s_last_y1 > 100, "backward: from the bottom, y1 %d", s_last_y1);
+    CHECK(drawn(wipe) > 0 && s_last_y1 > 100, "one back: from the bottom, y1 %d", s_last_y1);
     page_fx_frame(330);
+
+    nav.pos = 3;
+    page_jump(&nav, 0, 400);
+    page_fx_frame(400.1);
+    CHECK(drawn(wipe) > 0 && s_last_y1 < 100, "last to first is one step round the list: from the top, y1 %d", s_last_y1);
+    page_fx_frame(430);
+
+    nav.pos = 0;
+    page_jump(&nav, 3, 500);
+    page_fx_frame(500.1);
+    CHECK(drawn(wipe) > 0 && s_last_y1 > 100, "first to last is one step back round the list: from the bottom, y1 %d", s_last_y1);
+    page_fx_frame(530);
 }
 
 static void test_fx_pause(lv_obj_t *wipe)

@@ -114,7 +114,8 @@ void page_go(pages_nav_t *nav, int steps, double t)
 
 void page_jump(pages_nav_t *nav, int pos, double t)
 {
-    int dir = pos > nav->pos ? 1 : -1;
+    int ahead = nav->n > 0 ? (pos - nav->pos + nav->n) % nav->n : 0;
+    int dir = ahead <= nav->n - ahead ? 1 : -1;
     if (!pages_goto(nav, pos)) return;
     wipe_start(dir, t);
     dots_show(nav, t + TS_DOTS_S);
