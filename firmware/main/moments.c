@@ -107,7 +107,8 @@ void moments_cue_poll(double t)
 static void room_tick(double t, const wx_obs_t *wx, bool calm, bool bot_page, bool on)
 {
     int aqi = 0;
-    rm_in_t in = {.t = t, .valid = on && s_room_air(&aqi), .aqi = aqi, .mood = moment_mood(s_bot->mood), .bot_mood = (int)s_bot->mood,
+    bool valid = on && s_room_air(&aqi);
+    rm_in_t in = {.t = t, .valid = valid, .aqi = aqi, .mood = moment_mood(s_bot->mood), .bot_mood = (int)s_bot->mood,
                   .shown = bot_page && !s_bot->asleep,
                   .blocked = moment_view_busy() || music_view_busy() || mm_recent(&s_mm, t) || calm || chase_ctl_busy(),
                   .on = on, .weather_first = s_ks->weather_moments && wxm_change_due(&s_wxm, wx, t), .last_at = s_wxm.last_at};
