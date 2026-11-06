@@ -2,6 +2,11 @@
 
 #include <string.h>
 
+bool pj_blocked(const pj_gate_t *g)
+{
+    return !g->mood_known || g->waiting || g->usage_open || g->down || g->t - g->input_t < PJ_QUIET_S;
+}
+
 void pj_init(pj_t *j) { memset(j, 0, sizeof *j); }
 
 bool pj_tick(pj_t *j, print_seen_t *seen, const pj_in_t *in)

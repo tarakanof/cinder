@@ -60,6 +60,7 @@
 #include "usage_view.h"
 #include "moment_view.h"
 #include "moments.h"
+#include "print_jump.h"
 #include "music_view.h"
 #include "shown.h"
 #include "wx_shift.h"
@@ -113,7 +114,6 @@ void page_bot_show(bool on)
 }
 
 static bool s_ota_paused;
-#define JUMP_QUIET_S 1.0
 static double s_input_t = -1e9;
 
 static void print_jump_hold(void)
@@ -323,8 +323,10 @@ static __attribute__((noinline)) void page_tick(double t, double dt)
     pages_dispatch(&s_nav, in, t);
     int print_pos = pages_find(&s_nav, "print");
     bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;
-    bot_mood_t jump_mood;
-    bool jump_blocked = (ember_client_mood(&jump_mood) && jump_mood == BOT_WAITING) || usage_view_open() || input_route_held() || t - s_input_t < JUMP_QUIET_S;
+    bot_mood_t jump_mood = BOT_IDLE;
+    pj_gate_t gate = {.mood_known = ember_client_mood(&jump_mood), .waiting = jump_mood == BOT_WAITING,
+                      .usage_open = usage_view_open(), .down = input_route_held(), .t = t, .input_t = s_input_t};
+    bool jump_blocked = pj_blocked(&gate);
     if (moments_print_jump(t, print_pos >= 0, print_pos >= 0 && s_nav.pos == print_pos, jump_real, jump_blocked)) {
         page_jump(&s_nav, print_pos, t);
         pg = pages_current(&s_nav);
@@ -370,6 +372,7 @@ static bool idle_frame(lv_display_t *disp)
     if (off != held) {
         held = off;
         lv_display_enable_invalidation(disp, !off);
+        if (!off) s_input_t = now_s();
         if (!off) lv_obj_invalidate(lv_screen_active());
         ESP_LOGI(TAG, "screen %s", off ? "off: rendering paused" : "on: rendering resumed");
     }
@@ -396,6 +399,7 @@ static void frame_cb(lv_timer_t *timer)
     screen_snap_frame();
     if (!s_setup && ota_frame()) return;
     if (reset_frame(t) || s_setup) {
+        print_jump_hold();
         input_route_drop();
         return;
     }

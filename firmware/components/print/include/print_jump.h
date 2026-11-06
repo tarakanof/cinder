@@ -11,6 +11,7 @@ extern "C" {
 /* The jump to the print page on a new `started` event (cinder#324). Pure; the glue is moments_print_jump. It marks events in the same print_seen_t as the print moments. */
 
 #define PJ_SETTLE_S 0.5
+#define PJ_QUIET_S 1.0
 
 typedef struct {
     bool pend;
@@ -30,6 +31,16 @@ typedef struct {
     bool blocked;           /* an agent waits, the usage screen is open, input is down or recent, the screen is off or the OTA face shows */
 } pj_in_t;
 
+typedef struct {
+    bool mood_known;    /* Ember's mood is known: unknown (a failed poll, no Wi-Fi) blocks */
+    bool waiting;       /* Ember's mood is waiting */
+    bool usage_open;
+    bool down;          /* a button or touch is down */
+    double t, input_t;  /* monotonic s now and at the last input */
+} pj_gate_t;
+
+/* The in.blocked of pj_in_t: the agent mood unknown or waiting, the usage screen open, input down or within PJ_QUIET_S. */
+bool pj_blocked(const pj_gate_t *g);
 void pj_init(pj_t *j);
 /* Every frame; true once per `started` event id, when the page should switch now. Held while blocked or not real_ok, firing PJ_SETTLE_S after that ends; an event from before this boot never fires. Design: docs/features.md "Print page". */
 bool pj_tick(pj_t *j, print_seen_t *seen, const pj_in_t *in);

@@ -747,13 +747,16 @@ done
 [ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 2 ] && [ "$(grep -c 'scene_gate(t, ' "$SCC")" -eq 1 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
     WIRING="$WIRING page_tick-gates-its-input"
-fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool jump_blocked = \(ember_client_mood\(&jump_mood\) && jump_mood == BOT_WAITING\) \|\| usage_view_open\(\) \|\| input_route_held\(\) \|\| t - s_input_t < JUMP_QUIET_S;$/ {b = NR}
+fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool jump_blocked = pj_blocked\(&gate\);$/ {b = NR}
     /^    if \(moments_print_jump\(t, print_pos >= 0, print_pos >= 0 && s_nav\.pos == print_pos, jump_real, jump_blocked\)\) \{$/ {j = NR} /^    bool bot_page = / {p = NR}
-    END {exit !(d && b && j && p && d < b && b < j && j < p)}' ||
-    WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-blocked-only-by-a-waiting-agent-the-usage-screen-a-press-or-input-in-the-last-second"
-body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_hold();' && body "$MAINC" ota_frame | grep -qxF '        print_jump_hold();' &&
+    END {exit !(d && b && j && p && d < b && b < j && j < p)}' &&
+    fbody "$MAINC" page_tick | grep -qxF '    pj_gate_t gate = {.mood_known = ember_client_mood(&jump_mood), .waiting = jump_mood == BOT_WAITING,' &&
+    fbody "$MAINC" page_tick | grep -qxF '                      .usage_open = usage_view_open(), .down = input_route_held(), .t = t, .input_t = s_input_t};' ||
+    WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-gated-by-pj_blocked-on-Embers-mood-the-usage-screen-and-the-input"
+body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_hold();' && body "$MAINC" idle_frame | grep -qxF '        if (!off) s_input_t = now_s();' &&
+    body "$MAINC" ota_frame | grep -qxF '        print_jump_hold();' && body "$MAINC" frame_cb | awk '/^    if \(reset_frame\(t\) \|\| s_setup\) \{$/ {r = NR} /^        print_jump_hold\(\);$/ {h = NR} /^        input_route_drop\(\);$/ {d = NR} END {exit !(r && h == r + 1 && d == h + 1)}' &&
     body "$MAINC" print_jump_hold | grep -qF 'real, true);' ||
-    WIRING="$WIRING print-jump-held-while-the-screen-is-off-and-the-OTA-face-shows"
+    WIRING="$WIRING print-jump-held-while-the-screen-is-off-the-OTA-face-shows-or-the-reset-screen-and-the-wake-counts-as-input"
 body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
 body "$CHC" chase_ctl_pause | grep -qxF '    *saved_half = s_half;' && body "$CHC" chase_ctl_pause | tail -2 | head -1 | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||

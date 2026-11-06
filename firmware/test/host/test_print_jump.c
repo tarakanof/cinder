@@ -264,6 +264,28 @@ static void test_turned_away(void)
     CHECK(tick(&r, in_at(901, &next)), "the next id jumps");
 }
 
+static void test_gate(void)
+{
+    pj_gate_t g = {.mood_known = true, .t = 100, .input_t = 50};
+    CHECK(!pj_blocked(&g), "idle, known mood, no input: open");
+    g.mood_known = false;
+    CHECK(pj_blocked(&g), "an unknown mood (a failed poll, no Wi-Fi) blocks: a waiting agent may be behind it");
+    g.mood_known = true;
+    g.waiting = true;
+    CHECK(pj_blocked(&g), "a waiting agent blocks");
+    g.waiting = false;
+    g.usage_open = true;
+    CHECK(pj_blocked(&g), "the usage screen blocks");
+    g.usage_open = false;
+    g.down = true;
+    CHECK(pj_blocked(&g), "a button or touch down blocks");
+    g.down = false;
+    g.input_t = 99.5;
+    CHECK(pj_blocked(&g), "input half a second ago blocks");
+    g.input_t = 99.0;
+    CHECK(!pj_blocked(&g), "a second after the input it is open");
+}
+
 static void test_not_real(void)
 {
     rig_t r;
@@ -317,6 +339,7 @@ int main(void)
     test_not_real();
     test_turned_away();
     test_settle();
+    test_gate();
     if (failures) {
         printf("print_jump: %d failure(s)\n", failures);
         return 1;
