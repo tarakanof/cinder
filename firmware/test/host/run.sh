@@ -985,7 +985,7 @@ if [ -d "$LV" ]; then
     "$CC" $CFLAGS $LVDEF -fsyntax-only -I"$OUT_DIR/room_cfg" -I"$LV" -I"$D/../../main" -I"$PG/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$C/include" -I"$J" \
         "$D/../../main/room_page.c"
     "$CC" $CFLAGS $FPC $LVDEF -DCONFIG_CINDER_ROOM=1 -I"$OUT_DIR/room_cfg" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$RM/include" -I"$SE/include" \
-        -I"$D/../../components/j2/include" -I"$W/include" -I"$PCV/include" -I"$PG/include" -I"$C/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$M/include" -I"$J" \
+        -I"$D/../../components/app_mod/include" -I"$W/include" -I"$PCV/include" -I"$PG/include" -I"$C/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$M/include" -I"$J" \
         "$PCV/page_canvas.c" "$D/../../main/room_page.c" "$D/../../main/font_digits_96.c" "$D/../../main/font_face_36.c" "$RM/room_face.c" "$RM/room_report.c" "$SE/sens_ens160.c" \
         "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" \
         "$D/test_room_view.c" "$OUT_DIR"/lv/*.o -lm -lpthread -o "${OUT}_room_view"
@@ -1207,6 +1207,7 @@ grep -qxF '#if CONFIG_CINDER_ROOM' "$RMC" && grep -qxF '#if CONFIG_CINDER_ROOM' 
 RPC="$D/../../main/room_page.c"
 grep -qxF '#if CONFIG_CINDER_ROOM' "$RPC" && awk '/^#else$/ {e = 1} e && /^bool page_room_visible\(void\) \{ return false; \}$/ {ok = 1} END {exit !ok}' "$RPC" ||
     ROOMW="$ROOMW the-room-page-is-never-visible-without-CONFIG_CINDER_ROOM"
+! grep -lE '\bj2_[a-z_]+\(|"j2\.h"' "$D"/../../main/*.c | grep -vq '/room_mod\.c$' || ROOMW="$ROOMW the-app-reads-the-J2-sensors-only-through-room_mod"
 body "$MAINC" settings_frame | grep -qxF '    uint32_t visible = pages_visible();' &&
     body "$MAINC" settings_frame | grep -A4 -xF '    if (gen == s_settings_gen) {' | grep -qxF '        pages_settings(&s_nav, s_ks_lv, false);' ||
     ROOMW="$ROOMW settings_frame-reorders-the-pages-when-the-visible-mask-changes"
@@ -1220,7 +1221,7 @@ if [ -n "$ROOMW" ]; then
     echo "run.sh: FAIL room module wiring:$ROOMW" >&2
     exit 1
 fi
-echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic; the room page shows only with the flag, its ring bakes off the LVGL task with the weather rasteriser, a new visible mask reorders the pages; the room moments read the air only through moments_init (NULL without the flag)"
+echo "room module wiring: the ember task starts, stops and asks the modules, frame_cb steps them while the panel is on, a presence change ends the long-poll through an atomic; the room page shows only with the flag, its ring bakes off the LVGL task with the weather rasteriser, only room_mod reads the J2 sensors, a new visible mask reorders the pages; the room moments read the air only through moments_init (NULL without the flag)"
 echo "shown wiring: page_tick reports (usage over bot), view_poll sends and marks sent (or dropped, if it overflowed) once the URL is built, a change wakes the long-poll and the plain-poll wait, idle and loop_wait (online only) end it once settled, an applied settings version checks in at once and a rejected one does not"
 "$CC" $CFLAGS $FPC -I"$D/idf_stubs" -I"$D/../../main" -I"$N/include" -I"$G/include" -I"$V/include" -I"$O/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$DM/include" \
     -I"$C/include" -I"$P/include" -I"$LS/include" -I"$W/include" -I"$NP/include" -I"$H/include" -I"$RT/include" -I"$J" \

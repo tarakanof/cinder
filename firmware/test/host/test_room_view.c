@@ -11,12 +11,12 @@
 #include "dim_ctl.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "j2.h"
 #include "lvgl.h"
 #include "page_canvas.h"
 #include "page_frame.h"
 #include "page_ops.h"
 #include "room_face.h"
+#include "room_mod.h"
 #include "room_page.h"
 #include "room_report.h"
 #include "src/display/lv_display_private.h"
@@ -62,8 +62,8 @@ static void gate(bool shut)
     pthread_cond_broadcast(&s_gate_cv);
     pthread_mutex_unlock(&s_gate_mu);
 }
-void j2_room_get(room_t *out) { *out = s_room; }
-uint32_t j2_room_found(void) { return s_room.has; }
+void room_mod_get(room_t *out) { *out = s_room; }
+uint32_t room_mod_found(void) { return s_room.has; }
 int dim_ctl_panel_level(void) { return s_level; }
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...)
 {

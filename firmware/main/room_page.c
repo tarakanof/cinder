@@ -16,11 +16,11 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "j2.h"
 #include "lvgl.h"
 #include "page_canvas.h"
 #include "page_frame.h"
 #include "room_face.h"
+#include "room_mod.h"
 #include "wx_paint.h"
 #include "wx_shift.h"
 #include "wx_temp.h"
@@ -310,7 +310,7 @@ void page_room_frame(const page_frame_t *f)
 {
     if (!s_open) return;
     room_t r;
-    j2_room_get(&r);
+    room_mod_get(&r);
     int64_t now = esp_timer_get_time() / 1000;
     unsigned mask = s_mask = room_faces_mask(r.has);
     int face = room_faces_resolve(&s_faces, mask, &r, now);
@@ -351,7 +351,7 @@ void page_room_input(const page_input_t *in, double t)
     if (s_open && in->detents) room_faces_turn(&s_faces, s_mask, in->detents);
 }
 
-bool page_room_visible(void) { return room_faces_mask(j2_room_found()) != 0; }
+bool page_room_visible(void) { return room_faces_mask(room_mod_found()) != 0; }
 
 #else
 
