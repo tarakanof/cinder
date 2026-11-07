@@ -32,5 +32,7 @@ unsigned scene_n(void);
 demo_act_kind_t scene_act_kind(void);
 /* An ended scene still holds its page for the next one. */
 bool scene_resuming(void);
+/* No scene, demo view (Ember's ember_demo_status_t view_on) or gap between scenes: real moments and events may play. */
+bool scene_real(bool demo_view);
 /* The chase style the act asks for this frame, -1 none. */
 int scene_chase_take(void);

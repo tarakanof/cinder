@@ -29,7 +29,21 @@ static bool s_has_pics, s_visible;
 static double s_now;
 
 double pomo_client_now(void) { return s_now; }
-void print_client_get(print_snapshot_t *out) { *out = s_snap; }
+static print_snapshot_t s_sent;
+static uint32_t s_gen = 1;
+static int s_copies;
+bool print_client_get(print_snapshot_t *out, uint32_t *gen)
+{
+    if (memcmp(&s_sent, &s_snap, sizeof s_snap) != 0) {
+        s_sent = s_snap;
+        s_gen++;
+    }
+    if (*gen == s_gen) return false;
+    *out = s_snap;
+    *gen = s_gen;
+    s_copies++;
+    return true;
+}
 void print_client_set_visible(bool on) { s_visible = on; }
 bool print_client_take_pics(print_pics_t *out)
 {
@@ -243,9 +257,11 @@ int main(int argc, char **argv)
           "K1: value, ready time and file line");
     refresh();
     CHECK(s_areas == 0, "nothing new, nothing drawn: %d", s_areas);
+    int copies = s_copies;
     frame(T0 + 0.01);
     refresh();
     CHECK(s_areas == 0, "inside the ambient step: %d areas", s_areas);
+    CHECK(s_copies == copies, "no new view: the snapshot is not copied or folded again (%d copies)", s_copies - copies);
     frame(T0 + 0.2);
     refresh();
     CHECK(s_areas == 1 && s_px < 4000, "an ambient step: one head box, %d areas, %d px", s_areas, s_px);

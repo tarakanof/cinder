@@ -11,12 +11,12 @@
 #include "dim_ctl.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "j2.h"
 #include "lvgl.h"
 #include "page_canvas.h"
 #include "page_frame.h"
 #include "page_ops.h"
 #include "room_face.h"
+#include "room_mod.h"
 #include "room_page.h"
 #include "room_report.h"
 #include "src/display/lv_display_private.h"
@@ -62,8 +62,18 @@ static void gate(bool shut)
     pthread_cond_broadcast(&s_gate_cv);
     pthread_mutex_unlock(&s_gate_mu);
 }
-void j2_room_get(room_t *out) { *out = s_room; }
-uint32_t j2_room_found(void) { return s_room.has; }
+static atomic_int s_live;
+void *host_heap_alloced(void *p)
+{
+    if (p) atomic_fetch_add(&s_live, 1);
+    return p;
+}
+void host_heap_freed(void *p)
+{
+    if (p) atomic_fetch_sub(&s_live, 1);
+}
+void room_mod_get(room_t *out) { *out = s_room; }
+uint32_t room_mod_found(void) { return s_room.has; }
 int dim_ctl_panel_level(void) { return s_level; }
 void esp_log_host(esp_log_level_t level, const char *tag, const char *fmt, ...)
 {
@@ -403,6 +413,7 @@ int main(int argc, char **argv)
     CHECK(at(dx, dy) == wx_rgb565(WX_DOT_ON), "opens on Air");
 
     page_room_show(false);
+    CHECK(atomic_load(&s_live) == 0, "a hide frees the ring, its colours and the marker: %d left", atomic_load(&s_live));
     page_canvas_take(PAGE_CANVAS_WEATHER);
     page_room_show(true);
     for (int i = 0; i < 50; i++) {
@@ -433,6 +444,24 @@ int main(int argc, char **argv)
     CHECK(atomic_load(&s_bakes) == bakes + 2, "the stale Light bake and the Climate one: %d", atomic_load(&s_bakes) - bakes);
     arrive();
     CHECK(count(CX - 150, 160, CX + 150, 272, wx_rgb565(wx_temp_rgb(22))) > 400, "22° after the reopen");
+
+    gate(true);
+    input(1);
+    frame(1.0 / 60);
+    refresh();
+    page_room_show(false);
+    CHECK(atomic_load(&s_live) == 2, "a hide during a bake leaves the bake its ring and colours: %d", atomic_load(&s_live));
+    page_room_show(true);
+    frame(1.0 / 60);
+    refresh();
+    CHECK(atomic_load(&s_live) == 5, "a reopen during that bake takes a fresh ring, colours and marker: %d", atomic_load(&s_live));
+    page_room_show(false);
+    CHECK(atomic_load(&s_live) == 2, "and a second hide frees them, leaving the bake its own: %d", atomic_load(&s_live));
+    gate(false);
+    for (int i = 0; i < 2000 && atomic_load(&s_live); i++) usleep(1000);
+    CHECK(atomic_load(&s_live) == 0, "the bake frees them when it ends, with the page still closed: %d left", atomic_load(&s_live));
+    page_room_show(true);
+    CHECK(landed(), "and the next open bakes again");
 
     if (failures) {
         printf("room_view: %d failure(s)\n", failures);

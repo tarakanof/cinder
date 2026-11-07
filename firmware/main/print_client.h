@@ -29,8 +29,8 @@ typedef struct {
 void print_client_init(void);
 /* Ember task, every applied view: b NULL when the view has no print block. */
 void print_client_feed(const print_block_t *b, bool has_utc_offset, int utc_offset);
-/* Any task. */
-void print_client_get(print_snapshot_t *out);
+/* Any task. Copies the snapshot into out only when it changed since *gen (start at 0); true then, with *gen updated. */
+bool print_client_get(print_snapshot_t *out, uint32_t *gen);
 /* LVGL task: pictures are fetched only while the page shows. */
 void print_client_set_visible(bool on);
 /* Ember task: a picture pair is due now. */

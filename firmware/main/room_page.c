@@ -16,11 +16,11 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "j2.h"
 #include "lvgl.h"
 #include "page_canvas.h"
 #include "page_frame.h"
 #include "room_face.h"
+#include "room_mod.h"
 #include "wx_paint.h"
 #include "wx_shift.h"
 #include "wx_temp.h"
@@ -46,6 +46,8 @@ _Static_assert(WX_FACE * WX_FACE * 2 <= PAGE_CANVAS_BYTES, "the background paint
 #define BAKE_STACK 4096
 #define RETRY_S 5.0
 
+enum { BAKE_IDLE, BAKE_RUN, BAKE_ORPHAN };
+
 typedef struct {
     char value[16], line2[24], line3[24];
     uint32_t value_rgb, line2_rgb, line3_rgb;
@@ -54,7 +56,9 @@ typedef struct {
 
 static lv_obj_t *s_parent, *s_root, *s_bg, *s_marker, *s_value, *s_line2, *s_line3, *s_lo, *s_hi;
 static TaskHandle_t s_task;
-static atomic_bool s_baking;
+static atomic_int s_bake;
+static wx_ring_t *s_job_ring;
+static uint16_t *s_job_lut;
 static EXT_RAM_BSS_ATTR wx_ring_t *s_ring;
 static EXT_RAM_BSS_ATTR uint16_t *s_lut, *s_bgbuf;
 static EXT_RAM_BSS_ATTR uint8_t *s_marker_buf;
@@ -107,14 +111,20 @@ static void bake_task(void *arg)
     (void)arg;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (!atomic_load(&s_baking)) continue;
+        if (atomic_load(&s_bake) == BAKE_IDLE) continue;
+        wx_ring_t *ring = s_job_ring;
+        uint16_t *lut = s_job_lut;
         int64_t t0 = esp_timer_get_time();
         s_yield_at = t0;
-        room_ring_lut(s_req_face, s_req_grey, s_lut);
-        s_ring->yield = bake_yield;
-        wx_paint_ring_lut(s_ring, s_lut);
+        room_ring_lut(s_req_face, s_req_grey, lut);
+        ring->yield = bake_yield;
+        wx_paint_ring_lut(ring, lut);
         ESP_LOGI(TAG, "ring face %d grey %d in %d ms", s_req_face, (int)s_req_grey, (int)((esp_timer_get_time() - t0) / 1000));
-        atomic_store(&s_baking, false);
+        int run = BAKE_RUN;
+        if (atomic_compare_exchange_strong(&s_bake, &run, BAKE_IDLE)) continue;
+        heap_caps_free(ring);
+        heap_caps_free(lut);
+        atomic_store(&s_bake, BAKE_IDLE);
     }
 }
 
@@ -159,9 +169,11 @@ static void release(void)
     s_bg_face = -1;
     heap_caps_free(s_marker_buf);
     s_marker_buf = NULL;
-    if (atomic_load(&s_baking)) return;
-    heap_caps_free(s_ring);
-    heap_caps_free(s_lut);
+    int run = BAKE_RUN;
+    if (!atomic_compare_exchange_strong(&s_bake, &run, BAKE_ORPHAN)) {
+        heap_caps_free(s_ring);
+        heap_caps_free(s_lut);
+    }
     s_ring = NULL;
     s_lut = NULL;
     s_ring_face = -1;
@@ -220,11 +232,13 @@ static bool ready(int face, bool grey, unsigned mask)
         show_obj(s_root, false);
         s_bg_face = -1;
     }
-    if (atomic_load(&s_baking)) return s_bg_face == face;
+    if (atomic_load(&s_bake) != BAKE_IDLE) return s_bg_face == face;
     if (face != s_ring_face || grey != s_ring_grey) {
         s_ring_face = s_req_face = face;
         s_ring_grey = s_req_grey = grey;
-        atomic_store(&s_baking, true);
+        s_job_ring = s_ring;
+        s_job_lut = s_lut;
+        atomic_store(&s_bake, BAKE_RUN);
         xTaskNotifyGive(s_task);
         return s_bg_face == face;
     }
@@ -310,7 +324,7 @@ void page_room_frame(const page_frame_t *f)
 {
     if (!s_open) return;
     room_t r;
-    j2_room_get(&r);
+    room_mod_get(&r);
     int64_t now = esp_timer_get_time() / 1000;
     unsigned mask = s_mask = room_faces_mask(r.has);
     int face = room_faces_resolve(&s_faces, mask, &r, now);
@@ -351,7 +365,7 @@ void page_room_input(const page_input_t *in, double t)
     if (s_open && in->detents) room_faces_turn(&s_faces, s_mask, in->detents);
 }
 
-bool page_room_visible(void) { return room_faces_mask(j2_room_found()) != 0; }
+bool page_room_visible(void) { return room_faces_mask(room_mod_found()) != 0; }
 
 #else
 

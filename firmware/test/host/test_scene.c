@@ -12,6 +12,8 @@
 #include "input_route.h"
 #include "moment_view.h"
 #include "moments.h"
+#include "print_jump.h"
+#include "print_jump_ctl.h"
 #include "music_view.h"
 #include "nowplaying_client.h"
 #include "page_fx.h"
@@ -192,7 +194,21 @@ static void np_set(const char *title, np_play_t state, bool demo)
 static print_snapshot_t PS;
 static double pomo_now = 1000;
 
-void print_client_get(print_snapshot_t *out) { *out = PS; }
+static print_snapshot_t ps_sent;
+static uint32_t ps_gen = 1;
+static int ps_copies;
+bool print_client_get(print_snapshot_t *out, uint32_t *gen)
+{
+    if (memcmp(&ps_sent, &PS, sizeof PS) != 0) {
+        ps_sent = PS;
+        ps_gen++;
+    }
+    if (*gen == ps_gen) return false;
+    *out = PS;
+    *gen = ps_gen;
+    ps_copies++;
+    return true;
+}
 double pomo_client_now(void) { return pomo_now; }
 
 static int face_pick, face_picks;
@@ -224,6 +240,33 @@ void input_route_drop(void)
     in_pending = false;
 }
 bool input_route_held(void) { return in_held; }
+
+static uint32_t cfg_gen = 1, nav_gen = 1;
+static knob_settings_t cfg_ks;
+static int cfg_reads;
+uint32_t config_store_settings_gen(void) { return cfg_gen; }
+void config_store_settings(knob_settings_t *out)
+{
+    *out = cfg_ks;
+    cfg_reads++;
+}
+static bool em_known = true, em_offline, usage_open;
+static bot_mood_t em_mood = BOT_IDLE;
+bool ember_client_mood(bot_mood_t *out)
+{
+    *out = em_mood;
+    return em_known;
+}
+bool ember_client_offline(void) { return em_offline; }
+bool usage_view_open(void) { return usage_open; }
+static int jumps, jump_pos;
+void page_jump(pages_nav_t *n, int pos, double t)
+{
+    (void)t;
+    jumps++;
+    jump_pos = pos;
+    n->pos = pos;
+}
 
 static struct {
     TaskFunction_t fn;
@@ -373,6 +416,7 @@ static void test_page_and_face(void)
     offer(DEMO_PAGE_WEATHER, 5, (demo_act_t){.kind = DEMO_ACT_NONE});
     scene_frame(T);
     CHECK(scene_on() && scene_n() == 1, "the scene starts on the take");
+    CHECK(!scene_real(false), "a scene: nothing real");
     CHECK(strcmp(PAGES[nav.page].id, "weather") == 0, "the scene's page shows, not %s", PAGES[nav.page].id);
     CHECK(nav.pos == 0 && strstr(page_log, "weather+"), "pages_show keeps the user's position: %s", page_log);
     CHECK(wipes == 1 && wipe_dir == 1, "the page change wipes forward");
@@ -388,6 +432,7 @@ static void test_page_and_face(void)
     CHECK(!scene_on(), "the scene ends when the demo stops playing");
     CHECK(face_pick == 3 && face_picks == 2, "the user's face comes back, got %d", face_pick);
     CHECK(scene_resuming() && strcmp(PAGES[nav.page].id, "weather") == 0, "a natural end holds the page");
+    CHECK(!scene_real(false), "the gap between scenes: nothing real");
 
     step(SCENE_NEXT_S - 0.1);
     scene_frame(T);
@@ -395,6 +440,7 @@ static void test_page_and_face(void)
     step(0.2);
     scene_frame(T);
     CHECK(!scene_resuming() && nav.page == 0 && wipes == 2 && wipe_dir == -1, "then the user's page comes back with a wipe back");
+    CHECK(scene_real(false) && !scene_real(true), "no scene: real unless a demo view shows");
     scene_frame(T);
     CHECK(wipes == 2, "once");
 
@@ -1661,6 +1707,137 @@ static void test_print_jump(void)
     CHECK(!jump_run(true, true, 2), "the user is on the print page now");
     on_page = false;
     CHECK(!jump_run(true, false, 5), "and the wait ending brings nothing");
+
+    fresh();
+    print_set(PRINT_PRINTING, PRINT_EV_NONE, 0, 0, false);
+    moments_print_jump(T, true, false, real_ok, false);
+    int copies = ps_copies;
+    for (int i = 0; i < 10; i++, T += 0.25) {
+        moments_print_jump(T, true, false, real_ok, false);
+        moments_print_tick(T, false, true, real_ok, false);
+    }
+    CHECK(ps_copies == copies, "the jump and the print tick share one copy per new view: %d more", ps_copies - copies);
+}
+
+static void ctl_reset(void)
+{
+    fresh();
+    nav = (pages_nav_t){.order = {0, 1, 2, 6}, .n = 4};
+    cfg_gen = nav_gen = 1;
+    cfg_ks = (knob_settings_t){0};
+    cfg_reads = jumps = 0;
+    jump_pos = -1;
+    em_known = true;
+    em_offline = usage_open = false;
+    em_mood = BOT_IDLE;
+    print_jump_ctl_init(&(print_jump_ctx_t){.nav = &nav, .nav_gen = &nav_gen});
+    print_set(PRINT_HEATING, PRINT_EV_STARTED, (long long)SRV * 1000, (long long)SRV, false);
+}
+
+static bool ctl_run(bool real, double s, bool input)
+{
+    for (double end = T + s; T < end; T += 0.25) {
+        pomo_now = T;
+        PS.srv_offset = SRV - T;
+        if (input) print_jump_ctl_input(T);
+        if (print_jump_ctl_frame(T, real)) return true;
+    }
+    return false;
+}
+
+static void ctl_hold(double s)
+{
+    for (double end = T + s; T < end; T += 0.25) {
+        pomo_now = T;
+        PS.srv_offset = SRV - T;
+        print_jump_ctl_hold(T);
+    }
+}
+
+static void test_print_jump_ctl(void)
+{
+    ctl_reset();
+    CHECK(ctl_run(true, 5, false) && jumps == 1 && jump_pos == 3 && nav.pos == 3, "a started event jumps to the print page's position");
+    CHECK(!ctl_run(true, 5, false) && jumps == 1, "once");
+
+    ctl_reset();
+    CHECK(!ctl_run(false, 5, false), "not real (a scene, a demo view, offline): none");
+    CHECK(ctl_run(true, 2, false), "and it comes once real");
+
+    ctl_reset();
+    usage_open = true;
+    CHECK(!ctl_run(true, 5, false), "the usage screen open: none");
+    usage_open = false;
+    CHECK(ctl_run(true, 2, false), "then it comes");
+
+    ctl_reset();
+    in_held = true;
+    CHECK(!ctl_run(true, 5, false), "the button held down: none");
+    in_held = false;
+    CHECK(ctl_run(true, 2, false), "then it comes");
+
+    ctl_reset();
+    CHECK(!ctl_run(true, 5, true), "the user keeps giving input: none");
+    double t0 = T;
+    CHECK(ctl_run(true, 3, false) && T - t0 >= PJ_QUIET_S - 0.25, "it comes once the input has been quiet for PJ_QUIET_S (%.2f s)", T - t0);
+
+    ctl_reset();
+    em_known = false;
+    CHECK(!ctl_run(true, 5, false), "the bot page listed and Ember's mood unknown: none");
+    em_known = true;
+    em_mood = BOT_WAITING;
+    CHECK(!ctl_run(true, 5, false), "Ember waiting on the user: none");
+    em_mood = BOT_WORKING;
+    CHECK(ctl_run(true, 2, false), "working: it comes");
+
+    ctl_reset();
+    nav = (pages_nav_t){.order = {1, 6}, .n = 2};
+    em_known = false;
+    CHECK(ctl_run(true, 5, false) && jump_pos == 1, "no bot page: Ember's mood does not hold it");
+
+    ctl_reset();
+    nav = (pages_nav_t){.order = {0, 1}, .n = 2};
+    CHECK(!ctl_run(true, 5, false) && jumps == 0, "the print page off: none");
+
+    ctl_reset();
+    ctl_hold(5);
+    CHECK(jumps == 0 && cfg_reads == 0, "held (screen off, OTA face, reset screen): none, and nav's settings are current");
+    CHECK(ctl_run(true, 2, false), "the event waited: it comes on the first frames after the hold");
+
+    for (int k = 0; k < 2; k++) {
+        ctl_reset();
+        ctl_hold(1);
+        if (k == 0) D.st.view_on = true;
+        else em_offline = true;
+        PS.b.phase = PRINT_IDLE;
+        ctl_hold(5);
+        D.st.view_on = em_offline = false;
+        PS.b.phase = PRINT_HEATING;
+        CHECK(ctl_run(true, 2, false), "%s during the hold does not cancel the held jump with its idle block", k == 0 ? "a demo view" : "offline");
+    }
+
+    ctl_reset();
+    cfg_gen = 2;
+    cfg_ks.n_pages = 2;
+    snprintf(cfg_ks.pages[0].id, sizeof cfg_ks.pages[0].id, "bot");
+    cfg_ks.pages[0].on = true;
+    snprintf(cfg_ks.pages[1].id, sizeof cfg_ks.pages[1].id, "print");
+    cfg_ks.pages[1].on = false;
+    ctl_hold(5);
+    CHECK(cfg_reads == 1, "settings newer than nav: the stored ones are read once, %d reads", cfg_reads);
+    nav_gen = cfg_gen;
+    CHECK(!ctl_run(true, 5, false) && jumps == 0, "and with the print page off there the event was spent");
+
+    ctl_reset();
+    cfg_gen = 2;
+    cfg_ks.n_pages = 2;
+    snprintf(cfg_ks.pages[0].id, sizeof cfg_ks.pages[0].id, "bot");
+    cfg_ks.pages[0].on = true;
+    snprintf(cfg_ks.pages[1].id, sizeof cfg_ks.pages[1].id, "print");
+    cfg_ks.pages[1].on = true;
+    ctl_hold(5);
+    nav_gen = cfg_gen;
+    CHECK(ctl_run(true, 2, false), "with it on there the event waits for the frames");
 }
 
 static void test_orbit_task(void)
@@ -2004,6 +2181,7 @@ int main(void)
     test_music_repeat();
     test_print_moments();
     test_print_jump();
+    test_print_jump_ctl();
     test_room_moments();
     test_orbit_task();
     if (failures) {

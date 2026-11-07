@@ -15,6 +15,10 @@
 
 static const char *TAG = "room";
 
+void room_mod_get(room_t *out) { j2_room_get(out); }
+
+uint32_t room_mod_found(void) { return j2_room_found(); }
+
 static bool room_start(const knob_settings_t *ks)
 {
     if (!ks->room_enabled) return false;
@@ -43,7 +47,7 @@ static bool room_settings(const knob_settings_t *ks) { return ks->room_enabled; 
 static void room_checkin(dev_checkin_t *c)
 {
     room_t r;
-    j2_room_get(&r);
+    room_mod_get(&r);
     c->has_room = room_report(&r, esp_timer_get_time() / 1000, &c->room);
 }
 
@@ -56,7 +60,7 @@ static void room_diag(dev_diag_t *d)
 static bool room_air(int *aqi)
 {
     room_t r;
-    j2_room_get(&r);
+    room_mod_get(&r);
     return room_air_now(&r, esp_timer_get_time() / 1000, aqi);
 }
 
