@@ -192,7 +192,12 @@ static void np_set(const char *title, np_play_t state, bool demo)
 static print_snapshot_t PS;
 static double pomo_now = 1000;
 
-void print_client_get(print_snapshot_t *out) { *out = PS; }
+bool print_client_get(print_snapshot_t *out, uint32_t *gen)
+{
+    (void)gen;
+    *out = PS;
+    return true;
+}
 double pomo_client_now(void) { return pomo_now; }
 
 static int face_pick, face_picks;

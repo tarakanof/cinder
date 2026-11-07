@@ -15,7 +15,7 @@ static int failures;
 
 static int64_t s_us = 1000000;
 static int s_unauthed;
-static int s_status = 200, s_len = 2000, s_px = 466, s_gets, s_wakes, s_live;
+static int s_status = 200, s_len = 2000, s_px = 466, s_gets, s_wakes, s_live, s_mcu_rows;
 static JRESULT s_jd = JDR_OK;
 static char s_urls[8][256];
 static const char *s_kind;
@@ -70,7 +70,8 @@ JRESULT jd_decomp(JDEC *jd, UINT (*out)(JDEC *, void *, JRECT *), BYTE scale)
     (void)scale;
     static uint8_t mcu[16 * 16 * 3];
     int ghost = strcmp(s_kind, "ghost") == 0;
-    for (int by = 0; by < 466; by += 16)
+    s_mcu_rows = 0;
+    for (int by = 0; by < 466; by += 16, s_mcu_rows++)
         for (int bx = 0; bx < 466; bx += 16) {
             JRECT r = {(WORD)bx, (WORD)(bx + 15 < 465 ? bx + 15 : 465), (WORD)by, (WORD)(by + 15 < 465 ? by + 15 : 465)};
             int w = r.right - r.left + 1, k = 0;
@@ -80,7 +81,7 @@ JRESULT jd_decomp(JDEC *jd, UINT (*out)(JDEC *, void *, JRECT *), BYTE scale)
                     mcu[k + 1] = (uint8_t)((y & 0x3F) << 2);
                     mcu[k + 2] = (uint8_t)((ghost ? 1 : 2) << 3);
                 }
-            out(jd, mcu, &r);
+            if (!out(jd, mcu, &r)) return JDR_INTR;
         }
     return JDR_OK;
 }
@@ -114,17 +115,20 @@ static void switch_job(int get)
 
 int main(void)
 {
-    print_snapshot_t snap;
+    print_snapshot_t snap = {0};
+    uint32_t gen = 0;
     print_pics_t p;
-    print_client_get(&snap);
-    CHECK(!snap.fed && !print_client_pending() && !print_client_take_pics(&p), "before init: nothing");
+    CHECK(!print_client_get(&snap, &gen) && !snap.fed && !print_client_pending() && !print_client_take_pics(&p),
+          "before init: nothing");
     print_client_init();
+    CHECK(print_client_get(&snap, &gen) && !snap.fed, "after init: the empty snapshot once");
+    CHECK(!print_client_get(&snap, &gen), "unchanged: not copied again");
 
     feed("aaaaaaaaaaaa-r1", 110);
-    print_client_get(&snap);
-    CHECK(snap.fed && snap.has && snap.b.progress == 24 && snap.have_srv && snap.srv_offset == 1782043199.0 &&
+    CHECK(print_client_get(&snap, &gen) && snap.fed && snap.has && snap.b.progress == 24 && snap.have_srv && snap.srv_offset == 1782043199.0 &&
               snap.has_utc_offset && snap.utc_offset == 3600,
           "the snapshot carries the block, Ember's clock and the zone");
+    CHECK(!print_client_get(&snap, &gen), "no view since: nothing to copy");
     CHECK(!print_client_pending(), "hidden: no picture is due");
     service_after(0);
     CHECK(s_gets == 0, "hidden: nothing fetched");
@@ -146,6 +150,7 @@ int main(void)
             crop = p.ghost[(y - 110) * PRINT_PIC_W + x] == c565(fx, y, 1) && p.solid[(y - 110) * PRINT_PIC_W + x] == c565(fx, y, 0);
         }
     CHECK(crop, "each picture is rows 110-299, columns 93-372 of its 466 px frame");
+    CHECK(s_mcu_rows == 19, "the decode stops at the first MCU row under row 300: %d of 30 rows", s_mcu_rows);
     print_pics_t q;
     CHECK(!print_client_take_pics(&q), "taken once");
     print_pics_free(&p);
@@ -216,8 +221,7 @@ int main(void)
     CHECK(s_live == 0, "the replaced pair was freed: %d", s_live);
 
     print_client_feed(NULL, false, 0);
-    print_client_get(&snap);
-    CHECK(snap.fed && !snap.has && !print_client_pending(), "no block: nothing due");
+    CHECK(print_client_get(&snap, &gen) && snap.fed && !snap.has && !print_client_pending(), "no block: nothing due");
     feed("kkkkkkkkkkkk-r1", 110);
     print_client_set_visible(false);
     CHECK(!print_client_pending(), "hidden again: nothing due");

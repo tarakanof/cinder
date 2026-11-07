@@ -30,6 +30,7 @@ static EXT_RAM_BSS_ATTR int s_mm_cue;
 static EXT_RAM_BSS_ATTR pm_trigger_t s_pm;
 static EXT_RAM_BSS_ATTR pj_t s_pj;
 static EXT_RAM_BSS_ATTR print_snapshot_t s_ps;
+static uint32_t s_ps_gen;
 static bool s_print_owns, s_print_demo;
 static bool (*s_room_air)(int *aqi);
 static EXT_RAM_BSS_ATTR rm_trigger_t s_rm;
@@ -198,7 +199,7 @@ static void moment_text(const pm_out_t *o, char *buf, size_t n)
 
 bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool blocked)
 {
-    print_client_get(&s_ps);
+    print_client_get(&s_ps, &s_ps_gen);
     pj_in_t in = {.t = t, .b = s_ps.has ? &s_ps.b : NULL, .have_srv = s_ps.have_srv,
                   .srv_now = s_ps.have_srv ? pomo_client_now() + s_ps.srv_offset : 0, .page_on = page_on, .on_page = on_page, .real_ok = real_ok,
                   .blocked = blocked};
@@ -207,7 +208,7 @@ bool moments_print_jump(double t, bool page_on, bool on_page, bool real_ok, bool
 
 __attribute__((noinline)) void moments_print_tick(double t, bool calm, bool bot_page, bool real_ok, bool scene)
 {
-    print_client_get(&s_ps);
+    print_client_get(&s_ps, &s_ps_gen);
     if (s_print_owns && !moment_view_busy()) s_print_owns = false;
     if (s_print_owns) {
         if (s_print_demo && real_ok) {

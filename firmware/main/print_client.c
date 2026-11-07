@@ -23,6 +23,7 @@ static const char *TAG = "print";
 
 typedef struct {
     print_snapshot_t snap;
+    uint32_t gen;
     bool visible;
     char want[PRINT_THUMBV_MAX + 1];
     int want_top, want_bottom;
@@ -45,6 +46,7 @@ void print_client_init(void)
 {
     taskENTER_CRITICAL(&s_lock);
     memset(&S, 0, sizeof S);
+    S.gen = 1;
     s_init = true;
     taskEXIT_CRITICAL(&s_lock);
 }
@@ -78,14 +80,21 @@ void print_client_feed(const print_block_t *b, bool has_utc_offset, int utc_offs
     s->srv_offset = srv;
     s->has_utc_offset = has_utc_offset;
     s->utc_offset = has_utc_offset ? utc_offset : 0;
+    S.gen++;
     taskEXIT_CRITICAL(&s_lock);
 }
 
-void print_client_get(print_snapshot_t *out)
+bool print_client_get(print_snapshot_t *out, uint32_t *gen)
 {
+    bool fresh = false;
     taskENTER_CRITICAL(&s_lock);
-    *out = S.snap;
+    if (S.gen != *gen) {
+        *out = S.snap;
+        *gen = S.gen;
+        fresh = true;
+    }
     taskEXIT_CRITICAL(&s_lock);
+    return fresh;
 }
 
 void print_client_set_visible(bool on)
@@ -141,6 +150,7 @@ typedef struct {
     size_t len, pos;
     uint16_t *dst;
     int top, bottom;
+    bool past;
 } jd_io_t;
 
 static UINT jd_in(JDEC *jd, BYTE *buf, UINT n)
@@ -155,16 +165,19 @@ static UINT jd_in(JDEC *jd, BYTE *buf, UINT n)
 static UINT jd_out(JDEC *jd, void *bitmap, JRECT *r)
 {
     jd_io_t *io = jd->device;
-    const uint8_t *s = bitmap;
+    if (r->top >= io->bottom) {
+        io->past = true;
+        return 0;
+    }
     int w = r->right - r->left + 1;
-    for (int y = r->top; y <= r->bottom; y++, s += 3 * w) {
-        if (y < io->top || y >= io->bottom) continue;
-        uint16_t *d = io->dst + (size_t)(y - io->top) * PRINT_PIC_W;
-        for (int x = r->left; x <= r->right; x++) {
-            if (x < PRINT_PIC_X0 || x >= PRINT_PIC_X1) continue;
-            const uint8_t *p = s + 3 * (x - r->left);
-            d[x - PRINT_PIC_X0] = (uint16_t)(((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
-        }
+    int x0 = r->left > PRINT_PIC_X0 ? r->left : PRINT_PIC_X0, x1 = r->right + 1 < PRINT_PIC_X1 ? r->right + 1 : PRINT_PIC_X1;
+    if (x0 >= x1) return 1;
+    int y0 = r->top > io->top ? r->top : io->top, y1 = r->bottom + 1 < io->bottom ? r->bottom + 1 : io->bottom;
+    const uint8_t *s = (const uint8_t *)bitmap + (size_t)3 * w * (y0 - r->top);
+    for (int y = y0; y < y1; y++, s += 3 * w) {
+        uint16_t *d = io->dst + (size_t)(y - io->top) * PRINT_PIC_W + (x0 - PRINT_PIC_X0);
+        const uint8_t *p = s + 3 * (x0 - r->left);
+        for (int x = x0; x < x1; x++, p += 3) *d++ = (uint16_t)(((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3));
     }
     return 1;
 }
@@ -183,6 +196,7 @@ static uint16_t *decode(const uint8_t *jpg, int len, int top, int bottom)
         r = JDR_PAR;
     }
     if (r == JDR_OK) r = jd_decomp(&jd, jd_out, 0);
+    if (r == JDR_INTR && io.past) r = JDR_OK;
     heap_caps_free(work);
     if (r != JDR_OK) {
         heap_caps_free(out);

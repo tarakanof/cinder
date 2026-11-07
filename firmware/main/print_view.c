@@ -49,6 +49,7 @@ enum { HERO_NONE, HERO_PRINTER, HERO_PICS };
 typedef struct {
     uint8_t glow[NP_GLOW_PX * NP_GLOW_PX];
     print_snapshot_t snap;
+    uint32_t snap_gen;
     print_block_t b;
     print_pics_t pics;
     print_faces_t faces;
@@ -575,12 +576,8 @@ void page_print_frame(const page_frame_t *f)
         M->pics = np;
         if (M->face == PRINT_FACE_K2) M->drawn = false;
     }
-    print_client_get(&M->snap);
-    const print_block_t *b = NULL;
-    if (M->snap.has) {
-        fold(&M->snap.b, &M->b);
-        b = &M->b;
-    }
+    if (print_client_get(&M->snap, &M->snap_gen) && M->snap.has) fold(&M->snap.b, &M->b);
+    const print_block_t *b = M->snap.has ? &M->b : NULL;
     if (M->pics.ghost && !pics_fit(b)) {
         print_pics_free(&M->pics);
         print_client_pics_dropped();
