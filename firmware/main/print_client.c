@@ -173,6 +173,7 @@ static UINT jd_out(JDEC *jd, void *bitmap, JRECT *r)
     int x0 = r->left > PRINT_PIC_X0 ? r->left : PRINT_PIC_X0, x1 = r->right + 1 < PRINT_PIC_X1 ? r->right + 1 : PRINT_PIC_X1;
     if (x0 >= x1) return 1;
     int y0 = r->top > io->top ? r->top : io->top, y1 = r->bottom + 1 < io->bottom ? r->bottom + 1 : io->bottom;
+    if (y0 >= y1) return 1;
     const uint8_t *s = (const uint8_t *)bitmap + (size_t)3 * w * (y0 - r->top);
     for (int y = y0; y < y1; y++, s += 3 * w) {
         uint16_t *d = io->dst + (size_t)(y - io->top) * PRINT_PIC_W + (x0 - PRINT_PIC_X0);

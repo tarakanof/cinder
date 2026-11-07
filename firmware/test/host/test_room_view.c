@@ -451,6 +451,12 @@ int main(int argc, char **argv)
     refresh();
     page_room_show(false);
     CHECK(atomic_load(&s_live) == 2, "a hide during a bake leaves the bake its ring and colours: %d", atomic_load(&s_live));
+    page_room_show(true);
+    frame(1.0 / 60);
+    refresh();
+    CHECK(atomic_load(&s_live) == 5, "a reopen during that bake takes a fresh ring, colours and marker: %d", atomic_load(&s_live));
+    page_room_show(false);
+    CHECK(atomic_load(&s_live) == 2, "and a second hide frees them, leaving the bake its own: %d", atomic_load(&s_live));
     gate(false);
     for (int i = 0; i < 2000 && atomic_load(&s_live); i++) usleep(1000);
     CHECK(atomic_load(&s_live) == 0, "the bake frees them when it ends, with the page still closed: %d left", atomic_load(&s_live));

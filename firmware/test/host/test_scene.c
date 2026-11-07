@@ -1785,6 +1785,18 @@ static void test_print_jump_ctl(void)
     CHECK(jumps == 0 && cfg_reads == 0, "held (screen off, OTA face, reset screen): none, and nav's settings are current");
     CHECK(ctl_run(true, 2, false), "the event waited: it comes on the first frames after the hold");
 
+    for (int k = 0; k < 2; k++) {
+        ctl_reset();
+        ctl_hold(1);
+        if (k == 0) D.st.view_on = true;
+        else em_offline = true;
+        PS.b.phase = PRINT_IDLE;
+        ctl_hold(5);
+        D.st.view_on = em_offline = false;
+        PS.b.phase = PRINT_HEATING;
+        CHECK(ctl_run(true, 2, false), "%s during the hold does not cancel the held jump with its idle block", k == 0 ? "a demo view" : "offline");
+    }
+
     ctl_reset();
     cfg_gen = 2;
     cfg_ks.n_pages = 2;

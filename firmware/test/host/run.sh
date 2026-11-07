@@ -1207,7 +1207,7 @@ grep -qxF '#if CONFIG_CINDER_ROOM' "$RMC" && grep -qxF '#if CONFIG_CINDER_ROOM' 
 RPC="$D/../../main/room_page.c"
 grep -qxF '#if CONFIG_CINDER_ROOM' "$RPC" && awk '/^#else$/ {e = 1} e && /^bool page_room_visible\(void\) \{ return false; \}$/ {ok = 1} END {exit !ok}' "$RPC" ||
     ROOMW="$ROOMW the-room-page-is-never-visible-without-CONFIG_CINDER_ROOM"
-! grep -lE '\bj2_[a-z_]+\(|"j2\.h"' "$D"/../../main/*.c | grep -vq '/room_mod\.c$' || ROOMW="$ROOMW the-app-reads-the-J2-sensors-only-through-room_mod"
+! grep -lE '\bj2_[a-z0-9_]+\(|"j2\.h"' "$D"/../../main/*.c | grep -vq '/room_mod\.c$' || ROOMW="$ROOMW the-app-reads-the-J2-sensors-only-through-room_mod"
 body "$MAINC" settings_frame | grep -qxF '    uint32_t visible = pages_visible();' &&
     body "$MAINC" settings_frame | grep -A4 -xF '    if (gen == s_settings_gen) {' | grep -qxF '        pages_settings(&s_nav, s_ks_lv, false);' ||
     ROOMW="$ROOMW settings_frame-reorders-the-pages-when-the-visible-mask-changes"
