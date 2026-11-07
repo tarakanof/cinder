@@ -984,7 +984,7 @@ if [ -d "$LV" ]; then
     mkdir -p "$OUT_DIR/room_cfg" && : > "$OUT_DIR/room_cfg/sdkconfig.h"
     "$CC" $CFLAGS $LVDEF -fsyntax-only -I"$OUT_DIR/room_cfg" -I"$LV" -I"$D/../../main" -I"$PG/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$C/include" -I"$J" \
         "$D/../../main/room_page.c"
-    "$CC" $CFLAGS $FPC $LVDEF -DCONFIG_CINDER_ROOM=1 -I"$OUT_DIR/room_cfg" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$RM/include" -I"$SE/include" \
+    "$CC" $CFLAGS $FPC $LVDEF -DCONFIG_CINDER_ROOM=1 -DHOST_HEAP_ALLOCED -DHOST_HEAP_FREED -I"$OUT_DIR/room_cfg" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$LV" -I"$D/../../main" -I"$RM/include" -I"$SE/include" \
         -I"$D/../../components/app_mod/include" -I"$W/include" -I"$PCV/include" -I"$PG/include" -I"$C/include" -I"$V/include" -I"$O/include" -I"$RT/include" -I"$M/include" -I"$J" \
         "$PCV/page_canvas.c" "$D/../../main/room_page.c" "$D/../../main/font_digits_96.c" "$D/../../main/font_face_36.c" "$RM/room_face.c" "$RM/room_report.c" "$SE/sens_ens160.c" \
         "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" \
@@ -1211,7 +1211,7 @@ grep -qxF '#if CONFIG_CINDER_ROOM' "$RPC" && awk '/^#else$/ {e = 1} e && /^bool 
 body "$MAINC" settings_frame | grep -qxF '    uint32_t visible = pages_visible();' &&
     body "$MAINC" settings_frame | grep -A4 -xF '    if (gen == s_settings_gen) {' | grep -qxF '        pages_settings(&s_nav, s_ks_lv, false);' ||
     ROOMW="$ROOMW settings_frame-reorders-the-pages-when-the-visible-mask-changes"
-body "$RPC" bake_task | grep -qxF '        wx_paint_ring_lut(s_ring, s_lut);' && [ "$(grep -c 'wx_paint_ring_lut(' "$RPC")" -eq 1 ] &&
+body "$RPC" bake_task | grep -qxF '        wx_paint_ring_lut(ring, lut);' && [ "$(grep -c 'wx_paint_ring_lut(' "$RPC")" -eq 1 ] &&
     ! grep -qE 'wx_paint_ring_lut\(|annulus\(' "$D/../../components/room/room_face.c" ||
     ROOMW="$ROOMW the-room-ring-bakes-on-its-task-with-the-weather-rasteriser"
 awk '/^#else$/ {e = NR} /^bool \(\*const ROOM_MOD_AIR\)\(int \*aqi\) = NULL;$/ {n = NR} /^#endif$/ {d = NR} END {exit !(e && n > e && d > n)}' "$RMC" &&
