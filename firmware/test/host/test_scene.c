@@ -194,10 +194,19 @@ static void np_set(const char *title, np_play_t state, bool demo)
 static print_snapshot_t PS;
 static double pomo_now = 1000;
 
+static print_snapshot_t ps_sent;
+static uint32_t ps_gen = 1;
+static int ps_copies;
 bool print_client_get(print_snapshot_t *out, uint32_t *gen)
 {
-    (void)gen;
+    if (memcmp(&ps_sent, &PS, sizeof PS) != 0) {
+        ps_sent = PS;
+        ps_gen++;
+    }
+    if (*gen == ps_gen) return false;
     *out = PS;
+    *gen = ps_gen;
+    ps_copies++;
     return true;
 }
 double pomo_client_now(void) { return pomo_now; }
@@ -1698,6 +1707,16 @@ static void test_print_jump(void)
     CHECK(!jump_run(true, true, 2), "the user is on the print page now");
     on_page = false;
     CHECK(!jump_run(true, false, 5), "and the wait ending brings nothing");
+
+    fresh();
+    print_set(PRINT_PRINTING, PRINT_EV_NONE, 0, 0, false);
+    moments_print_jump(T, true, false, real_ok, false);
+    int copies = ps_copies;
+    for (int i = 0; i < 10; i++, T += 0.25) {
+        moments_print_jump(T, true, false, real_ok, false);
+        moments_print_tick(T, false, true, real_ok, false);
+    }
+    CHECK(ps_copies == copies, "the jump and the print tick share one copy per new view: %d more", ps_copies - copies);
 }
 
 static void ctl_reset(void)

@@ -16,7 +16,7 @@ static int failures;
 static int64_t s_us = 1000000;
 static int s_unauthed;
 static int s_status = 200, s_len = 2000, s_px = 466, s_gets, s_wakes, s_live, s_mcu_rows;
-static JRESULT s_jd = JDR_OK;
+static JRESULT s_jd = JDR_OK, s_jd_mid = JDR_OK;
 static char s_urls[8][256];
 static const char *s_kind;
 static void (*s_during)(int get);
@@ -81,6 +81,7 @@ JRESULT jd_decomp(JDEC *jd, UINT (*out)(JDEC *, void *, JRECT *), BYTE scale)
                     mcu[k + 1] = (uint8_t)((y & 0x3F) << 2);
                     mcu[k + 2] = (uint8_t)((ghost ? 1 : 2) << 3);
                 }
+            if (by == 160 && s_jd_mid != JDR_OK) return s_jd_mid;
             if (!out(jd, mcu, &r)) return JDR_INTR;
         }
     return JDR_OK;
@@ -199,6 +200,11 @@ int main(void)
     service_after(0);
     CHECK(!print_client_take_pics(&p) && !print_client_pending(), "an undecodable JPEG backs off");
     s_jd = JDR_OK;
+    feed("gggggggggggh-r1", 110);
+    s_jd_mid = JDR_FMT1;
+    service_after(0);
+    CHECK(!print_client_take_pics(&p) && !print_client_pending(), "a JPEG that fails partway, above the picture's last row, backs off");
+    s_jd_mid = JDR_OK;
     CHECK(s_live == 0, "nothing kept after the failures: %d", s_live);
 
     feed("hhhhhhhhhhhh-r1", 110);
