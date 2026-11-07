@@ -51,6 +51,7 @@ STC="$D/../../main/stats_task.c"
 SCC="$D/../../main/scene.c"
 MOC="$D/../../main/moments.c"
 CHC="$D/../../main/chase_ctl.c"
+PJC="$D/../../main/print_jump_ctl.c"
 for ARG in true false; do
     body "$MAINC" ota_frame | grep -q "bot_view_rim_hold($ARG);" || WIRING="$WIRING ota_frame-bot_view_rim_hold($ARG)"
 done
@@ -643,7 +644,7 @@ done
 body "$MAINC" ota_frame | grep -qF 'moment_unact(now_s());' || WIRING="$WIRING ota_frame-ends-the-act"
 fbody "$MAINC" page_tick | awk '/moments_tick\(t, have_wx \? &wx : NULL, calm, bot_page\);/ {m = NR} /chase_ctl_frame\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && m < g && g < p)}' ||
     WIRING="$WIRING page_tick-runs-moments_tick-before-the-chase-and-the-pose"
-fbody "$MAINC" page_tick | awk '/^    else if \(!ds\.view_on && !scene_resuming\(\)\) moments_tick\(/ {m = NR} /^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && r == m + 1 && r < p)}' ||
+fbody "$MAINC" page_tick | awk '/^    else if \(real\) moments_tick\(/ {m = NR} /^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(m && r == m + 1 && r < p)}' ||
     WIRING="$WIRING page_tick-reads-around-a-moment-before-the-pose"
 body "$MVC" moment_view_start | grep -qF 's_retry_at = t + MV_RETRY_S;' || WIRING="$WIRING start-retries-a-failed-allocation-later"
 body "$MAINC" page_bot_frame | tail -2 | grep -qF 'moment_view_frame(t);' || WIRING="$WIRING page_bot_frame-draws-the-moment-last"
@@ -708,11 +709,11 @@ if [ -n "$WIRING" ]; then
 fi
 echo "weather moment wiring: OTA hold, ticks before the chase and the pose, bake by CAS on its task yielding a tick every ${YUS} us, one area per change, reading around a quiet moment"
 fbody "$MAINC" page_tick | awk '/^    bot_read_moment\(&s_bot, moment_view_busy\(\), t\);$/ {r = NR}
-    /^    moments_music_tick\(t, calm, offline, bot_page, !scene_on\(\) && !ds\.view_on && !scene_resuming\(\)\);$/ {m = NR}
+    /^    moments_music_tick\(t, calm, offline, bot_page, real\);$/ {m = NR}
     /chase_ctl_frame\(/ {g = NR} /f\.pose = bot_pose\(&s_bot, t\);/ {p = NR} END {exit !(r && m == r + 1 && m < g && g < p)}' ||
     WIRING="$WIRING page_tick-runs-the-music-tick-after-the-weather-moment-before-the-chase-and-the-pose"
 fbody "$MAINC" page_tick | awk '/^    moments_music_tick\(/ {m = NR} /^    if \(!scene_on\(\) \|\| scene_act_kind\(\) == DEMO_ACT_NONE\)$/ {c = NR}
-    /^        moments_print_tick\(t, calm, bot_page, !scene_on\(\) && !ds\.view_on && !scene_resuming\(\) && !offline, scene_on\(\)\);$/ {p = NR} /chase_ctl_frame\(/ {g = NR}
+    /^        moments_print_tick\(t, calm, bot_page, real && !offline, scene_on\(\)\);$/ {p = NR} /chase_ctl_frame\(/ {g = NR}
     END {exit !(m && c == m + 1 && p == c + 1 && p < g)}' ||
     WIRING="$WIRING page_tick-runs-the-print-tick-after-the-music-tick-in-an-act-less-scene-too-with-real-moments-only-outside-scenes"
 fbody "$MAINC" page_tick | awk '/^    bot_view_rim_pose\(&f\.pose, t\);$/ {s = NR} /^    f\.pose\.eye_dy -= music_view_eye_px\(t\) \/ bot_view_radius_px\(\);$/ {e = NR}
@@ -755,26 +756,16 @@ done
 [ "$(grep -c 'scene_gate(t, ' "$MAINC")" -eq 2 ] && [ "$(grep -c 'scene_gate(t, ' "$SCC")" -eq 1 ] || WIRING="$WIRING three-scene_gate-call-sites"
 fbody "$MAINC" page_tick | grep -qxF '    if (scene_gate(t, in.detents || in.pushes || in.touches || in.longs || in.wakes || in.hswipes)) in = (page_input_t){0};' ||
     WIRING="$WIRING page_tick-gates-its-input"
-fbody "$MAINC" page_tick | awk '/^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool jump_blocked = pj_blocked\(&gate\);$/ {b = NR}
-    /^    if \(moments_print_jump\(t, print_pos >= 0, print_pos >= 0 && s_nav\.pos == print_pos, jump_real, jump_blocked\)\) \{$/ {j = NR} /^    bool bot_page = / {p = NR}
-    END {exit !(d && b && j && p && d < b && b < j && j < p)}' &&
-    fbody "$MAINC" page_tick | grep -qxF '    pj_gate_t gate = {.bot_listed = pages_find(&s_nav, "bot") >= 0, .mood_known = ember_client_mood(&jump_mood),' &&
-    fbody "$MAINC" page_tick | grep -qxF '                      .waiting = jump_mood == BOT_WAITING, .usage_open = usage_view_open(), .down = input_route_held(),' &&
-    fbody "$MAINC" page_tick | grep -qxF '                      .t = t, .input_t = s_input_t};' &&
-    fbody "$MAINC" page_tick | grep -qxF '    bool jump_real = !scene_on() && !ds.view_on && !scene_resuming() && !offline;' &&
-    fbody "$MAINC" page_tick | grep -qxF '    if (held >= 0 || in.detents || in.pushes || in.longs || in.touches || in.wakes || in.hswipes) s_input_t = t;' &&
-    body "$MAINC" frame_cb | grep -qxF '    if (steps || swipes) s_input_t = t;' &&
-    fbody "$MAINC" page_tick | awk '/^    if \(moments_print_jump\(/ {j = NR} /^        page_jump\(&s_nav, print_pos, t\);$/ {p = NR} /^        pg = pages_current\(&s_nav\);$/ {g = NR} END {exit !(j && p == j + 1 && g == p + 1)}' ||
-    WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-gated-by-pj_blocked-on-Embers-mood-the-usage-screen-and-the-input"
-body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_hold();' && body "$MAINC" idle_frame | grep -qxF '        if (!off) s_input_t = now_s();' &&
-    body "$MAINC" ota_frame | grep -qxF '        print_jump_hold();' && body "$MAINC" frame_cb | awk '/^    if \(reset_frame\(t\) \|\| s_setup\) \{$/ {r = NR} /^        print_jump_hold\(\);$/ {h = NR} /^        input_route_drop\(\);$/ {d = NR} END {exit !(r && h == r + 1 && d == h + 1)}' &&
-    body "$MAINC" print_jump_hold | grep -qxF '    bool real = !scene_on() && !ds.view_on && !scene_resuming() && !ember_client_offline();' &&
-    body "$MAINC" print_jump_hold | grep -qxF '    int pos = pages_find(&s_nav, "print");' &&
-    body "$MAINC" print_jump_hold | grep -qxF '    bool listed = config_store_settings_gen() == s_settings_gen ? pos >= 0 : print_listed_in_stored_settings();' &&
-    body "$MAINC" print_jump_hold | grep -qxF '    moments_print_jump(now_s(), listed, pos >= 0 && s_nav.pos == pos, real, true);' &&
-    body "$MAINC" print_listed_in_stored_settings | grep -qxF '    config_store_settings(&s_ks_jump);' &&
-    body "$MAINC" print_listed_in_stored_settings | grep -qxF '    if (s_jump_have && gen == s_jump_gen) return s_jump_listed;' ||
-    WIRING="$WIRING print-jump-held-while-the-screen-is-off-the-OTA-face-shows-or-the-reset-screen-and-the-wake-counts-as-input"
+fbody "$MAINC" page_tick | awk '/^    if \(scene_gate\(t, in\./ {s = NR} /^    pages_dispatch\(&s_nav, in, t\);$/ {d = NR} /^    bool real = scene_real\(ds\.view_on\);$/ {r = NR}
+    /^    if \(print_jump_ctl_frame\(t, real && !offline\)\) pg = pages_current\(&s_nav\);$/ {j = NR} /^    bool bot_page = / {p = NR}
+    END {exit !(s && d == s + 1 && r == d + 1 && j == r + 1 && p == j + 1)}' &&
+    fbody "$MAINC" page_tick | grep -qxF '    if (held >= 0 || in.detents || in.pushes || in.longs || in.touches || in.wakes || in.hswipes) print_jump_ctl_input(t);' &&
+    body "$MAINC" frame_cb | grep -qxF '    if (steps || swipes) print_jump_ctl_input(t);' ||
+    WIRING="$WIRING page_tick-print-jump-after-the-input-before-bot_page-with-every-input-stamped"
+body "$MAINC" idle_frame | grep -qxF '    if (off) print_jump_ctl_hold(now_s());' && body "$MAINC" idle_frame | grep -qxF '        if (!off) print_jump_ctl_input(now_s());' &&
+    body "$MAINC" ota_frame | grep -qxF '        print_jump_ctl_hold(now_s());' && body "$MAINC" frame_cb | awk '/^    if \(reset_frame\(t\) \|\| s_setup\) \{$/ {r = NR} /^        print_jump_ctl_hold\(now_s\(\)\);$/ {h = NR} /^        input_route_drop\(\);$/ {d = NR} END {exit !(r && h == r + 1 && d == h + 1)}' &&
+    ! grep -qE '\b(pj_[a-z_]+|print_listed_in_stored_settings|print_jump_hold|moments_print_jump)\(|\bs_(jump_[a-z]+|ks_jump|input_t)\b' "$MAINC" ||
+    WIRING="$WIRING print-jump-held-while-the-screen-is-off-the-OTA-face-shows-or-the-reset-screen-the-wake-counts-as-input-and-its-state-stays-in-print_jump_ctl"
 body "$MAINC" frame_cb | awk '/^    scene_frame\(t\);$/ {f = NR} /^    if \(scene_gate\(t, steps \|\| swipes\)\) steps = swipes = 0;$/ {g = NR} /page_go\(&s_nav, steps, t\);/ {p = NR} END {exit !(f && f < g && g < p)}' ||
     WIRING="$WIRING frame_cb-gates-steps-and-swipes"
 body "$CHC" chase_ctl_pause | grep -qxF '    *saved_half = s_half;' && body "$CHC" chase_ctl_pause | tail -2 | head -1 | grep -qxF '    gc_resume(&s_chase, s_chase.work_s, s_chase.wait_s);' ||
@@ -1249,7 +1240,7 @@ WT="$D/../../components/wake_turn"
 "${OUT}_input_route"
 "$CC" $CFLAGS $FPC -I"$D/scene_stubs" -I"$D/view_stubs" -I"$D/idf_stubs" -I"$D" -I"$D/../../main" -I"$C/include" -I"$W/include" -I"$DM/include" -I"$PG/include" -I"$G/include" -I"$V/include" \
     -I"$H/include" -I"$M/include" -I"$LS/include" -I"$N/include" -I"$NP/include" -I"$O/include" -I"$RT/include" -I"$P/include" -I"$K/include" -I"$DY/include" -I"$PRT/include" -I"$U/include" -I"$SS/include" -I"$RM/include" -I"$SE/include" -I"$J" \
-    "$SCC" "$MOC" "$CHC" "$PRT/print.c" "$PRT/print_moment.c" "$PRT/print_jump.c" "$RM/room_moment.c" "$RM/room_face.c" "$RM/room_report.c" "$SE/sens_ens160.c" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
+    "$SCC" "$MOC" "$CHC" "$PJC" "$PRT/print.c" "$PRT/print_moment.c" "$PRT/print_jump.c" "$RM/room_moment.c" "$RM/room_face.c" "$RM/room_report.c" "$SE/sens_ens160.c" "$C/bot_behavior.c" "$C/bot_shape.c" "$C/glint_chase.c" "$C/orbit_table.c" "$C/music_moment.c" "$DM/demo.c" "$PG/pages.c" "$G/touch_swipe.c" "$D/page_stubs.c" \
     "$V/knob_settings.c" "$RT/knob_rotation.c" "$W/weather_face.c" "$W/wx_temp.c" "$W/wx_shift.c" "$W/wx_rain.c" "$W/wx_paint.c" "$W/wx_faces.c" "$W/wx_cast.c" "$W/wx_wind.c" "$W/wx_days.c" \
     "$W/wx_sun.c" "$W/wx_clock.c" "$W/wx_air.c" "$W/wx_moment.c" "$W/wx_moment_paint.c" "$W/wx_moment_print.c" "$W/wx_moment_poly.c" "$W/wx_moment_room.c" "$J/cJSON.c" "$D/test_scene.c" -lm -o "${OUT}_scene"
 "${OUT}_scene"

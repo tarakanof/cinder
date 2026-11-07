@@ -53,6 +53,8 @@ demo_act_kind_t scene_act_kind(void) { return s_scene_act.kind; }
 
 bool scene_resuming(void) { return s_scene_resume_at != 0; }
 
+bool scene_real(bool demo_view) { return !s_scene_on && !demo_view && s_scene_resume_at == 0; }
+
 void scene_resume_cancel(void) { s_scene_resume_at = 0; }
 
 int scene_chase_take(void)
